@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+import { demoMedia } from "@/lib/demo-media";
+import {
+  addMediaToGoogleSheets,
+  getMediaFromGoogleSheets,
+} from "@/lib/google-sheets";
+import type { MediaResponse, NewMediaLot } from "@/types/media";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const media = await getMediaFromGoogleSheets();
+    const response: MediaResponse = {
+      media,
+      source: "google-sheets",
+    };
+    return NextResponse.json(response);
+  } catch (error) {
+    const response: MediaResponse = {
+      media: demoMedia,
+      source: "demo",
+      message:
+        error instanceof Error ? error.message : "Erreur Banque médias.",
+    };
+    return NextResponse.json(response);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as NewMediaLot;
+
+    if (!body.date || !body.athlete || !body.event) {
+      return NextResponse.json(
+        { error: "Date, athlète et shooting sont obligatoires." },
+        { status: 400 }
+      );
+    }
+
+    await addMediaToGoogleSheets(body);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Impossible d’ajouter le lot média.",
+      },
+      { status: 500 }
+    );
+  }
+}
