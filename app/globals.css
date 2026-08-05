@@ -2125,3 +2125,441 @@ button { cursor: pointer; }
     flex-direction: column;
   }
 }
+/* V0.10.1 — Planning shooting */
+
+.planning-toolbar {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.planning-toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.planning-toolbar span,
+.planning-toolbar p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.planning-toolbar p {
+  margin: 0;
+}
+
+.planning-toolbar select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.planning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.planning-card {
+  padding: 19px;
+  border: 1px solid var(--border);
+  border-radius: 19px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.planning-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.planning-card-header h3 {
+  margin: 5px 0 4px;
+  font-size: 22px;
+}
+
+.planning-card-header > div > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.planning-summary {
+  margin: 16px 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+
+.planning-summary div {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.planning-summary span,
+.planning-summary strong {
+  display: block;
+}
+
+.planning-summary span {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.planning-summary strong {
+  margin-top: 5px;
+}
+
+.planning-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.planning-mini-timeline {
+  margin-top: 15px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.planning-mini-timeline div {
+  padding: 8px 5px;
+  border-radius: 9px;
+  background: #eef0f3;
+  text-align: center;
+}
+
+.planning-mini-timeline div.done {
+  background: #111;
+  color: white;
+}
+
+.planning-mini-timeline span,
+.planning-mini-timeline strong {
+  display: block;
+}
+
+.planning-mini-timeline span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.planning-mini-timeline div.done span {
+  color: #aeb1b6;
+}
+
+.planning-mini-timeline strong {
+  margin-top: 3px;
+  font-size: 9px;
+}
+
+.planning-open {
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--yellow);
+  font-weight: 900;
+}
+
+.planning-form {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.planning-detail {
+  padding: 20px;
+}
+
+.planning-detail-hero {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #111, #2e2e2e);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.planning-detail-hero h3 {
+  margin: 5px 0;
+  font-size: 25px;
+}
+
+.planning-detail-hero p:last-child {
+  margin: 0;
+  color: #c6c8cc;
+}
+
+.planning-detail-hero > div:last-child {
+  text-align: right;
+}
+
+.planning-detail-hero span,
+.planning-detail-hero strong {
+  display: block;
+}
+
+.planning-detail-hero span {
+  color: #aeb1b7;
+  font-size: 10px;
+}
+
+.planning-detail-hero strong {
+  margin-top: 4px;
+  color: var(--yellow);
+  font-size: 28px;
+}
+
+.planning-timeline {
+  position: relative;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.planning-timeline label {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: white;
+  display: grid;
+  grid-template-columns: auto 60px 1fr;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.planning-timeline label.done {
+  background: #f5f6f8;
+  opacity: .72;
+}
+
+.planning-timeline input {
+  width: 18px;
+  height: 18px;
+  accent-color: #111;
+}
+
+.planning-time {
+  font-weight: 900;
+}
+
+.planning-timeline strong,
+.planning-timeline small {
+  display: block;
+}
+
+.planning-timeline small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.planning-notes {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 13px;
+  background: #fff8d6;
+}
+
+.planning-notes span {
+  color: #766319;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.planning-notes p {
+  margin: 6px 0 0;
+}
+
+@media (max-width: 980px) {
+  .planning-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .planning-toolbar,
+  .planning-detail-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .planning-summary,
+  .planning-form {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-mini-timeline {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .planning-timeline label {
+    grid-template-columns: auto 50px 1fr;
+  }
+}
+/* V0.10.3 Sprint 1 — Shot List */
+
+.shotlist-toolbar {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: white;
+}
+
+.shotlist-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shotlist-toolbar span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.shotlist-toolbar select {
+  min-width: 320px;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.shotlist-groups {
+  display: grid;
+  gap: 16px;
+}
+
+.shotlist-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.shotlist-group > header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.shotlist-group h3 {
+  margin: 4px 0 0;
+}
+
+.shotlist-group > header > span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--yellow);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.shotlist-items {
+  display: grid;
+}
+
+.shotlist-item {
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: white;
+  color: inherit;
+  text-align: left;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 13px;
+  align-items: center;
+}
+
+.shotlist-item:last-child {
+  border-bottom: 0;
+}
+
+.shotlist-item:hover {
+  background: #fffdf2;
+}
+
+.shotlist-item.done {
+  background: #f5f6f8;
+  opacity: .72;
+}
+
+.shotlist-check {
+  width: 26px;
+  height: 26px;
+  border: 2px solid #c9ccd1;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+}
+
+.shotlist-item.done .shotlist-check {
+  border-color: #111;
+  background: #111;
+  color: var(--yellow);
+}
+
+.shotlist-item strong,
+.shotlist-item small {
+  display: block;
+}
+
+.shotlist-item small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.shotlist-item p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .shotlist-toolbar label {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .shotlist-toolbar select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shotlist-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .shotlist-item .priority {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

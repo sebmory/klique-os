@@ -4,6 +4,8 @@ import type { Athlete } from "@/types/athlete";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
+import type { NewShootingPlanning, PlanningUpdate, ShootingPlanning } from "@/types/planning";
+import type { NewShotListItem, ShotListItem, ShotListUpdate } from "@/types/shotlist";
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -388,5 +390,219 @@ export async function addCalendarEventToGoogleSheets(
         event.shootingRow ?? "",
       ]],
     },
+  });
+}
+export async function getPlanningFromGoogleSheets(): Promise<ShootingPlanning[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'18_Planning'!A3:AA300",
+  });
+
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+
+  return rows
+    .slice(1)
+    .map((row, index) => ({
+      row: index + 4,
+      id: String(row[0] ?? `plan-${index + 4}`),
+      shootingRow: numberValue(row[1]) || undefined,
+      athlete: String(row[2] ?? ""),
+      sport: String(row[3] ?? ""),
+      title: String(row[4] ?? ""),
+      date: String(row[5] ?? ""),
+      shootingTime: String(row[6] ?? ""),
+      place: String(row[7] ?? ""),
+      travelMinutes: numberValue(row[8]),
+      setupMinutes: numberValue(row[9]),
+      shootingMinutes: numberValue(row[10]),
+      selectionMinutes: numberValue(row[11]),
+      editingMinutes: numberValue(row[12]),
+      exportMinutes: numberValue(row[13]),
+      uploadMinutes: numberValue(row[14]),
+      publicationTime: String(row[15] ?? ""),
+      status: String(row[16] ?? "Planifié"),
+      notes: String(row[17] ?? ""),
+      departureDone: boolValue(row[18]),
+      arrivalDone: boolValue(row[19]),
+      setupDone: boolValue(row[20]),
+      shootingDone: boolValue(row[21]),
+      selectionDone: boolValue(row[22]),
+      editingDone: boolValue(row[23]),
+      exportDone: boolValue(row[24]),
+      uploadDone: boolValue(row[25]),
+      publicationDone: boolValue(row[26]),
+    }))
+    .filter((planning) => planning.athlete || planning.title || planning.date);
+}
+
+export async function addPlanningToGoogleSheets(
+  planning: NewShootingPlanning
+): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'18_Planning'!A:AA",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[
+        `plan-${Date.now()}`,
+        planning.shootingRow ?? "",
+        planning.athlete,
+        planning.sport,
+        planning.title,
+        planning.date,
+        planning.shootingTime,
+        planning.place,
+        planning.travelMinutes,
+        planning.setupMinutes,
+        planning.shootingMinutes,
+        planning.selectionMinutes,
+        planning.editingMinutes,
+        planning.exportMinutes,
+        planning.uploadMinutes,
+        planning.publicationTime,
+        planning.status,
+        planning.notes,
+        planning.departureDone ? "Oui" : "Non",
+        planning.arrivalDone ? "Oui" : "Non",
+        planning.setupDone ? "Oui" : "Non",
+        planning.shootingDone ? "Oui" : "Non",
+        planning.selectionDone ? "Oui" : "Non",
+        planning.editingDone ? "Oui" : "Non",
+        planning.exportDone ? "Oui" : "Non",
+        planning.uploadDone ? "Oui" : "Non",
+        planning.publicationDone ? "Oui" : "Non",
+      ]],
+    },
+  });
+}
+
+export async function updatePlanningInGoogleSheets(
+  update: PlanningUpdate
+): Promise<void> {
+  if (!update.row || update.row < 4) {
+    throw new Error("Ligne Planning invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const row = update.row;
+
+  const currentResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'18_Planning'!A${row}:AA${row}`,
+  });
+
+  const current = currentResponse.data.values?.[0] ?? [];
+  const next = Array.from({ length: 27 }, (_, index) => current[index] ?? "");
+
+  if (update.status !== undefined) next[16] = update.status;
+  if (update.notes !== undefined) next[17] = update.notes;
+  if (update.departureDone !== undefined) next[18] = update.departureDone ? "Oui" : "Non";
+  if (update.arrivalDone !== undefined) next[19] = update.arrivalDone ? "Oui" : "Non";
+  if (update.setupDone !== undefined) next[20] = update.setupDone ? "Oui" : "Non";
+  if (update.shootingDone !== undefined) next[21] = update.shootingDone ? "Oui" : "Non";
+  if (update.selectionDone !== undefined) next[22] = update.selectionDone ? "Oui" : "Non";
+  if (update.editingDone !== undefined) next[23] = update.editingDone ? "Oui" : "Non";
+  if (update.exportDone !== undefined) next[24] = update.exportDone ? "Oui" : "Non";
+  if (update.uploadDone !== undefined) next[25] = update.uploadDone ? "Oui" : "Non";
+  if (update.publicationDone !== undefined) next[26] = update.publicationDone ? "Oui" : "Non";
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'18_Planning'!A${row}:AA${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
+  });
+}
+export async function getShotListItemsFromGoogleSheets(): Promise<ShotListItem[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'19_ShotLists'!A3:L500",
+  });
+
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+
+  return rows
+    .slice(1)
+    .map((row, index) => ({
+      row: index + 4,
+      id: String(row[0] ?? `shot-${index + 4}`),
+      shootingRow: numberValue(row[1]) || undefined,
+      athlete: String(row[2] ?? ""),
+      sport: String(row[3] ?? ""),
+      shootingTitle: String(row[4] ?? ""),
+      category: String(row[5] ?? "Autre"),
+      title: String(row[6] ?? ""),
+      priority: (String(row[7] ?? "Moyenne") || "Moyenne") as ShotListItem["priority"],
+      done: boolValue(row[8]),
+      notes: String(row[9] ?? ""),
+      order: numberValue(row[10], index + 1),
+    }))
+    .filter((item) => item.title || item.athlete || item.shootingTitle);
+}
+
+export async function addShotListItemToGoogleSheets(
+  item: NewShotListItem
+): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'19_ShotLists'!A:L",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[
+        `shot-${Date.now()}`,
+        item.shootingRow ?? "",
+        item.athlete,
+        item.sport,
+        item.shootingTitle,
+        item.category,
+        item.title,
+        item.priority,
+        item.done ? "Oui" : "Non",
+        item.notes,
+        item.order,
+        "",
+      ]],
+    },
+  });
+}
+
+export async function updateShotListItemInGoogleSheets(
+  update: ShotListUpdate
+): Promise<void> {
+  if (!update.row || update.row < 4) throw new Error("Ligne Shot List invalide.");
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const row = update.row;
+
+  const currentResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'19_ShotLists'!A${row}:L${row}`,
+  });
+
+  const current = currentResponse.data.values?.[0] ?? [];
+  const next = Array.from({ length: 12 }, (_, index) => current[index] ?? "");
+
+  if (update.category !== undefined) next[5] = update.category;
+  if (update.title !== undefined) next[6] = update.title;
+  if (update.priority !== undefined) next[7] = update.priority;
+  if (update.done !== undefined) next[8] = update.done ? "Oui" : "Non";
+  if (update.notes !== undefined) next[9] = update.notes;
+  if (update.order !== undefined) next[10] = update.order;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'19_ShotLists'!A${row}:L${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
   });
 }

@@ -1,0 +1,33 @@
+import type { ShootingPlanning } from "@/types/planning";
+
+export const demoPlanning: ShootingPlanning[] = [
+  {
+    id: "plan-demo-1",
+    shootingRow: 4,
+    athlete: "Loan Cueto",
+    sport: "Tennis",
+    title: "Portrait Premium",
+    date: "2026-08-08",
+    shootingTime: "14:00",
+    place: "Fribourg",
+    travelMinutes: 30,
+    setupMinutes: 20,
+    shootingMinutes: 75,
+    selectionMinutes: 45,
+    editingMinutes: 90,
+    exportMinutes: 20,
+    uploadMinutes: 25,
+    publicationTime: "19:00",
+    status: "Planifié",
+    notes: "Prévoir des formats verticaux.",
+    departureDone: false,
+    arrivalDone: false,
+    setupDone: false,
+    shootingDone: false,
+    selectionDone: false,
+    editingDone: false,
+    exportDone: false,
+    uploadDone: false,
+    publicationDone: false,
+  },
+];
