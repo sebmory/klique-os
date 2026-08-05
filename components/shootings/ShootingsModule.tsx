@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Athlete } from "@/types/athlete";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import { ShootingService } from "@/services/shooting.service";
@@ -111,6 +111,8 @@ export function ShootingsModule({
   message,
   onRefresh,
   onOpenAthlete,
+  openShootingRow,
+  onOpenShootingRow,
 }: {
   athletes: Athlete[];
   shootings: Shooting[];
@@ -118,6 +120,8 @@ export function ShootingsModule({
   message: string;
   onRefresh: () => Promise<void>;
   onOpenAthlete?: (athlete: Athlete) => void;
+  openShootingRow?: number | null;
+  onOpenShootingRow?: (row: number | null) => void;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("Tous");
@@ -126,6 +130,15 @@ export function ShootingsModule({
   const [form, setForm] = useState<NewShooting>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    if (openShootingRow == null) return;
+    const shootingToOpen = shootings.find((item) => item.row === openShootingRow);
+    if (shootingToOpen) {
+      setSelected({ ...shootingToOpen });
+    }
+    onOpenShootingRow?.(null);
+  }, [openShootingRow, onOpenShootingRow, shootings]);
 
   const shootingStatus = (shooting: Shooting) =>
     ShootingService.statusFromChecklist(shooting);

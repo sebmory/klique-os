@@ -99,8 +99,84 @@ export const ShootingService = {
     return `${day}.${month}.${year}`;
   },
 
-  isComplete(shooting: Shooting): boolean {
-    return shooting.published || ShootingService.progress(shooting) === 100;
+  dashboardMetrics(shootings: Shooting[]) {
+    const totalPhotos = shootings.reduce((sum, shooting) => sum + shooting.photos, 0);
+    const totalVideos = shootings.reduce((sum, shooting) => sum + shooting.videos, 0);
+    const planified = shootings.filter(
+      (shooting) => ShootingService.statusFromChecklist(shooting) === "Planifié"
+    ).length;
+    const inProgress = shootings.filter(
+      (shooting) => ShootingService.statusFromChecklist(shooting) === "En cours"
+    ).length;
+    const completed = shootings.filter(
+      (shooting) => ShootingService.statusFromChecklist(shooting) === "Terminé"
+    ).length;
+    const toDeliver = shootings.filter(
+      (shooting) => shooting.shootingDone && !shooting.driveDone
+    ).length;
+    const notPublished = shootings.filter(
+      (shooting) =>
+        shooting.shootingDone &&
+        !shooting.publishedInstagram &&
+        !shooting.publishedFacebook &&
+        !shooting.publishedLinkedIn
+    ).length;
+
+    return {
+      total: shootings.length,
+      planified,
+      inProgress,
+      completed,
+      toDeliver,
+      notPublished,
+      totalPhotos,
+      totalVideos,
+    };
+  },
+
+  athleteMetrics(shootings: Shooting[], athleteName: string) {
+    const athleteShootings = shootings.filter(
+      (shooting) => shooting.athlete === athleteName
+    );
+
+    const validDates = athleteShootings
+      .map((shooting) => shooting.date.trim())
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date) && date !== "1899-12-30")
+      .map((date) => new Date(`${date}T00:00:00Z`))
+      .filter((date) => !Number.isNaN(date.getTime()));
+
+    const lastDate = validDates.length
+      ? validDates.reduce((a, b) => (a > b ? a : b))
+      : null;
+
+    const totalPhotos = athleteShootings.reduce((sum, shooting) => sum + shooting.photos, 0);
+    const totalVideos = athleteShootings.reduce((sum, shooting) => sum + shooting.videos, 0);
+    const completed = athleteShootings.filter(ShootingService.isComplete).length;
+    const toProcess = athleteShootings.filter(
+      (shooting) => shooting.shootingDone && !ShootingService.isComplete(shooting)
+    ).length;
+    const delivered = athleteShootings.filter(
+      (shooting) => shooting.shootingDone && shooting.driveDone
+    ).length;
+    const published = athleteShootings.filter(
+      (shooting) =>
+        shooting.shootingDone &&
+        (shooting.publishedInstagram || shooting.publishedFacebook || shooting.publishedLinkedIn)
+    ).length;
+
+    return {
+      totalShootings: athleteShootings.length,
+      totalPhotos,
+      totalVideos,
+      completed,
+      toProcess,
+      delivered,
+      published,
+      lastActivity: lastDate
+        ? ShootingService.formatDate(lastDate.toISOString().slice(0, 10))
+        : "—",
+      shootings: athleteShootings,
+    };
   },
 
   progress(shooting: Shooting): number {
