@@ -1,0 +1,36 @@
+import type { Partner } from "@/types/partner";
+
+export const demoPartners: Partner[] = [
+  {
+    id: "partner-demo-1",
+    name: "Coach Mental KLIQUE",
+    category: "Mental",
+    expertKlique: true,
+    contact: "Contact principal",
+    email: "contact@example.com",
+    phone: "",
+    website: "",
+    instagram: "@coachmental",
+    description: "Accompagnement mental des athlètes.",
+    benefits: "Avantage membre à définir.",
+    notes: "",
+    status: "Actif",
+    athletes: "",
+  },
+  {
+    id: "partner-demo-2",
+    name: "Massage Sportif",
+    category: "Récupération",
+    expertKlique: true,
+    contact: "Contact principal",
+    email: "massage@example.com",
+    phone: "",
+    website: "",
+    instagram: "@massage",
+    description: "Massage et récupération sportive.",
+    benefits: "Réduction réservée aux membres KLIQUE.",
+    notes: "",
+    status: "Actif",
+    athletes: "",
+  },
+];

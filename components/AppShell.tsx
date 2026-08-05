@@ -15,6 +15,8 @@ import { ShootingPlanningModule } from "@/components/planning/ShootingPlanningMo
 import type { PlanningResponse, ShootingPlanning } from "@/types/planning";
 import { ShotListModule } from "@/components/shotlists/ShotListModule";
 import type { ShotListItem, ShotListResponse } from "@/types/shotlist";
+import { PartnersModule } from "@/components/partners/PartnersModule";
+import type { Partner, PartnerResponse } from "@/types/partner";
 import { ShootingsModule } from "@/components/shootings/ShootingsModule";
 
 const navigation = [
@@ -26,6 +28,7 @@ const navigation = [
   "Calendrier",
   "Planning shooting",
   "Shot List",
+  "Partenaires",
   "Centre média IA",
   "Paramètres",
 ];
@@ -72,6 +75,7 @@ export function AppShell() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [shootingPlanning, setShootingPlanning] = useState<ShootingPlanning[]>([]);
   const [shotListItems, setShotListItems] = useState<ShotListItem[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [dataSource, setDataSource] =
     useState<"google-sheets" | "demo">("demo");
   const [shootingSource, setShootingSource] =
@@ -84,6 +88,8 @@ export function AppShell() {
     useState<"google-sheets" | "demo">("demo");
   const [shotListSource, setShotListSource] =
     useState<"google-sheets" | "demo">("demo");
+  const [partnerSource, setPartnerSource] =
+    useState<"google-sheets" | "demo">("demo");
   const [dataMessage, setDataMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
@@ -91,13 +97,14 @@ export function AppShell() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [athletesResponse, shootingsResponse, mediaResponse, calendarResponse, planningResponse, shotListResponse] = await Promise.all([
+      const [athletesResponse, shootingsResponse, mediaResponse, calendarResponse, planningResponse, shotListResponse, partnerResponse] = await Promise.all([
         fetch("/api/athletes", { cache: "no-store" }),
         fetch("/api/shootings", { cache: "no-store" }),
         fetch("/api/media", { cache: "no-store" }),
         fetch("/api/calendar", { cache: "no-store" }),
         fetch("/api/planning", { cache: "no-store" }),
         fetch("/api/shotlists", { cache: "no-store" }),
+        fetch("/api/partners", { cache: "no-store" }),
       ]);
 
       const athleteData = (await athletesResponse.json()) as AthletesResponse;
@@ -107,6 +114,7 @@ export function AppShell() {
       const calendarData = (await calendarResponse.json()) as CalendarResponse;
       const planningData = (await planningResponse.json()) as PlanningResponse;
       const shotListData = (await shotListResponse.json()) as ShotListResponse;
+      const partnerData = (await partnerResponse.json()) as PartnerResponse;
 
       setAthletes(athleteData.athletes);
       setShootings(shootingData.shootings);
@@ -114,14 +122,16 @@ export function AppShell() {
       setCalendarEvents(calendarData.events);
       setShootingPlanning(planningData.planning);
       setShotListItems(shotListData.items);
+      setPartners(partnerData.partners);
       setDataSource(athleteData.source);
       setShootingSource(shootingData.source);
       setMediaSource(mediaData.source);
       setCalendarSource(calendarData.source);
       setPlanningSource(planningData.source);
       setShotListSource(shotListData.source);
+      setPartnerSource(partnerData.source);
       setDataMessage(
-        [athleteData.message, shootingData.message, mediaData.message, calendarData.message, planningData.message, shotListData.message].filter(Boolean).join(" · ")
+        [athleteData.message, shootingData.message, mediaData.message, calendarData.message, planningData.message, shotListData.message, partnerData.message].filter(Boolean).join(" · ")
       );
     } finally {
       setLoading(false);
@@ -239,7 +249,8 @@ export function AppShell() {
                 mediaSource === "google-sheets" &&
                 calendarSource === "google-sheets" &&
                 planningSource === "google-sheets" &&
-                shotListSource === "google-sheets"
+                shotListSource === "google-sheets" &&
+                partnerSource === "google-sheets"
                   ? "data-source connected"
                   : "data-source demo"
               }
@@ -250,7 +261,8 @@ export function AppShell() {
               mediaSource === "google-sheets" &&
               calendarSource === "google-sheets" &&
               planningSource === "google-sheets" &&
-              shotListSource === "google-sheets"
+              shotListSource === "google-sheets" &&
+              partnerSource === "google-sheets"
                 ? "● Google Sheets"
                 : "● Connexion partielle"}
             </span>
@@ -311,6 +323,14 @@ export function AppShell() {
               shootings={shootings}
               items={shotListItems}
               source={shotListSource}
+              message={dataMessage}
+              onRefresh={loadData}
+            />
+          ) : activePage === "Partenaires" ? (
+            <PartnersModule
+              athletes={athletes}
+              partners={partners}
+              source={partnerSource}
               message={dataMessage}
               onRefresh={loadData}
             />

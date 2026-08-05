@@ -6,6 +6,7 @@ import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
 import type { NewShootingPlanning, PlanningUpdate, ShootingPlanning } from "@/types/planning";
 import type { NewShotListItem, ShotListItem, ShotListUpdate } from "@/types/shotlist";
+import type { NewPartner, Partner, PartnerUpdate } from "@/types/partner";
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -604,5 +605,148 @@ export async function updateShotListItemInGoogleSheets(
     range: `'19_ShotLists'!A${row}:L${row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
+  });
+}
+export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'20_Partenaires'!A3:N300",
+  });
+
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+
+  return rows
+    .slice(1)
+    .map((row, index) => ({
+      row: index + 4,
+      id: String(row[0] ?? `partner-${index + 4}`),
+      name: String(row[1] ?? ""),
+      category: String(row[2] ?? "Autre"),
+      expertKlique: boolValue(row[3]),
+      contact: String(row[4] ?? ""),
+      email: String(row[5] ?? ""),
+      phone: String(row[6] ?? ""),
+      website: String(row[7] ?? ""),
+      instagram: String(row[8] ?? ""),
+      description: String(row[9] ?? ""),
+      benefits: String(row[10] ?? ""),
+      notes: String(row[11] ?? ""),
+      status: (String(row[12] ?? "Actif") || "Actif") as Partner["status"],
+      athletes: String(row[13] ?? ""),
+    }))
+    .filter((partner) => partner.name);
+}
+
+export async function addPartnerToGoogleSheets(
+  partner: NewPartner
+): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'20_Partenaires'!A:N",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[
+        `partner-${Date.now()}`,
+        partner.name,
+        partner.category,
+        partner.expertKlique ? "Oui" : "Non",
+        partner.contact,
+        partner.email,
+        partner.phone,
+        partner.website,
+        partner.instagram,
+        partner.description,
+        partner.benefits,
+        partner.notes,
+        partner.status,
+        partner.athletes,
+      ]],
+    },
+  });
+}
+
+export async function updatePartnerInGoogleSheets(
+  update: PartnerUpdate
+): Promise<void> {
+  if (!update.row || update.row < 4) {
+    throw new Error("Ligne partenaire invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const row = update.row;
+
+  const currentResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'20_Partenaires'!A${row}:N${row}`,
+  });
+
+  const current = currentResponse.data.values?.[0] ?? [];
+  const next = Array.from({ length: 14 }, (_, index) => current[index] ?? "");
+
+  if (update.name !== undefined) next[1] = update.name;
+  if (update.category !== undefined) next[2] = update.category;
+  if (update.expertKlique !== undefined) next[3] = update.expertKlique ? "Oui" : "Non";
+  if (update.contact !== undefined) next[4] = update.contact;
+  if (update.email !== undefined) next[5] = update.email;
+  if (update.phone !== undefined) next[6] = update.phone;
+  if (update.website !== undefined) next[7] = update.website;
+  if (update.instagram !== undefined) next[8] = update.instagram;
+  if (update.description !== undefined) next[9] = update.description;
+  if (update.benefits !== undefined) next[10] = update.benefits;
+  if (update.notes !== undefined) next[11] = update.notes;
+  if (update.status !== undefined) next[12] = update.status;
+  if (update.athletes !== undefined) next[13] = update.athletes;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'20_Partenaires'!A${row}:N${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
+  });
+}
+
+export async function deletePartnerFromGoogleSheets(
+  row: number
+): Promise<void> {
+  if (!row || row < 4) {
+    throw new Error("Ligne partenaire invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: getSpreadsheetId(),
+    fields: "sheets.properties",
+  });
+
+  const sheet = metadata.data.sheets?.find(
+    (item) => item.properties?.title === "20_Partenaires"
+  );
+
+  const sheetId = sheet?.properties?.sheetId;
+  if (sheetId === undefined) {
+    throw new Error("Onglet 20_Partenaires introuvable.");
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: getSpreadsheetId(),
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: row - 1,
+              endIndex: row,
+            },
+          },
+        },
+      ],
+    },
   });
 }
