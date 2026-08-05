@@ -8,6 +8,7 @@ import type {
   ShootingsResponse,
 } from "@/types/shooting";
 import type { MediaLot, MediaResponse, NewMediaLot } from "@/types/media";
+import { ShootingsModule } from "@/components/shootings/ShootingsModule";
 
 const navigation = [
   "Dashboard",
@@ -236,12 +237,12 @@ export function AppShell() {
           ) : activePage === "Athlètes" ? (
             <AthletesPage athletes={athletes} onSelect={setSelectedAthlete} />
           ) : activePage === "Shootings" ? (
-            <ShootingsPage
+            <ShootingsModule
               athletes={athletes}
               shootings={shootings}
               source={shootingSource}
               message={dataMessage}
-              onCreated={loadData}
+              onRefresh={loadData}
             />
           ) : activePage === "Workflow" ? (
             <WorkflowPage workflow={workflow} />

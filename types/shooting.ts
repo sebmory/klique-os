@@ -29,3 +29,20 @@ export type NewShooting = Pick<
   Shooting,
   "date" | "athlete" | "sport" | "type" | "place" | "objective" | "photographer"
 >;
+
+export type ShootingUpdate = Pick<Shooting, "row"> &
+  Partial<
+    Pick<
+      Shooting,
+      | "status"
+      | "photos"
+      | "videos"
+      | "importDone"
+      | "sortDone"
+      | "retouchDone"
+      | "exportDone"
+      | "driveDone"
+      | "published"
+      | "notes"
+    >
+  >;

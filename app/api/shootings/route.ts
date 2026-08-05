@@ -3,10 +3,12 @@ import { demoShootings } from "@/lib/demo-shootings";
 import {
   addShootingToGoogleSheets,
   getShootingsFromGoogleSheets,
+  updateShootingInGoogleSheets,
 } from "@/lib/google-sheets";
 import type {
   NewShooting,
   ShootingsResponse,
+  ShootingUpdate,
 } from "@/types/shooting";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,31 @@ export async function POST(request: NextRequest) {
           error instanceof Error
             ? error.message
             : "Impossible de créer le shooting.",
+      },
+      { status: 500 }
+    );
+  }
+}
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json()) as ShootingUpdate;
+
+    if (!body.row) {
+      return NextResponse.json(
+        { error: "La ligne du shooting est obligatoire." },
+        { status: 400 }
+      );
+    }
+
+    await updateShootingInGoogleSheets(body);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Impossible de mettre à jour le shooting.",
       },
       { status: 500 }
     );

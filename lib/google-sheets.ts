@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import path from "path";
 import type { Athlete } from "@/types/athlete";
-import type { NewShooting, Shooting } from "@/types/shooting";
+import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 
 const normalize = (value: unknown) =>
@@ -295,5 +295,41 @@ export async function addMediaToGoogleSheets(
         media.notes,
       ]],
     },
+  });
+}
+export async function updateShootingInGoogleSheets(
+  update: ShootingUpdate
+): Promise<void> {
+  if (!update.row || update.row < 4) {
+    throw new Error("Ligne Google Sheets invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const row = update.row;
+
+  const currentResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'16_Shootings'!A${row}:R${row}`,
+  });
+
+  const current = currentResponse.data.values?.[0] ?? [];
+  const next = Array.from({ length: 18 }, (_, index) => current[index] ?? "");
+
+  if (update.status !== undefined) next[8] = update.status;
+  if (update.photos !== undefined) next[9] = update.photos;
+  if (update.videos !== undefined) next[10] = update.videos;
+  if (update.importDone !== undefined) next[11] = update.importDone ? "Oui" : "Non";
+  if (update.sortDone !== undefined) next[12] = update.sortDone ? "Oui" : "Non";
+  if (update.retouchDone !== undefined) next[13] = update.retouchDone ? "Oui" : "Non";
+  if (update.exportDone !== undefined) next[14] = update.exportDone ? "Oui" : "Non";
+  if (update.driveDone !== undefined) next[15] = update.driveDone ? "Oui" : "Non";
+  if (update.published !== undefined) next[16] = update.published ? "Oui" : "Non";
+  if (update.notes !== undefined) next[17] = update.notes;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'16_Shootings'!A${row}:R${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
   });
 }
