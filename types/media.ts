@@ -35,3 +35,10 @@ export type MediaResponse = {
   source: "google-sheets" | "demo";
   message?: string;
 };
+
+export type MediaFilter = {
+  search: string;
+  sport: string;
+  orientation: "Tous" | "Vertical" | "Horizontal" | "Carré" | "Vidéo";
+  quality: "Tous" | "Premium" | "À renouveler" | "Disponible";
+};

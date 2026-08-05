@@ -3,6 +3,7 @@ import path from "path";
 import type { Athlete } from "@/types/athlete";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
+import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
 
 const normalize = (value: unknown) =>
   String(value ?? "")
@@ -331,5 +332,61 @@ export async function updateShootingInGoogleSheets(
     range: `'16_Shootings'!A${row}:R${row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
+  });
+}
+export async function getCalendarEventsFromGoogleSheets(): Promise<CalendarEvent[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'17_Calendrier'!A3:K300",
+  });
+
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+
+  return rows
+    .slice(1)
+    .map((row, index) => ({
+      id: String(row[0] ?? `calendar-${index + 4}`),
+      source: (String(row[1] ?? "task") || "task") as CalendarEvent["source"],
+      title: String(row[2] ?? ""),
+      athlete: String(row[3] ?? ""),
+      date: String(row[4] ?? ""),
+      time: String(row[5] ?? ""),
+      place: String(row[6] ?? ""),
+      status: String(row[7] ?? "Planifié"),
+      priority: (String(row[8] ?? "Moyenne") || "Moyenne") as CalendarEvent["priority"],
+      notes: String(row[9] ?? ""),
+      shootingRow: numberValue(row[10]) || undefined,
+    }))
+    .filter((event) => event.title || event.date);
+}
+
+export async function addCalendarEventToGoogleSheets(
+  event: NewCalendarEvent
+): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const id = `evt-${Date.now()}`;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'17_Calendrier'!A:K",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[
+        id,
+        event.source,
+        event.title,
+        event.athlete,
+        event.date,
+        event.time,
+        event.place,
+        event.status,
+        event.priority,
+        event.notes,
+        event.shootingRow ?? "",
+      ]],
+    },
   });
 }

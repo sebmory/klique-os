@@ -8,6 +8,9 @@ import type {
   ShootingsResponse,
 } from "@/types/shooting";
 import type { MediaLot, MediaResponse, NewMediaLot } from "@/types/media";
+import { MediaCenterModule } from "@/components/media/MediaCenterModule";
+import { CalendarModule } from "@/components/calendar/CalendarModule";
+import type { CalendarEvent, CalendarResponse } from "@/types/calendar";
 import { ShootingsModule } from "@/components/shootings/ShootingsModule";
 
 const navigation = [
@@ -60,11 +63,14 @@ export function AppShell() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [shootings, setShootings] = useState<Shooting[]>([]);
   const [media, setMedia] = useState<MediaLot[]>([]);
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [dataSource, setDataSource] =
     useState<"google-sheets" | "demo">("demo");
   const [shootingSource, setShootingSource] =
     useState<"google-sheets" | "demo">("demo");
   const [mediaSource, setMediaSource] =
+    useState<"google-sheets" | "demo">("demo");
+  const [calendarSource, setCalendarSource] =
     useState<"google-sheets" | "demo">("demo");
   const [dataMessage, setDataMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -73,25 +79,29 @@ export function AppShell() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [athletesResponse, shootingsResponse, mediaResponse] = await Promise.all([
+      const [athletesResponse, shootingsResponse, mediaResponse, calendarResponse] = await Promise.all([
         fetch("/api/athletes", { cache: "no-store" }),
         fetch("/api/shootings", { cache: "no-store" }),
         fetch("/api/media", { cache: "no-store" }),
+        fetch("/api/calendar", { cache: "no-store" }),
       ]);
 
       const athleteData = (await athletesResponse.json()) as AthletesResponse;
       const shootingData =
         (await shootingsResponse.json()) as ShootingsResponse;
       const mediaData = (await mediaResponse.json()) as MediaResponse;
+      const calendarData = (await calendarResponse.json()) as CalendarResponse;
 
       setAthletes(athleteData.athletes);
       setShootings(shootingData.shootings);
       setMedia(mediaData.media);
+      setCalendarEvents(calendarData.events);
       setDataSource(athleteData.source);
       setShootingSource(shootingData.source);
       setMediaSource(mediaData.source);
+      setCalendarSource(calendarData.source);
       setDataMessage(
-        [athleteData.message, shootingData.message, mediaData.message].filter(Boolean).join(" · ")
+        [athleteData.message, shootingData.message, mediaData.message, calendarData.message].filter(Boolean).join(" · ")
       );
     } finally {
       setLoading(false);
@@ -206,7 +216,8 @@ export function AppShell() {
               className={
                 dataSource === "google-sheets" &&
                 shootingSource === "google-sheets" &&
-                mediaSource === "google-sheets"
+                mediaSource === "google-sheets" &&
+                calendarSource === "google-sheets"
                   ? "data-source connected"
                   : "data-source demo"
               }
@@ -214,7 +225,8 @@ export function AppShell() {
             >
               {dataSource === "google-sheets" &&
               shootingSource === "google-sheets" &&
-              mediaSource === "google-sheets"
+              mediaSource === "google-sheets" &&
+              calendarSource === "google-sheets"
                 ? "● Google Sheets"
                 : "● Connexion partielle"}
             </span>
@@ -247,12 +259,20 @@ export function AppShell() {
           ) : activePage === "Workflow" ? (
             <WorkflowPage workflow={workflow} />
           ) : activePage === "Banque médias" ? (
-            <MediaLibraryPage
+            <MediaCenterModule
               athletes={athletes}
               media={media}
               source={mediaSource}
               message={dataMessage}
-              onCreated={loadData}
+              onRefresh={loadData}
+            />
+          ) : activePage === "Calendrier" ? (
+            <CalendarModule
+              athletes={athletes}
+              events={calendarEvents}
+              source={calendarSource}
+              message={dataMessage}
+              onRefresh={loadData}
             />
           ) : (
             <section className="empty-page">
