@@ -2895,3 +2895,203 @@ button { cursor: pointer; }
   .athlete-selector-list,
   .athlete-expert-list { grid-template-columns: 1fr; }
 }
+/* V0.11.3 — Profil Expert */
+
+.expert-profile-hero {
+  align-items: stretch;
+}
+
+.expert-profile-identity {
+  flex: 1;
+}
+
+.expert-profile-identity > p:last-of-type {
+  max-width: 560px;
+  margin: 0 0 12px;
+  color: #c7c9ce;
+  line-height: 1.5;
+}
+
+.expert-profile-score {
+  min-width: 150px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.08);
+  align-self: center;
+}
+
+.expert-profile-score span,
+.expert-profile-score strong {
+  display: block;
+}
+
+.expert-profile-score span {
+  color: #b9bcc2;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.expert-profile-score strong {
+  margin: 5px 0 9px;
+  color: var(--yellow);
+  font-size: 26px;
+}
+
+.expert-profile-score > div {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.14);
+}
+
+.expert-profile-score i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--yellow);
+}
+
+.expert-action-bar {
+  margin-bottom: 15px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.expert-action-bar a,
+.expert-action-bar button {
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.expert-action-bar a:hover,
+.expert-action-bar button:hover {
+  background: #fff3b6;
+}
+
+.expert-profile-layout {
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr);
+  gap: 12px;
+}
+
+.expert-profile-main {
+  display: grid;
+  gap: 10px;
+}
+
+.expert-section-card,
+.expert-athletes-card {
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+}
+
+.expert-section-card > span,
+.expert-athletes-card header span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+
+.expert-section-card p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.expert-athletes-card header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.expert-athletes-card header > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.expert-athletes-card header strong {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--yellow);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.expert-athlete-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.expert-athlete-list > div {
+  padding: 9px;
+  border-radius: 11px;
+  background: var(--background);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: center;
+}
+
+.expert-athlete-list > div > b {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #111;
+  color: var(--yellow);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+}
+
+.expert-athlete-list span strong,
+.expert-athlete-list span small {
+  display: block;
+}
+
+.expert-athlete-list span small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.expert-athlete-list > p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .expert-profile-hero,
+  .expert-profile-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .expert-profile-score {
+    width: 100%;
+  }
+
+  .expert-action-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

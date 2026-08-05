@@ -189,6 +189,50 @@ export function PartnersModule({
   const initials = (name: string) =>
     name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
 
+  const profileScore = (partner: Partner) => {
+    const fields = [
+      partner.name,
+      partner.category,
+      partner.contact,
+      partner.email,
+      partner.phone,
+      partner.website,
+      partner.instagram,
+      partner.description,
+      partner.benefits,
+    ];
+    return Math.round((fields.filter((value) => String(value).trim()).length / fields.length) * 100);
+  };
+
+  const normalizeWebsite = (value: string) => {
+    if (!value) return "";
+    return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  };
+
+  const normalizeInstagram = (value: string) => {
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value)) return value;
+    return `https://www.instagram.com/${value.replace(/^@/, "")}`;
+  };
+
+  const copyContact = async (partner: Partner) => {
+    const lines = [
+      partner.name,
+      partner.contact && `Contact : ${partner.contact}`,
+      partner.email && `E-mail : ${partner.email}`,
+      partner.phone && `Téléphone : ${partner.phone}`,
+      partner.website && `Site : ${partner.website}`,
+      partner.instagram && `Instagram : ${partner.instagram}`,
+    ].filter(Boolean);
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setFeedback("Coordonnées copiées.");
+    } catch {
+      setFeedback("Impossible de copier automatiquement les coordonnées.");
+    }
+  };
+
   const openEditing = (partner: Partner) => {
     const normalizedAthletes = PartnerService.encodeAthleteKeys(
       PartnerService.athleteKeys(partner, athletes)
@@ -201,9 +245,9 @@ export function PartnersModule({
     <>
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Réseau KLIQUE · V0.11.2</p>
+          <p className="eyebrow">Réseau KLIQUE · V0.11.3</p>
           <h2>Partenaires</h2>
-          <p>Les experts sont maintenant liés directement aux athlètes.</p>
+          <p>Des profils experts plus complets, lisibles et directement exploitables.</p>
         </div>
         <button className="primary-button" onClick={() => setShowCreate(true)}>
           + Nouveau partenaire
@@ -282,37 +326,83 @@ export function PartnersModule({
 
       {selected && (
         <Modal title={selected.name} onClose={() => setSelected(null)}>
-          <div className="partner-detail">
-            <section className="partner-detail-hero">
+          <div className="partner-detail expert-profile">
+            <section className="partner-detail-hero expert-profile-hero">
               <div className="partner-avatar large">{initials(selected.name)}</div>
-              <div>
+              <div className="expert-profile-identity">
                 <p className="eyebrow">{selected.category}</p>
                 <h3>{selected.name}</h3>
+                <p>{selected.description || "Présentation à compléter."}</p>
                 <div className="partner-detail-badges">
                   {selected.expertKlique && <span className="expert-badge">Expert KLIQUE</span>}
                   <span className={selected.status === "Actif" ? "status-badge" : "status-badge inactive"}>{selected.status}</span>
                 </div>
               </div>
+              <div className="expert-profile-score">
+                <span>Profil complété</span>
+                <strong>{profileScore(selected)}%</strong>
+                <div><i style={{ width: `${profileScore(selected)}%` }} /></div>
+              </div>
             </section>
-            <section className="partner-detail-grid">
-              <div><span>Contact</span><strong>{selected.contact || "À compléter"}</strong></div>
+
+            <section className="expert-action-bar">
+              {selected.email && <a href={`mailto:${selected.email}`}>Envoyer un e-mail</a>}
+              {selected.phone && <a href={`tel:${selected.phone}`}>Appeler</a>}
+              {selected.website && <a href={normalizeWebsite(selected.website)} target="_blank" rel="noreferrer">Site web ↗</a>}
+              {selected.instagram && <a href={normalizeInstagram(selected.instagram)} target="_blank" rel="noreferrer">Instagram ↗</a>}
+              <button onClick={() => copyContact(selected)}>Copier les coordonnées</button>
+            </section>
+
+            <section className="partner-detail-grid expert-contact-grid">
+              <div><span>Personne de contact</span><strong>{selected.contact || "À compléter"}</strong></div>
               <div><span>E-mail</span><strong>{selected.email || "À compléter"}</strong></div>
               <div><span>Téléphone</span><strong>{selected.phone || "À compléter"}</strong></div>
-              <div><span>Instagram</span><strong>{selected.instagram || "À compléter"}</strong></div>
+              <div><span>Site web</span><strong>{selected.website || "À compléter"}</strong></div>
             </section>
-            <section className="partner-detail-content">
-              <div><span>Description</span><p>{selected.description || "Aucune description."}</p></div>
-              <div><span>Avantages</span><p>{selected.benefits || "Aucun avantage renseigné."}</p></div>
-              <div>
-                <span>Athlètes suivis</span>
-                <div className="linked-athlete-chips">
-                  {PartnerService.athleteNames(selected, athletes).length
-                    ? PartnerService.athleteNames(selected, athletes).map((name) => <b key={name}>{name}</b>)
-                    : <p>Aucun athlète lié.</p>}
-                </div>
+
+            <section className="expert-profile-layout">
+              <div className="expert-profile-main">
+                <article className="expert-section-card">
+                  <span>Avantages pour les membres KLIQUE</span>
+                  <p>{selected.benefits || "Aucun avantage renseigné."}</p>
+                </article>
+
+                <article className="expert-section-card">
+                  <span>Notes internes</span>
+                  <p>{selected.notes || "Aucune note."}</p>
+                </article>
               </div>
-              <div><span>Notes</span><p>{selected.notes || "Aucune note."}</p></div>
+
+              <aside className="expert-athletes-card">
+                <header>
+                  <div>
+                    <span>Athlètes accompagnés</span>
+                    <strong>{PartnerService.athleteKeys(selected, athletes).length}</strong>
+                  </div>
+                </header>
+
+                <div className="expert-athlete-list">
+                  {PartnerService.athleteKeys(selected, athletes).length ? (
+                    PartnerService.athleteKeys(selected, athletes).map((key) => {
+                      const athlete = athletes.find((item) => item.key === key);
+                      if (!athlete) return null;
+                      return (
+                        <div key={athlete.key}>
+                          <b>{athlete.initials}</b>
+                          <span>
+                            <strong>{athlete.name}</strong>
+                            <small>{athlete.sport} · {athlete.club}</small>
+                          </span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p>Aucun athlète lié.</p>
+                  )}
+                </div>
+              </aside>
             </section>
+
             <div className="modal-actions partner-detail-actions">
               <button className="danger-button" onClick={() => deletePartner(selected)} disabled={saving}>Supprimer</button>
               <button className="secondary-button" onClick={() => openEditing(selected)}>Modifier</button>
