@@ -2,6 +2,7 @@ import type { Athlete } from "@/types/athlete";
 
 export const demoAthletes: Athlete[] = [
   {
+    key: "anastacia-fischer",
     name: "Anastacia Fischer",
     initials: "AF",
     sport: "Badminton",
@@ -20,6 +21,7 @@ export const demoAthletes: Athlete[] = [
     longTerm: "Participer aux Jeux olympiques",
   },
   {
+    key: "loan-cueto",
     name: "Loan Cueto",
     initials: "LC",
     sport: "Tennis",
@@ -38,6 +40,7 @@ export const demoAthletes: Athlete[] = [
     longTerm: "Développer un projet sportif professionnel",
   },
   {
+    key: "mila-benjak",
     name: "Mila Benjak",
     initials: "MB",
     sport: "Basketball",
@@ -56,6 +59,7 @@ export const demoAthletes: Athlete[] = [
     longTerm: "Évoluer au plus haut niveau suisse",
   },
   {
+    key: "aggee-wenzi",
     name: "Aggee Wenzi",
     initials: "AW",
     sport: "Football",
@@ -74,6 +78,7 @@ export const demoAthletes: Athlete[] = [
     longTerm: "S’imposer durablement au haut niveau",
   },
   {
+    key: "tylian-pinton",
     name: "Tylian Pinton",
     initials: "TP",
     sport: "Basketball",
@@ -92,6 +97,7 @@ export const demoAthletes: Athlete[] = [
     longTerm: "S’installer en équipe première",
   },
   {
+    key: "raphael-monty",
     name: "Raphaël Monty",
     initials: "RM",
     sport: "Basketball",

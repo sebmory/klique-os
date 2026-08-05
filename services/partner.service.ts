@@ -1,3 +1,4 @@
+import type { Athlete } from "@/types/athlete";
 import type {
   NewPartner,
   Partner,
@@ -12,6 +13,25 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
   return data as T;
 }
+
+const splitLegacyNames = (value: string) =>
+  value.split(",").map((part) => part.trim()).filter(Boolean);
+
+const athleteKeys = (
+  partner: Pick<Partner, "athletes"> | Pick<NewPartner, "athletes">,
+  athletes: Athlete[]
+): string[] => {
+  const raw = partner.athletes.trim();
+  if (!raw) return [];
+
+  if (raw.includes("|")) {
+    return raw.split("|").map((key) => key.trim()).filter(Boolean);
+  }
+
+  return splitLegacyNames(raw)
+    .map((name) => athletes.find((athlete) => athlete.name === name)?.key)
+    .filter((key): key is string => Boolean(key));
+};
 
 export const PartnerService = {
   async list(): Promise<PartnerResponse> {
@@ -44,15 +64,41 @@ export const PartnerService = {
     await parseResponse<{ success: boolean }>(response);
   },
 
+  athleteKeys,
+
+  athleteNames(
+    partner: Pick<Partner, "athletes"> | Pick<NewPartner, "athletes">,
+    athletes: Athlete[]
+  ): string[] {
+    return athleteKeys(partner, athletes)
+      .map((key) => athletes.find((athlete) => athlete.key === key)?.name)
+      .filter((name): name is string => Boolean(name));
+  },
+
+  encodeAthleteKeys(keys: string[]): string {
+    return Array.from(new Set(keys)).join("|");
+  },
+
+  partnersForAthlete(
+    partners: Partner[],
+    athlete: Pick<Athlete, "key" | "name">
+  ): Partner[] {
+    return partners.filter((partner) => {
+      const raw = partner.athletes.trim();
+      if (!raw) return false;
+      if (raw.includes("|")) {
+        return raw.split("|").map((key) => key.trim()).includes(athlete.key);
+      }
+      return splitLegacyNames(raw).includes(athlete.name);
+    });
+  },
+
   filter(partners: Partner[], search: string, category: string): Partner[] {
     return partners.filter((partner) => {
       const matchesSearch = `${partner.name} ${partner.category} ${partner.contact} ${partner.email}`
         .toLowerCase()
         .includes(search.toLowerCase());
-
-      const matchesCategory =
-        category === "Tous" || partner.category === category;
-
+      const matchesCategory = category === "Tous" || partner.category === category;
       return matchesSearch && matchesCategory;
     });
   },

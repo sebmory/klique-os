@@ -15,6 +15,12 @@ const normalize = (value: unknown) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+
+const stableKey = (value: string) =>
+  normalize(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -110,6 +116,7 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
 
       return {
+        key: stableKey(name),
         name,
         initials: initials(name),
         sport: String(row[column.sport] ?? ""),

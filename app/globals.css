@@ -2830,3 +2830,68 @@ button { cursor: pointer; }
     flex-direction: column;
   }
 }
+
+/* V0.11.2 — Liaison Athlètes ↔ Partenaires */
+.athlete-selector {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+}
+.athlete-selector-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.athlete-selector-heading span,
+.athlete-selector-heading small { display: block; }
+.athlete-selector-heading span { font-weight: 900; }
+.athlete-selector-heading small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.athlete-selector-heading input {
+  width: min(260px, 100%);
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+}
+.athlete-selector-list {
+  max-height: 230px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.athlete-selector-list label {
+  padding: 10px;
+  border-radius: 10px;
+  background: white;
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+.athlete-selector-list input { width: 17px; height: 17px; min-height: 0; accent-color: #111; }
+.athlete-selector-list strong,
+.athlete-selector-list small { display: block; }
+.athlete-selector-list small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.linked-athlete-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 7px; }
+.linked-athlete-chips b { padding: 7px 9px; border-radius: 999px; background: white; font-size: 11px; }
+.athlete-experts-panel { grid-column: 1 / -1; }
+.athlete-expert-list { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.athlete-expert-list div { padding: 13px; border-radius: 12px; background: var(--background); }
+.athlete-expert-list span,
+.athlete-expert-list strong,
+.athlete-expert-list small { display: block; }
+.athlete-expert-list span { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.athlete-expert-list strong { margin: 5px 0 3px; }
+.athlete-expert-list small { color: var(--muted); }
+@media (max-width: 720px) {
+  .athlete-selector-heading { align-items: flex-start; flex-direction: column; }
+  .athlete-selector-heading input { width: 100%; }
+  .athlete-selector-list,
+  .athlete-expert-list { grid-template-columns: 1fr; }
+}

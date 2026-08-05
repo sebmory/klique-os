@@ -17,6 +17,7 @@ import { ShotListModule } from "@/components/shotlists/ShotListModule";
 import type { ShotListItem, ShotListResponse } from "@/types/shotlist";
 import { PartnersModule } from "@/components/partners/PartnersModule";
 import type { Partner, PartnerResponse } from "@/types/partner";
+import { PartnerService } from "@/services/partner.service";
 import { ShootingsModule } from "@/components/shootings/ShootingsModule";
 
 const navigation = [
@@ -279,7 +280,7 @@ export function AppShell() {
               <h2>Chargement de KLIQUE OS…</h2>
             </section>
           ) : selectedAthlete ? (
-            <AthleteDetail athlete={selectedAthlete} onBack={() => setSelectedAthlete(null)} />
+            <AthleteDetail athlete={selectedAthlete} partners={partners} onBack={() => setSelectedAthlete(null)} />
           ) : activePage === "Dashboard" ? (
             <Dashboard stats={stats} workflow={workflow} />
           ) : activePage === "Athlètes" ? (
@@ -1109,11 +1110,15 @@ function MediaLibraryPage({
 
 function AthleteDetail({
   athlete,
+  partners,
   onBack,
 }: {
   athlete: Athlete;
+  partners: Partner[];
   onBack: () => void;
 }) {
+  const linkedPartners = PartnerService.partnersForAthlete(partners, athlete);
+
   const recommendation =
     athlete.coverage < 35
       ? "Programmer un premier shooting complet."
@@ -1160,6 +1165,23 @@ function AthleteDetail({
           <p className="eyebrow">Analyse KLIQUE</p>
           <h3>{athlete.nextAction || recommendation}</h3>
           <p>Cette fiche est alimentée par la base réelle Google Sheets.</p>
+        </article>
+        <article className="panel premium-panel athlete-experts-panel">
+          <p className="eyebrow">Experts KLIQUE</p>
+          <h3>{linkedPartners.length} expert(s) lié(s)</h3>
+          <div className="athlete-expert-list">
+            {linkedPartners.length ? (
+              linkedPartners.map((partner) => (
+                <div key={partner.id}>
+                  <span>{partner.category}</span>
+                  <strong>{partner.name}</strong>
+                  <small>{partner.email || partner.instagram || "Coordonnées à compléter"}</small>
+                </div>
+              ))
+            ) : (
+              <p>Aucun expert lié à cet athlète.</p>
+            )}
+          </div>
         </article>
       </section>
     </>

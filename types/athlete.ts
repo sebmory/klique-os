@@ -1,4 +1,5 @@
 export type Athlete = {
+  key: string;
   name: string;
   initials: string;
   sport: string;

@@ -22,6 +22,62 @@ const emptyPartner: NewPartner = {
   athletes: "",
 };
 
+function AthleteSelector({
+  athletes,
+  selectedKeys,
+  onChange,
+}: {
+  athletes: Athlete[];
+  selectedKeys: string[];
+  onChange: (keys: string[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const visible = athletes.filter((athlete) =>
+    `${athlete.name} ${athlete.sport} ${athlete.club}`
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
+
+  const toggle = (key: string) => {
+    onChange(
+      selectedKeys.includes(key)
+        ? selectedKeys.filter((item) => item !== key)
+        : [...selectedKeys, key]
+    );
+  };
+
+  return (
+    <div className="athlete-selector modal-wide">
+      <div className="athlete-selector-heading">
+        <div>
+          <span>Athlètes suivis</span>
+          <small>{selectedKeys.length} sélectionné(s)</small>
+        </div>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Rechercher un athlète…"
+        />
+      </div>
+      <div className="athlete-selector-list">
+        {visible.map((athlete) => (
+          <label key={athlete.key}>
+            <input
+              type="checkbox"
+              checked={selectedKeys.includes(athlete.key)}
+              onChange={() => toggle(athlete.key)}
+            />
+            <div>
+              <strong>{athlete.name}</strong>
+              <small>{athlete.sport} · {athlete.club}</small>
+            </div>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PartnersModule({
   athletes,
   partners,
@@ -54,6 +110,11 @@ export function PartnersModule({
     [partners, search, category]
   );
 
+  const formAthleteKeys = PartnerService.athleteKeys(form, athletes);
+  const editingAthleteKeys = editing
+    ? PartnerService.athleteKeys(editing, athletes)
+    : [];
+
   const createPartner = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -66,9 +127,7 @@ export function PartnersModule({
       setShowCreate(false);
       await onRefresh();
     } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : "Création impossible."
-      );
+      setFeedback(error instanceof Error ? error.message : "Création impossible.");
     } finally {
       setSaving(false);
     }
@@ -99,29 +158,21 @@ export function PartnersModule({
 
       setFeedback("Le partenaire a été modifié.");
       setEditing(null);
-      setSelected(null);
       await onRefresh();
     } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : "Modification impossible."
-      );
+      setFeedback(error instanceof Error ? error.message : "Modification impossible.");
     } finally {
       setSaving(false);
     }
   };
 
   const deletePartner = async (partner: Partner) => {
-    if (!partner.row) return;
-
-    const confirmed = window.confirm(
-      `Supprimer définitivement ${partner.name} ?`
-    );
-
-    if (!confirmed) return;
+    if (!partner.row || !window.confirm(`Supprimer définitivement ${partner.name} ?`)) {
+      return;
+    }
 
     setSaving(true);
     setFeedback("");
-
     try {
       await PartnerService.remove(partner.row);
       setFeedback("Le partenaire a été supprimé.");
@@ -129,33 +180,31 @@ export function PartnersModule({
       setEditing(null);
       await onRefresh();
     } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : "Suppression impossible."
-      );
+      setFeedback(error instanceof Error ? error.message : "Suppression impossible.");
     } finally {
       setSaving(false);
     }
   };
 
   const initials = (name: string) =>
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("");
+    name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+
+  const openEditing = (partner: Partner) => {
+    const normalizedAthletes = PartnerService.encodeAthleteKeys(
+      PartnerService.athleteKeys(partner, athletes)
+    );
+    setEditing({ ...partner, athletes: normalizedAthletes });
+    setSelected(null);
+  };
 
   return (
     <>
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Réseau KLIQUE · V0.11.1.1</p>
+          <p className="eyebrow">Réseau KLIQUE · V0.11.2</p>
           <h2>Partenaires</h2>
-          <p>
-            Une base simple pour gérer les partenaires et experts KLIQUE.
-          </p>
+          <p>Les experts sont maintenant liés directement aux athlètes.</p>
         </div>
-
         <button className="primary-button" onClick={() => setShowCreate(true)}>
           + Nouveau partenaire
         </button>
@@ -167,279 +216,65 @@ export function PartnersModule({
           <small>{message}</small>
         </div>
       )}
-
       {feedback && <div className="success-banner">{feedback}</div>}
 
       <section className="module-kpis">
-        <article>
-          <span>Partenaires</span>
-          <strong>{partners.length}</strong>
-          <small>fiches enregistrées</small>
-        </article>
-        <article>
-          <span>Actifs</span>
-          <strong>
-            {partners.filter((partner) => partner.status === "Actif").length}
-          </strong>
-          <small>partenaires disponibles</small>
-        </article>
-        <article>
-          <span>Experts KLIQUE</span>
-          <strong>
-            {partners.filter((partner) => partner.expertKlique).length}
-          </strong>
-          <small>experts identifiés</small>
-        </article>
-        <article>
-          <span>Catégories</span>
-          <strong>
-            {new Set(partners.map((partner) => partner.category).filter(Boolean)).size}
-          </strong>
-          <small>domaines représentés</small>
-        </article>
+        <article><span>Partenaires</span><strong>{partners.length}</strong><small>fiches enregistrées</small></article>
+        <article><span>Actifs</span><strong>{partners.filter((p) => p.status === "Actif").length}</strong><small>partenaires disponibles</small></article>
+        <article><span>Experts KLIQUE</span><strong>{partners.filter((p) => p.expertKlique).length}</strong><small>experts identifiés</small></article>
+        <article><span>Liaisons</span><strong>{partners.reduce((sum, p) => sum + PartnerService.athleteKeys(p, athletes).length, 0)}</strong><small>athlète ↔ expert</small></article>
       </section>
 
       <section className="partner-toolbar">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Rechercher un partenaire, un contact ou un e-mail…"
-        />
-
-        <select
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-        >
-          {categories.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un partenaire, un contact ou un e-mail…" />
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          {categories.map((item) => <option key={item}>{item}</option>)}
         </select>
-
         <span>{visible.length} résultat(s)</span>
       </section>
 
       <section className="partner-card-grid">
-        {visible.map((partner) => (
-          <button
-            className="partner-profile-card"
-            key={`${partner.row ?? partner.id}-${partner.name}`}
-            onClick={() => setSelected(partner)}
-          >
-            <div className="partner-card-top">
-              <div className="partner-avatar">{initials(partner.name)}</div>
-
-              <div className="partner-card-badges">
-                {partner.expertKlique && (
-                  <span className="expert-badge">Expert KLIQUE</span>
-                )}
-                <span
-                  className={
-                    partner.status === "Actif"
-                      ? "status-badge"
-                      : "status-badge inactive"
-                  }
-                >
-                  {partner.status}
-                </span>
+        {visible.map((partner) => {
+          const linkedNames = PartnerService.athleteNames(partner, athletes);
+          return (
+            <button className="partner-profile-card" key={`${partner.row ?? partner.id}-${partner.name}`} onClick={() => setSelected(partner)}>
+              <div className="partner-card-top">
+                <div className="partner-avatar">{initials(partner.name)}</div>
+                <div className="partner-card-badges">
+                  {partner.expertKlique && <span className="expert-badge">Expert KLIQUE</span>}
+                  <span className={partner.status === "Actif" ? "status-badge" : "status-badge inactive"}>{partner.status}</span>
+                </div>
               </div>
-            </div>
-
-            <div className="partner-card-main">
-              <p className="eyebrow">{partner.category || "Autre"}</p>
-              <h3>{partner.name}</h3>
-              <span>{partner.contact || "Contact à compléter"}</span>
-            </div>
-
-            <div className="partner-card-contact">
-              <span>{partner.email || "E-mail à compléter"}</span>
-              <span>{partner.instagram || "Instagram à compléter"}</span>
-            </div>
-
-            <div className="partner-card-footer">
-              <span>
-                {partner.athletes
-                  ? `${partner.athletes.split(",").filter(Boolean).length} athlète(s)`
-                  : "Aucun athlète lié"}
-              </span>
-              <strong>Ouvrir →</strong>
-            </div>
-          </button>
-        ))}
+              <div className="partner-card-main">
+                <p className="eyebrow">{partner.category || "Autre"}</p>
+                <h3>{partner.name}</h3>
+                <span>{partner.contact || "Contact à compléter"}</span>
+              </div>
+              <div className="partner-card-contact">
+                <span>{partner.email || "E-mail à compléter"}</span>
+                <span>{partner.instagram || "Instagram à compléter"}</span>
+              </div>
+              <div className="partner-card-footer">
+                <span>{linkedNames.length ? `${linkedNames.length} athlète(s)` : "Aucun athlète lié"}</span>
+                <strong>Ouvrir →</strong>
+              </div>
+            </button>
+          );
+        })}
       </section>
 
       {showCreate && (
-        <Modal
-          title="Ajouter un partenaire"
-          onClose={() => setShowCreate(false)}
-        >
+        <Modal title="Ajouter un partenaire" onClose={() => setShowCreate(false)}>
           <form className="modal-form partner-form" onSubmit={createPartner}>
-            <label>
-              <span>Nom</span>
-              <input
-                value={form.name}
-                onChange={(event) =>
-                  setForm({ ...form, name: event.target.value })
-                }
-                required
-              />
-            </label>
-
-            <label>
-              <span>Catégorie</span>
-              <select
-                value={form.category}
-                onChange={(event) =>
-                  setForm({ ...form, category: event.target.value })
-                }
-              >
-                <option>Mental</option>
-                <option>Nutrition</option>
-                <option>Récupération</option>
-                <option>Préparation physique</option>
-                <option>Physiothérapie</option>
-                <option>Média</option>
-                <option>Entreprise</option>
-                <option>Autre</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Personne de contact</span>
-              <input
-                value={form.contact}
-                onChange={(event) =>
-                  setForm({ ...form, contact: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Statut</span>
-              <select
-                value={form.status}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    status: event.target.value as NewPartner["status"],
-                  })
-                }
-              >
-                <option>Actif</option>
-                <option>Inactif</option>
-              </select>
-            </label>
-
-            <label>
-              <span>E-mail</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(event) =>
-                  setForm({ ...form, email: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Téléphone</span>
-              <input
-                value={form.phone}
-                onChange={(event) =>
-                  setForm({ ...form, phone: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Site web</span>
-              <input
-                value={form.website}
-                onChange={(event) =>
-                  setForm({ ...form, website: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Instagram</span>
-              <input
-                value={form.instagram}
-                onChange={(event) =>
-                  setForm({ ...form, instagram: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="partner-checkbox">
-              <input
-                type="checkbox"
-                checked={form.expertKlique}
-                onChange={(event) =>
-                  setForm({ ...form, expertKlique: event.target.checked })
-                }
-              />
-              <span>Expert KLIQUE</span>
-            </label>
-
-            <label className="modal-wide">
-              <span>Description</span>
-              <textarea
-                value={form.description}
-                onChange={(event) =>
-                  setForm({ ...form, description: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Avantages pour les membres</span>
-              <textarea
-                value={form.benefits}
-                onChange={(event) =>
-                  setForm({ ...form, benefits: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Athlètes suivis</span>
-              <input
-                list="partner-athletes"
-                value={form.athletes}
-                onChange={(event) =>
-                  setForm({ ...form, athletes: event.target.value })
-                }
-                placeholder="Noms séparés par des virgules"
-              />
-              <datalist id="partner-athletes">
-                {athletes.map((athlete) => (
-                  <option key={athlete.name} value={athlete.name} />
-                ))}
-              </datalist>
-            </label>
-
-            <label className="modal-wide">
-              <span>Notes</span>
-              <textarea
-                value={form.notes}
-                onChange={(event) =>
-                  setForm({ ...form, notes: event.target.value })
-                }
-              />
-            </label>
-
+            <PartnerFields value={form} onChange={setForm} />
+            <AthleteSelector
+              athletes={athletes}
+              selectedKeys={formAthleteKeys}
+              onChange={(keys) => setForm({ ...form, athletes: PartnerService.encodeAthleteKeys(keys) })}
+            />
             <div className="modal-actions modal-wide">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setShowCreate(false)}
-              >
-                Annuler
-              </button>
-
-              <button className="primary-button" disabled={saving}>
-                {saving ? "Ajout…" : "Ajouter le partenaire"}
-              </button>
+              <button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Annuler</button>
+              <button className="primary-button" disabled={saving}>{saving ? "Ajout…" : "Ajouter le partenaire"}</button>
             </div>
           </form>
         </Modal>
@@ -449,93 +284,39 @@ export function PartnersModule({
         <Modal title={selected.name} onClose={() => setSelected(null)}>
           <div className="partner-detail">
             <section className="partner-detail-hero">
-              <div className="partner-avatar large">
-                {initials(selected.name)}
-              </div>
-
+              <div className="partner-avatar large">{initials(selected.name)}</div>
               <div>
                 <p className="eyebrow">{selected.category}</p>
                 <h3>{selected.name}</h3>
                 <div className="partner-detail-badges">
-                  {selected.expertKlique && (
-                    <span className="expert-badge">Expert KLIQUE</span>
-                  )}
-                  <span
-                    className={
-                      selected.status === "Actif"
-                        ? "status-badge"
-                        : "status-badge inactive"
-                    }
-                  >
-                    {selected.status}
-                  </span>
+                  {selected.expertKlique && <span className="expert-badge">Expert KLIQUE</span>}
+                  <span className={selected.status === "Actif" ? "status-badge" : "status-badge inactive"}>{selected.status}</span>
                 </div>
               </div>
             </section>
-
             <section className="partner-detail-grid">
-              <div>
-                <span>Contact</span>
-                <strong>{selected.contact || "À compléter"}</strong>
-              </div>
-              <div>
-                <span>E-mail</span>
-                <strong>{selected.email || "À compléter"}</strong>
-              </div>
-              <div>
-                <span>Téléphone</span>
-                <strong>{selected.phone || "À compléter"}</strong>
-              </div>
-              <div>
-                <span>Instagram</span>
-                <strong>{selected.instagram || "À compléter"}</strong>
-              </div>
+              <div><span>Contact</span><strong>{selected.contact || "À compléter"}</strong></div>
+              <div><span>E-mail</span><strong>{selected.email || "À compléter"}</strong></div>
+              <div><span>Téléphone</span><strong>{selected.phone || "À compléter"}</strong></div>
+              <div><span>Instagram</span><strong>{selected.instagram || "À compléter"}</strong></div>
             </section>
-
             <section className="partner-detail-content">
-              <div>
-                <span>Description</span>
-                <p>{selected.description || "Aucune description."}</p>
-              </div>
-              <div>
-                <span>Avantages</span>
-                <p>{selected.benefits || "Aucun avantage renseigné."}</p>
-              </div>
+              <div><span>Description</span><p>{selected.description || "Aucune description."}</p></div>
+              <div><span>Avantages</span><p>{selected.benefits || "Aucun avantage renseigné."}</p></div>
               <div>
                 <span>Athlètes suivis</span>
-                <p>{selected.athletes || "Aucun athlète lié."}</p>
+                <div className="linked-athlete-chips">
+                  {PartnerService.athleteNames(selected, athletes).length
+                    ? PartnerService.athleteNames(selected, athletes).map((name) => <b key={name}>{name}</b>)
+                    : <p>Aucun athlète lié.</p>}
+                </div>
               </div>
-              <div>
-                <span>Notes</span>
-                <p>{selected.notes || "Aucune note."}</p>
-              </div>
+              <div><span>Notes</span><p>{selected.notes || "Aucune note."}</p></div>
             </section>
-
             <div className="modal-actions partner-detail-actions">
-              <button
-                className="danger-button"
-                onClick={() => deletePartner(selected)}
-                disabled={saving}
-              >
-                Supprimer
-              </button>
-
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  setEditing({ ...selected });
-                  setSelected(null);
-                }}
-              >
-                Modifier
-              </button>
-
-              <button
-                className="primary-button"
-                onClick={() => setSelected(null)}
-              >
-                Fermer
-              </button>
+              <button className="danger-button" onClick={() => deletePartner(selected)} disabled={saving}>Supprimer</button>
+              <button className="secondary-button" onClick={() => openEditing(selected)}>Modifier</button>
+              <button className="primary-button" onClick={() => setSelected(null)}>Fermer</button>
             </div>
           </div>
         </Modal>
@@ -544,168 +325,46 @@ export function PartnersModule({
       {editing && (
         <Modal title={`Modifier ${editing.name}`} onClose={() => setEditing(null)}>
           <div className="modal-form partner-form">
-            <label>
-              <span>Nom</span>
-              <input
-                value={editing.name}
-                onChange={(event) =>
-                  setEditing({ ...editing, name: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Catégorie</span>
-              <input
-                value={editing.category}
-                onChange={(event) =>
-                  setEditing({ ...editing, category: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Contact</span>
-              <input
-                value={editing.contact}
-                onChange={(event) =>
-                  setEditing({ ...editing, contact: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Statut</span>
-              <select
-                value={editing.status}
-                onChange={(event) =>
-                  setEditing({
-                    ...editing,
-                    status: event.target.value as Partner["status"],
-                  })
-                }
-              >
-                <option>Actif</option>
-                <option>Inactif</option>
-              </select>
-            </label>
-
-            <label>
-              <span>E-mail</span>
-              <input
-                value={editing.email}
-                onChange={(event) =>
-                  setEditing({ ...editing, email: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Téléphone</span>
-              <input
-                value={editing.phone}
-                onChange={(event) =>
-                  setEditing({ ...editing, phone: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Site web</span>
-              <input
-                value={editing.website}
-                onChange={(event) =>
-                  setEditing({ ...editing, website: event.target.value })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Instagram</span>
-              <input
-                value={editing.instagram}
-                onChange={(event) =>
-                  setEditing({ ...editing, instagram: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="partner-checkbox">
-              <input
-                type="checkbox"
-                checked={editing.expertKlique}
-                onChange={(event) =>
-                  setEditing({
-                    ...editing,
-                    expertKlique: event.target.checked,
-                  })
-                }
-              />
-              <span>Expert KLIQUE</span>
-            </label>
-
-            <label className="modal-wide">
-              <span>Description</span>
-              <textarea
-                value={editing.description}
-                onChange={(event) =>
-                  setEditing({
-                    ...editing,
-                    description: event.target.value,
-                  })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Avantages</span>
-              <textarea
-                value={editing.benefits}
-                onChange={(event) =>
-                  setEditing({ ...editing, benefits: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Athlètes suivis</span>
-              <input
-                value={editing.athletes}
-                onChange={(event) =>
-                  setEditing({ ...editing, athletes: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Notes</span>
-              <textarea
-                value={editing.notes}
-                onChange={(event) =>
-                  setEditing({ ...editing, notes: event.target.value })
-                }
-              />
-            </label>
-
+            <PartnerFields value={editing} onChange={setEditing} />
+            <AthleteSelector
+              athletes={athletes}
+              selectedKeys={editingAthleteKeys}
+              onChange={(keys) => setEditing({ ...editing, athletes: PartnerService.encodeAthleteKeys(keys) })}
+            />
             <div className="modal-actions modal-wide">
-              <button
-                className="secondary-button"
-                onClick={() => setEditing(null)}
-              >
-                Annuler
-              </button>
-
-              <button
-                className="primary-button"
-                onClick={savePartner}
-                disabled={saving}
-              >
-                {saving ? "Enregistrement…" : "Enregistrer"}
-              </button>
+              <button className="secondary-button" onClick={() => setEditing(null)}>Annuler</button>
+              <button className="primary-button" onClick={savePartner} disabled={saving}>{saving ? "Enregistrement…" : "Enregistrer"}</button>
             </div>
           </div>
         </Modal>
       )}
+    </>
+  );
+}
+
+function PartnerFields<T extends NewPartner | Partner>({
+  value,
+  onChange,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <>
+      <label><span>Nom</span><input value={value.name} onChange={(e) => onChange({ ...value, name: e.target.value })} required /></label>
+      <label><span>Catégorie</span><select value={value.category} onChange={(e) => onChange({ ...value, category: e.target.value })}>
+        <option>Mental</option><option>Nutrition</option><option>Récupération</option><option>Préparation physique</option><option>Physiothérapie</option><option>Média</option><option>Entreprise</option><option>Autre</option>
+      </select></label>
+      <label><span>Personne de contact</span><input value={value.contact} onChange={(e) => onChange({ ...value, contact: e.target.value })} /></label>
+      <label><span>Statut</span><select value={value.status} onChange={(e) => onChange({ ...value, status: e.target.value as T["status"] })}><option>Actif</option><option>Inactif</option></select></label>
+      <label><span>E-mail</span><input type="email" value={value.email} onChange={(e) => onChange({ ...value, email: e.target.value })} /></label>
+      <label><span>Téléphone</span><input value={value.phone} onChange={(e) => onChange({ ...value, phone: e.target.value })} /></label>
+      <label><span>Site web</span><input value={value.website} onChange={(e) => onChange({ ...value, website: e.target.value })} /></label>
+      <label><span>Instagram</span><input value={value.instagram} onChange={(e) => onChange({ ...value, instagram: e.target.value })} /></label>
+      <label className="partner-checkbox"><input type="checkbox" checked={value.expertKlique} onChange={(e) => onChange({ ...value, expertKlique: e.target.checked })} /><span>Expert KLIQUE</span></label>
+      <label className="modal-wide"><span>Description</span><textarea value={value.description} onChange={(e) => onChange({ ...value, description: e.target.value })} /></label>
+      <label className="modal-wide"><span>Avantages pour les membres</span><textarea value={value.benefits} onChange={(e) => onChange({ ...value, benefits: e.target.value })} /></label>
+      <label className="modal-wide"><span>Notes</span><textarea value={value.notes} onChange={(e) => onChange({ ...value, notes: e.target.value })} /></label>
     </>
   );
 }
