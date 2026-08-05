@@ -2,11 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import type { Athlete } from "@/types/athlete";
-import type {
-  NewShooting,
-  Shooting,
-  ShootingUpdate,
-} from "@/types/shooting";
+import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import { ShootingService } from "@/services/shooting.service";
 import { Modal } from "@/components/ui/Modal";
 
@@ -21,23 +17,15 @@ const emptyForm: NewShooting = {
 };
 
 const workflowFields: Array<{
-  key: keyof Pick<
-    Shooting,
-    | "importDone"
-    | "sortDone"
-    | "retouchDone"
-    | "exportDone"
-    | "driveDone"
-    | "published"
-  >;
+  key: keyof Pick<Shooting, "importDone" | "sortDone" | "retouchDone" | "exportDone" | "driveDone" | "published">;
   label: string;
 }> = [
   { key: "importDone", label: "Import" },
   { key: "sortDone", label: "Tri" },
   { key: "retouchDone", label: "Retouche" },
   { key: "exportDone", label: "Export" },
-  { key: "driveDone", label: "Drive" },
-  { key: "published", label: "Publication" },
+  { key: "driveDone", label: "Livré / Drive" },
+  { key: "published", label: "Publié" },
 ];
 
 export function ShootingsModule({
@@ -46,12 +34,14 @@ export function ShootingsModule({
   source,
   message,
   onRefresh,
+  onOpenAthlete,
 }: {
   athletes: Athlete[];
   shootings: Shooting[];
   source: "google-sheets" | "demo";
   message: string;
   onRefresh: () => Promise<void>;
+  onOpenAthlete?: (athlete: Athlete) => void;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("Tous");
@@ -61,50 +51,44 @@ export function ShootingsModule({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  const visible = useMemo(
-    () =>
-      shootings.filter((shooting) => {
-        const matchesSearch = `${shooting.athlete} ${shooting.type} ${shooting.place}`
+  const visible = useMemo(() => {
+    return [...shootings]
+      .filter((shooting) => {
+        const matchesSearch = `${shooting.athlete} ${shooting.type} ${shooting.place} ${shooting.sport}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        const matchesStatus =
-          status === "Tous" || shooting.status === status;
+        const matchesStatus = status === "Tous" || shooting.status === status;
         return matchesSearch && matchesStatus;
-      }),
-    [shootings, search, status]
-  );
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [shootings, search, status]);
 
   const statuses = [
     "Tous",
-    ...Array.from(new Set(shootings.map((shooting) => shooting.status))).filter(
-      Boolean
-    ),
+    ...Array.from(new Set(shootings.map((shooting) => shooting.status))).filter(Boolean),
   ];
 
-  const selectAthlete = (name: string) => {
+  const selectAthlete = (name: string, target: "create" | "edit") => {
     const athlete = athletes.find((item) => item.name === name);
-    setForm((current) => ({
-      ...current,
-      athlete: name,
-      sport: athlete?.sport ?? "",
-    }));
+    if (target === "create") {
+      setForm((current) => ({ ...current, athlete: name, sport: athlete?.sport ?? "" }));
+    } else if (selected) {
+      setSelected({ ...selected, athlete: name, sport: athlete?.sport ?? selected.sport });
+    }
   };
 
   const createShooting = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     setFeedback("");
-
     try {
       await ShootingService.create(form);
-      setFeedback("Le shooting a été créé dans Google Sheets.");
+      setFeedback("Le shooting a été créé.");
       setForm(emptyForm);
       setShowCreate(false);
       await onRefresh();
     } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : "Création impossible."
-      );
+      setFeedback(error instanceof Error ? error.message : "Création impossible.");
     } finally {
       setSaving(false);
     }
@@ -117,6 +101,13 @@ export function ShootingsModule({
 
     const update: ShootingUpdate = {
       row: selected.row,
+      date: selected.date,
+      athlete: selected.athlete,
+      sport: selected.sport,
+      type: selected.type,
+      place: selected.place,
+      objective: selected.objective,
+      photographer: selected.photographer,
       status: selected.status,
       photos: selected.photos,
       videos: selected.videos,
@@ -135,339 +126,151 @@ export function ShootingsModule({
       setSelected(null);
       await onRefresh();
     } catch (error) {
-      setFeedback(
-        error instanceof Error ? error.message : "Mise à jour impossible."
-      );
+      setFeedback(error instanceof Error ? error.message : "Mise à jour impossible.");
     } finally {
       setSaving(false);
     }
   };
 
-  const activeProjects = shootings.filter(
-    (shooting) => ShootingService.progress(shooting) < 100
-  ).length;
+  const deleteShooting = async () => {
+    if (!selected?.row) return;
+    if (!window.confirm(`Supprimer définitivement le shooting de ${selected.athlete} ?`)) return;
+    setSaving(true);
+    setFeedback("");
+    try {
+      await ShootingService.remove(selected.row);
+      setFeedback("Le shooting a été supprimé.");
+      setSelected(null);
+      await onRefresh();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Suppression impossible.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const planned = shootings.filter((item) => item.status === "Planifié").length;
+  const complete = shootings.filter(ShootingService.isComplete).length;
+  const toProcess = shootings.filter((item) => item.status !== "Planifié" && !ShootingService.isComplete(item)).length;
 
   return (
     <>
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Shootings professionnels · V0.7</p>
+          <p className="eyebrow">Production photo · V0.13</p>
           <h2>Shootings</h2>
-          <p>
-            Planification, production et mise à jour directe du workflow dans
-            Google Sheets.
-          </p>
+          <p>Crée, consulte et termine chaque shooting depuis une seule fiche.</p>
         </div>
-        <button className="primary-button" onClick={() => setShowCreate(true)}>
-          + Nouveau shooting
-        </button>
+        <button className="primary-button" onClick={() => setShowCreate(true)}>+ Nouveau shooting</button>
       </section>
 
-      {source === "demo" && (
-        <div className="connection-banner">
-          <strong>Mode démo pour les shootings</strong>
-          <small>{message}</small>
-        </div>
-      )}
-
+      {source === "demo" && <div className="connection-banner"><strong>Mode démo pour les shootings</strong><small>{message}</small></div>}
       {feedback && <div className="success-banner">{feedback}</div>}
 
       <section className="module-kpis">
-        <article>
-          <span>Total</span>
-          <strong>{shootings.length}</strong>
-          <small>shootings enregistrés</small>
-        </article>
-        <article>
-          <span>Planifiés</span>
-          <strong>
-            {shootings.filter((shooting) => shooting.status === "Planifié").length}
-          </strong>
-          <small>à préparer</small>
-        </article>
-        <article>
-          <span>En production</span>
-          <strong>{activeProjects}</strong>
-          <small>workflow incomplet</small>
-        </article>
-        <article>
-          <span>Publiés</span>
-          <strong>
-            {shootings.filter((shooting) => shooting.published).length}
-          </strong>
-          <small>projets terminés</small>
-        </article>
+        <article><span>Total</span><strong>{shootings.length}</strong><small>shootings enregistrés</small></article>
+        <article><span>Planifiés</span><strong>{planned}</strong><small>à venir</small></article>
+        <article><span>À traiter</span><strong>{toProcess}</strong><small>workflow incomplet</small></article>
+        <article><span>Terminés</span><strong>{complete}</strong><small>livrés ou publiés</small></article>
       </section>
 
       <section className="module-toolbar">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Rechercher un athlète, un type ou un lieu…"
-        />
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-        >
-          {statuses.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un athlète, un sport, un type ou un lieu…" />
+        <select value={status} onChange={(event) => setStatus(event.target.value)}>
+          {statuses.map((item) => <option key={item}>{item}</option>)}
         </select>
         <span>{visible.length} résultat(s)</span>
       </section>
 
-      <section className="shooting-pro-grid">
-        {visible.map((shooting, index) => {
-          const progress = ShootingService.progress(shooting);
-
-          return (
-            <article
-              className="shooting-pro-card"
-              key={`${shooting.row ?? index}-${shooting.athlete}`}
-            >
-              <div className="shooting-pro-head">
-                <div>
-                  <p className="eyebrow">
-                    {shooting.date || "Date à définir"} · {shooting.sport}
-                  </p>
-                  <h3>{shooting.athlete || "Athlète à définir"}</h3>
-                  <span>{shooting.type || "Type à compléter"}</span>
+      {visible.length === 0 ? (
+        <section className="shooting-empty-state"><strong>Aucun shooting trouvé.</strong><p>Modifie les filtres ou crée un nouveau shooting.</p></section>
+      ) : (
+        <section className="shooting-pro-grid">
+          {visible.map((shooting, index) => {
+            const progress = ShootingService.progress(shooting);
+            return (
+              <article className="shooting-pro-card" key={`${shooting.row ?? index}-${shooting.athlete}`}>
+                <div className="shooting-pro-head">
+                  <div>
+                    <p className="eyebrow">{ShootingService.formatDate(shooting.date)} · {shooting.sport || "Sport à compléter"}</p>
+                    <h3>{shooting.athlete || "Athlète à compléter"}</h3>
+                    <span>{shooting.type || "Type à compléter"}</span>
+                  </div>
+                  <span className="status-chip">{shooting.status || "À définir"}</span>
                 </div>
-                <span className="status-chip">{shooting.status}</span>
-              </div>
-
-              <div className="shooting-pro-details">
-                <div>
-                  <span>Lieu</span>
-                  <strong>{shooting.place || "À compléter"}</strong>
+                <div className="shooting-pro-details">
+                  <div><span>Lieu</span><strong>{shooting.place || "À compléter"}</strong></div>
+                  <div><span>Photos</span><strong>{shooting.photos}</strong></div>
+                  <div><span>Vidéos</span><strong>{shooting.videos}</strong></div>
                 </div>
-                <div>
-                  <span>Photos</span>
-                  <strong>{shooting.photos}</strong>
+                <div className="shooting-workflow">
+                  {workflowFields.map((step) => <span className={shooting[step.key] ? "done" : ""} key={step.key}>{step.label}</span>)}
                 </div>
-                <div>
-                  <span>Vidéos</span>
-                  <strong>{shooting.videos}</strong>
+                <div className="usage-progress">
+                  <div><span>Progression</span><strong>{progress}%</strong></div>
+                  <div className="usage-track"><span style={{ width: `${progress}%` }} /></div>
                 </div>
-              </div>
-
-              <div className="shooting-workflow">
-                {workflowFields.map((step) => (
-                  <span
-                    className={shooting[step.key] ? "done" : ""}
-                    key={step.key}
-                  >
-                    {step.label}
-                  </span>
-                ))}
-              </div>
-
-              <div className="usage-progress">
-                <div>
-                  <span>Progression</span>
-                  <strong>{progress}%</strong>
+                <div className="shooting-pro-actions">
+                  <p>{shooting.objective || "Aucun objectif renseigné."}</p>
+                  <button onClick={() => setSelected({ ...shooting })}>Ouvrir la fiche →</button>
                 </div>
-                <div className="usage-track">
-                  <span style={{ width: `${progress}%` }} />
-                </div>
-              </div>
-
-              <div className="shooting-pro-actions">
-                <p>{shooting.objective || "Aucun objectif renseigné."}</p>
-                <button onClick={() => setSelected({ ...shooting })}>
-                  Gérer le shooting →
-                </button>
-              </div>
-            </article>
-          );
-        })}
-      </section>
+              </article>
+            );
+          })}
+        </section>
+      )}
 
       {showCreate && (
         <Modal title="Créer un shooting" onClose={() => setShowCreate(false)}>
           <form className="modal-form" onSubmit={createShooting}>
-            <label>
-              <span>Athlète</span>
-              <select
-                value={form.athlete}
-                onChange={(event) => selectAthlete(event.target.value)}
-                required
-              >
-                <option value="">Choisir…</option>
-                {athletes.map((athlete) => (
-                  <option key={athlete.name}>{athlete.name}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Date</span>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(event) =>
-                  setForm({ ...form, date: event.target.value })
-                }
-                required
-              />
-            </label>
-            <label>
-              <span>Type</span>
-              <select
-                value={form.type}
-                onChange={(event) =>
-                  setForm({ ...form, type: event.target.value })
-                }
-              >
-                <option>Portrait</option>
-                <option>Action</option>
-                <option>Interview</option>
-                <option>Lifestyle</option>
-                <option>Sponsor</option>
-              </select>
-            </label>
-            <label>
-              <span>Lieu</span>
-              <input
-                value={form.place}
-                onChange={(event) =>
-                  setForm({ ...form, place: event.target.value })
-                }
-              />
-            </label>
-            <label className="modal-wide">
-              <span>Objectif</span>
-              <textarea
-                value={form.objective}
-                onChange={(event) =>
-                  setForm({ ...form, objective: event.target.value })
-                }
-              />
-            </label>
-            <div className="modal-actions modal-wide">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setShowCreate(false)}
-              >
-                Annuler
-              </button>
-              <button className="primary-button" disabled={saving}>
-                {saving ? "Création…" : "Créer"}
-              </button>
-            </div>
+            <label><span>Athlète</span><select value={form.athlete} onChange={(event) => selectAthlete(event.target.value, "create")} required><option value="">Choisir…</option>{athletes.map((athlete) => <option key={athlete.name}>{athlete.name}</option>)}</select></label>
+            <label><span>Date</span><input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label>
+            <label><span>Type</span><select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>Portrait</option><option>Action</option><option>Interview</option><option>Lifestyle</option><option>Sponsor</option><option>Événement</option></select></label>
+            <label><span>Lieu</span><input value={form.place} onChange={(event) => setForm({ ...form, place: event.target.value })} /></label>
+            <label><span>Photographe</span><input value={form.photographer} onChange={(event) => setForm({ ...form, photographer: event.target.value })} /></label>
+            <label className="modal-wide"><span>Objectif</span><textarea value={form.objective} onChange={(event) => setForm({ ...form, objective: event.target.value })} /></label>
+            <div className="modal-actions modal-wide"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Annuler</button><button className="primary-button" disabled={saving}>{saving ? "Création…" : "Créer"}</button></div>
           </form>
         </Modal>
       )}
 
       {selected && (
-        <Modal
-          title={`${selected.athlete} · ${selected.type}`}
-          onClose={() => setSelected(null)}
-        >
-          <div className="shooting-editor">
-            <section className="editor-summary">
-              <div>
-                <span>Date</span>
-                <strong>{selected.date}</strong>
-              </div>
-              <div>
-                <span>Lieu</span>
-                <strong>{selected.place || "À compléter"}</strong>
-              </div>
-              <div>
-                <span>Progression</span>
-                <strong>{ShootingService.progress(selected)}%</strong>
-              </div>
+        <Modal title={`${selected.athlete} · ${selected.type || "Shooting"}`} onClose={() => setSelected(null)}>
+          <div className="shooting-editor shooting-editor-complete">
+            <section className="shooting-detail-hero">
+              <div><p className="eyebrow">{ShootingService.formatDate(selected.date)} · {selected.sport || "Sport à compléter"}</p><h3>{selected.type || "Shooting"}</h3><p>{selected.place || "Lieu à compléter"}</p></div>
+              <div><span>Progression</span><strong>{ShootingService.progress(selected)}%</strong></div>
             </section>
 
-            <div className="editor-grid">
-              <label>
-                <span>Statut</span>
-                <select
-                  value={selected.status}
-                  onChange={(event) =>
-                    setSelected({ ...selected, status: event.target.value })
-                  }
-                >
-                  <option>Planifié</option>
-                  <option>Réalisé</option>
-                  <option>En production</option>
-                  <option>Terminé</option>
-                  <option>Annulé</option>
-                </select>
-              </label>
-              <label>
-                <span>Photos</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={selected.photos}
-                  onChange={(event) =>
-                    setSelected({
-                      ...selected,
-                      photos: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                <span>Vidéos</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={selected.videos}
-                  onChange={(event) =>
-                    setSelected({
-                      ...selected,
-                      videos: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
+            <div className="shooting-core-grid">
+              <label><span>Date</span><input type="date" value={selected.date} onChange={(event) => setSelected({ ...selected, date: event.target.value })} /></label>
+              <label><span>Athlète</span><select value={selected.athlete} onChange={(event) => selectAthlete(event.target.value, "edit")}>{athletes.map((athlete) => <option key={athlete.name}>{athlete.name}</option>)}</select></label>
+              <label><span>Sport</span><input value={selected.sport} onChange={(event) => setSelected({ ...selected, sport: event.target.value })} /></label>
+              <label><span>Type</span><input value={selected.type} onChange={(event) => setSelected({ ...selected, type: event.target.value })} /></label>
+              <label><span>Lieu</span><input value={selected.place} onChange={(event) => setSelected({ ...selected, place: event.target.value })} /></label>
+              <label><span>Photographe</span><input value={selected.photographer} onChange={(event) => setSelected({ ...selected, photographer: event.target.value })} /></label>
+              <label><span>Statut</span><select value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value })}><option>Planifié</option><option>Réalisé</option><option>En production</option><option>Terminé</option><option>Annulé</option></select></label>
+              <label><span>Photos</span><input type="number" min="0" value={selected.photos} onChange={(event) => setSelected({ ...selected, photos: Number(event.target.value) })} /></label>
+              <label><span>Vidéos</span><input type="number" min="0" value={selected.videos} onChange={(event) => setSelected({ ...selected, videos: Number(event.target.value) })} /></label>
             </div>
 
+            <label className="editor-notes"><span>Objectif</span><textarea value={selected.objective} onChange={(event) => setSelected({ ...selected, objective: event.target.value })} /></label>
+
             <section className="editor-workflow">
-              {workflowFields.map((step) => (
-                <label key={step.key}>
-                  <input
-                    type="checkbox"
-                    checked={selected[step.key]}
-                    onChange={(event) =>
-                      setSelected({
-                        ...selected,
-                        [step.key]: event.target.checked,
-                      })
-                    }
-                  />
-                  <span>{step.label}</span>
-                </label>
-              ))}
+              {workflowFields.map((step) => <label key={step.key}><input type="checkbox" checked={selected[step.key]} onChange={(event) => setSelected({ ...selected, [step.key]: event.target.checked })} /><span>{step.label}</span></label>)}
             </section>
 
-            <label className="editor-notes">
-              <span>Notes</span>
-              <textarea
-                value={selected.notes}
-                onChange={(event) =>
-                  setSelected({ ...selected, notes: event.target.value })
-                }
-              />
-            </label>
+            <label className="editor-notes"><span>Notes internes</span><textarea value={selected.notes} onChange={(event) => setSelected({ ...selected, notes: event.target.value })} /></label>
 
-            <div className="modal-actions">
-              <button
-                className="secondary-button"
-                onClick={() => setSelected(null)}
-              >
-                Annuler
-              </button>
-              <button
-                className="primary-button"
-                onClick={saveShooting}
-                disabled={saving}
-              >
-                {saving ? "Enregistrement…" : "Enregistrer dans Google Sheets"}
-              </button>
+            <div className="shooting-linked-actions">
+              {onOpenAthlete && athletes.find((athlete) => athlete.name === selected.athlete) && (
+                <button className="secondary-button" onClick={() => onOpenAthlete(athletes.find((athlete) => athlete.name === selected.athlete)!)}>Voir la fiche athlète</button>
+              )}
+            </div>
+
+            <div className="modal-actions shooting-modal-actions">
+              <button className="danger-button" onClick={deleteShooting} disabled={saving}>Supprimer</button>
+              <div><button className="secondary-button" onClick={() => setSelected(null)}>Annuler</button><button className="primary-button" onClick={saveShooting} disabled={saving}>{saving ? "Enregistrement…" : "Enregistrer"}</button></div>
             </div>
           </div>
         </Modal>

@@ -34,6 +34,13 @@ export type ShootingUpdate = Pick<Shooting, "row"> &
   Partial<
     Pick<
       Shooting,
+      | "date"
+      | "athlete"
+      | "sport"
+      | "type"
+      | "place"
+      | "objective"
+      | "photographer"
       | "status"
       | "photos"
       | "videos"

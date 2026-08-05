@@ -37,6 +37,25 @@ export const ShootingService = {
     await parseResponse<{ success: boolean }>(response);
   },
 
+  async remove(row: number): Promise<void> {
+    const response = await fetch(`/api/shootings?row=${row}`, {
+      method: "DELETE",
+    });
+    await parseResponse<{ success: boolean }>(response);
+  },
+
+  formatDate(value: string): string {
+    if (!value) return "Date à compléter";
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (!iso) return value;
+    const [year, month, day] = value.split("-");
+    return `${day}.${month}.${year}`;
+  },
+
+  isComplete(shooting: Shooting): boolean {
+    return shooting.published || ShootingService.progress(shooting) === 100;
+  },
+
   progress(shooting: Shooting): number {
     const steps = [
       shooting.importDone,

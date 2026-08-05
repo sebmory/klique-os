@@ -326,6 +326,13 @@ export async function updateShootingInGoogleSheets(
   const current = currentResponse.data.values?.[0] ?? [];
   const next = Array.from({ length: 18 }, (_, index) => current[index] ?? "");
 
+  if (update.date !== undefined) next[0] = update.date;
+  if (update.athlete !== undefined) next[1] = update.athlete;
+  if (update.sport !== undefined) next[2] = update.sport;
+  if (update.type !== undefined) next[3] = update.type;
+  if (update.place !== undefined) next[4] = update.place;
+  if (update.objective !== undefined) next[5] = update.objective;
+  if (update.photographer !== undefined) next[7] = update.photographer;
   if (update.status !== undefined) next[8] = update.status;
   if (update.photos !== undefined) next[9] = update.photos;
   if (update.videos !== undefined) next[10] = update.videos;
@@ -344,6 +351,47 @@ export async function updateShootingInGoogleSheets(
     requestBody: { values: [next] },
   });
 }
+
+
+export async function deleteShootingFromGoogleSheets(row: number): Promise<void> {
+  if (!row || row < 4) {
+    throw new Error("Ligne shooting invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: getSpreadsheetId(),
+    fields: "sheets.properties",
+  });
+
+  const sheet = metadata.data.sheets?.find(
+    (item) => item.properties?.title === "16_Shootings"
+  );
+  const sheetId = sheet?.properties?.sheetId;
+
+  if (sheetId === undefined) {
+    throw new Error("Onglet 16_Shootings introuvable.");
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: getSpreadsheetId(),
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: row - 1,
+              endIndex: row,
+            },
+          },
+        },
+      ],
+    },
+  });
+}
+
 export async function getCalendarEventsFromGoogleSheets(): Promise<CalendarEvent[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({

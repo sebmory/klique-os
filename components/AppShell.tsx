@@ -69,6 +69,49 @@ const emptyForm: NewShooting = {
   photographer: "Sébastien Mory",
 };
 
+const normalizePersonName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+const parseKliqueDate = (value: string): Date | null => {
+  const cleaned = String(value ?? "").trim();
+  if (!cleaned || cleaned === "0" || cleaned.includes("1899")) return null;
+
+  const isoMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const date = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const europeanMatch = cleaned.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (europeanMatch) {
+    const date = new Date(Number(europeanMatch[3]), Number(europeanMatch[2]) - 1, Number(europeanMatch[1]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const parsed = new Date(cleaned);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatKliqueDate = (date: Date | null) =>
+  date
+    ? new Intl.DateTimeFormat("fr-CH", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(date)
+    : "Jamais";
+
+const athleteTone = (coverage: number): Athlete["tone"] => {
+  if (coverage >= 75) return "solid";
+  if (coverage >= 55) return "correct";
+  if (coverage >= 35) return "fragile";
+  return "critical";
+};
+
 export function AppShell() {
   const [activePage, setActivePage] = useState("Dashboard");
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -150,6 +193,74 @@ export function AppShell() {
     0
   );
 
+  const enrichedAthletes = useMemo(
+    () =>
+      athletes.map((athlete) => {
+        const athleteName = normalizePersonName(athlete.name);
+        const linkedShootings = shootings.filter(
+          (shooting) => normalizePersonName(shooting.athlete) === athleteName
+        );
+        const linkedMedia = media.filter(
+          (lot) => normalizePersonName(lot.athlete) === athleteName
+        );
+        const linkedPartners = PartnerService.partnersForAthlete(partners, athlete);
+
+        const datedShootings = linkedShootings
+          .map((shooting) => parseKliqueDate(shooting.date))
+          .filter((date): date is Date => Boolean(date))
+          .sort((a, b) => b.getTime() - a.getTime());
+        const lastShootDate = datedShootings[0] ?? null;
+
+        const mediaTotal = linkedMedia.reduce((sum, lot) => sum + lot.totalFiles, 0);
+        const shootingMediaFallback = linkedShootings.reduce(
+          (sum, shooting) => sum + shooting.photos + shooting.videos,
+          0
+        );
+        const premiumTotal = linkedMedia.reduce((sum, lot) => sum + lot.premiumTotal, 0);
+        const availableMedia = Math.max(mediaTotal, shootingMediaFallback);
+
+        const hasRecentShoot =
+          lastShootDate !== null &&
+          Date.now() - lastShootDate.getTime() <= 120 * 24 * 60 * 60 * 1000;
+        const coverage = Math.min(
+          100,
+          (linkedShootings.length > 0 ? 25 : 0) +
+            Math.min(30, Math.round((availableMedia / 100) * 30)) +
+            Math.min(25, Math.round((premiumTotal / 10) * 25)) +
+            (hasRecentShoot ? 15 : lastShootDate ? 5 : 0) +
+            (linkedPartners.length > 0 ? 5 : 0)
+        );
+
+        const nextAction =
+          linkedShootings.length === 0
+            ? "Programmer un premier shooting complet."
+            : availableMedia === 0
+            ? "Renseigner le nombre de médias du dernier shooting."
+            : premiumTotal < 5
+            ? "Identifier davantage de contenus Premium."
+            : !hasRecentShoot
+            ? "Prévoir un nouveau shooting prochainement."
+            : "Profil à jour.";
+
+        return {
+          ...athlete,
+          lastShoot: formatKliqueDate(lastShootDate),
+          media: availableMedia,
+          premium: premiumTotal,
+          coverage,
+          tone: athleteTone(coverage),
+          nextAction,
+        };
+      }),
+    [athletes, shootings, media, partners]
+  );
+
+  const selectedAthleteView = selectedAthlete
+    ? enrichedAthletes.find(
+        (athlete) => normalizePersonName(athlete.name) === normalizePersonName(selectedAthlete.name)
+      ) ?? selectedAthlete
+    : null;
+
   const workflow = useMemo(
     () =>
       shootings.map((shooting) => {
@@ -183,7 +294,7 @@ export function AppShell() {
   );
 
   const stats = [
-    { label: "Athlètes", value: String(athletes.length), note: "membres actifs" },
+    { label: "Athlètes", value: String(enrichedAthletes.length), note: "membres actifs" },
     {
       label: "Shootings",
       value: String(shootings.length),
@@ -241,7 +352,7 @@ export function AppShell() {
         <header className="topbar">
           <div>
             <p className="eyebrow">KLIQUE OS · VERSION 0.4</p>
-            <h1>{selectedAthlete ? "Fiche athlète" : activePage}</h1>
+            <h1>{selectedAthleteView ? "Fiche athlète" : activePage}</h1>
           </div>
           <div className="topbar-actions">
             <span
@@ -280,25 +391,26 @@ export function AppShell() {
               <div className="loader" />
               <h2>Chargement de KLIQUE OS…</h2>
             </section>
-          ) : selectedAthlete ? (
-            <AthleteDetail athlete={selectedAthlete} partners={partners} shootings={shootings} onBack={() => setSelectedAthlete(null)} />
+          ) : selectedAthleteView ? (
+            <AthleteDetail athlete={selectedAthleteView} partners={partners} shootings={shootings} onBack={() => setSelectedAthlete(null)} />
           ) : activePage === "Dashboard" ? (
             <Dashboard stats={stats} workflow={workflow} />
           ) : activePage === "Athlètes" ? (
-            <AthletesPage athletes={athletes} onSelect={setSelectedAthlete} />
+            <AthletesPage athletes={enrichedAthletes} onSelect={setSelectedAthlete} />
           ) : activePage === "Shootings" ? (
             <ShootingsModule
-              athletes={athletes}
+              athletes={enrichedAthletes}
               shootings={shootings}
               source={shootingSource}
               message={dataMessage}
               onRefresh={loadData}
+              onOpenAthlete={(athlete) => setSelectedAthlete(athlete)}
             />
           ) : activePage === "Workflow" ? (
             <WorkflowPage workflow={workflow} />
           ) : activePage === "Banque médias" ? (
             <MediaCenterModule
-              athletes={athletes}
+              athletes={enrichedAthletes}
               media={media}
               source={mediaSource}
               message={dataMessage}
@@ -306,7 +418,7 @@ export function AppShell() {
             />
           ) : activePage === "Calendrier" ? (
             <CalendarModule
-              athletes={athletes}
+              athletes={enrichedAthletes}
               events={calendarEvents}
               source={calendarSource}
               message={dataMessage}
@@ -330,7 +442,7 @@ export function AppShell() {
             />
           ) : activePage === "Partenaires" ? (
             <PartnersModule
-              athletes={athletes}
+              athletes={enrichedAthletes}
               partners={partners}
               source={partnerSource}
               message={dataMessage}
@@ -1128,16 +1240,20 @@ function AthleteDetail({
   const [selectedExpert, setSelectedExpert] = useState<Partner | null>(null);
   const [selectedShooting, setSelectedShooting] = useState<Shooting | null>(null);
 
-  const normalizeName = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .toLowerCase();
-
   const athleteShootings = shootings
-    .filter((shooting) => normalizeName(shooting.athlete) === normalizeName(athlete.name))
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .filter(
+      (shooting) =>
+        normalizePersonName(shooting.athlete) === normalizePersonName(athlete.name)
+    )
+    .sort(
+      (a, b) =>
+        (parseKliqueDate(b.date)?.getTime() ?? 0) -
+        (parseKliqueDate(a.date)?.getTime() ?? 0)
+    );
+
+  const lastShootingLabel = formatKliqueDate(
+    parseKliqueDate(athleteShootings[0]?.date ?? "")
+  );
 
   const shootingProgress = (shooting: Shooting) => {
     const steps = [
@@ -1178,7 +1294,7 @@ function AthleteDetail({
       <section className="premium-command-bar">
         <div><span>Médias</span><strong>{athlete.media}</strong></div>
         <div><span>Premium</span><strong>{athlete.premium}</strong></div>
-        <div><span>Dernier shooting</span><strong>{athlete.lastShoot}</strong></div>
+        <div><span>Dernier shooting</span><strong>{lastShootingLabel}</strong></div>
         <div><span>Instagram</span><strong>{athlete.instagram || "À compléter"}</strong></div>
       </section>
       <section className="premium-overview-grid">

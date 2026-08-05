@@ -3450,3 +3450,54 @@ button { cursor: pointer; }
     grid-template-columns: 1fr;
   }
 }
+
+
+/* V0.13 — Finalisation du module Shootings */
+.shooting-empty-state {
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: white;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.shooting-empty-state p { margin: 7px 0 0; color: var(--muted); }
+.shooting-editor-complete { padding: 20px; }
+.shooting-detail-hero {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #111, #303030);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.shooting-detail-hero h3 { margin: 5px 0; font-size: 25px; }
+.shooting-detail-hero p:last-child { margin: 0; color: #c6c8cc; }
+.shooting-detail-hero > div:last-child { text-align: right; }
+.shooting-detail-hero span, .shooting-detail-hero strong { display: block; }
+.shooting-detail-hero span { color: #aeb1b7; font-size: 10px; }
+.shooting-detail-hero strong { margin-top: 4px; color: var(--yellow); font-size: 28px; }
+.shooting-core-grid {
+  margin-bottom: 15px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+}
+.shooting-core-grid label { display: grid; gap: 6px; }
+.shooting-core-grid label span { color: var(--muted); font-size: 11px; font-weight: 800; }
+.shooting-core-grid input, .shooting-core-grid select {
+  width: 100%; min-height: 42px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 11px;
+  background: var(--background); outline: none;
+}
+.shooting-linked-actions { margin-bottom: 15px; display: flex; justify-content: flex-start; }
+.shooting-modal-actions { justify-content: space-between; align-items: center; }
+.shooting-modal-actions > div { display: flex; gap: 9px; }
+@media (max-width: 720px) {
+  .shooting-detail-hero { align-items: flex-start; flex-direction: column; }
+  .shooting-core-grid { grid-template-columns: 1fr; }
+  .shooting-modal-actions, .shooting-modal-actions > div { align-items: stretch; flex-direction: column; }
+}

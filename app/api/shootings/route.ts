@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { demoShootings } from "@/lib/demo-shootings";
 import {
   addShootingToGoogleSheets,
+  deleteShootingFromGoogleSheets,
   getShootingsFromGoogleSheets,
   updateShootingInGoogleSheets,
 } from "@/lib/google-sheets";
@@ -77,6 +78,31 @@ export async function PATCH(request: NextRequest) {
           error instanceof Error
             ? error.message
             : "Impossible de mettre à jour le shooting.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const row = Number(request.nextUrl.searchParams.get("row"));
+    if (!row) {
+      return NextResponse.json(
+        { error: "La ligne du shooting est obligatoire." },
+        { status: 400 }
+      );
+    }
+
+    await deleteShootingFromGoogleSheets(row);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Impossible de supprimer le shooting.",
       },
       { status: 500 }
     );
