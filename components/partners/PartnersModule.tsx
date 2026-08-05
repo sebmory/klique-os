@@ -84,12 +84,14 @@ export function PartnersModule({
   source,
   message,
   onRefresh,
+  onSelectAthlete,
 }: {
   athletes: Athlete[];
   partners: Partner[];
   source: "google-sheets" | "demo";
   message: string;
   onRefresh: () => Promise<void>;
+  onSelectAthlete: (athlete: Athlete) => void;
 }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("Tous");
@@ -387,13 +389,19 @@ export function PartnersModule({
                       const athlete = athletes.find((item) => item.key === key);
                       if (!athlete) return null;
                       return (
-                        <div key={athlete.key}>
+                        <button
+                          type="button"
+                          key={athlete.key}
+                          className="expert-athlete-link"
+                          onClick={() => onSelectAthlete(athlete)}
+                        >
                           <b>{athlete.initials}</b>
                           <span>
                             <strong>{athlete.name}</strong>
                             <small>{athlete.sport} · {athlete.club}</small>
                           </span>
-                        </div>
+                          <i>Voir la fiche →</i>
+                        </button>
                       );
                     })
                   ) : (

@@ -18,6 +18,7 @@ import type { ShotListItem, ShotListResponse } from "@/types/shotlist";
 import { PartnersModule } from "@/components/partners/PartnersModule";
 import type { Partner, PartnerResponse } from "@/types/partner";
 import { PartnerService } from "@/services/partner.service";
+import { Modal } from "@/components/ui/Modal";
 import { ShootingsModule } from "@/components/shootings/ShootingsModule";
 
 const navigation = [
@@ -280,7 +281,7 @@ export function AppShell() {
               <h2>Chargement de KLIQUE OS…</h2>
             </section>
           ) : selectedAthlete ? (
-            <AthleteDetail athlete={selectedAthlete} partners={partners} onBack={() => setSelectedAthlete(null)} />
+            <AthleteDetail athlete={selectedAthlete} partners={partners} shootings={shootings} onBack={() => setSelectedAthlete(null)} />
           ) : activePage === "Dashboard" ? (
             <Dashboard stats={stats} workflow={workflow} />
           ) : activePage === "Athlètes" ? (
@@ -334,6 +335,10 @@ export function AppShell() {
               source={partnerSource}
               message={dataMessage}
               onRefresh={loadData}
+              onSelectAthlete={(athlete) => {
+                setSelectedAthlete(athlete);
+                setActivePage("Athlètes");
+              }}
             />
           ) : (
             <section className="empty-page">
@@ -1111,13 +1116,40 @@ function MediaLibraryPage({
 function AthleteDetail({
   athlete,
   partners,
+  shootings,
   onBack,
 }: {
   athlete: Athlete;
   partners: Partner[];
+  shootings: Shooting[];
   onBack: () => void;
 }) {
   const linkedPartners = PartnerService.partnersForAthlete(partners, athlete);
+  const [selectedExpert, setSelectedExpert] = useState<Partner | null>(null);
+  const [selectedShooting, setSelectedShooting] = useState<Shooting | null>(null);
+
+  const normalizeName = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+
+  const athleteShootings = shootings
+    .filter((shooting) => normalizeName(shooting.athlete) === normalizeName(athlete.name))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const shootingProgress = (shooting: Shooting) => {
+    const steps = [
+      shooting.importDone,
+      shooting.sortDone,
+      shooting.retouchDone,
+      shooting.exportDone,
+      shooting.driveDone,
+      shooting.published,
+    ];
+    return Math.round((steps.filter(Boolean).length / steps.length) * 100);
+  };
 
   const recommendation =
     athlete.coverage < 35
@@ -1166,17 +1198,55 @@ function AthleteDetail({
           <h3>{athlete.nextAction || recommendation}</h3>
           <p>Cette fiche est alimentée par la base réelle Google Sheets.</p>
         </article>
+        <article className="panel premium-panel athlete-shootings-panel">
+          <p className="eyebrow">Shootings</p>
+          <h3>{athleteShootings.length} shooting(s) enregistré(s)</h3>
+          <div className="athlete-shooting-list">
+            {athleteShootings.length ? (
+              athleteShootings.map((shooting, index) => {
+                const progress = shootingProgress(shooting);
+                return (
+                  <button
+                    type="button"
+                    className="athlete-shooting-card"
+                    key={`${shooting.row ?? index}-${shooting.date}-${shooting.type}`}
+                    onClick={() => setSelectedShooting(shooting)}
+                  >
+                    <div>
+                      <span>{shooting.date || "Date à compléter"}</span>
+                      <strong>{shooting.type || "Shooting"}</strong>
+                      <small>{shooting.place || "Lieu à compléter"} · {shooting.status || "Statut à compléter"}</small>
+                    </div>
+                    <div className="athlete-shooting-progress">
+                      <b>{progress}%</b>
+                      <i><span style={{ width: `${progress}%` }} /></i>
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <p>Aucun shooting lié à cet athlète.</p>
+            )}
+          </div>
+        </article>
+
         <article className="panel premium-panel athlete-experts-panel">
           <p className="eyebrow">Experts KLIQUE</p>
           <h3>{linkedPartners.length} expert(s) lié(s)</h3>
           <div className="athlete-expert-list">
             {linkedPartners.length ? (
               linkedPartners.map((partner) => (
-                <div key={partner.id}>
+                <button
+                  type="button"
+                  className="athlete-expert-card"
+                  key={partner.id}
+                  onClick={() => setSelectedExpert(partner)}
+                >
                   <span>{partner.category}</span>
                   <strong>{partner.name}</strong>
                   <small>{partner.email || partner.instagram || "Coordonnées à compléter"}</small>
-                </div>
+                  <i>Voir l’expert →</i>
+                </button>
               ))
             ) : (
               <p>Aucun expert lié à cet athlète.</p>
@@ -1184,6 +1254,113 @@ function AthleteDetail({
           </div>
         </article>
       </section>
+
+      {selectedShooting && (
+        <Modal
+          title={`${selectedShooting.athlete} · ${selectedShooting.type || "Shooting"}`}
+          onClose={() => setSelectedShooting(null)}
+        >
+          <div className="athlete-shooting-modal">
+            <section className="athlete-shooting-modal-hero">
+              <div>
+                <p className="eyebrow">{selectedShooting.date} · {selectedShooting.sport}</p>
+                <h3>{selectedShooting.type || "Shooting"}</h3>
+                <p>{selectedShooting.place || "Lieu à compléter"}</p>
+              </div>
+              <div>
+                <span>Progression</span>
+                <strong>{shootingProgress(selectedShooting)}%</strong>
+              </div>
+            </section>
+
+            <section className="athlete-shooting-modal-grid">
+              <div><span>Statut</span><strong>{selectedShooting.status || "À compléter"}</strong></div>
+              <div><span>Photographe</span><strong>{selectedShooting.photographer || "À compléter"}</strong></div>
+              <div><span>Photos</span><strong>{selectedShooting.photos}</strong></div>
+              <div><span>Vidéos</span><strong>{selectedShooting.videos}</strong></div>
+            </section>
+
+            <section className="athlete-shooting-workflow">
+              {[
+                ["Import", selectedShooting.importDone],
+                ["Tri", selectedShooting.sortDone],
+                ["Retouche", selectedShooting.retouchDone],
+                ["Export", selectedShooting.exportDone],
+                ["Drive", selectedShooting.driveDone],
+                ["Publication", selectedShooting.published],
+              ].map(([label, done]) => (
+                <span className={done ? "done" : ""} key={String(label)}>
+                  {done ? "✓ " : ""}{String(label)}
+                </span>
+              ))}
+            </section>
+
+            {(selectedShooting.objective || selectedShooting.notes) && (
+              <section className="athlete-shooting-notes">
+                {selectedShooting.objective && (
+                  <div><span>Objectif</span><p>{selectedShooting.objective}</p></div>
+                )}
+                {selectedShooting.notes && (
+                  <div><span>Notes</span><p>{selectedShooting.notes}</p></div>
+                )}
+              </section>
+            )}
+
+            <div className="modal-actions">
+              <button className="secondary-button" onClick={() => setSelectedShooting(null)}>Fermer</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {selectedExpert && (
+        <Modal title={selectedExpert.name} onClose={() => setSelectedExpert(null)}>
+          <div className="athlete-expert-modal">
+            <section className="athlete-expert-modal-hero">
+              <div className="partner-avatar large">
+                {selectedExpert.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase())
+                  .join("")}
+              </div>
+              <div>
+                <p className="eyebrow">{selectedExpert.category}</p>
+                <h3>{selectedExpert.name}</h3>
+                <p>{selectedExpert.description || "Présentation à compléter."}</p>
+              </div>
+            </section>
+
+            <section className="athlete-expert-modal-grid">
+              <div><span>Contact</span><strong>{selectedExpert.contact || "À compléter"}</strong></div>
+              <div><span>E-mail</span><strong>{selectedExpert.email || "À compléter"}</strong></div>
+              <div><span>Téléphone</span><strong>{selectedExpert.phone || "À compléter"}</strong></div>
+              <div><span>Instagram</span><strong>{selectedExpert.instagram || "À compléter"}</strong></div>
+            </section>
+
+            <article className="athlete-expert-benefits">
+              <span>Avantages KLIQUE</span>
+              <p>{selectedExpert.benefits || "Aucun avantage renseigné."}</p>
+            </article>
+
+            <div className="expert-action-bar athlete-expert-actions">
+              {selectedExpert.email && <a href={`mailto:${selectedExpert.email}`}>Envoyer un e-mail</a>}
+              {selectedExpert.phone && <a href={`tel:${selectedExpert.phone}`}>Appeler</a>}
+              {selectedExpert.website && (
+                <a
+                  href={/^https?:\/\//i.test(selectedExpert.website) ? selectedExpert.website : `https://${selectedExpert.website}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Site web ↗
+                </a>
+              )}
+              <button onClick={() => setSelectedExpert(null)}>Fermer</button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

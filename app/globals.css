@@ -3095,3 +3095,358 @@ button { cursor: pointer; }
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* V0.11.4 — Navigation Athlètes ↔ Experts */
+.expert-athlete-link {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.expert-athlete-link i {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.athlete-expert-card {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: inherit;
+  text-align: left;
+  display: grid;
+}
+
+.athlete-expert-card:hover {
+  border-color: #d4b000;
+  background: #fffaf0;
+}
+
+.athlete-expert-card i {
+  margin-top: 8px;
+  color: #6b5a00;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.athlete-expert-modal {
+  padding: 20px;
+}
+
+.athlete-expert-modal-hero {
+  margin-bottom: 15px;
+  padding: 18px;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #111, #303030);
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.athlete-expert-modal-hero h3 {
+  margin: 4px 0 7px;
+  font-size: 24px;
+}
+
+.athlete-expert-modal-hero p:last-child {
+  margin: 0;
+  color: #c7c9cd;
+}
+
+.athlete-expert-modal-grid {
+  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.athlete-expert-modal-grid div,
+.athlete-expert-benefits {
+  padding: 13px;
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.athlete-expert-modal-grid span,
+.athlete-expert-modal-grid strong,
+.athlete-expert-benefits span {
+  display: block;
+}
+
+.athlete-expert-modal-grid span,
+.athlete-expert-benefits span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.athlete-expert-modal-grid strong {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.athlete-expert-benefits p {
+  margin: 7px 0 0;
+  white-space: pre-wrap;
+}
+
+.athlete-expert-actions {
+  margin-top: 14px;
+}
+
+@media (max-width: 650px) {
+  .athlete-expert-modal-hero,
+  .athlete-expert-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .athlete-expert-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* V0.11.5 — Historique des shootings sur la fiche athlète */
+.athlete-shootings-panel {
+  grid-column: span 2;
+}
+
+.athlete-shooting-list {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.athlete-shooting-card {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: inherit;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 14px;
+  align-items: center;
+}
+
+.athlete-shooting-card:hover {
+  border-color: #d3b000;
+  background: #fffdf2;
+}
+
+.athlete-shooting-card span,
+.athlete-shooting-card strong,
+.athlete-shooting-card small {
+  display: block;
+}
+
+.athlete-shooting-card span,
+.athlete-shooting-card small {
+  color: var(--muted);
+}
+
+.athlete-shooting-card span {
+  font-size: 10px;
+}
+
+.athlete-shooting-card strong {
+  margin: 3px 0;
+}
+
+.athlete-shooting-progress {
+  text-align: right;
+}
+
+.athlete-shooting-progress b {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.athlete-shooting-progress i {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e6e9;
+}
+
+.athlete-shooting-progress i span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--yellow);
+}
+
+.athlete-shooting-modal {
+  padding: 20px;
+}
+
+.athlete-shooting-modal-hero {
+  margin-bottom: 15px;
+  padding: 18px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #111, #303030);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.athlete-shooting-modal-hero h3 {
+  margin: 5px 0;
+  font-size: 24px;
+}
+
+.athlete-shooting-modal-hero p:last-child {
+  margin: 0;
+  color: #c3c5ca;
+}
+
+.athlete-shooting-modal-hero > div:last-child {
+  text-align: right;
+}
+
+.athlete-shooting-modal-hero > div:last-child span,
+.athlete-shooting-modal-hero > div:last-child strong {
+  display: block;
+}
+
+.athlete-shooting-modal-hero > div:last-child span {
+  color: #aeb1b7;
+  font-size: 10px;
+}
+
+.athlete-shooting-modal-hero > div:last-child strong {
+  margin-top: 4px;
+  color: var(--yellow);
+  font-size: 28px;
+}
+
+.athlete-shooting-modal-grid {
+  margin-bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.athlete-shooting-modal-grid div {
+  padding: 12px;
+  border-radius: 11px;
+  background: var(--background);
+}
+
+.athlete-shooting-modal-grid span,
+.athlete-shooting-modal-grid strong {
+  display: block;
+}
+
+.athlete-shooting-modal-grid span {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.athlete-shooting-modal-grid strong {
+  margin-top: 4px;
+}
+
+.athlete-shooting-workflow {
+  margin-bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.athlete-shooting-workflow span {
+  padding: 9px 5px;
+  border-radius: 9px;
+  background: #eef0f3;
+  color: #8d9198;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.athlete-shooting-workflow span.done {
+  background: #111;
+  color: var(--yellow);
+}
+
+.athlete-shooting-notes {
+  margin-bottom: 15px;
+  display: grid;
+  gap: 8px;
+}
+
+.athlete-shooting-notes div {
+  padding: 12px;
+  border-radius: 11px;
+  background: var(--background);
+}
+
+.athlete-shooting-notes span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.athlete-shooting-notes p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .athlete-shootings-panel {
+    grid-column: auto;
+  }
+
+  .athlete-shooting-modal-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .athlete-shooting-workflow {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .athlete-shooting-card {
+    grid-template-columns: 1fr;
+  }
+
+  .athlete-shooting-progress {
+    text-align: left;
+  }
+
+  .athlete-shooting-modal-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .athlete-shooting-modal-hero > div:last-child {
+    text-align: left;
+  }
+
+  .athlete-shooting-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
