@@ -150,7 +150,7 @@ export async function getShootingsFromGoogleSheets(): Promise<Shooting[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'16_Shootings'!A3:R300",
+    range: "'16_Shootings'!A3:AG300",
   });
 
   const rows = response.data.values ?? [];
@@ -177,6 +177,21 @@ export async function getShootingsFromGoogleSheets(): Promise<Shooting[]> {
       driveDone: boolValue(row[15]),
       published: boolValue(row[16]),
       notes: String(row[17] ?? ""),
+      lightroomLink: String(row[18] ?? ""),
+      driveLink: String(row[19] ?? ""),
+      clientGalleryLink: String(row[20] ?? ""),
+      instagramLink: String(row[21] ?? ""),
+      shootingDone: boolValue(row[22]),
+      backupDone: boolValue(row[23]),
+      publishedInstagram: boolValue(row[24]),
+      publishedFacebook: boolValue(row[25]),
+      publishedLinkedIn: boolValue(row[26]),
+      deliverableClub: boolValue(row[27]),
+      deliverableAthlete: boolValue(row[28]),
+      deliverableSponsor: boolValue(row[29]),
+      deliverableMedia: boolValue(row[30]),
+      deliverableAgency: boolValue(row[31]),
+      deliverableOther: boolValue(row[32]),
     }))
     .filter((shooting) => shooting.athlete || shooting.date || shooting.type);
 }
@@ -188,7 +203,7 @@ export async function addShootingToGoogleSheets(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: "'16_Shootings'!A:R",
+    range: "'16_Shootings'!A:AG",
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -202,15 +217,30 @@ export async function addShootingToGoogleSheets(
         "",
         shooting.photographer,
         "Planifié",
-        0,
-        0,
-        "Non",
-        "Non",
-        "Non",
-        "Non",
-        "Non",
-        "Non",
-        "",
+        shooting.photos,
+        shooting.videos,
+        shooting.importDone ? "Oui" : "Non",
+        shooting.sortDone ? "Oui" : "Non",
+        shooting.retouchDone ? "Oui" : "Non",
+        shooting.exportDone ? "Oui" : "Non",
+        shooting.driveDone ? "Oui" : "Non",
+        shooting.published ? "Oui" : "Non",
+        shooting.notes,
+        shooting.lightroomLink,
+        shooting.driveLink,
+        shooting.clientGalleryLink,
+        shooting.instagramLink,
+        shooting.shootingDone ? "Oui" : "Non",
+        shooting.backupDone ? "Oui" : "Non",
+        shooting.publishedInstagram ? "Oui" : "Non",
+        shooting.publishedFacebook ? "Oui" : "Non",
+        shooting.publishedLinkedIn ? "Oui" : "Non",
+        shooting.deliverableClub ? "Oui" : "Non",
+        shooting.deliverableAthlete ? "Oui" : "Non",
+        shooting.deliverableSponsor ? "Oui" : "Non",
+        shooting.deliverableMedia ? "Oui" : "Non",
+        shooting.deliverableAgency ? "Oui" : "Non",
+        shooting.deliverableOther ? "Oui" : "Non",
       ]],
     },
   });
@@ -320,11 +350,11 @@ export async function updateShootingInGoogleSheets(
 
   const currentResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `'16_Shootings'!A${row}:R${row}`,
+    range: `'16_Shootings'!A${row}:AG${row}`,
   });
 
   const current = currentResponse.data.values?.[0] ?? [];
-  const next = Array.from({ length: 18 }, (_, index) => current[index] ?? "");
+  const next = Array.from({ length: 33 }, (_, index) => current[index] ?? "");
 
   if (update.date !== undefined) next[0] = update.date;
   if (update.athlete !== undefined) next[1] = update.athlete;
@@ -343,10 +373,25 @@ export async function updateShootingInGoogleSheets(
   if (update.driveDone !== undefined) next[15] = update.driveDone ? "Oui" : "Non";
   if (update.published !== undefined) next[16] = update.published ? "Oui" : "Non";
   if (update.notes !== undefined) next[17] = update.notes;
+  if (update.lightroomLink !== undefined) next[18] = update.lightroomLink;
+  if (update.driveLink !== undefined) next[19] = update.driveLink;
+  if (update.clientGalleryLink !== undefined) next[20] = update.clientGalleryLink;
+  if (update.instagramLink !== undefined) next[21] = update.instagramLink;
+  if (update.shootingDone !== undefined) next[22] = update.shootingDone ? "Oui" : "Non";
+  if (update.backupDone !== undefined) next[23] = update.backupDone ? "Oui" : "Non";
+  if (update.publishedInstagram !== undefined) next[24] = update.publishedInstagram ? "Oui" : "Non";
+  if (update.publishedFacebook !== undefined) next[25] = update.publishedFacebook ? "Oui" : "Non";
+  if (update.publishedLinkedIn !== undefined) next[26] = update.publishedLinkedIn ? "Oui" : "Non";
+  if (update.deliverableClub !== undefined) next[27] = update.deliverableClub ? "Oui" : "Non";
+  if (update.deliverableAthlete !== undefined) next[28] = update.deliverableAthlete ? "Oui" : "Non";
+  if (update.deliverableSponsor !== undefined) next[29] = update.deliverableSponsor ? "Oui" : "Non";
+  if (update.deliverableMedia !== undefined) next[30] = update.deliverableMedia ? "Oui" : "Non";
+  if (update.deliverableAgency !== undefined) next[31] = update.deliverableAgency ? "Oui" : "Non";
+  if (update.deliverableOther !== undefined) next[32] = update.deliverableOther ? "Oui" : "Non";
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: getSpreadsheetId(),
-    range: `'16_Shootings'!A${row}:R${row}`,
+    range: `'16_Shootings'!A${row}:AG${row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
   });

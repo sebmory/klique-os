@@ -6,18 +6,11 @@ import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import { ShootingService } from "@/services/shooting.service";
 import { Modal } from "@/components/ui/Modal";
 
-const emptyForm: NewShooting = {
-  date: "",
-  athlete: "",
-  sport: "",
-  type: "Portrait",
-  place: "",
-  objective: "",
-  photographer: "Sébastien Mory",
-};
-
 const workflowFields: Array<{
-  key: keyof Pick<Shooting, "importDone" | "sortDone" | "retouchDone" | "exportDone" | "driveDone" | "published">;
+  key: keyof Pick<
+    Shooting,
+    "importDone" | "sortDone" | "retouchDone" | "exportDone" | "driveDone" | "published"
+  >;
   label: string;
 }> = [
   { key: "importDone", label: "Import" },
@@ -26,6 +19,89 @@ const workflowFields: Array<{
   { key: "exportDone", label: "Export" },
   { key: "driveDone", label: "Livré / Drive" },
   { key: "published", label: "Publié" },
+];
+
+const emptyForm: NewShooting = {
+  date: "",
+  athlete: "",
+  sport: "",
+  type: "Portrait",
+  place: "",
+  objective: "",
+  photographer: "Sébastien Mory",
+  status: "Planifié",
+  photos: 0,
+  videos: 0,
+  lightroomLink: "",
+  driveLink: "",
+  clientGalleryLink: "",
+  instagramLink: "",
+  shootingDone: false,
+  importDone: false,
+  backupDone: false,
+  sortDone: false,
+  retouchDone: false,
+  exportDone: false,
+  driveDone: false,
+  publishedInstagram: false,
+  publishedFacebook: false,
+  publishedLinkedIn: false,
+  published: false,
+  deliverableClub: false,
+  deliverableAthlete: false,
+  deliverableSponsor: false,
+  deliverableMedia: false,
+  deliverableAgency: false,
+  deliverableOther: false,
+  notes: "",
+};
+
+const productionChecklistFields: Array<{
+  key: keyof Pick<
+    Shooting,
+    | "shootingDone"
+    | "importDone"
+    | "backupDone"
+    | "sortDone"
+    | "retouchDone"
+    | "exportDone"
+    | "driveDone"
+    | "publishedInstagram"
+    | "publishedFacebook"
+    | "publishedLinkedIn"
+  >;
+  label: string;
+}> = [
+  { key: "shootingDone", label: "Shooting réalisé" },
+  { key: "importDone", label: "Photos importées" },
+  { key: "backupDone", label: "Sauvegarde effectuée" },
+  { key: "sortDone", label: "Tri terminé" },
+  { key: "retouchDone", label: "Retouches terminées" },
+  { key: "exportDone", label: "Exports terminés" },
+  { key: "driveDone", label: "Livraison effectuée" },
+  { key: "publishedInstagram", label: "Publication Instagram" },
+  { key: "publishedFacebook", label: "Publication Facebook" },
+  { key: "publishedLinkedIn", label: "Publication LinkedIn" },
+];
+
+const deliverableFields: Array<{
+  key: keyof Pick<
+    Shooting,
+    | "deliverableClub"
+    | "deliverableAthlete"
+    | "deliverableSponsor"
+    | "deliverableMedia"
+    | "deliverableAgency"
+    | "deliverableOther"
+  >;
+  label: string;
+}> = [
+  { key: "deliverableClub", label: "Club" },
+  { key: "deliverableAthlete", label: "Athlète" },
+  { key: "deliverableSponsor", label: "Sponsor" },
+  { key: "deliverableMedia", label: "Média" },
+  { key: "deliverableAgency", label: "Agence" },
+  { key: "deliverableOther", label: "Autre" },
 ];
 
 export function ShootingsModule({
@@ -51,13 +127,17 @@ export function ShootingsModule({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
 
+  const shootingStatus = (shooting: Shooting) =>
+    ShootingService.statusFromChecklist(shooting);
+
   const visible = useMemo(() => {
     return [...shootings]
       .filter((shooting) => {
         const matchesSearch = `${shooting.athlete} ${shooting.type} ${shooting.place} ${shooting.sport}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        const matchesStatus = status === "Tous" || shooting.status === status;
+        const matchesStatus =
+          status === "Tous" || shootingStatus(shooting) === status;
         return matchesSearch && matchesStatus;
       })
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -65,7 +145,7 @@ export function ShootingsModule({
 
   const statuses = [
     "Tous",
-    ...Array.from(new Set(shootings.map((shooting) => shooting.status))).filter(Boolean),
+    ...Array.from(new Set(shootings.map(shootingStatus))).filter(Boolean),
   ];
 
   const selectAthlete = (name: string, target: "create" | "edit") => {
@@ -82,7 +162,14 @@ export function ShootingsModule({
     setSaving(true);
     setFeedback("");
     try {
-      await ShootingService.create(form);
+      const shootingToCreate: NewShooting = {
+        ...form,
+        status:
+          form.status === "Annulé"
+            ? form.status
+            : ShootingService.statusFromChecklist(form as Shooting),
+      };
+      await ShootingService.create(shootingToCreate);
       setFeedback("Le shooting a été créé.");
       setForm(emptyForm);
       setShowCreate(false);
@@ -99,6 +186,11 @@ export function ShootingsModule({
     setSaving(true);
     setFeedback("");
 
+    const nextStatus =
+      selected.status === "Annulé"
+        ? selected.status
+        : ShootingService.statusFromChecklist(selected);
+
     const update: ShootingUpdate = {
       row: selected.row,
       date: selected.date,
@@ -108,15 +200,30 @@ export function ShootingsModule({
       place: selected.place,
       objective: selected.objective,
       photographer: selected.photographer,
-      status: selected.status,
+      status: nextStatus,
       photos: selected.photos,
       videos: selected.videos,
+      lightroomLink: selected.lightroomLink,
+      driveLink: selected.driveLink,
+      clientGalleryLink: selected.clientGalleryLink,
+      instagramLink: selected.instagramLink,
+      shootingDone: selected.shootingDone,
       importDone: selected.importDone,
+      backupDone: selected.backupDone,
       sortDone: selected.sortDone,
       retouchDone: selected.retouchDone,
       exportDone: selected.exportDone,
       driveDone: selected.driveDone,
+      publishedInstagram: selected.publishedInstagram,
+      publishedFacebook: selected.publishedFacebook,
+      publishedLinkedIn: selected.publishedLinkedIn,
       published: selected.published,
+      deliverableClub: selected.deliverableClub,
+      deliverableAthlete: selected.deliverableAthlete,
+      deliverableSponsor: selected.deliverableSponsor,
+      deliverableMedia: selected.deliverableMedia,
+      deliverableAgency: selected.deliverableAgency,
+      deliverableOther: selected.deliverableOther,
       notes: selected.notes,
     };
 
@@ -149,9 +256,14 @@ export function ShootingsModule({
     }
   };
 
-  const planned = shootings.filter((item) => item.status === "Planifié").length;
+  const planned = shootings.filter((item) => ShootingService.statusFromChecklist(item) === "Planifié").length;
   const complete = shootings.filter(ShootingService.isComplete).length;
-  const toProcess = shootings.filter((item) => item.status !== "Planifié" && !ShootingService.isComplete(item)).length;
+  const toProcess = shootings.filter(
+    (item) =>
+      ShootingService.statusFromChecklist(item) !== "Planifié" &&
+      !ShootingService.isComplete(item) &&
+      item.status !== "Annulé"
+  ).length;
 
   return (
     <>
@@ -196,7 +308,7 @@ export function ShootingsModule({
                     <h3>{shooting.athlete || "Athlète à compléter"}</h3>
                     <span>{shooting.type || "Type à compléter"}</span>
                   </div>
-                  <span className="status-chip">{shooting.status || "À définir"}</span>
+                  <span className="status-chip">{shootingStatus(shooting) || "À définir"}</span>
                 </div>
                 <div className="shooting-pro-details">
                   <div><span>Lieu</span><strong>{shooting.place || "À compléter"}</strong></div>
@@ -249,15 +361,79 @@ export function ShootingsModule({
               <label><span>Type</span><input value={selected.type} onChange={(event) => setSelected({ ...selected, type: event.target.value })} /></label>
               <label><span>Lieu</span><input value={selected.place} onChange={(event) => setSelected({ ...selected, place: event.target.value })} /></label>
               <label><span>Photographe</span><input value={selected.photographer} onChange={(event) => setSelected({ ...selected, photographer: event.target.value })} /></label>
-              <label><span>Statut</span><select value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value })}><option>Planifié</option><option>Réalisé</option><option>En production</option><option>Terminé</option><option>Annulé</option></select></label>
+              <label><span>Statut</span><select value={selected.status} onChange={(event) => setSelected({ ...selected, status: event.target.value })}><option>Planifié</option><option>En cours</option><option>Terminé</option><option>Annulé</option></select></label>
               <label><span>Photos</span><input type="number" min="0" value={selected.photos} onChange={(event) => setSelected({ ...selected, photos: Number(event.target.value) })} /></label>
               <label><span>Vidéos</span><input type="number" min="0" value={selected.videos} onChange={(event) => setSelected({ ...selected, videos: Number(event.target.value) })} /></label>
             </div>
 
             <label className="editor-notes"><span>Objectif</span><textarea value={selected.objective} onChange={(event) => setSelected({ ...selected, objective: event.target.value })} /></label>
 
-            <section className="editor-workflow">
-              {workflowFields.map((step) => <label key={step.key}><input type="checkbox" checked={selected[step.key]} onChange={(event) => setSelected({ ...selected, [step.key]: event.target.checked })} /><span>{step.label}</span></label>)}
+            <section className="editor-section">
+              <div className="section-heading">
+                <p className="eyebrow">Médias</p>
+                <h3>Liens de diffusion</h3>
+              </div>
+              <label><span>Lightroom</span><input value={selected.lightroomLink} onChange={(event) => setSelected({ ...selected, lightroomLink: event.target.value })} /></label>
+              <label><span>Google Drive</span><input value={selected.driveLink} onChange={(event) => setSelected({ ...selected, driveLink: event.target.value })} /></label>
+              <label><span>Galerie client</span><input value={selected.clientGalleryLink} onChange={(event) => setSelected({ ...selected, clientGalleryLink: event.target.value })} /></label>
+              <label><span>Instagram</span><input value={selected.instagramLink} onChange={(event) => setSelected({ ...selected, instagramLink: event.target.value })} /></label>
+            </section>
+
+            <section className="editor-section">
+              <div className="section-heading">
+                <p className="eyebrow">Checklist de production</p>
+                <h3>Suivi du workflow</h3>
+              </div>
+              <div className="checkbox-grid">
+                {productionChecklistFields.map((step) => (
+                  <label key={step.key} className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={selected[step.key]}
+                      onChange={(event) => {
+                        const next = {
+                          ...selected,
+                          [step.key]: event.target.checked,
+                        } as Shooting;
+                        const nextStatus =
+                          selected.status === "Annulé"
+                            ? "Annulé"
+                            : ShootingService.statusFromChecklist(next);
+                        setSelected({ ...next, status: nextStatus });
+                      }}
+                    />
+                    <span>{step.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="progress-summary">
+                <span>Progression</span>
+                <strong>{ShootingService.progress(selected)}%</strong>
+              </div>
+              <div className="usage-track">
+                <span style={{ width: `${ShootingService.progress(selected)}%` }} />
+              </div>
+            </section>
+
+            <section className="editor-section">
+              <div className="section-heading">
+                <p className="eyebrow">Livrables</p>
+                <h3>Destinataires</h3>
+              </div>
+              <div className="checkbox-grid">
+                {deliverableFields.map((item) => (
+                  <label key={item.key} className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={selected[item.key]}
+                      onChange={(event) =>
+                        setSelected({ ...selected, [item.key]: event.target.checked })
+                      }
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                ))}
+              </div>
             </section>
 
             <label className="editor-notes"><span>Notes internes</span><textarea value={selected.notes} onChange={(event) => setSelected({ ...selected, notes: event.target.value })} /></label>

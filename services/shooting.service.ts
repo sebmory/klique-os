@@ -44,6 +44,53 @@ export const ShootingService = {
     await parseResponse<{ success: boolean }>(response);
   },
 
+  statusFromChecklist(shooting: Shooting): string {
+    if (shooting.status === "Annulé") {
+      return shooting.status;
+    }
+
+    const steps = [
+      shooting.shootingDone,
+      shooting.importDone,
+      shooting.backupDone,
+      shooting.sortDone,
+      shooting.retouchDone,
+      shooting.exportDone,
+      shooting.driveDone,
+      shooting.publishedInstagram,
+      shooting.publishedFacebook,
+      shooting.publishedLinkedIn,
+    ];
+
+    const completed = steps.filter(Boolean).length;
+    if (completed === 0) return "Planifié";
+    if (completed === steps.length) return "Terminé";
+    return "En cours";
+  },
+
+  isComplete(shooting: Shooting): boolean {
+    return ShootingService.progress(shooting) === 100;
+  },
+
+  stageFromChecklist(shooting: Shooting): string {
+    if (shooting.status === "Annulé") return "Annulé";
+    if (!shooting.shootingDone) return "Shooting";
+    if (!shooting.importDone) return "Import";
+    if (!shooting.backupDone) return "Sauvegarde";
+    if (!shooting.sortDone) return "Tri";
+    if (!shooting.retouchDone) return "Retouche";
+    if (!shooting.exportDone) return "Export";
+    if (!shooting.driveDone) return "Drive";
+    if (
+      !shooting.publishedInstagram ||
+      !shooting.publishedFacebook ||
+      !shooting.publishedLinkedIn
+    ) {
+      return "Publication";
+    }
+    return "Terminé";
+  },
+
   formatDate(value: string): string {
     if (!value) return "Date à compléter";
     const iso = /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -58,12 +105,16 @@ export const ShootingService = {
 
   progress(shooting: Shooting): number {
     const steps = [
+      shooting.shootingDone,
       shooting.importDone,
+      shooting.backupDone,
       shooting.sortDone,
       shooting.retouchDone,
       shooting.exportDone,
       shooting.driveDone,
-      shooting.published,
+      shooting.publishedInstagram,
+      shooting.publishedFacebook,
+      shooting.publishedLinkedIn,
     ];
     return Math.round(
       (steps.filter(Boolean).length / steps.length) * 100
