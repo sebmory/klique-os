@@ -86,7 +86,7 @@ export function InterviewResultScreen({
   }, [documentId, initialCreatedAt, request, result, selectedPublicationProposalId, selectedReelConceptId]);
 
   const saveDraft = async (contentDocument: ContentDocument) => {
-    await ContentDocumentDraftService.saveDraft(contentDocument);
+    return ContentDocumentDraftService.saveDraft(contentDocument);
   };
 
   const regenerateDocument = async (): Promise<ContentDocument> => {

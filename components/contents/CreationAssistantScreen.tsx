@@ -43,9 +43,11 @@ import {
   type CreationOption,
   type CreationSubjectType,
 } from "@/services/content-creation-assistant";
+import { buildResultUrl, saveInterviewResultSession } from "@/services/content-result-sessions";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
+import { runContentsBackfill } from "@/services/content-backfill";
 
 type CreationAssistantScreenProps = {
   context: ContentCreationContext;
@@ -258,6 +260,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const router = useRouter();
   const searchParams = useSearchParams();
   const summaryStepRequested = searchParams.get("step") === "summary";
+
+  useEffect(() => {
+    void runContentsBackfill();
+  }, []);
   const initialSteps = getStepsForObjective((context.objective as CreationObjectiveType | undefined) ?? "interview");
   const initialStepCount = initialSteps.length;
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
@@ -713,17 +719,25 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         return;
       }
 
+      const sessionRecord = await saveInterviewResultSession({
+        payload: preparedPayload,
+        request: payload.request,
+        result: payload.result,
+        createdAt: new Date().toISOString(),
+      });
+
       window.sessionStorage.setItem(
         RESULT_STORAGE_KEY,
         JSON.stringify({
           payload: preparedPayload,
           request: payload.request,
           result: payload.result,
-          createdAt: new Date().toISOString(),
+          createdAt: sessionRecord.createdAt,
+          sessionId: sessionRecord.sessionId,
         })
       );
       setGenerateState({ loading: false, errorMessage: null });
-      router.push("/contents/create/result");
+      router.push(buildResultUrl(sessionRecord.sessionId, `document-${sessionRecord.createdAt}`));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setGenerateState({ loading: false, errorMessage: "Generation annulee." });

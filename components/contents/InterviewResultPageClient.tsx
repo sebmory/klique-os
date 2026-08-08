@@ -5,25 +5,13 @@ import { useEffect, useState } from "react";
 import { InterviewResultScreen } from "@/components/contents/InterviewResultScreen";
 import { ContentDocumentEditor } from "@/components/contents/ContentDocumentEditor";
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
-import type {
-  PublicationGenerationRequest,
-  PublicationGenerationResult,
-  InterviewGenerationRequest,
-  InterviewGenerationResult,
-  ReelGenerationRequest,
-  ReelGenerationResult,
-} from "@/types/content-generation";
+import { runContentsBackfill } from "@/services/content-backfill";
+import {
+  restoreInterviewResultSession,
+  type StoredInterviewResult,
+} from "@/services/content-result-sessions";
 import type { ContentDocument } from "@/types/content-document";
-import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
-
-const RESULT_STORAGE_KEY = "klique.contents.creation-assistant.interview-result.v1";
-
-type StoredInterviewResult = {
-  payload: CreationPreparationPayload;
-  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
-  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
-  createdAt: string;
-};
+import type { ContentDocumentDraftSaveResult } from "@/services/content-documents/draft-service";
 
 export function InterviewResultPageClient() {
   const [parsed, setParsed] = useState<StoredInterviewResult | null>(null);
@@ -33,34 +21,33 @@ export function InterviewResultPageClient() {
   useEffect(() => {
     let active = true;
 
+    void runContentsBackfill();
+
     const restore = async () => {
-      const raw = window.sessionStorage.getItem(RESULT_STORAGE_KEY);
-      if (raw) {
-        try {
-          const next = JSON.parse(raw) as StoredInterviewResult;
-          if (!active) return;
-          setParsed(next);
-          setRestoredDraft(null);
-          setReady(true);
-          return;
-        } catch {
-          // Ignore malformed session cache and fall back to persisted draft.
-        }
-      }
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get("sessionId")?.trim() || "";
+      const documentId = params.get("documentId")?.trim() || "";
 
-      const documentId = new URLSearchParams(window.location.search).get("documentId")?.trim() || "";
-      if (documentId) {
-        const draft = await ContentDocumentDraftService.loadDraft(documentId);
-        if (!active) return;
-        setRestoredDraft(draft);
-      } else if (active) {
+      const restored = await restoreInterviewResultSession(sessionId, documentId);
+      if (!active) return;
+
+      if (restored.source === "cloud" || restored.source === "sessionStorage") {
+        setParsed(restored.result);
         setRestoredDraft(null);
+        setReady(true);
+        return;
       }
 
-      if (active) {
+      if (restored.source === "draft") {
         setParsed(null);
+        setRestoredDraft(restored.document);
         setReady(true);
+        return;
       }
+
+      setParsed(null);
+      setRestoredDraft(null);
+      setReady(true);
     };
 
     void restore();
@@ -70,8 +57,8 @@ export function InterviewResultPageClient() {
     };
   }, []);
 
-  const saveDraft = async (document: ContentDocument) => {
-    await ContentDocumentDraftService.saveDraft(document);
+  const saveDraft = async (document: ContentDocument): Promise<ContentDocumentDraftSaveResult> => {
+    return ContentDocumentDraftService.saveDraft(document);
   };
 
   if (!ready) {

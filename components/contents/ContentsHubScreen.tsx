@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   BookOpen,
   Clapperboard,
@@ -15,6 +15,7 @@ import {
   UserSquare2,
 } from "lucide-react";
 import { ContentsHubService, type ContentCreationContext, type ContentGenerator, type ContentTemplate } from "@/services/contents-hub";
+import { runContentsBackfill } from "@/services/content-backfill";
 
 type ContentsHubScreenProps = {
   context: ContentCreationContext;
@@ -43,6 +44,10 @@ const templateIconById: Record<ContentTemplate["id"], ComponentType<{ size?: num
 
 export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    void runContentsBackfill();
+  }, []);
 
   const generators = useMemo(() => ContentsHubService.generators(), []);
   const templates = useMemo(() => ContentsHubService.templates(), []);

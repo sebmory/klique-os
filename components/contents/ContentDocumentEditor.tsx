@@ -13,10 +13,11 @@ import type { ContentVariant } from "@/types/content-variant";
 import { ContentVariationComposer } from "@/components/contents/ContentVariationComposer";
 import { ContentVariantEditor } from "@/components/contents/ContentVariantEditor";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
+import type { ContentDocumentDraftSaveResult } from "@/services/content-documents/draft-service";
 
 type ContentDocumentEditorProps = {
   initialDocument: ContentDocument;
-  onSaveDraft: (document: ContentDocument) => Promise<void>;
+  onSaveDraft: (document: ContentDocument) => Promise<ContentDocumentDraftSaveResult>;
   onRegenerateDocument?: () => Promise<ContentDocument>;
 };
 
@@ -441,9 +442,20 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const saveDraft = async () => {
     setSaveState({ saving: true, savedAt: saveState.savedAt, error: null });
     try {
-      await onSaveDraft(document);
+      const result = await onSaveDraft(document);
       setBaselineSnapshot(stableSerialize(document));
-      setSaveState({ saving: false, savedAt: new Date().toISOString(), error: null });
+      const cloudError =
+        result.cloud.status === "conflict"
+          ? result.cloud.message || "Conflit de version cloud detecte."
+          : result.cloud.status === "unavailable"
+            ? result.cloud.message || "Synchronisation cloud indisponible."
+            : null;
+
+      setSaveState({
+        saving: false,
+        savedAt: new Date().toISOString(),
+        error: cloudError,
+      });
     } catch {
       setSaveState({ saving: false, savedAt: saveState.savedAt, error: "Impossible d enregistrer le brouillon." });
     }
