@@ -369,12 +369,6 @@ export function PeopleCrmScreen() {
           <section className={viewMode === "list" ? "crm-cards-grid desktop-hidden-by-mode" : "crm-cards-grid"}>
             {people.map((person) => (
               <article key={person.id} className="crm-person-card">
-                <Link
-                  href={`/crm/personnes/${person.id}`}
-                  className="crm-card-link-overlay"
-                  aria-label={`Ouvrir la fiche de ${person.name}`}
-                  onClick={() => setActiveRowId(person.id)}
-                />
                 <header>
                   <span className="crm-avatar" aria-hidden>
                     {person.name
@@ -413,6 +407,14 @@ export function PeopleCrmScreen() {
                 <footer>
                   <span>{person.projects} projets</span>
                   <span>{person.media} medias</span>
+                  <Link
+                    href={`/crm/personnes/${person.id}`}
+                    className="crm-secondary-action-link crm-person-card-open-link"
+                    aria-label={`Voir la fiche de ${person.name}`}
+                    onClick={() => setActiveRowId(person.id)}
+                  >
+                    Voir la fiche
+                  </Link>
                 </footer>
               </article>
             ))}
