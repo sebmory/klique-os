@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Shooting } from "@/types/shooting";
 import type {
   NewShootingPlanning,
@@ -45,12 +45,18 @@ export function ShootingPlanningModule({
   source,
   message,
   onRefresh,
+  quickAthleteName,
+  quickActionToken,
+  onQuickActionConsumed,
 }: {
   shootings: Shooting[];
   planning: ShootingPlanning[];
   source: "google-sheets" | "demo";
   message: string;
   onRefresh: () => Promise<void>;
+  quickAthleteName?: string | null;
+  quickActionToken?: number | null;
+  onQuickActionConsumed?: () => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<ShootingPlanning | null>(null);
@@ -58,6 +64,33 @@ export function ShootingPlanningModule({
   const [filter, setFilter] = useState("Tous");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    if (!quickAthleteName || quickActionToken == null) return;
+
+    const matchedShooting = shootings.find(
+      (shooting) => shooting.athlete === quickAthleteName
+    );
+
+    setShowCreate(true);
+    setForm({
+      ...emptyPlanning,
+      shootingRow: matchedShooting?.row,
+      athlete: quickAthleteName,
+      sport: matchedShooting?.sport ?? "",
+      title: matchedShooting?.type || "Shooting",
+      date: matchedShooting?.date ?? "",
+      place: matchedShooting?.place ?? "",
+      notes: matchedShooting?.objective ?? "",
+    });
+
+    onQuickActionConsumed?.();
+  }, [
+    onQuickActionConsumed,
+    quickActionToken,
+    quickAthleteName,
+    shootings,
+  ]);
 
   const visible = useMemo(
     () =>

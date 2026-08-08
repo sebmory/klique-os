@@ -4,6 +4,7 @@ export type Shooting = {
   athlete: string;
   sport: string;
   type: string;
+  equipment?: string;
   place: string;
   objective: string;
   photographer: string;
@@ -50,6 +51,7 @@ export type ShootingUpdate = Pick<Shooting, "row"> &
       | "athlete"
       | "sport"
       | "type"
+      | "equipment"
       | "place"
       | "objective"
       | "photographer"

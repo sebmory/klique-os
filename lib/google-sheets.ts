@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import path from "path";
-import type { Athlete } from "@/types/athlete";
+import type { Athlete, AthleteUpdate } from "@/types/athlete";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
@@ -37,6 +37,15 @@ const numberValue = (value: unknown, fallback = 0) => {
 const boolValue = (value: unknown) =>
   ["oui", "yes", "true", "1", "x", "✓"].includes(normalize(value));
 
+const GHOST_DATE_VALUES = new Set(["30.12.1899", "1899-12-30"]);
+
+const cleanAthleteDateValue = (value: unknown): string => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  if (GHOST_DATE_VALUES.has(trimmed)) return "";
+  return trimmed;
+};
+
 const toneFromCoverage = (coverage: number): Athlete["tone"] => {
   if (coverage >= 75) return "solid";
   if (coverage >= 55) return "correct";
@@ -56,10 +65,159 @@ const findColumn = (
   return index >= 0 ? index : fallback;
 };
 
+type FormEnrichment = {
+  name: string;
+  rawEmail: string;
+  palmares: string;
+  objective: string;
+  longTerm: string;
+  desiredAreas: string;
+  heightWeight: string;
+  birthDate: string;
+  nationality: string;
+  position: string;
+  competitionPhoto: boolean;
+  adhesionDate: string;
+};
+
+const formAdhesionColumns = (headers: string[]) => ({
+  email:            findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1),
+  name:             findColumn(headers, ["nom complet", "prénom et nom", "nom et prénom", "name", "nom"], -1),
+  palmares:         findColumn(headers, ["palmares", "palmarès (si disponible)", "palmares (si disponible)"], -1),
+  objective:        findColumn(headers, ["court terme"], -1),
+  longTerm:         findColumn(headers, ["long terme"], -1),
+  desiredAreas:     findColumn(headers, ["domaine", "klique développe", "klique developpe"], -1),
+  heightWeight:     findColumn(headers, ["taille", "poids", "taille / poids"], -1),
+  birthDate:        findColumn(headers, ["naissance", "date de naissance"], -1),
+  nationality:      findColumn(headers, ["nationalite", "nationalité"], -1),
+  position:         findColumn(headers, ["position", "specialite", "spécialité", "specialité"], -1),
+  competitionPhoto: findColumn(headers, ["photo de competition", "photo de compétition", "photo disponible"], -1),
+  adhesionDate:     findColumn(headers, ["horodateur", "timestamp", "date d'envoi"], 0),
+});
+
+async function buildFormAdhesionMap(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string
+): Promise<Map<string, FormEnrichment>> {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Forms_Adhesion'!A1:Z500",
+    });
+    const rows = res.data.values ?? [];
+    if (rows.length < 2) return new Map();
+    const col = formAdhesionColumns(rows[0].map(String));
+    const map = new Map<string, FormEnrichment>();
+    for (const row of rows.slice(1)) {
+      const email = normalize(String(row[col.email] ?? ""));
+      if (!email) continue;
+      const rawEmail = String(row[col.email] ?? "").trim();
+      map.set(email, {
+        name:             col.name             >= 0 ? String(row[col.name]             ?? "") : "",
+        rawEmail,
+        palmares:         col.palmares         >= 0 ? String(row[col.palmares]         ?? "") : "",
+        objective:        col.objective        >= 0 ? String(row[col.objective]        ?? "") : "",
+        longTerm:         col.longTerm         >= 0 ? String(row[col.longTerm]         ?? "") : "",
+        desiredAreas:     col.desiredAreas     >= 0 ? String(row[col.desiredAreas]     ?? "") : "",
+        heightWeight:     col.heightWeight     >= 0 ? String(row[col.heightWeight]     ?? "") : "",
+        birthDate:        col.birthDate        >= 0 ? String(row[col.birthDate]        ?? "") : "",
+        nationality:      col.nationality      >= 0 ? String(row[col.nationality]      ?? "") : "",
+        position:         col.position         >= 0 ? String(row[col.position]         ?? "") : "",
+        competitionPhoto: col.competitionPhoto >= 0 ? boolValue(row[col.competitionPhoto]) : false,
+        adhesionDate:     col.adhesionDate     >= 0 ? String(row[col.adhesionDate]     ?? "") : "",
+      });
+    }
+    return map;
+   } catch (error) {
+    console.error("Erreur lecture Form adhésion :", error);
+    return new Map();
+  }
+}
+
+const athleteColumns = (headers: string[]) => ({
+  name: findColumn(headers, ["nom", "athlete"], 0),
+  sport: findColumn(headers, ["sport"], 1),
+  club: findColumn(headers, ["club"], 2),
+  instagram: findColumn(headers, ["instagram"], 3),
+  phone: findColumn(headers, ["telephone", "tel"], 4),
+  email: findColumn(headers, ["email", "e-mail"], 5),
+  status: findColumn(headers, ["statut"], 6),
+  nextContact: findColumn(headers, ["prochain contact"], 7),
+  notes: findColumn(headers, ["notes"], 8),
+  palmares: findColumn(headers, ["palmarès", "palmares"], 9),
+  objective: findColumn(headers, ["objectif court", "objectif actuel"], 10),
+  longTerm: findColumn(headers, ["objectif long"], 11),
+  desiredAreas: findColumn(headers, ["domaines souhaités", "domaines desires"], 12),
+  lastContact: findColumn(headers, ["dernier contact"], 13),
+  nextAction: findColumn(headers, ["prochaine action"], 14),
+  followUpNotes: findColumn(headers, ["notes de suivi", "suivi"], 15),
+  lastResponseMonthly: findColumn(headers, ["derniere réponse mensuelle", "derniere reponse mensuelle"], 16),
+  lastResponseWeekly: findColumn(headers, ["derniere réponse hebdo", "derniere reponse hebdo"], 17),
+  lastPublication: findColumn(headers, ["dernière publication", "derniere publication"], 18),
+  titlesOfMonth: findColumn(headers, ["titres Athlète du mois", "titres athlete du mois"], 19),
+  analysisItems: findColumn(headers, ["éléments à analyser", "elements a analyser"], 20),
+  plannedContents: findColumn(headers, ["contenus planifiés", "contenus planifies"], 21),
+  lastPost: findColumn(headers, ["dernier post"], 22),
+  lastStory: findColumn(headers, ["dernière story", "derniere story"], 23),
+  daysWithoutVisibility: findColumn(headers, ["jours sans visibilité", "jours sans visibilite"], 24),
+  lastShoot: findColumn(headers, ["dernier shooting", "derniere seance"], 25),
+  media: findColumn(headers, ["medias", "photos", "fichiers"], 26),
+  premium: findColumn(headers, ["premium"], 27),
+  coverage: findColumn(headers, ["couverture", "score media"], 28),
+});
+
+type ServiceAccountCredentials = {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+};
+
+const parseServiceAccountCredentials = (): ServiceAccountCredentials | null => {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
+  if (!raw) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON invalide: JSON non parsable.");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON invalide: objet attendu.");
+  }
+
+  const typed = parsed as Record<string, unknown>;
+  const clientEmail = String(typed.client_email ?? "").trim();
+  const privateKeyRaw = String(typed.private_key ?? "").trim();
+  const projectId = String(typed.project_id ?? "").trim() || undefined;
+  const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
+
+  if (!clientEmail || !privateKey) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON invalide: client_email et private_key sont requis.");
+  }
+
+  return {
+    client_email: clientEmail,
+    private_key: privateKey,
+    project_id: projectId,
+  };
+};
+
 const getAuth = () => {
+  const serviceAccount = parseServiceAccountCredentials();
+  if (serviceAccount) {
+    return new google.auth.GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+  }
+
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!credentialsPath) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS manquant.");
+    throw new Error(
+      "Configuration Google Sheets manquante: definir GOOGLE_SERVICE_ACCOUNT_JSON ou GOOGLE_APPLICATION_CREDENTIALS."
+    );
   }
 
   const absoluteCredentialsPath = path.resolve(
@@ -81,79 +239,302 @@ const getSpreadsheetId = () => {
 
 export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: getSpreadsheetId(),
-    range: "'02_Athlètes'!A3:Q200",
-  });
+  const spreadsheetId = getSpreadsheetId();
+
+  const [response, formMap] = await Promise.all([
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'02_Athlètes'!A3:AC200",
+    }),
+    buildFormAdhesionMap(sheets, spreadsheetId),
+  ]);
 
   const rows = response.data.values ?? [];
   if (rows.length < 2) return [];
   const headers = rows[0].map(String);
 
-  const column = {
-    name: findColumn(headers, ["nom", "athlete"], 0),
-    sport: findColumn(headers, ["sport"], 1),
-    club: findColumn(headers, ["club"], 2),
-    instagram: findColumn(headers, ["instagram"], 3),
-    phone: findColumn(headers, ["telephone", "tel"], 4),
-    email: findColumn(headers, ["email", "e-mail"], 5),
-    status: findColumn(headers, ["statut"], 6),
-    lastShoot: findColumn(headers, ["dernier shooting", "derniere seance"], 13),
-    media: findColumn(headers, ["medias", "photos", "fichiers"], -1),
-    premium: findColumn(headers, ["premium"], -1),
-    coverage: findColumn(headers, ["couverture", "score media"], -1),
-    nextAction: findColumn(headers, ["prochaine action"], -1),
-    objective: findColumn(headers, ["objectif court", "objectif actuel"], -1),
-    longTerm: findColumn(headers, ["objectif long"], -1),
-  };
+  const column = athleteColumns(headers);
 
-  return rows
+  const athletes = rows
     .slice(1)
-    .filter((row) => String(row[column.name] ?? "").trim())
-    .map((row) => {
+    .map((row, index) => ({
+      row,
+      sheetRow: index + 4,
+    }))
+    .filter(({ row }) => {
+      const name = String(row[column.name] ?? "").trim();
+      const status = String(row[column.status] ?? "");
+      return name && status !== "Refus\u00e9";
+    })
+    .map(({ row, sheetRow }) => {
       const name = String(row[column.name] ?? "").trim();
       const coverage =
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
+      const athleteEmail = normalize(String(row[column.email] ?? ""));
+      const form = formMap.get(athleteEmail);
 
       return {
+        row: sheetRow,
         key: stableKey(name),
         name,
         initials: initials(name),
         sport: String(row[column.sport] ?? ""),
         club: String(row[column.club] ?? ""),
         status: String(row[column.status] ?? "Actif") || "Actif",
-        lastShoot: String(row[column.lastShoot] ?? "").trim() || "Jamais",
-        media: column.media >= 0 ? numberValue(row[column.media]) : 0,
-        premium: column.premium >= 0 ? numberValue(row[column.premium]) : 0,
-        coverage,
-        tone: toneFromCoverage(coverage),
         instagram: String(row[column.instagram] ?? ""),
-        email: String(row[column.email] ?? ""),
         phone: String(row[column.phone] ?? ""),
+        email: String(row[column.email] ?? ""),
+        nextContact: cleanAthleteDateValue(row[column.nextContact]),
+        notes: String(row[column.notes] ?? ""),
+        palmares: form?.palmares || String(row[column.palmares] ?? ""),
+        objective: form?.objective ||
+          (column.objective >= 0 ? String(row[column.objective] ?? "") : "À définir"),
+        longTerm: form?.longTerm ||
+          (column.longTerm >= 0 ? String(row[column.longTerm] ?? "") : "À définir"),
+        desiredAreas: form?.desiredAreas || String(row[column.desiredAreas] ?? ""),
+        lastContact: cleanAthleteDateValue(row[column.lastContact]),
         nextAction:
           column.nextAction >= 0
             ? String(row[column.nextAction] ?? "")
             : "À définir",
-        objective:
-          column.objective >= 0
-            ? String(row[column.objective] ?? "")
-            : "À définir",
-        longTerm:
-          column.longTerm >= 0
-            ? String(row[column.longTerm] ?? "")
-            : "À définir",
+        followUpNotes: String(row[column.followUpNotes] ?? ""),
+        lastResponseMonthly: String(row[column.lastResponseMonthly] ?? ""),
+        lastResponseWeekly: String(row[column.lastResponseWeekly] ?? ""),
+        lastPublication: cleanAthleteDateValue(row[column.lastPublication]),
+        titlesOfMonth: String(row[column.titlesOfMonth] ?? ""),
+        analysisItems: String(row[column.analysisItems] ?? ""),
+        plannedContents: String(row[column.plannedContents] ?? ""),
+        lastPost: cleanAthleteDateValue(row[column.lastPost]),
+        lastStory: cleanAthleteDateValue(row[column.lastStory]),
+        daysWithoutVisibility:
+          column.daysWithoutVisibility >= 0
+            ? numberValue(row[column.daysWithoutVisibility])
+            : 0,
+        lastShoot: cleanAthleteDateValue(row[column.lastShoot]),
+        media: column.media >= 0 ? numberValue(row[column.media]) : 0,
+        premium: column.premium >= 0 ? numberValue(row[column.premium]) : 0,
+        coverage,
+        tone: toneFromCoverage(coverage),
+        heightWeight:     form?.heightWeight     ?? "",
+        birthDate:        form?.birthDate        ?? "",
+        nationality:      form?.nationality      ?? "",
+        position:         form?.position         ?? "",
+        competitionPhoto: form?.competitionPhoto ?? false,
+        adhesionDate:     cleanAthleteDateValue(form?.adhesionDate),
       };
     });
+
+  // Append form responses not yet matched to any athlete in 02_Athlètes
+  const existingEmails = new Set(athletes.map((a) => normalize(a.email)));
+  for (const [normalizedEmail, form] of formMap.entries()) {
+    if (existingEmails.has(normalizedEmail)) continue;
+    const name = form.name || form.rawEmail;
+    athletes.push({
+      row: 0,
+      key: stableKey(name),
+      name,
+      initials: initials(name),
+      sport: "",
+      club: "",
+      status: "\u00c0 valider",
+      instagram: "",
+      phone: "",
+      email: form.rawEmail,
+      nextContact: "",
+      notes: "",
+      palmares: form.palmares,
+      objective: form.objective,
+      longTerm: form.longTerm,
+      desiredAreas: form.desiredAreas,
+      lastContact: "",
+      nextAction: "",
+      followUpNotes: "",
+      lastResponseMonthly: "",
+      lastResponseWeekly: "",
+      lastPublication: "",
+      titlesOfMonth: "",
+      analysisItems: "",
+      plannedContents: "",
+      lastPost: "",
+      lastStory: "",
+      daysWithoutVisibility: 0,
+      lastShoot: "",
+      media: 0,
+      premium: 0,
+      coverage: 0,
+      tone: toneFromCoverage(0),
+      heightWeight:     form.heightWeight,
+      birthDate:        form.birthDate,
+      nationality:      form.nationality,
+      position:         form.position,
+      competitionPhoto: form.competitionPhoto,
+      adhesionDate:     cleanAthleteDateValue(form.adhesionDate),
+    });
+  }
+
+  return athletes;
+}
+
+export async function rejectFormEntry(email: string): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+
+  const sheetData = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'02_Athl\u00e8tes'!A3:AC200",
+  });
+  const rows = sheetData.data.values ?? [];
+  if (rows.length < 1) throw new Error("Impossible de lire 02_Athl\u00e8tes.");
+  const headers = rows[0].map(String);
+  const column = athleteColumns(headers);
+
+  const normalizedEmail = normalize(email);
+  const isDuplicate = rows.slice(1).some(
+    (row) => normalize(String(row[column.email] ?? "")) === normalizedEmail
+  );
+  if (isDuplicate) return;
+
+  const newRow = Array.from({ length: 29 }, () => "");
+  newRow[column.email]  = email;
+  newRow[column.status] = "Refus\u00e9";
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "'02_Athl\u00e8tes'!A:AC",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [newRow] },
+  });
+}
+
+export async function addAthleteToGoogleSheets(athlete: Athlete): Promise<void> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+
+  const sheetData = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'02_Athl\u00e8tes'!A3:AC200",
+  });
+  const rows = sheetData.data.values ?? [];
+  if (rows.length < 1) throw new Error("Impossible de lire 02_Athl\u00e8tes.");
+  const headers = rows[0].map(String);
+  const column = athleteColumns(headers);
+
+  const normalizedNew = normalize(athlete.email);
+  const isDuplicate = rows.slice(1).some(
+    (row) => normalize(String(row[column.email] ?? "")) === normalizedNew
+  );
+  if (isDuplicate) throw new Error("Cet e-mail est d\u00e9j\u00e0 enregistr\u00e9 dans 02_Athl\u00e8tes.");
+
+  const newRow = Array.from({ length: 29 }, () => "");
+  newRow[column.name]    = athlete.name;
+  newRow[column.sport]   = athlete.sport;
+  newRow[column.club]    = athlete.club;
+  newRow[column.instagram] = athlete.instagram;
+  newRow[column.phone]   = athlete.phone;
+  newRow[column.email]   = athlete.email;
+  newRow[column.status]  = "Actif";
+  newRow[column.nextContact]  = athlete.nextContact;
+  newRow[column.notes]        = athlete.notes;
+  newRow[column.palmares]     = athlete.palmares;
+  newRow[column.objective]    = athlete.objective;
+  newRow[column.longTerm]     = athlete.longTerm;
+  newRow[column.desiredAreas] = athlete.desiredAreas;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "'02_Athl\u00e8tes'!A:AC",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [newRow] },
+  });
+}
+
+export async function updateAthleteInGoogleSheets(
+  update: AthleteUpdate
+): Promise<void> {
+  if (!update.row || update.row < 4) {
+    throw new Error("Ligne Google Sheets invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const headerResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'02_Athlètes'!A3:AC3",
+  });
+
+  const headers = headerResponse.data.values?.[0]?.map(String) ?? [];
+  if (!headers.length) {
+    throw new Error("En-têtes Athlètes introuvables.");
+  }
+
+  const column = athleteColumns(headers);
+  const currentResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'02_Athlètes'!A${update.row}:AC${update.row}`,
+  });
+
+  const current = currentResponse.data.values?.[0] ?? [];
+  const next = Array.from({ length: 29 }, (_, index) => current[index] ?? "");
+
+  if (update.name !== undefined) next[column.name] = update.name;
+  if (update.sport !== undefined) next[column.sport] = update.sport;
+  if (update.club !== undefined) next[column.club] = update.club;
+  if (update.instagram !== undefined) next[column.instagram] = update.instagram;
+  if (update.phone !== undefined) next[column.phone] = update.phone;
+  if (update.email !== undefined) next[column.email] = update.email;
+  if (update.status !== undefined) next[column.status] = update.status;
+  if (update.nextContact !== undefined) next[column.nextContact] = update.nextContact;
+  if (update.notes !== undefined) next[column.notes] = update.notes;
+  if (update.palmares !== undefined) next[column.palmares] = update.palmares;
+  if (update.objective !== undefined) next[column.objective] = update.objective;
+  if (update.longTerm !== undefined) next[column.longTerm] = update.longTerm;
+  if (update.desiredAreas !== undefined) next[column.desiredAreas] = update.desiredAreas;
+  if (update.lastContact !== undefined) next[column.lastContact] = update.lastContact;
+  if (update.nextAction !== undefined) next[column.nextAction] = update.nextAction;
+  if (update.followUpNotes !== undefined) next[column.followUpNotes] = update.followUpNotes;
+  if (update.lastResponseMonthly !== undefined) next[column.lastResponseMonthly] = update.lastResponseMonthly;
+  if (update.lastResponseWeekly !== undefined) next[column.lastResponseWeekly] = update.lastResponseWeekly;
+  if (update.lastPublication !== undefined) next[column.lastPublication] = update.lastPublication;
+  if (update.titlesOfMonth !== undefined) next[column.titlesOfMonth] = update.titlesOfMonth;
+  if (update.analysisItems !== undefined) next[column.analysisItems] = update.analysisItems;
+  if (update.plannedContents !== undefined) next[column.plannedContents] = update.plannedContents;
+  if (update.lastPost !== undefined) next[column.lastPost] = update.lastPost;
+  if (update.lastStory !== undefined) next[column.lastStory] = update.lastStory;
+  if (update.daysWithoutVisibility !== undefined)
+    next[column.daysWithoutVisibility] = String(update.daysWithoutVisibility);
+  if (update.lastShoot !== undefined) next[column.lastShoot] = update.lastShoot;
+  if (update.media !== undefined) next[column.media] = String(update.media);
+  if (update.premium !== undefined) next[column.premium] = String(update.premium);
+  if (update.coverage !== undefined) next[column.coverage] = String(update.coverage);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'02_Athlètes'!A${update.row}:AC${update.row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
+  });
 }
 
 export async function getShootingsFromGoogleSheets(): Promise<Shooting[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: getSpreadsheetId(),
-    range: "'16_Shootings'!A3:AG300",
-  });
+  const spreadsheetId = getSpreadsheetId();
+  const ranges = ["'GESTION DES SHOOTINGS'!A3:AG300", "'16_Shootings'!A3:AG300"];
 
-  const rows = response.data.values ?? [];
+  let rows: string[][] = [];
+  for (const range of ranges) {
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range,
+      });
+      rows = (response.data.values ?? []) as string[][];
+      if (rows.length >= 2) break;
+    } catch {
+      // Try next configured sheet alias.
+    }
+  }
+
   if (rows.length < 2) return [];
 
   return rows
@@ -164,6 +545,7 @@ export async function getShootingsFromGoogleSheets(): Promise<Shooting[]> {
       athlete: String(row[1] ?? ""),
       sport: String(row[2] ?? ""),
       type: String(row[3] ?? ""),
+      equipment: String(row[6] ?? ""),
       place: String(row[4] ?? ""),
       objective: String(row[5] ?? ""),
       photographer: String(row[7] ?? ""),
@@ -214,7 +596,7 @@ export async function addShootingToGoogleSheets(
         shooting.type,
         shooting.place,
         shooting.objective,
-        "",
+        shooting.equipment ?? "",
         shooting.photographer,
         "Planifié",
         shooting.photos,
@@ -360,6 +742,7 @@ export async function updateShootingInGoogleSheets(
   if (update.athlete !== undefined) next[1] = update.athlete;
   if (update.sport !== undefined) next[2] = update.sport;
   if (update.type !== undefined) next[3] = update.type;
+  if (update.equipment !== undefined) next[6] = update.equipment;
   if (update.place !== undefined) next[4] = update.place;
   if (update.objective !== undefined) next[5] = update.objective;
   if (update.photographer !== undefined) next[7] = update.photographer;
@@ -709,34 +1092,148 @@ export async function updateShotListItemInGoogleSheets(
 }
 export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: getSpreadsheetId(),
-    range: "'20_Partenaires'!A3:N300",
-  });
+  const normalizeHeader = (value: unknown) =>
+    normalize(value)
+      .replace(/[?]/g, "")
+      .replace(/[()]/g, " ")
+      .replace(/[\\/|]/g, " ")
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-  const rows = response.data.values ?? [];
-  if (rows.length < 2) return [];
+  const parseRows = (rows: string[][]): Partner[] => {
+    if (rows.length < 4) return [];
 
-  return rows
-    .slice(1)
-    .map((row, index) => ({
-      row: index + 4,
-      id: String(row[0] ?? `partner-${index + 4}`),
-      name: String(row[1] ?? ""),
-      category: String(row[2] ?? "Autre"),
-      expertKlique: boolValue(row[3]),
-      contact: String(row[4] ?? ""),
-      email: String(row[5] ?? ""),
-      phone: String(row[6] ?? ""),
-      website: String(row[7] ?? ""),
-      instagram: String(row[8] ?? ""),
-      description: String(row[9] ?? ""),
-      benefits: String(row[10] ?? ""),
-      notes: String(row[11] ?? ""),
-      status: (String(row[12] ?? "Actif") || "Actif") as Partner["status"],
-      athletes: String(row[13] ?? ""),
-    }))
-    .filter((partner) => partner.name);
+    const headerRowIndex = rows.findIndex((row) => {
+      const normalizedRow = row.map(normalizeHeader);
+      return normalizedRow.some((cell) => cell === "nom" || cell.startsWith("nom "))
+        && normalizedRow.some((cell) => cell.includes("contact principal") || cell.includes("statut") || cell.includes("categorie"));
+    });
+
+    if (headerRowIndex < 0) return [];
+
+    const headers = (rows[headerRowIndex] ?? []).map((value) => String(value ?? ""));
+    const normalizedHeaders = headers.map(normalizeHeader);
+
+    const findPartnerColumn = (candidates: string[], fallback = -1): number => {
+      const normalizedCandidates = candidates.map((item) => normalizeHeader(item));
+      const index = normalizedHeaders.findIndex((header) =>
+        normalizedCandidates.some((candidate) => header === candidate || header.includes(candidate))
+      );
+      return index >= 0 ? index : fallback;
+    };
+
+    const column = {
+      id: findPartnerColumn(["id", "identifiant", "slug"], -1),
+      name: findPartnerColumn(["nom", "nom partenaire"], 0),
+      relationType: findPartnerColumn(["type de relation", "type"], -1),
+      category: findPartnerColumn(["categorie"], -1),
+      expert: findPartnerColumn(["expert klique", "expert"], -1),
+      contact: findPartnerColumn(["contact principal", "contact"], -1),
+      role: findPartnerColumn(["fonction", "role"], -1),
+      email: findPartnerColumn(["e mail", "email"], -1),
+      phone: findPartnerColumn(["telephone", "tel"], -1),
+      siteInstagram: findPartnerColumn(["site instagram", "site", "instagram"], -1),
+      website: findPartnerColumn(["site web", "site internet", "website"], -1),
+      instagram: findPartnerColumn(["instagram"], -1),
+      benefits: findPartnerColumn(["offre avantage membres", "offre", "avantage membres", "benefits"], -1),
+      athletes: findPartnerColumn(["athletes concernes", "athletes"], -1),
+      status: findPartnerColumn(["statut"], -1),
+      firstContactDate: findPartnerColumn(["date premier contact", "premier contact"], -1),
+      lastContact: findPartnerColumn(["dernier contact"], -1),
+      nextFollowUp: findPartnerColumn(["prochaine relance", "relance"], -1),
+      nextAction: findPartnerColumn(["prochaine action"], -1),
+      estimatedValueChf: findPartnerColumn(["valeur estimee chf", "valeur estimee"], -1),
+      contractSigned: findPartnerColumn(["contrat signe"], -1),
+      collaborationStart: findPartnerColumn(["debut collaboration"], -1),
+      collaborationEnd: findPartnerColumn(["fin collaboration"], -1),
+      counterparts: findPartnerColumn(["contenus contreparties", "contreparties"], -1),
+      notes: findPartnerColumn(["notes"], -1),
+      strategicPriority: findPartnerColumn(["priorite strategique", "priorite"], -1),
+      potential: findPartnerColumn(["potentiel"], -1),
+      nextContactObjective: findPartnerColumn(["objectif du prochain contact", "objectif prochain contact"], -1),
+    };
+
+    const rowFromSheet = (sheetRow: unknown[], col: number) => {
+      if (col < 0) return "";
+      return String(sheetRow[col] ?? "").trim();
+    };
+
+    return rows
+      .slice(headerRowIndex + 1)
+      .map((sheetRow, index) => {
+        const name = rowFromSheet(sheetRow, column.name);
+        const relationType = rowFromSheet(sheetRow, column.relationType);
+        const category = rowFromSheet(sheetRow, column.category);
+
+        const combinedSiteInstagram = rowFromSheet(sheetRow, column.siteInstagram);
+        const websiteRaw = rowFromSheet(sheetRow, column.website);
+        const instagramRaw = rowFromSheet(sheetRow, column.instagram);
+
+        const website = websiteRaw || (!combinedSiteInstagram.toLowerCase().includes("instagram") ? combinedSiteInstagram : "");
+        const instagram = instagramRaw || (combinedSiteInstagram.toLowerCase().includes("instagram") ? combinedSiteInstagram : "");
+
+        const explicitId = rowFromSheet(sheetRow, column.id);
+        const resolvedId = explicitId || stableKey(name);
+
+        const expertRaw = rowFromSheet(sheetRow, column.expert);
+        const relationNormalized = normalize(relationType);
+        const isExpert = expertRaw ? boolValue(expertRaw) : relationNormalized.includes("expert");
+
+        return {
+          row: headerRowIndex + 2 + index,
+          id: resolvedId || `partner-${headerRowIndex + 2 + index}`,
+          name,
+          relationType,
+          category: category || "Non renseigne",
+          expertKlique: isExpert,
+          contact: rowFromSheet(sheetRow, column.contact),
+          contactRole: rowFromSheet(sheetRow, column.role),
+          email: rowFromSheet(sheetRow, column.email),
+          phone: rowFromSheet(sheetRow, column.phone),
+          website,
+          instagram,
+          description: rowFromSheet(sheetRow, column.counterparts),
+          benefits: rowFromSheet(sheetRow, column.benefits),
+          firstContactDate: rowFromSheet(sheetRow, column.firstContactDate),
+          lastContact: rowFromSheet(sheetRow, column.lastContact),
+          nextFollowUp: rowFromSheet(sheetRow, column.nextFollowUp),
+          nextAction: rowFromSheet(sheetRow, column.nextAction),
+          estimatedValueChf: rowFromSheet(sheetRow, column.estimatedValueChf),
+          contractSigned: rowFromSheet(sheetRow, column.contractSigned),
+          collaborationStart: rowFromSheet(sheetRow, column.collaborationStart),
+          collaborationEnd: rowFromSheet(sheetRow, column.collaborationEnd),
+          counterparts: rowFromSheet(sheetRow, column.counterparts),
+          notes: rowFromSheet(sheetRow, column.notes),
+          status: (rowFromSheet(sheetRow, column.status) || "Actif") as Partner["status"],
+          strategicPriority: rowFromSheet(sheetRow, column.strategicPriority),
+          potential: rowFromSheet(sheetRow, column.potential),
+          nextContactObjective: rowFromSheet(sheetRow, column.nextContactObjective),
+          athletes: rowFromSheet(sheetRow, column.athletes),
+        } satisfies Partner;
+      })
+      .filter((partner) => partner.name.trim().length > 0);
+  };
+
+  const sheetCandidates = ["20_Partenaires", "06_Partenaires", "10_Fiche Partenaire"];
+  const diagnostics: string[] = [];
+
+  for (const sheetName of sheetCandidates) {
+    try {
+      const result = await sheets.spreadsheets.values.get({
+        spreadsheetId: getSpreadsheetId(),
+        range: `'${sheetName}'!A1:AZ300`,
+      });
+      const parsed = parseRows((result.data.values ?? []) as string[][]);
+      diagnostics.push(`${sheetName}:${parsed.length}`);
+      if (parsed.length > 0) return parsed;
+    } catch {
+      diagnostics.push(`${sheetName}:error`);
+    }
+  }
+
+  console.warn(`[partners] Aucun partenaire trouve. Diagnostics: ${diagnostics.join(", ")}`);
+  return [];
 }
 
 export async function addPartnerToGoogleSheets(

@@ -113,6 +113,9 @@ export function ShootingsModule({
   onOpenAthlete,
   openShootingRow,
   onOpenShootingRow,
+  quickAthleteName,
+  quickActionToken,
+  onQuickActionConsumed,
 }: {
   athletes: Athlete[];
   shootings: Shooting[];
@@ -122,6 +125,9 @@ export function ShootingsModule({
   onOpenAthlete?: (athlete: Athlete) => void;
   openShootingRow?: number | null;
   onOpenShootingRow?: (row: number | null) => void;
+  quickAthleteName?: string | null;
+  quickActionToken?: number | null;
+  onQuickActionConsumed?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("Tous");
@@ -139,6 +145,27 @@ export function ShootingsModule({
     }
     onOpenShootingRow?.(null);
   }, [openShootingRow, onOpenShootingRow, shootings]);
+
+  useEffect(() => {
+    if (!quickAthleteName || quickActionToken == null) return;
+    const athlete = athletes.find((item) => item.name === quickAthleteName);
+
+    setSelected(null);
+    setShowCreate(true);
+    setSearch(quickAthleteName);
+    setForm({
+      ...emptyForm,
+      athlete: quickAthleteName,
+      sport: athlete?.sport ?? "",
+    });
+
+    onQuickActionConsumed?.();
+  }, [
+    athletes,
+    onQuickActionConsumed,
+    quickActionToken,
+    quickAthleteName,
+  ]);
 
   const shootingStatus = (shooting: Shooting) =>
     ShootingService.statusFromChecklist(shooting);
@@ -270,12 +297,12 @@ export function ShootingsModule({
   };
 
   const planned = shootings.filter((item) => ShootingService.statusFromChecklist(item) === "Planifié").length;
-  const complete = shootings.filter(ShootingService.isComplete).length;
+  const complete = shootings.filter((item) => ShootingService.statusFromChecklist(item) === "Terminé").length;
   const toProcess = shootings.filter(
     (item) =>
-      ShootingService.statusFromChecklist(item) !== "Planifié" &&
-      !ShootingService.isComplete(item) &&
-      item.status !== "Annulé"
+      item.status !== "Annulé" &&
+      item.shootingDone &&
+      ShootingService.progress(item) < 100
   ).length;
 
   return (

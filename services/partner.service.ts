@@ -5,6 +5,7 @@ import type {
   PartnerResponse,
   PartnerUpdate,
 } from "@/types/partner";
+import { EcosystemService } from "@/services/ecosystem.service";
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -35,8 +36,7 @@ const athleteKeys = (
 
 export const PartnerService = {
   async list(): Promise<PartnerResponse> {
-    const response = await fetch("/api/partners", { cache: "no-store" });
-    return parseResponse<PartnerResponse>(response);
+    return EcosystemService.listRaw();
   },
 
   async create(partner: NewPartner): Promise<void> {

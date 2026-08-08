@@ -221,7 +221,7 @@ export function MediaCenterModule({
       </section>
 
       <section className="media-gallery-grid">
-        {visible.map((lot, index) => {
+        {visible.map((lot: MediaLot, index: number) => {
           const usage = MediaService.usagePercent(lot);
           const health = MediaService.health(lot);
 
@@ -240,7 +240,7 @@ export function MediaCenterModule({
                 <div className="media-monogram">
                   {lot.athlete
                     .split(" ")
-                    .map((part) => part[0])
+                    .map((part: string) => part[0])
                     .slice(0, 2)
                     .join("")}
                 </div>

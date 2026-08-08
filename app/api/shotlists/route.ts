@@ -12,6 +12,7 @@ import type {
 } from "@/types/shotlist";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {

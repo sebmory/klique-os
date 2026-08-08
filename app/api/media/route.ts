@@ -7,6 +7,7 @@ import {
 import type { MediaResponse, NewMediaLot } from "@/types/media";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {

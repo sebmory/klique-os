@@ -10,6 +10,7 @@ import type {
 } from "@/types/calendar";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {

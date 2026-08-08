@@ -5,6 +5,19 @@ import type {
   ShootingUpdate,
 } from "@/types/shooting";
 
+const PRODUCTION_CHECKLIST_FIELDS = [
+  "shootingDone",
+  "importDone",
+  "backupDone",
+  "sortDone",
+  "retouchDone",
+  "exportDone",
+  "driveDone",
+  "publishedInstagram",
+  "publishedFacebook",
+  "publishedLinkedIn",
+] as const;
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json();
   if (!response.ok) {
@@ -49,22 +62,9 @@ export const ShootingService = {
       return shooting.status;
     }
 
-    const steps = [
-      shooting.shootingDone,
-      shooting.importDone,
-      shooting.backupDone,
-      shooting.sortDone,
-      shooting.retouchDone,
-      shooting.exportDone,
-      shooting.driveDone,
-      shooting.publishedInstagram,
-      shooting.publishedFacebook,
-      shooting.publishedLinkedIn,
-    ];
-
-    const completed = steps.filter(Boolean).length;
+    const { completed, total } = ShootingService.productionChecklistState(shooting);
     if (completed === 0) return "Planifié";
-    if (completed === steps.length) return "Terminé";
+    if (completed === total) return "Terminé";
     return "En cours";
   },
 
@@ -111,11 +111,18 @@ export const ShootingService = {
     const completed = shootings.filter(
       (shooting) => ShootingService.statusFromChecklist(shooting) === "Terminé"
     ).length;
+    const toProcess = shootings.filter(
+      (shooting) =>
+        shooting.status !== "Annulé" &&
+        shooting.shootingDone &&
+        ShootingService.progress(shooting) < 100
+    ).length;
     const toDeliver = shootings.filter(
-      (shooting) => shooting.shootingDone && !shooting.driveDone
+      (shooting) => shooting.status !== "Annulé" && shooting.shootingDone && !shooting.driveDone
     ).length;
     const notPublished = shootings.filter(
       (shooting) =>
+        shooting.status !== "Annulé" &&
         shooting.shootingDone &&
         !shooting.publishedInstagram &&
         !shooting.publishedFacebook &&
@@ -127,6 +134,7 @@ export const ShootingService = {
       planified,
       inProgress,
       completed,
+      toProcess,
       toDeliver,
       notPublished,
       totalPhotos,
@@ -151,15 +159,21 @@ export const ShootingService = {
 
     const totalPhotos = athleteShootings.reduce((sum, shooting) => sum + shooting.photos, 0);
     const totalVideos = athleteShootings.reduce((sum, shooting) => sum + shooting.videos, 0);
-    const completed = athleteShootings.filter(ShootingService.isComplete).length;
+    const completed = athleteShootings.filter(
+      (shooting) => ShootingService.statusFromChecklist(shooting) === "Terminé"
+    ).length;
     const toProcess = athleteShootings.filter(
-      (shooting) => shooting.shootingDone && !ShootingService.isComplete(shooting)
+      (shooting) =>
+        shooting.status !== "Annulé" &&
+        shooting.shootingDone &&
+        ShootingService.progress(shooting) < 100
     ).length;
     const delivered = athleteShootings.filter(
-      (shooting) => shooting.shootingDone && shooting.driveDone
+      (shooting) => shooting.status !== "Annulé" && shooting.shootingDone && shooting.driveDone
     ).length;
     const published = athleteShootings.filter(
       (shooting) =>
+        shooting.status !== "Annulé" &&
         shooting.shootingDone &&
         (shooting.publishedInstagram || shooting.publishedFacebook || shooting.publishedLinkedIn)
     ).length;
@@ -179,21 +193,18 @@ export const ShootingService = {
     };
   },
 
+  productionChecklistState(shooting: Shooting) {
+    const values = PRODUCTION_CHECKLIST_FIELDS.map((field) => shooting[field]);
+    return {
+      values,
+      completed: values.filter(Boolean).length,
+      total: values.length,
+    };
+  },
+
   progress(shooting: Shooting): number {
-    const steps = [
-      shooting.shootingDone,
-      shooting.importDone,
-      shooting.backupDone,
-      shooting.sortDone,
-      shooting.retouchDone,
-      shooting.exportDone,
-      shooting.driveDone,
-      shooting.publishedInstagram,
-      shooting.publishedFacebook,
-      shooting.publishedLinkedIn,
-    ];
-    return Math.round(
-      (steps.filter(Boolean).length / steps.length) * 100
-    );
+    const { completed, total } = ShootingService.productionChecklistState(shooting);
+    if (total === 0) return 0;
+    return Math.round((completed / total) * 100);
   },
 };

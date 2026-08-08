@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Athlete } from "@/types/athlete";
 import type {
   CalendarEvent,
@@ -42,12 +42,18 @@ export function CalendarModule({
   source,
   message,
   onRefresh,
+  quickAthleteName,
+  quickActionToken,
+  onQuickActionConsumed,
 }: {
   athletes: Athlete[];
   events: CalendarEvent[];
   source: "google-sheets" | "demo";
   message: string;
   onRefresh: () => Promise<void>;
+  quickAthleteName?: string | null;
+  quickActionToken?: number | null;
+  onQuickActionConsumed?: () => void;
 }) {
   const today = new Date();
   const [cursor, setCursor] = useState(
@@ -59,6 +65,17 @@ export function CalendarModule({
   const [form, setForm] = useState<NewCalendarEvent>(emptyEvent);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    if (!quickAthleteName || quickActionToken == null) return;
+    setShowCreate(true);
+    setForm({
+      ...emptyEvent,
+      athlete: quickAthleteName,
+      title: `Point avec ${quickAthleteName}`,
+    });
+    onQuickActionConsumed?.();
+  }, [onQuickActionConsumed, quickActionToken, quickAthleteName]);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();

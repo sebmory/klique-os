@@ -1,0 +1,143 @@
+import { tokenRef } from "../theme";
+
+export const componentTokens = {
+  button: {
+    background: tokenRef("color-background"),
+    text: tokenRef("color-textPrimary"),
+    radius: tokenRef("radius-md"),
+    shadow: tokenRef("shadow-sm"),
+    transition: tokenRef("motion-transitionPreset-hover"),
+  },
+  input: {
+    background: tokenRef("color-surface"),
+    text: tokenRef("color-textPrimary"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    focus: tokenRef("color-focus"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  textarea: {
+    background: tokenRef("color-surface"),
+    text: tokenRef("color-textPrimary"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  select: {
+    background: tokenRef("color-surface"),
+    text: tokenRef("color-textPrimary"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  checkbox: {
+    border: tokenRef("color-borderStrong"),
+    focus: tokenRef("color-focus"),
+    transition: tokenRef("motion-transitionPreset-hover"),
+  },
+  radio: {
+    border: tokenRef("color-borderStrong"),
+    focus: tokenRef("color-focus"),
+    transition: tokenRef("motion-transitionPreset-hover"),
+  },
+  switch: {
+    background: tokenRef("color-surfaceSecondary"),
+    active: tokenRef("color-palette-Primary-500"),
+    radius: tokenRef("radius-full"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  badge: {
+    background: tokenRef("color-surfaceSecondary"),
+    text: tokenRef("color-textSecondary"),
+    radius: tokenRef("radius-full"),
+  },
+  avatar: {
+    background: tokenRef("color-surfaceSecondary"),
+    text: tokenRef("color-textPrimary"),
+    radius: tokenRef("radius-full"),
+  },
+  card: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-lg"),
+    shadow: tokenRef("shadow-sm"),
+  },
+  modal: {
+    background: tokenRef("color-surface"),
+    overlay: tokenRef("color-overlay"),
+    radius: tokenRef("radius-xl"),
+    shadow: tokenRef("shadow-xl"),
+    transition: tokenRef("motion-transitionPreset-modal"),
+  },
+  drawer: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    shadow: tokenRef("shadow-lg"),
+    transition: tokenRef("motion-transitionPreset-sidebar"),
+  },
+  tooltip: {
+    background: tokenRef("color-surfaceSecondary"),
+    text: tokenRef("color-textPrimary"),
+    radius: tokenRef("radius-sm"),
+    shadow: tokenRef("shadow-md"),
+    transition: tokenRef("motion-transitionPreset-tooltip"),
+  },
+  popover: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    shadow: tokenRef("shadow-lg"),
+    transition: tokenRef("motion-transitionPreset-dropdown"),
+  },
+  dropdown: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    shadow: tokenRef("shadow-lg"),
+    transition: tokenRef("motion-transitionPreset-dropdown"),
+  },
+  tabs: {
+    background: tokenRef("color-surfaceSecondary"),
+    active: tokenRef("color-palette-Primary-500"),
+    text: tokenRef("color-textSecondary"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  table: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    text: tokenRef("color-textPrimary"),
+  },
+  pagination: {
+    border: tokenRef("color-border"),
+    text: tokenRef("color-textSecondary"),
+    active: tokenRef("color-palette-Primary-500"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  breadcrumb: {
+    text: tokenRef("color-textMuted"),
+    active: tokenRef("color-textPrimary"),
+    transition: tokenRef("motion-transitionPreset-navigation"),
+  },
+  toast: {
+    background: tokenRef("color-surface"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-md"),
+    shadow: tokenRef("shadow-lg"),
+    transition: tokenRef("motion-transitionPreset-toast"),
+  },
+  skeleton: {
+    background: tokenRef("color-surfaceSecondary"),
+    radius: tokenRef("radius-sm"),
+    animation: tokenRef("motion-animation-fadeIn"),
+  },
+  loader: {
+    color: tokenRef("color-palette-Primary-500"),
+    animation: tokenRef("motion-animation-scaleIn"),
+  },
+  emptyState: {
+    background: tokenRef("color-surface"),
+    text: tokenRef("color-textSecondary"),
+    border: tokenRef("color-border"),
+    radius: tokenRef("radius-lg"),
+  },
+} as const;

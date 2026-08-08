@@ -13,6 +13,7 @@ import type {
 } from "@/types/partner";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET() {
   try {
