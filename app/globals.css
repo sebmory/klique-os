@@ -1243,6 +1243,43 @@ button {
   background: #fcfcfc;
 }
 
+.contents-inspiration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.contents-inspiration-card {
+  border: 1px solid #efefef;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fcfcfc;
+  color: #494949;
+  font-size: 0.86rem;
+  min-height: 82px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.contents-inspiration-card strong {
+  font-size: 0.9rem;
+}
+
+.contents-inspiration-card span {
+  color: #6e6e6e;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.contents-section-heading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .contents-templates-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1276,6 +1313,19 @@ button {
   margin: 0;
 }
 
+.contents-template-body {
+  display: grid;
+  gap: 6px;
+}
+
+.contents-template-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .contents-template-card h3 {
   font-size: 0.9rem;
 }
@@ -1285,6 +1335,18 @@ button {
   color: #757575;
   font-size: 0.8rem;
   line-height: 1.3;
+}
+
+.contents-template-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: #f4f4f4;
+  color: #757575;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .contents-library-card {
@@ -4407,14 +4469,21 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 16px;
+  align-items: start;
 }
 
 .crm-person-card-main {
   grid-column: 1;
 }
 
-.crm-person-day-actions {
+.crm-person-side-stack {
   grid-column: 2;
+  display: grid;
+  gap: 16px;
+}
+
+.crm-person-notes-card {
+  grid-column: 1 / -1;
 }
 
 .crm-person-card-shell {
@@ -4459,8 +4528,9 @@ button {
 
 .crm-person-kpi-item strong {
   color: #1f1f1f;
-  font-size: clamp(1.2rem, 1.9vw, 1.6rem);
-  line-height: 1.1;
+  font-size: clamp(1.1rem, 1.7vw, 1.4rem);
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 .crm-person-kpi-icon {
@@ -4548,7 +4618,7 @@ button {
 .crm-person-info-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .crm-person-info-grid {
@@ -4559,31 +4629,33 @@ button {
 
 .crm-person-info-grid div {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid #f3f3f3;
-  padding-bottom: 10px;
-}
-
-.crm-person-info-grid div:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+  border: 1px solid #f2f2f2;
+  border-radius: 12px;
+  background: #fcfcfc;
+  padding: 10px 12px;
 }
 
 .crm-person-info-grid dt {
   color: #7b7b7b;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
 }
 
 .crm-person-info-grid dd {
   margin: 0;
   color: #232323;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   text-align: right;
+  font-weight: 600;
+  word-break: break-word;
 }
 
 .crm-person-notes-text {
@@ -5299,7 +5371,9 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .crm-person-day-actions {
+  .crm-person-side-stack,
+  .crm-person-card-main,
+  .crm-person-notes-card {
     grid-column: 1;
   }
 
@@ -5419,7 +5493,8 @@ button {
   }
 
   .crm-person-kpi-grid,
-  .crm-person-quick-actions {
+  .crm-person-quick-actions,
+  .crm-person-info-columns {
     grid-template-columns: 1fr;
   }
 

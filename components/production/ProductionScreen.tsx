@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, LayoutGrid, LayoutList, MoreHorizontal, Search } from "lucide-react";
 import { ProductionService } from "@/services/production.service";
+import { ShootingService } from "@/services/shooting.service";
 import type { Production, ProductionResponse } from "@/types/production";
+import type { Athlete } from "@/types/athlete";
+import type { NewShooting } from "@/types/shooting";
 import { getProductionStatusPriority, type ProductionWorkflowResult } from "@/services/production-workflow";
 import { ProductionStatusBadge } from "@/components/production/ProductionStatusBadge";
+import { Modal } from "@/components/ui/Modal";
 
 type SortKey = "date" | "name" | "progress" | "operationalStatus";
 type ViewMode = "list" | "cards";
@@ -66,6 +71,41 @@ const productionMonogram = (production: Production): string => {
     .join("");
 };
 
+const emptyCreateForm: NewShooting = {
+  date: "",
+  athlete: "",
+  sport: "",
+  type: "Portrait",
+  place: "",
+  objective: "",
+  photographer: "Sébastien Mory",
+  status: "Planifié",
+  photos: 0,
+  videos: 0,
+  lightroomLink: "",
+  driveLink: "",
+  clientGalleryLink: "",
+  instagramLink: "",
+  shootingDone: false,
+  importDone: false,
+  backupDone: false,
+  sortDone: false,
+  retouchDone: false,
+  exportDone: false,
+  driveDone: false,
+  publishedInstagram: false,
+  publishedFacebook: false,
+  publishedLinkedIn: false,
+  published: false,
+  deliverableClub: false,
+  deliverableAthlete: false,
+  deliverableSponsor: false,
+  deliverableMedia: false,
+  deliverableAgency: false,
+  deliverableOther: false,
+  notes: "",
+};
+
 export function ProductionScreen() {
   const [items, setItems] = useState<Production[]>([]);
   const [source, setSource] = useState<ProductionResponse["source"]>("google-sheets");
@@ -73,6 +113,14 @@ export function ProductionScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState<NewShooting>(emptyCreateForm);
+  const [creating, setCreating] = useState(false);
+  const [createFeedback, setCreateFeedback] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [pendingDeleteProduction, setPendingDeleteProduction] = useState<Production | null>(null);
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Tous");
   const [sport, setSport] = useState("Tous");
@@ -110,6 +158,21 @@ export function ProductionScreen() {
       active = false;
     };
   }, [retryToken]);
+
+  useEffect(() => {
+    const loadAthletes = async () => {
+      try {
+        const response = await fetch("/api/athletes", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { athletes?: Athlete[] };
+        setAthletes(payload.athletes ?? []);
+      } catch {
+        setAthletes([]);
+      }
+    };
+
+    void loadAthletes();
+  }, []);
 
   useEffect(() => {
     const handleDocumentPointer = (event: PointerEvent) => {
@@ -180,6 +243,102 @@ export function ProductionScreen() {
 
   const isEmpty = !loading && filtered.length === 0;
 
+  const selectAthlete = (name: string) => {
+    const athlete = athletes.find((item) => item.name === name);
+    setCreateForm((current) => ({
+      ...current,
+      athlete: name,
+      sport: athlete?.sport ?? current.sport,
+    }));
+  };
+
+  const requestDeleteProduction = (production: Production) => {
+    setPendingDeleteProduction(production);
+    setOpenMenuId(null);
+  };
+
+  const deleteProduction = async () => {
+    if (!pendingDeleteProduction?.row) {
+      setFeedbackMessage("Impossible de supprimer cette production : aucune ligne de stockage n’est disponible.");
+      setPendingDeleteProduction(null);
+      return;
+    }
+
+    try {
+      await ShootingService.remove(pendingDeleteProduction.row);
+      setItems((current) => current.filter((item) => item.id !== pendingDeleteProduction.id));
+      setFeedbackMessage(`Production supprimée : ${pendingDeleteProduction.athlete}.`);
+      setPendingDeleteProduction(null);
+      setActiveId((current) => (current === pendingDeleteProduction.id ? null : current));
+    } catch (error) {
+      setFeedbackMessage(error instanceof Error ? error.message : "Impossible de supprimer cette production.");
+    }
+  };
+
+  const createProduction = async (event: FormEvent) => {
+    event.preventDefault();
+    setCreating(true);
+    setCreateFeedback("");
+
+    try {
+      const productionToCreate: NewShooting = {
+        ...createForm,
+        status: "Planifié",
+        importDone: false,
+        sortDone: false,
+        retouchDone: false,
+        exportDone: false,
+        driveDone: false,
+        published: false,
+      };
+
+      await ShootingService.create(productionToCreate);
+
+      const optimisticProduction: Production = {
+        id: `production-${items.length + 4}`,
+        date: productionToCreate.date,
+        type: productionToCreate.type,
+        athlete: productionToCreate.athlete,
+        sport: productionToCreate.sport,
+        lieu: productionToCreate.place,
+        objectif: productionToCreate.objective,
+        materiel: productionToCreate.equipment ?? "—",
+        photographe: productionToCreate.photographer,
+        statut: "Planifié",
+        nbPhotos: productionToCreate.photos,
+        nbVideos: productionToCreate.videos,
+        importDone: false,
+        triDone: false,
+        retoucheDone: false,
+        exportDone: false,
+        driveDone: false,
+        published: false,
+        raw: { ...productionToCreate },
+      };
+
+      setItems((current) => [optimisticProduction, ...current]);
+      setShowCreate(false);
+      setCreateForm(emptyCreateForm);
+      const refreshed = await ProductionService.list();
+      setItems(refreshed.productions);
+      const createdProduction = refreshed.productions.find(
+        (item) =>
+          item.date === productionToCreate.date &&
+          item.athlete === productionToCreate.athlete &&
+          item.type === productionToCreate.type &&
+          item.lieu === productionToCreate.place
+      );
+      if (createdProduction) {
+        setActiveId(createdProduction.id);
+        router.push(`/production/${createdProduction.id}`);
+      }
+    } catch (error) {
+      setCreateFeedback(error instanceof Error ? error.message : "Création impossible.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <section className="crm-people-screen">
       <header className="crm-people-header">
@@ -187,13 +346,29 @@ export function ProductionScreen() {
           <h1>Production</h1>
           <p>Pilotez tous les contenus créés pour les athlètes KLIQUE.</p>
         </div>
-        <button type="button" className="crm-primary-action">+ Nouvelle production</button>
+        <button type="button" className="crm-primary-action" onClick={() => {
+          setCreateForm({ ...emptyCreateForm });
+          setShowCreate(true);
+          setCreateFeedback("");
+        }}>+ Nouvelle production</button>
       </header>
 
       {source === "demo" && message ? (
         <section className="crm-partners-info-banner" aria-live="polite">
           <strong>Source de donnees: demo</strong>
           <p>{message}</p>
+        </section>
+      ) : null}
+
+      {createFeedback ? (
+        <section className="crm-partners-info-banner" aria-live="polite">
+          <p>{createFeedback}</p>
+        </section>
+      ) : null}
+
+      {feedbackMessage ? (
+        <section className="crm-partners-info-banner" aria-live="polite">
+          <p>{feedbackMessage}</p>
         </section>
       ) : null}
 
@@ -381,7 +556,7 @@ export function ProductionScreen() {
                         {openMenuId === item.id ? (
                           <div className="crm-row-menu" role="menu" onClick={(event) => event.stopPropagation()}>
                             <Link href={`/production/${item.id}`} role="menuitem">Voir</Link>
-                            <button type="button" role="menuitem" disabled>Modifier</button>
+                            <button type="button" role="menuitem" onClick={() => requestDeleteProduction(item)}>Supprimer</button>
                             <button type="button" role="menuitem" disabled>Archiver</button>
                           </div>
                         ) : null}
@@ -431,13 +606,105 @@ export function ProductionScreen() {
 
                   <footer>
                     <span>{workflowCompactLabel(workflow)}</span>
-                    <Link href={`/production/${item.id}`}>Voir</Link>
+                    <div className="crm-row-menu-shell">
+                      <button
+                        type="button"
+                        className="crm-row-menu-trigger"
+                        aria-label={`Actions production ${item.athlete}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpenMenuId((current) => (current === item.id ? null : item.id));
+                        }}
+                      >
+                        <MoreHorizontal size={16} aria-hidden />
+                      </button>
+                      {openMenuId === item.id ? (
+                        <div className="crm-row-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+                          <Link href={`/production/${item.id}`} role="menuitem">Voir</Link>
+                          <button type="button" role="menuitem" onClick={() => requestDeleteProduction(item)}>Supprimer</button>
+                        </div>
+                      ) : null}
+                    </div>
                   </footer>
                 </article>
               );
             })}
           </section>
         </>
+      ) : null}
+
+      {pendingDeleteProduction ? (
+        <Modal title="Supprimer définitivement cette production ?" onClose={() => setPendingDeleteProduction(null)}>
+          <div className="modal-form">
+            <p>Cette action supprimera la production “{pendingDeleteProduction.athlete}” du stockage existant.</p>
+            <div className="modal-actions modal-wide">
+              <button type="button" className="secondary-button" onClick={() => setPendingDeleteProduction(null)}>Annuler</button>
+              <button type="button" className="primary-button" onClick={deleteProduction}>Supprimer</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {showCreate ? (
+        <Modal title="Créer une production" onClose={() => setShowCreate(false)}>
+          <form className="modal-form" onSubmit={createProduction}>
+            <label>
+              <span>Athlète</span>
+              <select value={createForm.athlete} onChange={(event) => selectAthlete(event.target.value)} required>
+                <option value="">Choisir…</option>
+                {athletes.map((athlete) => (
+                  <option key={athlete.name} value={athlete.name}>
+                    {athlete.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Type</span>
+              <select value={createForm.type} onChange={(event) => setCreateForm((current) => ({ ...current, type: event.target.value }))}>
+                <option value="Portrait">Portrait</option>
+                <option value="Action">Action</option>
+                <option value="Interview">Interview</option>
+                <option value="Lifestyle">Lifestyle</option>
+                <option value="Sponsor">Sponsor</option>
+                <option value="Événement">Événement</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Date</span>
+              <input type="date" value={createForm.date} onChange={(event) => setCreateForm((current) => ({ ...current, date: event.target.value }))} required />
+            </label>
+
+            <label>
+              <span>Lieu</span>
+              <input value={createForm.place} onChange={(event) => setCreateForm((current) => ({ ...current, place: event.target.value }))} />
+            </label>
+
+            <label>
+              <span>Objectif</span>
+              <textarea value={createForm.objective} onChange={(event) => setCreateForm((current) => ({ ...current, objective: event.target.value }))} />
+            </label>
+
+            <label>
+              <span>Matériel</span>
+              <textarea value={createForm.equipment ?? ""} onChange={(event) => setCreateForm((current) => ({ ...current, equipment: event.target.value }))} />
+            </label>
+
+            <label>
+              <span>Photographe</span>
+              <input value={createForm.photographer} onChange={(event) => setCreateForm((current) => ({ ...current, photographer: event.target.value }))} />
+            </label>
+
+            <div className="modal-actions modal-wide">
+              <button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>Annuler</button>
+              <button type="submit" className="primary-button" disabled={creating}>
+                {creating ? "Création…" : "Créer"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
     </section>
   );

@@ -16,15 +16,29 @@ import {
   MapPin,
   Camera,
 } from "lucide-react";
-import { ProductionService } from "@/services/production.service";
+import { ProductionService, buildProductionEditPayload, type ProductionEditFormValues } from "@/services/production.service";
 import type { Production } from "@/types/production";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
+import type { ShootingUpdate } from "@/types/shooting";
 import { ProductionNotesCard } from "@/components/production/ProductionNotesCard";
 import { ProductionStatusBadge } from "@/components/production/ProductionStatusBadge";
 import { ProductionWorkflowWarnings } from "@/components/production/ProductionWorkflowWarnings";
-import type { ProductionWorkflowResult, ProductionWorkflowStep } from "@/services/production-workflow";
+import {
+  advanceProductionWorkflow,
+  type ProductionWorkflowResult,
+  type ProductionWorkflowStep,
+} from "@/services/production-workflow";
 import { ProductionMediaSection } from "@/components/production/ProductionMediaSection";
 import { getProductionMediaSummary } from "@/services/production-media";
+import { ShootingService } from "@/services/shooting.service";
+
+const workflowStepLabels: Record<string, string> = {
+  import: "Import",
+  tri: "Tri",
+  retouche: "Retouche",
+  export: "Export",
+  publication: "Publication",
+};
 
 type ProductionDetailScreenProps = {
   id: string;
@@ -111,7 +125,13 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<ProductionEditFormValues | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const workflowRef = useRef<HTMLElement | null>(null);
+  const stepRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   useEffect(() => {
     let active = true;
@@ -185,6 +205,89 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
 
   const driveUrl = mediaSummary?.hasValidDriveUrl ? mediaSummary.driveUrl : "";
 
+  useEffect(() => {
+    if (!production) return;
+    setEditForm({
+      date: production.date,
+      athlete: production.athlete,
+      type: production.type,
+      lieu: production.lieu,
+      objectif: production.objectif,
+      materiel: production.materiel,
+      photographe: production.photographe,
+      sport: production.sport,
+    });
+  }, [production]);
+
+  const openEditForm = () => {
+    if (!production) return;
+    setEditForm({
+      date: production.date,
+      athlete: production.athlete,
+      type: production.type,
+      lieu: production.lieu,
+      objectif: production.objectif,
+      materiel: production.materiel,
+      photographe: production.photographe,
+      sport: production.sport,
+    });
+    setIsEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const handleSaveEdit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!production || !editForm || !production.row) return;
+
+    setIsSaving(true);
+    setActionMessage(null);
+
+    try {
+      const updatePayload = buildProductionEditPayload(production, editForm);
+      await ShootingService.update(updatePayload);
+
+      const selectedAthlete = athletes.find((athlete) => athlete.name === editForm.athlete);
+      const nextSport = selectedAthlete?.sport || editForm.sport || production.sport;
+
+      setProduction((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          date: editForm.date,
+          athlete: editForm.athlete,
+          type: editForm.type,
+          lieu: editForm.lieu,
+          objectif: editForm.objectif,
+          materiel: editForm.materiel,
+          photographe: editForm.photographe,
+          sport: nextSport,
+          raw: {
+            ...current.raw,
+            date: editForm.date,
+            athlete: editForm.athlete,
+            type: editForm.type,
+            place: editForm.lieu,
+            objective: editForm.objectif,
+            equipment: editForm.materiel,
+            photographer: editForm.photographe,
+            sport: nextSport,
+          },
+        };
+      });
+
+      setIsEditing(false);
+      setActionMessage("Production mise à jour.");
+      setRetryToken((value) => value + 1);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Impossible de modifier cette production.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const copyCurrentUrl = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -197,7 +300,67 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
   };
 
   const scrollToNextStep = () => {
+    const stepId = workflow?.nextStep?.id ?? workflow?.currentStep?.id;
+    const target = stepId ? stepRefs.current[stepId] : null;
+
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     workflowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleAdvanceWorkflow = async () => {
+    if (!production || !workflow || isAdvancing) return;
+
+    const currentStep = workflow.currentStep?.id ?? workflow.nextStep?.id ?? null;
+    const advancePlan = advanceProductionWorkflow(production, currentStep);
+
+    if (!advancePlan.canAdvance || !production.row) {
+      setActionMessage("Aucune étape à valider pour le moment.");
+      return;
+    }
+
+    setIsAdvancing(true);
+    setActionMessage(null);
+
+    try {
+      const updatePayload: ShootingUpdate = {
+        row: production.row,
+        importDone: advancePlan.update.importDone,
+        sortDone: advancePlan.update.triDone,
+        retouchDone: advancePlan.update.retoucheDone,
+        exportDone: advancePlan.update.exportDone,
+        published: advancePlan.update.published,
+        status: typeof advancePlan.update.statut === "string" ? advancePlan.update.statut : undefined,
+      };
+
+      await ShootingService.update(updatePayload);
+
+      setProduction((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          ...advancePlan.update,
+          raw: {
+            ...current.raw,
+            ...advancePlan.update,
+          },
+        };
+      });
+
+      const label = workflow.currentStep?.label ?? workflow.nextStep?.label ?? "étape";
+      const nextLabel = advancePlan.nextStepId
+        ? `Prochaine étape : ${workflowStepLabels[advancePlan.nextStepId] ?? advancePlan.nextStepId}.`
+        : "Workflow terminé.";
+      setActionMessage(`Étape “${label}” validée. ${nextLabel}`);
+      setRetryToken((value) => value + 1);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Impossible de valider cette étape.");
+    } finally {
+      setIsAdvancing(false);
+    }
   };
 
   if (loading) {
@@ -317,7 +480,13 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
 
           <ol className="crm-production-workflow-track" aria-label="Etapes du workflow">
             {workflow.steps.map((step) => (
-              <li key={step.id} className={`crm-production-step is-${step.state}`}>
+              <li
+                key={step.id}
+                ref={(element) => {
+                  stepRefs.current[step.id] = element;
+                }}
+                className={`crm-production-step is-${step.state}`}
+              >
                 <span className="crm-production-step-dot" aria-hidden>
                   {step.isCompleted ? <CheckCircle2 size={14} /> : <Circle size={14} />}
                 </span>
@@ -342,6 +511,19 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
           ) : (
             <p className="crm-skeleton-label">Aucune etape restante.</p>
           )}
+          <div className="crm-person-error-actions" style={{ marginTop: "0.75rem" }}>
+            {workflow.currentStep ? (
+              <button type="button" className="crm-primary-action" onClick={handleAdvanceWorkflow} disabled={isAdvancing}>
+                {isAdvancing ? "Validation..." : `Valider l'étape “${workflow.currentStep.label}”`}
+              </button>
+            ) : null}
+            {workflow.nextStep ? (
+              <button type="button" className="crm-secondary-action" onClick={scrollToNextStep}>
+                Voir l'étape suivante
+              </button>
+            ) : null}
+          </div>
+          {actionMessage ? <p className="crm-skeleton-label">{actionMessage}</p> : null}
         </article>
       </section>
 
@@ -378,22 +560,71 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
           <article className="crm-person-card-shell">
             <header>
               <h2>Informations</h2>
+              {!isEditing ? (
+                <button type="button" className="crm-hero-ghost-action" style={{ padding: "0.35rem 0.7rem", fontSize: "0.85rem" }} onClick={openEditForm}>
+                  Modifier
+                </button>
+              ) : null}
             </header>
-            <div className="crm-person-info-columns">
-              <dl className="crm-person-info-grid">
-                <div><dt>Date</dt><dd>{formatDate(production.date)}</dd></div>
-                <div><dt>Athlete</dt><dd>{displayValue(production.athlete)}</dd></div>
-                <div><dt>Sport</dt><dd>{displayValue(production.sport)}</dd></div>
-                <div><dt>Type</dt><dd>{displayValue(production.type)}</dd></div>
-                <div><dt>Lieu</dt><dd>{displayValue(production.lieu)}</dd></div>
-              </dl>
-              <dl className="crm-person-info-grid">
-                <div><dt>Objectif</dt><dd className="crm-production-long-value">{displayValue(production.objectif)}</dd></div>
-                <div><dt>Materiel</dt><dd className="crm-production-long-value">{displayValue(production.materiel)}</dd></div>
-                <div><dt>Photographe</dt><dd>{displayValue(production.photographe)}</dd></div>
-                <div><dt>Statut source</dt><dd>{displayValue(workflow.statusSource)}</dd></div>
-              </dl>
-            </div>
+            {isEditing && editForm ? (
+              <form onSubmit={handleSaveEdit}>
+                <div className="crm-person-info-columns">
+                  <dl className="crm-person-info-grid">
+                    <div><dt>Date</dt><dd><input type="date" value={editForm.date} onChange={(event) => setEditForm((current) => (current ? { ...current, date: event.target.value } : current))} required /></dd></div>
+                    <div><dt>Athlete</dt><dd>
+                      <select value={editForm.athlete} onChange={(event) => setEditForm((current) => (current ? { ...current, athlete: event.target.value } : current))} required>
+                        <option value="">Choisir…</option>
+                        {athletes.map((athlete) => (
+                          <option key={athlete.name} value={athlete.name}>
+                            {athlete.name}
+                          </option>
+                        ))}
+                      </select>
+                    </dd></div>
+                    <div><dt>Sport</dt><dd>{displayValue(production.sport)}</dd></div>
+                    <div><dt>Type</dt><dd>
+                      <select value={editForm.type} onChange={(event) => setEditForm((current) => (current ? { ...current, type: event.target.value } : current))}>
+                        <option value="Portrait">Portrait</option>
+                        <option value="Action">Action</option>
+                        <option value="Interview">Interview</option>
+                        <option value="Lifestyle">Lifestyle</option>
+                        <option value="Sponsor">Sponsor</option>
+                        <option value="Événement">Événement</option>
+                      </select>
+                    </dd></div>
+                    <div><dt>Lieu</dt><dd><input value={editForm.lieu} onChange={(event) => setEditForm((current) => (current ? { ...current, lieu: event.target.value } : current))} /></dd></div>
+                  </dl>
+                  <dl className="crm-person-info-grid">
+                    <div><dt>Objectif</dt><dd className="crm-production-long-value"><textarea value={editForm.objectif} onChange={(event) => setEditForm((current) => (current ? { ...current, objectif: event.target.value } : current))} /></dd></div>
+                    <div><dt>Materiel</dt><dd className="crm-production-long-value"><textarea value={editForm.materiel} onChange={(event) => setEditForm((current) => (current ? { ...current, materiel: event.target.value } : current))} /></dd></div>
+                    <div><dt>Photographe</dt><dd><input value={editForm.photographe} onChange={(event) => setEditForm((current) => (current ? { ...current, photographe: event.target.value } : current))} /></dd></div>
+                    <div><dt>Statut source</dt><dd>{displayValue(workflow.statusSource)}</dd></div>
+                  </dl>
+                </div>
+                <div className="crm-person-error-actions" style={{ marginTop: "0.75rem" }}>
+                  <button type="button" className="secondary-button" onClick={cancelEdit}>Annuler</button>
+                  <button type="submit" className="primary-button" disabled={isSaving}>
+                    {isSaving ? "Enregistrement…" : "Enregistrer"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="crm-person-info-columns">
+                <dl className="crm-person-info-grid">
+                  <div><dt>Date</dt><dd>{formatDate(production.date)}</dd></div>
+                  <div><dt>Athlete</dt><dd>{displayValue(production.athlete)}</dd></div>
+                  <div><dt>Sport</dt><dd>{displayValue(production.sport)}</dd></div>
+                  <div><dt>Type</dt><dd>{displayValue(production.type)}</dd></div>
+                  <div><dt>Lieu</dt><dd>{displayValue(production.lieu)}</dd></div>
+                </dl>
+                <dl className="crm-person-info-grid">
+                  <div><dt>Objectif</dt><dd className="crm-production-long-value">{displayValue(production.objectif)}</dd></div>
+                  <div><dt>Materiel</dt><dd className="crm-production-long-value">{displayValue(production.materiel)}</dd></div>
+                  <div><dt>Photographe</dt><dd>{displayValue(production.photographe)}</dd></div>
+                  <div><dt>Statut source</dt><dd>{displayValue(workflow.statusSource)}</dd></div>
+                </dl>
+              </div>
+            )}
           </article>
 
           {mediaSummary ? <ProductionMediaSection production={production} media={mediaSummary} /> : null}
@@ -434,9 +665,13 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
             )}
           </article>
 
-          <ProductionNotesCard note={normalize(String(production.raw.notes ?? ""))} />
+          <ProductionNotesCard
+            production={production}
+            onChange={(updatedProduction) => setProduction(updatedProduction)}
+          />
         </div>
       </section>
+
     </section>
   );
 }

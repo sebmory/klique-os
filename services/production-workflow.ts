@@ -190,6 +190,71 @@ const relationRules: Array<{
   },
 ];
 
+const workflowStepOrder: ProductionWorkflowStepId[] = ["import", "tri", "retouche", "export", "publication"];
+
+export type ProductionWorkflowAdvanceUpdate = Partial<
+  Pick<Production, "importDone" | "triDone" | "retoucheDone" | "exportDone" | "published" | "statut">
+>;
+
+export type ProductionWorkflowAdvanceResult = {
+  canAdvance: boolean;
+  completedStepId: ProductionWorkflowStepId | null;
+  nextStepId: ProductionWorkflowStepId | null;
+  update: ProductionWorkflowAdvanceUpdate;
+};
+
+export const advanceProductionWorkflow = (
+  production: Production,
+  stepId: ProductionWorkflowStepId | null
+): ProductionWorkflowAdvanceResult => {
+  const workflow = getProductionWorkflow(production);
+  const currentStepId = stepId ?? workflow.currentStep?.id ?? workflow.nextStep?.id ?? null;
+
+  if (!currentStepId) {
+    return {
+      canAdvance: false,
+      completedStepId: null,
+      nextStepId: null,
+      update: {},
+    };
+  }
+
+  const completedStepIndex = workflowStepOrder.indexOf(currentStepId);
+  const nextStepId =
+    completedStepIndex >= 0 && completedStepIndex < workflowStepOrder.length - 1
+      ? workflowStepOrder[completedStepIndex + 1]
+      : null;
+
+  const update: ProductionWorkflowAdvanceUpdate = {};
+
+  switch (currentStepId) {
+    case "import":
+      update.importDone = true;
+      break;
+    case "tri":
+      update.triDone = true;
+      break;
+    case "retouche":
+      update.retoucheDone = true;
+      break;
+    case "export":
+      update.exportDone = true;
+      break;
+    case "publication":
+      update.published = true;
+      break;
+  }
+
+  update.statut = currentStepId === "publication" ? "Terminé" : currentStepId === "export" ? "Pret a publier" : "En production";
+
+  return {
+    canAdvance: true,
+    completedStepId: currentStepId,
+    nextStepId,
+    update,
+  };
+};
+
 export const getProductionWorkflow = (production: Production): ProductionWorkflowResult => {
   const stepData = stepDefinitions.map((definition, index) => {
     const sourceValue = definition.from(production);
@@ -246,7 +311,7 @@ export const getProductionWorkflow = (production: Production): ProductionWorkflo
     });
   }
 
-  if (sourceCategory === "not_started" && completedSteps > 0) {
+  if (sourceCategory === "not_started" && completedSteps > 0 && !isComplete) {
     statusInconsistencies.push({
       code: "STATUS_NOT_STARTED_BUT_WORKFLOW_PROGRESS",
       severity: "warning",
@@ -254,7 +319,7 @@ export const getProductionWorkflow = (production: Production): ProductionWorkflo
     });
   }
 
-  if (sourceCategory === "ready_to_publish" && !(completedSteps === 4 && !isComplete)) {
+  if (sourceCategory === "ready_to_publish" && !isComplete && !(completedSteps === 4 && !isComplete)) {
     statusInconsistencies.push({
       code: "STATUS_READY_BUT_WORKFLOW_NOT_READY",
       severity: "warning",
@@ -270,10 +335,7 @@ export const getProductionWorkflow = (production: Production): ProductionWorkflo
     });
   }
 
-  if (
-    progressPercentage === 100 &&
-    (sourceCategory === "not_started" || sourceCategory === "in_progress" || sourceCategory === "ready_to_publish")
-  ) {
+  if (progressPercentage === 100 && !isComplete && (sourceCategory === "not_started" || sourceCategory === "in_progress" || sourceCategory === "ready_to_publish")) {
     statusInconsistencies.push({
       code: "PROGRESS_COMPLETE_BUT_STATUS_INCOMPATIBLE",
       severity: "warning",

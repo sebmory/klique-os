@@ -36,13 +36,15 @@ describe("production workflow status compatibility at 100%", () => {
     ).toBe(false);
   });
 
-  it("flags incompatibility when source status is in_progress", () => {
+  it("does not flag incompatibility when workflow is complete even if source status is in_progress", () => {
     const workflow = getProductionWorkflow(baseProduction("En production"));
 
     expect(
       workflow.inconsistencies.some(
         (issue) => issue.code === "PROGRESS_COMPLETE_BUT_STATUS_INCOMPATIBLE"
       )
-    ).toBe(true);
+    ).toBe(false);
+    expect(workflow.calculatedStatus).toBe("completed");
+    expect(workflow.statusLabel).toBe("Termine");
   });
 });

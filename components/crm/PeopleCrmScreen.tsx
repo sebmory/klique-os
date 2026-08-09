@@ -6,7 +6,7 @@ import { LayoutGrid, LayoutList, MoreHorizontal, Search } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { CrmModuleNav } from "@/components/crm/CrmModuleNav";
 
-type ContactType = "Athletes" | "Partenaires" | "Clubs" | "Medias" | "Journalistes" | "Sponsors";
+type ContactType = "Athletes";
 type ContactStatus = "Actif" | "Prospect" | "Inactif";
 type SortKey = "name" | "lastActivity" | "createdAt" | "clubName";
 type ViewMode = "list" | "cards";
@@ -76,15 +76,6 @@ const mapAthleteToPerson = (athlete: Athlete): Person => ({
   media: athlete.media,
 });
 
-const filterOptions: Array<{ label: string; value: "Tous" | ContactType }> = [
-  { label: "Tous", value: "Tous" },
-  { label: "Athletes", value: "Athletes" },
-  { label: "Partenaires", value: "Partenaires" },
-  { label: "Clubs", value: "Clubs" },
-  { label: "Medias", value: "Medias" },
-  { label: "Journalistes", value: "Journalistes" },
-  { label: "Sponsors", value: "Sponsors" },
-];
 
 export function PeopleCrmScreen() {
   const [rawAthletes, setRawAthletes] = useState<Athlete[]>([]);
@@ -92,7 +83,6 @@ export function PeopleCrmScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<(typeof filterOptions)[number]["value"]>("Tous");
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
@@ -143,7 +133,6 @@ export function PeopleCrmScreen() {
     const normalizedQuery = query.trim().toLowerCase();
 
     const filtered = peopleSource.filter((person) => {
-      if (filter !== "Tous" && person.type !== filter) return false;
       if (!normalizedQuery) return true;
 
       return [person.name, person.sport, person.organization, person.clubName, person.type]
@@ -158,7 +147,7 @@ export function PeopleCrmScreen() {
       if (sortBy === "createdAt") return b.createdAtRank - a.createdAtRank;
       return a.clubName.localeCompare(b.clubName);
     });
-  }, [filter, peopleSource, query, sortBy]);
+  }, [peopleSource, query, sortBy]);
 
   const isEmpty = !loading && people.length === 0;
 
@@ -167,13 +156,10 @@ export function PeopleCrmScreen() {
       <CrmModuleNav />
 
       <header className="crm-people-header">
-        <div>
-          <h1>Personnes</h1>
-          <p>Retrouvez tous vos contacts, athletes, partenaires et organisations.</p>
+        <div style={{ textAlign: "center", width: "100%" }}>
+          <h1>Athlètes KLIQUE</h1>
+          <p>Retrouvez les athlètes, leurs performances, leurs activités et leurs contacts.</p>
         </div>
-        <button type="button" className="crm-primary-action">
-          + Nouvelle personne
-        </button>
       </header>
 
       <section className="crm-actions-bar" aria-label="Actions CRM">
@@ -187,21 +173,6 @@ export function PeopleCrmScreen() {
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-
-        <div className="crm-filter-scroller" role="tablist" aria-label="Filtres personnes">
-          {filterOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={option.value === filter}
-              className={option.value === filter ? "crm-filter-chip is-active" : "crm-filter-chip"}
-              onClick={() => setFilter(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
 
         <div className="crm-actions-right">
           <label className="crm-select-wrap">
@@ -273,7 +244,6 @@ export function PeopleCrmScreen() {
           <button
             type="button"
             onClick={() => {
-              setFilter("Tous");
               setQuery("");
             }}
           >
@@ -350,12 +320,6 @@ export function PeopleCrmScreen() {
                         >
                           <button type="button" role="menuitem">
                             Voir
-                          </button>
-                          <button type="button" role="menuitem">
-                            Modifier
-                          </button>
-                          <button type="button" role="menuitem">
-                            Archiver
                           </button>
                         </div>
                       ) : null}

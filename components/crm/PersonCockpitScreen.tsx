@@ -8,14 +8,11 @@ import {
   ChartNoAxesCombined,
   Image,
   MessageSquareText,
-  MoreHorizontal,
-  Settings,
   Sparkles,
   Users,
 } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import type { Partner, PartnerResponse } from "@/types/partner";
-import { RelationsCard } from "@/components/relations/RelationsCard";
 import type { EcosystemResource } from "@/types/relations";
 
 type ContactStatus = "Actif" | "Prospect" | "Inactif";
@@ -303,25 +300,13 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
           </div>
         </div>
 
-        <div className="crm-person-hero-actions" aria-label="Actions fiche personne">
-          <button type="button" className="crm-hero-ghost-action">
-            <Settings size={15} aria-hidden />
-            Modifier
-          </button>
-          <button type="button" className="crm-hero-ghost-action">
-            <Sparkles size={15} aria-hidden />
-            Partager
-          </button>
-          <button type="button" className="crm-hero-icon-action" aria-label="Plus d'actions">
-            <MoreHorizontal size={16} aria-hidden />
-          </button>
-        </div>
+        <div className="crm-person-hero-actions" aria-label="Actions fiche personne" />
       </header>
 
       <section className="crm-person-grid">
         <article className="crm-person-card-shell crm-person-card-main">
           <header>
-            <h2>Aujourd'hui</h2>
+            <h2>Aperçu</h2>
           </header>
           <div className="crm-person-kpi-grid">
             <div className="crm-person-kpi-item">
@@ -383,125 +368,65 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
           </div>
         </article>
 
-        <article className="crm-person-card-shell crm-person-day-actions">
-          <header>
-            <h2>Aujourd'hui</h2>
-          </header>
-          <ul className="crm-day-actions-list">
-            <li>
-              <span aria-hidden>
-                <Users size={15} />
-              </span>
-              <p>Contacter cet athlete</p>
-            </li>
-            <li>
-              <span aria-hidden>
-                <Image size={15} />
-              </span>
-              <p>Prevoir une publication</p>
-            </li>
-            <li>
-              <span aria-hidden>
-                <ChartNoAxesCombined size={15} />
-              </span>
-              <p>Verifier la derniere visibilite</p>
-            </li>
-            <li>
-              <span aria-hidden>
-                <MessageSquareText size={15} />
-              </span>
-              <p>Ajouter une note</p>
-            </li>
-          </ul>
-        </article>
+        <div className="crm-person-side-stack">
+          <article className="crm-person-card-shell">
+            <header>
+              <h2>Informations</h2>
+            </header>
+            <div className="crm-person-info-columns">
+              <dl className="crm-person-info-grid">
+                <div>
+                  <dt>
+                    <Users size={14} aria-hidden />
+                    Club
+                  </dt>
+                  <dd>{readValue(athlete.club)}</dd>
+                </div>
+                <div>
+                  <dt>
+                    <Sparkles size={14} aria-hidden />
+                    Sport
+                  </dt>
+                  <dd>{readValue(athlete.sport)}</dd>
+                </div>
+                <div>
+                  <dt>
+                    <ChartNoAxesCombined size={14} aria-hidden />
+                    Statut
+                  </dt>
+                  <dd>{readValue(athlete.status)}</dd>
+                </div>
+              </dl>
 
-        <article className="crm-person-card-shell">
-          <header>
-            <h2>Actions rapides</h2>
-          </header>
-          <div className="crm-person-quick-actions">
-            <button type="button" className="crm-person-quick-action">
-              <CalendarDays size={16} aria-hidden />
-              Nouveau shooting
-            </button>
-            <button type="button" className="crm-person-quick-action">
-              <Image size={16} aria-hidden />
-              Nouvelle publication
-            </button>
-            <button type="button" className="crm-person-quick-action">
-              <MessageSquareText size={16} aria-hidden />
-              Ajouter une note
-            </button>
-            <button type="button" className="crm-person-quick-action">
-              <Users size={16} aria-hidden />
-              Planifier un contact
-            </button>
-          </div>
-        </article>
+              <dl className="crm-person-info-grid">
+                <div>
+                  <dt>
+                    <Sparkles size={14} aria-hidden />
+                    Instagram
+                  </dt>
+                  <dd>{readValue(athlete.instagram)}</dd>
+                </div>
+                <div>
+                  <dt>
+                    <Bell size={14} aria-hidden />
+                    Téléphone
+                  </dt>
+                  <dd>{readValue(athlete.phone)}</dd>
+                </div>
+                <div>
+                  <dt>
+                    <MessageSquareText size={14} aria-hidden />
+                    Email
+                  </dt>
+                  <dd>{readValue(athlete.email)}</dd>
+                </div>
+              </dl>
+            </div>
+          </article>
 
-        <article className="crm-person-card-shell">
-          <header>
-            <h2>Informations</h2>
-          </header>
-          <div className="crm-person-info-columns">
-            <dl className="crm-person-info-grid">
-              <div>
-                <dt>
-                  <Users size={14} aria-hidden />
-                  Club
-                </dt>
-                <dd>{readValue(athlete.club)}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Sparkles size={14} aria-hidden />
-                  Sport
-                </dt>
-                <dd>{readValue(athlete.sport)}</dd>
-              </div>
-              <div>
-                <dt>
-                  <ChartNoAxesCombined size={14} aria-hidden />
-                  Statut
-                </dt>
-                <dd>{readValue(athlete.status)}</dd>
-              </div>
-            </dl>
+        </div>
 
-            <dl className="crm-person-info-grid">
-              <div>
-                <dt>
-                  <Sparkles size={14} aria-hidden />
-                  Instagram
-                </dt>
-                <dd>{readValue(athlete.instagram)}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Bell size={14} aria-hidden />
-                  Telephone
-                </dt>
-                <dd>{readValue(athlete.phone)}</dd>
-              </div>
-              <div>
-                <dt>
-                  <MessageSquareText size={14} aria-hidden />
-                  Email
-                </dt>
-                <dd>{readValue(athlete.email)}</dd>
-              </div>
-            </dl>
-          </div>
-        </article>
-
-        <article className="crm-person-card-shell">
-          <header>
-            <h2>Écosystème KLIQUE</h2>
-          </header>
-          <RelationsCard title="Écosystème KLIQUE" resources={ecosystemResources} />
-        </article>
-
-        <article className="crm-person-card-shell">
+        <article className="crm-person-card-shell crm-person-notes-card">
           <header>
             <h2>Notes</h2>
           </header>
@@ -513,9 +438,6 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
                 <MessageSquareText size={17} />
               </span>
               <p>Aucune note pour le moment.</p>
-              <button type="button" className="crm-person-note-action">
-                Ajouter une note
-              </button>
             </div>
           )}
         </article>

@@ -38,7 +38,7 @@ export const workspaces: Workspace[] = [
 
 export const mainNavigation: NavItem[] = [
   { id: "today", label: "Aujourd'hui", href: "/today", icon: "house" },
-  { id: "crm", label: "CRM", href: "/crm", icon: "users" },
+  { id: "crm", label: "Athlètes", href: "/crm", icon: "users" },
   { id: "ecosysteme", label: "Écosystème", href: "/ecosysteme", icon: "network" },
   { id: "contents", label: "Contenus", href: "/contents", icon: "contents" },
   { id: "production", label: "Production", href: "/production", icon: "production" },

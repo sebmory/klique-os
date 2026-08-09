@@ -3,10 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const tabs = [
-  { href: "/crm/personnes", label: "Athletes" },
-  { href: "/ecosysteme", label: "Écosystème" },
-];
+const tabs = [{ href: "/crm/personnes", label: "Athlètes" }];
 
 export function CrmModuleNav() {
   const pathname = usePathname();

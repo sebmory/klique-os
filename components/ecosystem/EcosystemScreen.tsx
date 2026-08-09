@@ -260,9 +260,6 @@ export function EcosystemScreen() {
           <h1>Écosystème KLIQUE</h1>
           <p>Découvrez les partenaires, experts, médias et ressources disponibles pour les membres KLIQUE.</p>
         </div>
-        <button type="button" className="crm-primary-action">
-          + Nouvelle ressource
-        </button>
       </header>
 
       {source === "demo" && message ? (

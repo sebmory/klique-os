@@ -1,5 +1,5 @@
 import type { Production, ProductionByIdResponse, ProductionResponse } from "@/types/production";
-import type { Shooting, ShootingsResponse } from "@/types/shooting";
+import type { Shooting, ShootingsResponse, ShootingUpdate } from "@/types/shooting";
 import { getProductionWorkflow, type ProductionWorkflowResult } from "@/services/production-workflow";
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
@@ -60,6 +60,32 @@ const toProduction = (shooting: Shooting): Production => {
     },
   };
 };
+
+export type ProductionEditFormValues = {
+  date: string;
+  athlete: string;
+  type: string;
+  lieu: string;
+  objectif: string;
+  materiel: string;
+  photographe: string;
+  sport: string;
+};
+
+export const buildProductionEditPayload = (
+  production: Production,
+  values: ProductionEditFormValues
+): ShootingUpdate => ({
+  row: production.row,
+  date: values.date,
+  athlete: values.athlete,
+  type: values.type,
+  place: values.lieu,
+  objective: values.objectif,
+  equipment: values.materiel,
+  photographer: values.photographe,
+  sport: values.sport,
+});
 
 export const ProductionService = {
   async list(): Promise<ProductionResponse> {
