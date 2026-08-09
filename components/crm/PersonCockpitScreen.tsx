@@ -45,6 +45,50 @@ const readDateValue = (value: string): string => {
   return "Non renseigné";
 };
 
+const formatResponseDateValue = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return "Aucune réponse enregistrée";
+
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (slashMatch) {
+    const [, day, month, year, hour = "0", minute = "0", second = "0"] = slashMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
+
+  const dashMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (dashMatch) {
+    const [, year, month, day, hour = "0", minute = "0", second = "0"] = dashMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(parsed);
+  }
+
+  return trimmed;
+};
+
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
 const relationKey = (value: unknown): string =>
@@ -320,6 +364,20 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
               <small>Athlete du mois</small>
               <span className="crm-person-kpi-icon" aria-hidden>
                 <Users size={16} />
+              </span>
+            </div>
+            <div className="crm-person-kpi-item">
+              <strong>{formatResponseDateValue(athlete.lastResponseWeekly)}</strong>
+              <small>Dernière réponse hebdomadaire</small>
+              <span className="crm-person-kpi-icon" aria-hidden>
+                <ChartNoAxesCombined size={16} />
+              </span>
+            </div>
+            <div className="crm-person-kpi-item">
+              <strong>{formatResponseDateValue(athlete.lastResponseMonthly)}</strong>
+              <small>Dernière réponse mensuelle</small>
+              <span className="crm-person-kpi-icon" aria-hidden>
+                <ChartNoAxesCombined size={16} />
               </span>
             </div>
           </div>

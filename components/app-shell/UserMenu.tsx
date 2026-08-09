@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, CircleUserRound } from "./icons";
 
-const mainMenuItems = ["Mon profil", "Preferences", "Changer de workspace"];
+const mainMenuItems = ["Mon profil", "Préférences", "Changer de workspace"];
 
 export function UserMenu() {
   const [open, setOpen] = useState(false);
@@ -58,15 +58,17 @@ export function UserMenu() {
           <ul>
             {mainMenuItems.map((item) => (
               <li key={item}>
-                <button type="button" role="menuitem">
-                  {item}
+                <button type="button" role="menuitem" className="menu-item-disabled" disabled aria-disabled="true">
+                  <span>{item}</span>
+                  <small>Bientôt disponible</small>
                 </button>
               </li>
             ))}
             <li className="menu-separator" role="separator" aria-hidden />
             <li>
-              <button type="button" role="menuitem" aria-disabled="true">
-                Se deconnecter
+              <button type="button" role="menuitem" className="menu-item-disabled" disabled aria-disabled="true">
+                <span>Se déconnecter</span>
+                <small>Bientôt disponible</small>
               </button>
             </li>
           </ul>

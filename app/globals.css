@@ -540,8 +540,28 @@ button {
   text-align: left;
 }
 
+.user-menu button:disabled,
+.user-menu button[aria-disabled="true"] {
+  color: var(--kl-color-textMuted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.user-menu .menu-item-disabled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--kl-spacing-2);
+  padding-inline: var(--kl-spacing-2);
+}
+
+.user-menu .menu-item-disabled small {
+  color: var(--kl-color-textMuted);
+  font-size: var(--kl-typography-sizes-caption);
+}
+
 .menu-footer-button:hover,
-.user-menu button:hover {
+.user-menu button:not(:disabled):hover {
   background: var(--kl-color-surfaceHover);
 }
 

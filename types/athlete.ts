@@ -20,6 +20,7 @@ export type Athlete = {
   followUpNotes: string;
   lastResponseMonthly: string;
   lastResponseWeekly: string;
+  importantRendezVousThisWeek?: string;
   lastPublication: string;
   titlesOfMonth: string;
   analysisItems: string;
@@ -62,6 +63,7 @@ export type AthleteUpdate = Pick<Athlete, "row"> &
       | "followUpNotes"
       | "lastResponseMonthly"
       | "lastResponseWeekly"
+      | "importantRendezVousThisWeek"
       | "lastPublication"
       | "titlesOfMonth"
       | "analysisItems"

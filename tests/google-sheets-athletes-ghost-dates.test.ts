@@ -22,7 +22,8 @@ vi.mock("googleapis", () => ({
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
 const ATHLETES_RANGE = "'02_Athlètes'!A3:AC200";
-const FORMS_RANGE = "'Forms_Adhesion'!A1:Z500";
+const FORMS_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
+const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A1:Z500";
 
 describe("getAthletesFromGoogleSheets ghost date cleanup", () => {
   beforeEach(() => {
@@ -106,6 +107,14 @@ describe("getAthletesFromGoogleSheets ghost date cleanup", () => {
               ["Horodateur", "Email"],
               ["30.12.1899", "alpha@example.com"],
             ],
+          },
+        };
+      }
+
+      if (range === WEEKLY_RESPONSES_RANGE) {
+        return {
+          data: {
+            values: [],
           },
         };
       }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/src/design-system/components";
-import type { AthletesResponse } from "@/types/athlete";
+import type { Athlete, AthletesResponse } from "@/types/athlete";
 import type { ShootingsResponse, Shooting } from "@/types/shooting";
 import type { ContentDocument } from "@/types/content-document";
 
@@ -50,6 +50,14 @@ const getDocumentTitle = (document: ContentDocument): string => {
   if (document.type === "interview") return normalize(document.sections.title) || "Interview sans titre";
   if (document.type === "publication") return normalize(document.sections.title) || "Publication sans titre";
   return normalize(document.sections.title) || "Reel sans titre";
+};
+
+const isMeaningfulAppointment = (value: string): boolean => {
+  const normalized = normalize(value).toLowerCase();
+  if (!normalized) return false;
+  if (["non", "aucun", "aucune", "rien", "nothing", "none"].includes(normalized)) return false;
+  if (/^(non|aucun|aucune|rien|nothing|none)(\s*[:\-].*)?$/.test(normalized)) return false;
+  return true;
 };
 
 export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
@@ -140,6 +148,18 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       .slice(0, 4);
   }, [athletes]);
 
+  const importantAppointments = useMemo(() => {
+    return athletes
+      .filter((athlete) => isMeaningfulAppointment(athlete.importantRendezVousThisWeek ?? ""))
+      .map((athlete) => ({
+        athlete,
+        appointment: normalize(athlete.importantRendezVousThisWeek ?? ""),
+        responseDate: normalize(athlete.lastResponseWeekly),
+      }))
+      .sort((a, b) => parseDateRank(b.responseDate) - parseDateRank(a.responseDate))
+      .slice(0, 4);
+  }, [athletes]);
+
   const pendingProductionsCount = useMemo(() => {
     return shootings.filter((item) => !item.published).length;
   }, [shootings]);
@@ -190,6 +210,38 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
             <Link href="/crm/personnes" className="card-link-button">
               Ouvrir le CRM Athletes
             </Link>
+          </Card>
+        ) : null}
+
+        {athletesAvailable && importantAppointments.length > 0 ? (
+          <Card className="workspace-dashboard-card card-priorities">
+            <header className="dashboard-card-head">
+              <h2>Rendez-vous importants cette semaine</h2>
+            </header>
+
+            <ul className="priority-list">
+              {importantAppointments.map(({ athlete, appointment, responseDate }) => (
+                <li key={`${athlete.key}-${responseDate}`} className="priority-item">
+                  <span className="priority-check" aria-hidden />
+                  <div className="priority-main">
+                    <strong>
+                      <Link href={`/crm/personnes/${athlete.key}`}>{athlete.name}</Link>
+                    </strong>
+                    <small>{appointment}</small>
+                  </div>
+                  <small className="priority-date">{formatDate(responseDate)}</small>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
+
+        {athletesAvailable && importantAppointments.length === 0 ? (
+          <Card className="workspace-dashboard-card card-priorities">
+            <header className="dashboard-card-head">
+              <h2>Rendez-vous importants cette semaine</h2>
+            </header>
+            <p>Aucun rendez-vous important signalé cette semaine</p>
           </Card>
         ) : null}
 

@@ -65,6 +65,12 @@ const findColumn = (
   return index >= 0 ? index : fallback;
 };
 
+const findColumnExact = (headers: string[], candidate: string, fallback = -1): number => {
+  const normalizedCandidate = normalize(candidate);
+  const index = headers.map(normalize).findIndex((header) => header === normalizedCandidate);
+  return index >= 0 ? index : fallback;
+};
+
 type FormEnrichment = {
   name: string;
   rawEmail: string;
@@ -78,6 +84,133 @@ type FormEnrichment = {
   position: string;
   competitionPhoto: boolean;
   adhesionDate: string;
+};
+
+type WeeklyResponseValue = {
+  timestamp: string;
+  appointment: string;
+};
+
+type PartnerFormEntry = {
+  name: string;
+  contact: string;
+  email: string;
+  relationType: string;
+  expertKlique: boolean;
+};
+
+const parseTimestampValue = (value: unknown): number | null => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+
+  const europeanMatch = trimmed.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (europeanMatch) {
+    const [, day, month, year, hour = "0", minute = "0", second = "0"] = europeanMatch;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (isoMatch) {
+    const [, year, month, day, hour = "0", minute = "0", second = "0"] = isoMatch;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  }
+
+  const parsed = Date.parse(trimmed.replace(" ", "T"));
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const normalizeNameKey = (value: unknown): string =>
+  normalize(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(" ");
+
+const isMeaningfulWeeklyAppointment = (value: unknown): boolean => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (["non", "aucun", "aucune", "rien", "nothing", "none"].includes(normalized)) return false;
+  if (/^(non|aucun|aucune|rien|nothing|none)(\s*[:\-].*)?$/.test(normalized)) return false;
+  return true;
+};
+
+const partnerFormColumns = (headers: string[]) => ({
+  email: findColumn(headers, ["email", "e mail", "adresse e-mail", "adresse mail"], 1),
+  structureName: findColumn(headers, ["nom de la structure", "structure", "entreprise", "nom structure", "nom de la societe", "nom societe"], 2),
+  contactName: findColumn(headers, ["nom du contact", "nom contact", "contact", "personne de contact"], 3),
+  type: findColumn(headers, ["type", "type de structure", "type de relation"], 4),
+});
+
+async function buildPartnerFormEntries(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string
+): Promise<PartnerFormEntry[]> {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Forms_Partenaires_Responses'!A1:Z500",
+    });
+    const rows = res.data.values ?? [];
+    if (rows.length < 2) return [];
+
+    const headers = rows[0].map(String);
+    const col = partnerFormColumns(headers);
+    const entries: PartnerFormEntry[] = [];
+    const seenKeys = new Set<string>();
+
+    for (const row of rows.slice(1)) {
+      const rawEmail = String(row[col.email] ?? "").trim();
+      const structureName = String(row[col.structureName] ?? "").trim();
+      const contactName = String(row[col.contactName] ?? "").trim();
+      const rawType = String(row[col.type] ?? "").trim();
+      const normalizedEmail = normalize(rawEmail);
+      const normalizedIdentity = normalizeNameKey([structureName, contactName].filter(Boolean).join(" "));
+      const key = normalizedEmail || normalizedIdentity;
+      if (!key || seenKeys.has(key)) continue;
+
+      const expertKlique = normalize(rawType).includes("expert");
+      const relationType = rawType || (expertKlique ? "Expert" : "Partenaire");
+      seenKeys.add(key);
+      entries.push({
+        name: structureName || contactName || rawEmail || "Nouvelle structure",
+        contact: contactName,
+        email: rawEmail,
+        relationType,
+        expertKlique,
+      });
+    }
+
+    return entries;
+  } catch (error) {
+    console.error("Erreur lecture Forms_Partenaires_Responses :", error);
+    return [];
+  }
+}
+
+const shouldReplaceWeeklyResponse = (current: string | undefined, candidate: string): boolean => {
+  if (!current) return true;
+  const currentTime = parseTimestampValue(current);
+  const candidateTime = parseTimestampValue(candidate);
+  if (currentTime == null || candidateTime == null) {
+    return candidate.localeCompare(current) > 0;
+  }
+  return candidateTime >= currentTime;
 };
 
 const formAdhesionColumns = (headers: string[]) => ({
@@ -102,18 +235,21 @@ async function buildFormAdhesionMap(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Forms_Adhesion'!A1:Z500",
+      range: "'Forms_Adhesion_Responses'!A1:Z500",
     });
     const rows = res.data.values ?? [];
     if (rows.length < 2) return new Map();
     const col = formAdhesionColumns(rows[0].map(String));
     const map = new Map<string, FormEnrichment>();
     for (const row of rows.slice(1)) {
-      const email = normalize(String(row[col.email] ?? ""));
-      if (!email) continue;
       const rawEmail = String(row[col.email] ?? "").trim();
-      map.set(email, {
-        name:             col.name             >= 0 ? String(row[col.name]             ?? "") : "",
+      const rawName = col.name >= 0 ? String(row[col.name] ?? "").trim() : "";
+      const normalizedEmail = normalize(rawEmail);
+      const normalizedName = normalizeNameKey(rawName);
+      if (!normalizedEmail && !normalizedName) continue;
+
+      const entry: FormEnrichment = {
+        name: rawName,
         rawEmail,
         palmares:         col.palmares         >= 0 ? String(row[col.palmares]         ?? "") : "",
         objective:        col.objective        >= 0 ? String(row[col.objective]        ?? "") : "",
@@ -125,11 +261,116 @@ async function buildFormAdhesionMap(
         position:         col.position         >= 0 ? String(row[col.position]         ?? "") : "",
         competitionPhoto: col.competitionPhoto >= 0 ? boolValue(row[col.competitionPhoto]) : false,
         adhesionDate:     col.adhesionDate     >= 0 ? String(row[col.adhesionDate]     ?? "") : "",
-      });
+      };
+
+      const existingEntry = [normalizedEmail, normalizedName]
+        .filter(Boolean)
+        .map((key) => map.get(key))
+        .find(Boolean);
+      if (existingEntry) {
+        continue;
+      }
+
+      if (normalizedEmail) {
+        map.set(normalizedEmail, entry);
+      }
+      if (normalizedName) {
+        map.set(normalizedName, entry);
+      }
     }
     return map;
-   } catch (error) {
+  } catch (error) {
     console.error("Erreur lecture Form adhésion :", error);
+    return new Map();
+  }
+}
+
+async function buildWeeklyResponsesMap(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string
+): Promise<Map<string, WeeklyResponseValue>> {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Forms_Hebdo_Responses'!A1:Z500",
+    });
+    const rows = res.data.values ?? [];
+    if (rows.length < 2) return new Map();
+
+    const headers = rows[0].map(String);
+    const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
+    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1);
+    const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
+    const importantAppointmentsColumn = findColumnExact(
+      headers,
+      "As-tu des rendez-vous importants cette semaine ? Si oui, lesquels ? (match, compétition, ...)"
+    );
+
+    const weeklyResponses = new Map<string, WeeklyResponseValue>();
+    for (const row of rows.slice(1)) {
+      const timestamp = String(row[timestampColumn] ?? "").trim();
+      if (!timestamp) continue;
+
+      const rawAppointment = importantAppointmentsColumn >= 0 ? String(row[importantAppointmentsColumn] ?? "").trim() : "";
+      const appointment = isMeaningfulWeeklyAppointment(rawAppointment) ? rawAppointment : "";
+      const email = normalize(String(row[emailColumn] ?? ""));
+      const name = normalizeNameKey(String(row[nameColumn] ?? ""));
+      const keys = [email, name].filter(Boolean);
+      if (!keys.length) continue;
+
+      for (const key of keys) {
+        const current = weeklyResponses.get(key);
+        if (!current || shouldReplaceWeeklyResponse(current.timestamp, timestamp)) {
+          weeklyResponses.set(key, { timestamp, appointment });
+        }
+      }
+    }
+
+    return weeklyResponses;
+  } catch (error) {
+    console.error("Erreur lecture Forms_Hebdo_Responses :", error);
+    return new Map();
+  }
+}
+
+async function buildMonthlyResponsesMap(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string
+): Promise<Map<string, string>> {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "'Forms_Mensuel_Responses'!A1:Z500",
+    });
+    const rows = res.data.values ?? [];
+    if (rows.length < 2) return new Map();
+
+    const headers = rows[0].map(String);
+    const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
+    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1);
+    const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
+
+    const monthlyResponses = new Map<string, string>();
+    for (const row of rows.slice(1)) {
+      const timestamp = String(row[timestampColumn] ?? "").trim();
+      if (!timestamp) continue;
+
+      const email = normalize(String(row[emailColumn] ?? ""));
+      const name = normalizeNameKey(String(row[nameColumn] ?? ""));
+      const keys = [email, name].filter(Boolean);
+      if (!keys.length) continue;
+
+      for (const key of keys) {
+        const current = monthlyResponses.get(key);
+        if (!current || shouldReplaceWeeklyResponse(current, timestamp)) {
+          monthlyResponses.set(key, timestamp);
+        }
+      }
+    }
+
+    return monthlyResponses;
+  } catch (error) {
+    console.error("Erreur lecture Forms_Mensuel_Responses :", error);
     return new Map();
   }
 }
@@ -241,12 +482,14 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const spreadsheetId = getSpreadsheetId();
 
-  const [response, formMap] = await Promise.all([
+  const [response, formMap, weeklyResponses, monthlyResponses] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId,
       range: "'02_Athlètes'!A3:AC200",
     }),
     buildFormAdhesionMap(sheets, spreadsheetId),
+    buildWeeklyResponsesMap(sheets, spreadsheetId),
+    buildMonthlyResponsesMap(sheets, spreadsheetId),
   ]);
 
   const rows = response.data.values ?? [];
@@ -272,6 +515,10 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
       const athleteEmail = normalize(String(row[column.email] ?? ""));
       const form = formMap.get(athleteEmail);
+      const weeklyResponseEntry = weeklyResponses.get(athleteEmail) ?? weeklyResponses.get(normalizeNameKey(name));
+      const weeklyResponse = weeklyResponseEntry?.timestamp ?? String(row[column.lastResponseWeekly] ?? "");
+      const monthlyResponse = monthlyResponses.get(athleteEmail) ?? monthlyResponses.get(normalizeNameKey(name)) ?? String(row[column.lastResponseMonthly] ?? "");
+      const importantRendezVousThisWeek = weeklyResponseEntry?.appointment ?? "";
 
       return {
         row: sheetRow,
@@ -298,8 +545,9 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
             ? String(row[column.nextAction] ?? "")
             : "À définir",
         followUpNotes: String(row[column.followUpNotes] ?? ""),
-        lastResponseMonthly: String(row[column.lastResponseMonthly] ?? ""),
-        lastResponseWeekly: String(row[column.lastResponseWeekly] ?? ""),
+        lastResponseMonthly: monthlyResponse,
+        lastResponseWeekly: weeklyResponse,
+        importantRendezVousThisWeek,
         lastPublication: cleanAthleteDateValue(row[column.lastPublication]),
         titlesOfMonth: String(row[column.titlesOfMonth] ?? ""),
         analysisItems: String(row[column.analysisItems] ?? ""),
@@ -326,9 +574,20 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
 
   // Append form responses not yet matched to any athlete in 02_Athlètes
   const existingEmails = new Set(athletes.map((a) => normalize(a.email)));
-  for (const [normalizedEmail, form] of formMap.entries()) {
-    if (existingEmails.has(normalizedEmail)) continue;
-    const name = form.name || form.rawEmail;
+  const existingNames = new Set(athletes.map((a) => normalizeNameKey(a.name)));
+  const uniqueForms = Array.from(
+    new Map(
+      Array.from(formMap.values()).map((form) => [form.rawEmail || form.name, form])
+    ).values()
+  );
+
+  for (const form of uniqueForms) {
+    const normalizedEmail = normalize(form.rawEmail);
+    const normalizedName = normalizeNameKey(form.name);
+    const isDuplicateByEmail = normalizedEmail && existingEmails.has(normalizedEmail);
+    const isDuplicateByName = normalizedName && existingNames.has(normalizedName);
+    if (isDuplicateByEmail || isDuplicateByName) continue;
+    const name = form.name || form.rawEmail || "Nouvel athlète";
     athletes.push({
       row: 0,
       key: stableKey(name),
@@ -351,6 +610,7 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       followUpNotes: "",
       lastResponseMonthly: "",
       lastResponseWeekly: "",
+      importantRendezVousThisWeek: "",
       lastPublication: "",
       titlesOfMonth: "",
       analysisItems: "",
@@ -370,6 +630,13 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       competitionPhoto: form.competitionPhoto,
       adhesionDate:     cleanAthleteDateValue(form.adhesionDate),
     });
+
+    if (normalizedEmail) {
+      existingEmails.add(normalizedEmail);
+    }
+    if (normalizedName) {
+      existingNames.add(normalizedName);
+    }
   }
 
   return athletes;
@@ -1102,7 +1369,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       .trim();
 
   const parseRows = (rows: string[][]): Partner[] => {
-    if (rows.length < 4) return [];
+    if (rows.length < 2) return [];
 
     const headerRowIndex = rows.findIndex((row) => {
       const normalizedRow = row.map(normalizeHeader);
@@ -1217,6 +1484,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
 
   const sheetCandidates = ["20_Partenaires", "06_Partenaires", "10_Fiche Partenaire"];
   const diagnostics: string[] = [];
+  let partners: Partner[] = [];
 
   for (const sheetName of sheetCandidates) {
     try {
@@ -1226,14 +1494,70 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       });
       const parsed = parseRows((result.data.values ?? []) as string[][]);
       diagnostics.push(`${sheetName}:${parsed.length}`);
-      if (parsed.length > 0) return parsed;
+      if (parsed.length > 0) {
+        partners = parsed;
+        break;
+      }
     } catch {
       diagnostics.push(`${sheetName}:error`);
     }
   }
 
-  console.warn(`[partners] Aucun partenaire trouve. Diagnostics: ${diagnostics.join(", ")}`);
-  return [];
+  if (partners.length === 0) {
+    console.warn(`[partners] Aucun partenaire trouve. Diagnostics: ${diagnostics.join(", ")}`);
+    return [];
+  }
+
+  const formEntries = await buildPartnerFormEntries(sheets, getSpreadsheetId());
+  const existingKeys = new Set<string>();
+
+  for (const partner of partners) {
+    if (normalize(partner.email)) {
+      existingKeys.add(`email:${normalize(partner.email)}`);
+    }
+    const identity = normalizeNameKey([partner.name, partner.contact].filter(Boolean).join(" "));
+    if (identity) {
+      existingKeys.add(`identity:${identity}`);
+    }
+  }
+
+  for (const entry of formEntries) {
+    const normalizedEmail = normalize(entry.email);
+    const normalizedIdentity = normalizeNameKey([entry.name, entry.contact].filter(Boolean).join(" "));
+    const duplicateByEmail = normalizedEmail && existingKeys.has(`email:${normalizedEmail}`);
+    const duplicateByIdentity = normalizedIdentity && existingKeys.has(`identity:${normalizedIdentity}`);
+    if (duplicateByEmail || duplicateByIdentity) continue;
+
+    partners.push({
+      row: 0,
+      id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
+      name: entry.name,
+      relationType: entry.relationType,
+      type: entry.relationType,
+      category: "Non renseigne",
+      expertKlique: entry.expertKlique,
+      contact: entry.contact,
+      contactRole: "",
+      email: entry.email,
+      phone: "",
+      website: "",
+      instagram: "",
+      description: "",
+      benefits: "",
+      notes: "",
+      status: "À valider",
+      athletes: "",
+    });
+
+    if (normalizedEmail) {
+      existingKeys.add(`email:${normalizedEmail}`);
+    }
+    if (normalizedIdentity) {
+      existingKeys.add(`identity:${normalizedIdentity}`);
+    }
+  }
+
+  return partners;
 }
 
 export async function addPartnerToGoogleSheets(

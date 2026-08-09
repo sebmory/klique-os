@@ -34,9 +34,6 @@ export function Header({ pathname, onOpenMobileSidebar }: HeaderProps) {
         <div className="desktop-hidden">
           <GlobalSearch compact />
         </div>
-        <button type="button" className="quick-create-button" aria-label="Creation rapide">
-          + Creer
-        </button>
         <NotificationsMenu />
         <UserMenu />
       </div>
