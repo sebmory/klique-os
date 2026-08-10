@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import {
   ACCESS_SESSION_COOKIE,
   isAccessProtectionConfigured,
@@ -29,7 +30,7 @@ const redirectToLogin = (request: NextRequest, reason?: "config"): NextResponse 
   return NextResponse.redirect(loginUrl);
 };
 
-export async function middleware(request: NextRequest) {
+export default clerkMiddleware(async (_auth, request: NextRequest) => {
   const { pathname } = request.nextUrl;
 
   if (isPublicPath(pathname)) {
@@ -58,7 +59,7 @@ export async function middleware(request: NextRequest) {
   }
 
   return redirectToLogin(request);
-}
+});
 
 export const config = {
   matcher: ["/:path*"],

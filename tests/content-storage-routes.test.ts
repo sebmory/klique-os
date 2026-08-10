@@ -161,6 +161,8 @@ const validVariant = {
 };
 
 describe("content storage API routes", () => {
+  const futureSessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
   beforeEach(() => {
     repo.createDraft.mockReset();
     repo.getDraft.mockReset();
@@ -174,8 +176,8 @@ describe("content storage API routes", () => {
     repo.createDraft.mockResolvedValue({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
     repo.getDraft.mockResolvedValue({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
     repo.updateDraft.mockResolvedValue({ status: "updated", draft: { document: validDocument, version: 2, workspaceId: "klique-os", userId: null } });
-    repo.createSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: "2026-08-09T10:00:00.000Z" });
-    repo.getSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: "2026-08-09T10:00:00.000Z" });
+    repo.createSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: futureSessionExpiresAt });
+    repo.getSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: futureSessionExpiresAt });
     repo.createVariant.mockResolvedValue({ variant: validVariant, workspaceId: "klique-os", userId: null, createdAt: validVariant.createdAt, updatedAt: validVariant.updatedAt });
     repo.getVariant.mockResolvedValue({ variant: validVariant, workspaceId: "klique-os", userId: null, createdAt: validVariant.createdAt, updatedAt: validVariant.updatedAt });
     repo.listVariantsBySourceDocumentId.mockResolvedValue([{ variant: validVariant, workspaceId: "klique-os", userId: null, createdAt: validVariant.createdAt, updatedAt: validVariant.updatedAt }]);
@@ -205,7 +207,7 @@ describe("content storage API routes", () => {
   });
 
   it("creates and reads sessions", async () => {
-    const response = await postSessions(makeJsonRequest({ sessionId: "session-1", session: validSession, expiresAt: "2026-08-09T10:00:00.000Z" }));
+    const response = await postSessions(makeJsonRequest({ sessionId: "session-1", session: validSession, expiresAt: futureSessionExpiresAt }));
     expect(response.status).toBe(201);
 
     const getResponse = await getSession(new Request("http://localhost") as Request, { params: Promise.resolve({ sessionId: "session-1" }) });
