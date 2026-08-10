@@ -11,6 +11,8 @@ type SidebarProps = {
   onToggleCollapsed: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  userRole?: string | null;
+  userName?: string | null;
 };
 
 function NavigationSection({
@@ -65,7 +67,18 @@ export function Sidebar({
   onToggleCollapsed,
   mobileOpen,
   onCloseMobile,
+  userRole,
+  userName,
 }: SidebarProps) {
+  const isAthlete = userRole === "athlete";
+  const profileName = isAthlete ? (userName ?? "Compte Clerk") : "Sebastien Mory";
+  const profileLabel = isAthlete ? "Athlète" : "Administrateur";
+  const visibleMainNavigation = isAthlete
+    ? [{ id: "today", label: "Aujourd’hui", href: "/today", icon: "house" as const }, { id: "profile", label: "Mon profil", href: "/athlete", icon: "users" as const }, { id: "ecosystem", label: "Écosystème", href: "/ecosysteme", icon: "network" as const }]
+    : mainNavigation;
+
+  const visibleSecondaryNavigation = isAthlete ? [] : secondaryNavigation;
+
   return (
     <>
       <aside className={collapsed ? "klique-sidebar is-collapsed" : "klique-sidebar"}>
@@ -89,21 +102,23 @@ export function Sidebar({
 
         <nav aria-label="Navigation principale" className="sidebar-nav-block">
           <NavigationSection
-            items={mainNavigation}
+            items={visibleMainNavigation}
             pathname={pathname}
             collapsed={collapsed}
             group="Navigation"
           />
         </nav>
 
-        <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
-          <NavigationSection
-            items={secondaryNavigation}
-            pathname={pathname}
-            collapsed={collapsed}
-            group="Espace"
-          />
-        </nav>
+        {!isAthlete ? (
+          <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+            <NavigationSection
+              items={visibleSecondaryNavigation}
+              pathname={pathname}
+              collapsed={collapsed}
+              group="Espace"
+            />
+          </nav>
+        ) : null}
 
         <button
           type="button"
@@ -117,8 +132,8 @@ export function Sidebar({
           </span>
           {!collapsed ? (
             <span className="user-meta">
-              <strong>Sebastien Mory</strong>
-              <small>Administrateur</small>
+              <strong>{profileName}</strong>
+              <small>{profileLabel}</small>
             </span>
           ) : null}
           {!collapsed ? <ChevronDown className="app-icon sidebar-profile-chevron" /> : null}
@@ -148,7 +163,7 @@ export function Sidebar({
 
             <nav aria-label="Navigation principale" className="sidebar-nav-block">
               <NavigationSection
-                items={mainNavigation}
+                items={visibleMainNavigation}
                 pathname={pathname}
                 collapsed={false}
                 group="Navigation"
@@ -156,15 +171,17 @@ export function Sidebar({
               />
             </nav>
 
-            <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
-              <NavigationSection
-                items={secondaryNavigation}
-                pathname={pathname}
-                collapsed={false}
-                group="Espace"
-                onNavigate={onCloseMobile}
-              />
-            </nav>
+            {!isAthlete ? (
+              <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+                <NavigationSection
+                  items={visibleSecondaryNavigation}
+                  pathname={pathname}
+                  collapsed={false}
+                  group="Espace"
+                  onNavigate={onCloseMobile}
+                />
+              </nav>
+            ) : null}
           </aside>
         </div>
       ) : null}

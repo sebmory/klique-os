@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
@@ -8,12 +9,38 @@ const isPublicRoute = createRouteMatcher([
   "/__clerk/(.*)",
 ]);
 
+const isAthleteAllowedRoute = (pathname: string): boolean => {
+  if (pathname === "/athlete" || pathname.startsWith("/athlete/")) {
+    return true;
+  }
+
+  if (pathname === "/api/clerk/access" || pathname.startsWith("/api/clerk/access/")) {
+    return true;
+  }
+
+  if (pathname === "/api/athlete" || pathname.startsWith("/api/athlete/")) {
+    return true;
+  }
+
+  return false;
+};
+
 export default clerkMiddleware(async (auth, request: NextRequest) => {
   if (isPublicRoute(request)) {
     return NextResponse.next();
   }
 
   await auth.protect();
+
+  const profile = await getCurrentUserAccessProfile(request);
+  const role = profile?.userAccess?.role;
+
+  if (role === "athlete") {
+    const { pathname } = request.nextUrl;
+    if (!isAthleteAllowedRoute(pathname)) {
+      return NextResponse.redirect(new URL("/athlete", request.url));
+    }
+  }
 
   return NextResponse.next();
 });
