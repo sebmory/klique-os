@@ -18,7 +18,11 @@ const isAthleteAllowedRoute = (pathname: string): boolean => {
     return true;
   }
 
-  if (pathname === "/api/athlete" || pathname.startsWith("/api/athlete/")) {
+  if (pathname === "/api/athletes" || pathname.startsWith("/api/athletes/")) {
+    return true;
+  }
+
+  if (pathname === "/api/partners" || pathname.startsWith("/api/partners/")) {
     return true;
   }
 

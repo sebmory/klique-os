@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { demoAthletes } from "@/lib/demo-data";
+import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import {
   getAthletesFromGoogleSheets,
   updateAthleteInGoogleSheets,
@@ -11,12 +12,20 @@ import type { Athlete, AthletesResponse, AthleteUpdate } from "@/types/athlete";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const profile = await getCurrentUserAccessProfile(request);
+    const role = profile?.userAccess?.role;
+    const athleteId = profile?.userAccess?.athleteId;
+
     const athletes = await getAthletesFromGoogleSheets();
 
+    const visibleAthletes = role === "athlete" && athleteId
+      ? athletes.filter((athlete) => athlete.key === athleteId)
+      : athletes;
+
     const response: AthletesResponse = {
-      athletes,
+      athletes: visibleAthletes,
       source: "google-sheets",
     };
 

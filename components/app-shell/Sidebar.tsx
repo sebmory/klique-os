@@ -74,7 +74,7 @@ export function Sidebar({
   const profileName = isAthlete ? (userName ?? "Compte Clerk") : "Sebastien Mory";
   const profileLabel = isAthlete ? "Athlète" : "Administrateur";
   const visibleMainNavigation = isAthlete
-    ? [{ id: "today", label: "Aujourd’hui", href: "/today", icon: "house" as const }, { id: "profile", label: "Mon profil", href: "/athlete", icon: "users" as const }, { id: "ecosystem", label: "Écosystème", href: "/ecosysteme", icon: "network" as const }]
+    ? [{ id: "today", label: "Aujourd’hui", href: "/today", icon: "house" as const }, { id: "profile", label: "Mon profil", href: "/athlete/profil", icon: "users" as const }, { id: "ecosystem", label: "Écosystème", href: "/ecosysteme", icon: "network" as const }]
     : mainNavigation;
 
   const visibleSecondaryNavigation = isAthlete ? [] : secondaryNavigation;
