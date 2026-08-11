@@ -11,7 +11,29 @@ type WorkspaceLandingProps = {
   sectionTitle?: string;
 };
 
+type AthleteOfTheMonthNomination = {
+  id: string;
+  athleteId: string;
+  type: string;
+  awardMonth: number;
+  awardYear: number;
+  nominatedAt: string;
+  reason: string | null;
+};
+
+type AthleteOfTheMonthWinner = {
+  id: string;
+  athleteId: string;
+  type: string;
+  awardMonth: number;
+  awardYear: number;
+  awardedAt: string;
+  description: string | null;
+};
+
 const DRAFT_KEY_PREFIX = "klique.contents.document-editor.draft.v1";
+const ATHLETE_OF_THE_MONTH_TYPE = "athlete_of_the_month";
+const MONTH_LABELS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -61,12 +83,43 @@ const isMeaningfulAppointment = (value: string): boolean => {
 };
 
 export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
+  const now = new Date();
+  const currentAwardMonth = now.getMonth() + 1;
+  const currentAwardYear = now.getFullYear();
   const [loading, setLoading] = useState(true);
   const [athletesAvailable, setAthletesAvailable] = useState(false);
   const [productionsAvailable, setProductionsAvailable] = useState(false);
   const [athletes, setAthletes] = useState<AthletesResponse["athletes"]>([]);
   const [shootings, setShootings] = useState<Shooting[]>([]);
   const [savedDocuments, setSavedDocuments] = useState<ContentDocument[]>([]);
+  const [monthlyNominations, setMonthlyNominations] = useState<AthleteOfTheMonthNomination[]>([]);
+  const [monthlyWinner, setMonthlyWinner] = useState<AthleteOfTheMonthWinner | null>(null);
+  const [selectedNomineeAthleteId, setSelectedNomineeAthleteId] = useState("");
+  const [selectedWinnerAthleteId, setSelectedWinnerAthleteId] = useState("");
+  const [winnerDescription, setWinnerDescription] = useState("");
+  const [nominationLoading, setNominationLoading] = useState(false);
+  const [nominationError, setNominationError] = useState<string | null>(null);
+
+  const loadAthleteOfTheMonth = async () => {
+    const response = await fetch(
+      `/api/athlete-distinctions?type=${encodeURIComponent(ATHLETE_OF_THE_MONTH_TYPE)}&awardMonth=${currentAwardMonth}&awardYear=${currentAwardYear}`,
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      throw new Error("Impossible de charger les nominations du mois.");
+    }
+
+    const payload = (await response.json()) as {
+      nominations?: AthleteOfTheMonthNomination[];
+      winner?: AthleteOfTheMonthWinner | null;
+    };
+
+    return {
+      nominations: Array.isArray(payload.nominations) ? payload.nominations : [],
+      winner: payload.winner ?? null,
+    };
+  };
 
   useEffect(() => {
     let active = true;
@@ -75,9 +128,10 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       setLoading(true);
 
       try {
-        const [athletesResponse, shootingsResponse] = await Promise.all([
+        const [athletesResponse, shootingsResponse, awardResponse] = await Promise.all([
           fetch("/api/athletes", { cache: "no-store" }),
           fetch("/api/shootings", { cache: "no-store" }),
+          loadAthleteOfTheMonth(),
         ]);
 
         const athletesPayload = (await athletesResponse.json()) as AthletesResponse | { error?: string };
@@ -119,6 +173,9 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
             return bRank - aRank;
           })
         );
+
+        setMonthlyNominations(awardResponse.nominations);
+        setMonthlyWinner(awardResponse.winner);
       } catch {
         if (!active) return;
         setAthletesAvailable(false);
@@ -126,6 +183,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         setAthletes([]);
         setShootings([]);
         setSavedDocuments([]);
+        setMonthlyNominations([]);
+        setMonthlyWinner(null);
       } finally {
         if (active) setLoading(false);
       }
@@ -172,6 +231,143 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
 
   const recentDocuments = useMemo(() => savedDocuments.slice(0, 4), [savedDocuments]);
 
+  const monthLabel = useMemo(() => {
+    const monthText = MONTH_LABELS[currentAwardMonth - 1] ?? "mois";
+    return `${monthText} ${currentAwardYear}`;
+  }, [currentAwardMonth, currentAwardYear]);
+
+  const nominatedAthleteIds = useMemo(
+    () => new Set(monthlyNominations.map((nomination) => nomination.athleteId)),
+    [monthlyNominations],
+  );
+
+  const nomineeCandidates = useMemo(() => {
+    return athletes.filter((athlete) => !nominatedAthleteIds.has(athlete.key));
+  }, [athletes, nominatedAthleteIds]);
+
+  const winnerCandidates = useMemo(() => {
+    const byId = new Map(athletes.map((athlete) => [athlete.key, athlete]));
+    return monthlyNominations
+      .map((nomination) => byId.get(nomination.athleteId))
+      .filter((athlete): athlete is Athlete => Boolean(athlete));
+  }, [athletes, monthlyNominations]);
+
+  const getAthleteName = (athleteId: string): string => {
+    const athlete = athletes.find((item) => item.key === athleteId);
+    return athlete?.name || athleteId;
+  };
+
+  const refreshAthleteOfTheMonth = async () => {
+    const payload = await loadAthleteOfTheMonth();
+    setMonthlyNominations(payload.nominations);
+    setMonthlyWinner(payload.winner);
+  };
+
+  const addNomination = async () => {
+    if (!selectedNomineeAthleteId || monthlyWinner || monthlyNominations.length >= 3) {
+      return;
+    }
+
+    setNominationLoading(true);
+    setNominationError(null);
+
+    try {
+      const response = await fetch("/api/athlete-distinctions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "nominate",
+          athleteId: selectedNomineeAthleteId,
+          type: ATHLETE_OF_THE_MONTH_TYPE,
+          awardMonth: currentAwardMonth,
+          awardYear: currentAwardYear,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Impossible d'ajouter le nomine.");
+      }
+
+      setSelectedNomineeAthleteId("");
+      await refreshAthleteOfTheMonth();
+    } catch (error) {
+      setNominationError(error instanceof Error ? error.message : "Impossible d'ajouter le nomine.");
+    } finally {
+      setNominationLoading(false);
+    }
+  };
+
+  const removeNomination = async (nominationId: string) => {
+    if (!nominationId || monthlyWinner) {
+      return;
+    }
+
+    setNominationLoading(true);
+    setNominationError(null);
+
+    try {
+      const response = await fetch("/api/athlete-distinctions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete-nomination",
+          nominationId,
+          type: ATHLETE_OF_THE_MONTH_TYPE,
+          awardMonth: currentAwardMonth,
+          awardYear: currentAwardYear,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Impossible de supprimer le nomine.");
+      }
+
+      await refreshAthleteOfTheMonth();
+    } catch (error) {
+      setNominationError(error instanceof Error ? error.message : "Impossible de supprimer le nomine.");
+    } finally {
+      setNominationLoading(false);
+    }
+  };
+
+  const designateWinner = async () => {
+    if (!selectedWinnerAthleteId || monthlyWinner || monthlyNominations.length !== 3) {
+      return;
+    }
+
+    setNominationLoading(true);
+    setNominationError(null);
+
+    try {
+      const response = await fetch("/api/athlete-distinctions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "designate-winner",
+          athleteId: selectedWinnerAthleteId,
+          type: ATHLETE_OF_THE_MONTH_TYPE,
+          awardMonth: currentAwardMonth,
+          awardYear: currentAwardYear,
+          description: winnerDescription,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Impossible de designer le vainqueur.");
+      }
+
+      setWinnerDescription("");
+      await refreshAthleteOfTheMonth();
+    } catch (error) {
+      setNominationError(error instanceof Error ? error.message : "Impossible de designer le vainqueur.");
+    } finally {
+      setNominationLoading(false);
+    }
+  };
+
   return (
     <section className="workspace-landing">
       <header className="workspace-hero-banner">
@@ -210,6 +406,118 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
             <Link href="/crm/personnes" className="card-link-button">
               Ouvrir le CRM Athletes
             </Link>
+          </Card>
+        ) : null}
+
+        {athletesAvailable ? (
+          <Card className="workspace-dashboard-card card-priorities">
+            <header className="dashboard-card-head">
+              <h2>Athlete KLIQUE du mois</h2>
+              <div className="dashboard-card-head-right">
+                <span className="card-pill">{monthlyNominations.length} / 3 nomines</span>
+              </div>
+            </header>
+
+            <p style={{ marginTop: 0, color: "#4b5563" }}>Periode en cours: {monthLabel}</p>
+
+            {monthlyWinner ? (
+              <div style={{ border: "1px solid #d1fae5", background: "#ecfdf5", borderRadius: "12px", padding: "0.7rem", marginBottom: "0.7rem" }}>
+                <strong style={{ color: "#065f46" }}>Vainqueur: {getAthleteName(monthlyWinner.athleteId)}</strong>
+                <p style={{ margin: "0.25rem 0 0", color: "#047857" }}>
+                  {monthlyWinner.description || "Distinction athlete_of_the_month enregistree."}
+                </p>
+              </div>
+            ) : null}
+
+            {monthlyNominations.length > 0 ? (
+              <ul className="priority-list">
+                {monthlyNominations.map((nomination) => (
+                  <li key={nomination.id} className="priority-item">
+                    <span className="priority-check" aria-hidden />
+                    <div className="priority-main">
+                      <strong>{getAthleteName(nomination.athleteId)}</strong>
+                      <small>{nomination.reason || "Nomination athlete_of_the_month"}</small>
+                    </div>
+                    {!monthlyWinner ? (
+                      <button
+                        type="button"
+                        onClick={() => void removeNomination(nomination.id)}
+                        disabled={nominationLoading}
+                        style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: "999px", padding: "0.25rem 0.6rem", cursor: "pointer" }}
+                      >
+                        Retirer
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>Aucun nomine enregistre pour cette periode.</p>
+            )}
+
+            {!monthlyWinner && monthlyNominations.length < 3 ? (
+              <div style={{ display: "grid", gap: "0.5rem", marginTop: "0.75rem" }}>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <select
+                    value={selectedNomineeAthleteId}
+                    onChange={(event) => setSelectedNomineeAthleteId(event.target.value)}
+                    style={{ minWidth: "220px", border: "1px solid #d1d5db", borderRadius: "10px", padding: "0.45rem 0.6rem" }}
+                  >
+                    <option value="">Selectionner un athlete</option>
+                    {nomineeCandidates.map((athlete) => (
+                      <option key={athlete.key} value={athlete.key}>
+                        {athlete.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void addNomination()}
+                    disabled={!selectedNomineeAthleteId || nominationLoading}
+                    className="card-link-button"
+                  >
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {!monthlyWinner && monthlyNominations.length === 3 ? (
+              <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.55rem" }}>
+                <strong>Designer le vainqueur</strong>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <select
+                    value={selectedWinnerAthleteId}
+                    onChange={(event) => setSelectedWinnerAthleteId(event.target.value)}
+                    style={{ minWidth: "220px", border: "1px solid #d1d5db", borderRadius: "10px", padding: "0.45rem 0.6rem" }}
+                  >
+                    <option value="">Choisir parmi les 3 nomines</option>
+                    {winnerCandidates.map((athlete) => (
+                      <option key={athlete.key} value={athlete.key}>
+                        {athlete.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void designateWinner()}
+                    disabled={!selectedWinnerAthleteId || nominationLoading}
+                    className="card-link-button"
+                  >
+                    Designer le vainqueur
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={winnerDescription}
+                  onChange={(event) => setWinnerDescription(event.target.value)}
+                  placeholder="Description optionnelle"
+                  style={{ border: "1px solid #d1d5db", borderRadius: "10px", padding: "0.45rem 0.6rem" }}
+                />
+              </div>
+            ) : null}
+
+            {nominationError ? <p style={{ color: "#b91c1c", marginBottom: 0 }}>{nominationError}</p> : null}
           </Card>
         ) : null}
 

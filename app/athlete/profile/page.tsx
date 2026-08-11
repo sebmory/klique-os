@@ -34,6 +34,35 @@ type AthletesPayload = {
   message?: string;
 };
 
+type AthleteDistinction = {
+  id: string;
+  athleteId: string;
+  type: string;
+  awardMonth: number;
+  awardYear: number;
+  awardedAt: string;
+  description: string | null;
+};
+
+type AthleteNomination = {
+  id: string;
+  athleteId: string;
+  type: string;
+  awardMonth: number;
+  awardYear: number;
+  nominatedAt: string;
+  reason: string | null;
+};
+
+type AthleteDistinctionsPayload = {
+  distinctions?: AthleteDistinction[];
+  nominations?: AthleteNomination[];
+  data?: {
+    distinctions?: AthleteDistinction[];
+    nominations?: AthleteNomination[];
+  };
+};
+
 const readValue = (value: unknown): string => {
   const text = String(value ?? "").trim();
   return text || "Non renseigné";
@@ -50,9 +79,34 @@ const computeInitials = (name: string): string => {
     .join("") || "--";
 };
 
+const getDistinctionTypeLabel = (type: string): string => {
+  if (type === "athlete_of_the_month") return "Athlete KLIQUE du mois";
+  return type;
+};
+
+const formatMonthYear = (month: number, year: number): string => {
+  const months = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+  const label = months[month - 1] ?? "mois";
+  return `${label} ${year}`;
+};
+
+const extractDistinctionsPayload = (payload: AthleteDistinctionsPayload | null | undefined) => {
+  const topLevelDistinctions = Array.isArray(payload?.distinctions) ? payload?.distinctions : null;
+  const topLevelNominations = Array.isArray(payload?.nominations) ? payload?.nominations : null;
+  const nestedDistinctions = Array.isArray(payload?.data?.distinctions) ? payload?.data?.distinctions : null;
+  const nestedNominations = Array.isArray(payload?.data?.nominations) ? payload?.data?.nominations : null;
+
+  return {
+    distinctions: topLevelDistinctions ?? nestedDistinctions ?? [],
+    nominations: topLevelNominations ?? nestedNominations ?? [],
+  };
+};
+
 export default function AthleteProfilePage() {
   const [athlete, setAthlete] = useState<AthleteProfile | null>(null);
   const [athleteIndex, setAthleteIndex] = useState<number | null>(null);
+  const [distinctions, setDistinctions] = useState<AthleteDistinction[]>([]);
+  const [nominations, setNominations] = useState<AthleteNomination[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -87,16 +141,28 @@ export default function AthleteProfilePage() {
           return;
         }
 
-        const athletesResponse = await fetch("/api/athletes", {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [athletesResponse, distinctionsResponse] = await Promise.all([
+          fetch("/api/athletes", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch(`/api/athlete-distinctions?athleteId=${encodeURIComponent(resolvedAthleteId)}&includeNominations=1`, {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
 
         if (!athletesResponse.ok) {
           throw new Error("Impossible de récupérer vos données de profil.");
         }
 
         const athletesPayload = (await athletesResponse.json()) as AthletesPayload;
+        let distinctionsPayload: AthleteDistinctionsPayload = {};
+        try {
+          distinctionsPayload = (await distinctionsResponse.json()) as AthleteDistinctionsPayload;
+        } catch {
+          distinctionsPayload = {};
+        }
         const athletes = athletesPayload?.athletes ?? [];
         const resolvedAthlete = athletes.find((item) => item.key === resolvedAthleteId) ?? null;
         const resolvedIndex = resolvedAthlete ? athletes.findIndex((item) => item.key === resolvedAthleteId) : null;
@@ -114,6 +180,9 @@ export default function AthleteProfilePage() {
 
         setAthlete(resolvedAthlete);
         setAthleteIndex(resolvedIndex);
+        const resolvedDistinctionsPayload = extractDistinctionsPayload(distinctionsPayload);
+        setDistinctions(resolvedDistinctionsPayload.distinctions);
+        setNominations(resolvedDistinctionsPayload.nominations);
       } catch {
         if (!active) {
           return;
@@ -121,6 +190,8 @@ export default function AthleteProfilePage() {
         setErrorMessage("Impossible de charger votre profil athlète.");
         setAthlete(null);
         setAthleteIndex(null);
+        setDistinctions([]);
+        setNominations([]);
       } finally {
         if (active) {
           setLoading(false);
@@ -144,6 +215,7 @@ export default function AthleteProfilePage() {
 
   const profileName = readValue(athlete?.name);
   const initials = computeInitials(String(athlete?.name ?? ""));
+  const hasDistinctionData = nominations.length > 0 || distinctions.length > 0;
 
   if (loading) {
     return (
@@ -272,6 +344,79 @@ export default function AthleteProfilePage() {
               <p style={{ margin: "0.25rem 0 0", fontWeight: 700, color: "#111827" }}>{readValue(athlete.adhesionDate)}</p>
             </div>
           </div>
+        </div>
+
+        <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "0.9rem", display: "grid", gap: "0.8rem" }}>
+          <h3 style={{ margin: 0, fontSize: "1rem", color: "#111827" }}>Distinctions KLIQUE</h3>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.8rem" }}>
+            <div style={{ border: "1px solid #f0f0f0", borderRadius: "12px", padding: "0.75rem" }}>
+              <small style={{ color: "#6b7280" }}>Total nominations</small>
+              <p style={{ margin: "0.25rem 0 0", fontWeight: 800, color: "#111827", fontSize: "1.1rem" }}>{nominations.length}</p>
+            </div>
+            <div style={{ border: "1px solid #f0f0f0", borderRadius: "12px", padding: "0.75rem" }}>
+              <small style={{ color: "#6b7280" }}>Total distinctions remportées</small>
+              <p style={{ margin: "0.25rem 0 0", fontWeight: 800, color: "#111827", fontSize: "1.1rem" }}>{distinctions.length}</p>
+            </div>
+          </div>
+
+          {!hasDistinctionData ? (
+            <div style={{ border: "1px dashed #d1d5db", borderRadius: "12px", padding: "0.9rem", background: "#fafafa", color: "#6b7280" }}>
+              Aucune nomination ou distinction n’est encore enregistrée pour le moment.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "0.8rem" }}>
+              <div style={{ border: "1px solid #f0f0f0", borderRadius: "12px", padding: "0.75rem", display: "grid", gap: "0.6rem" }}>
+                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "#111827" }}>Historique des nominations</h4>
+                {nominations.length === 0 ? (
+                  <p style={{ margin: 0, color: "#6b7280" }}>Aucune nomination enregistrée.</p>
+                ) : (
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: "0.55rem" }}>
+                    {nominations.map((nomination) => (
+                      <li key={nomination.id} style={{ border: "1px solid #f3f4f6", borderRadius: "10px", padding: "0.65rem" }}>
+                        <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>{getDistinctionTypeLabel(nomination.type)}</p>
+                        <p style={{ margin: "0.2rem 0 0", color: "#4b5563" }}>{formatMonthYear(nomination.awardMonth, nomination.awardYear)}</p>
+                        {nomination.reason ? <p style={{ margin: "0.25rem 0 0", color: "#6b7280" }}>{nomination.reason}</p> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div style={{ border: "1px solid #f0f0f0", borderRadius: "12px", padding: "0.75rem", display: "grid", gap: "0.6rem" }}>
+                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "#111827" }}>Historique des distinctions</h4>
+                {distinctions.length === 0 ? (
+                  <p style={{ margin: 0, color: "#6b7280" }}>Aucune distinction remportée.</p>
+                ) : (
+                  <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: "0.55rem" }}>
+                    {distinctions.map((distinction) => (
+                      <li
+                        key={distinction.id}
+                        style={{
+                          border: "1px solid #fde68a",
+                          borderRadius: "10px",
+                          padding: "0.65rem",
+                          background: "linear-gradient(135deg, #fffbeb 0%, #ffffff 100%)",
+                          display: "grid",
+                          gap: "0.2rem",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.9rem" }} aria-hidden>🏅</span>
+                          <p style={{ margin: 0, fontWeight: 800, color: "#92400e" }}>{getDistinctionTypeLabel(distinction.type)}</p>
+                          <span style={{ borderRadius: "999px", padding: "0.2rem 0.5rem", background: "#fef3c7", color: "#92400e", fontSize: "0.74rem", fontWeight: 700 }}>
+                            Distinction remportée
+                          </span>
+                        </div>
+                        <p style={{ margin: 0, color: "#4b5563" }}>{formatMonthYear(distinction.awardMonth, distinction.awardYear)}</p>
+                        {distinction.description ? <p style={{ margin: 0, color: "#6b7280" }}>{distinction.description}</p> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </article>
     </section>

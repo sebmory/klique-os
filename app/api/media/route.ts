@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { demoMedia } from "@/lib/demo-media";
+import { evaluateBusinessAccess } from "@/lib/clerk-access/service";
 import {
   addMediaToGoogleSheets,
   getMediaFromGoogleSheets,
@@ -9,8 +10,13 @@ import type { MediaResponse, NewMediaLot } from "@/types/media";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const accessCheck = await evaluateBusinessAccess(request, { action: "read:community" });
+    if (!accessCheck.allowed) {
+      return NextResponse.json({ media: [], source: "google-sheets" }, { status: 403 });
+    }
+
     const media = await getMediaFromGoogleSheets();
     const response: MediaResponse = {
       media,
@@ -30,6 +36,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const accessCheck = await evaluateBusinessAccess(request, { action: "write:crm" });
+    if (!accessCheck.allowed) {
+      return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    }
+
     const body = (await request.json()) as NewMediaLot;
 
     if (!body.date || !body.athlete || !body.event) {
