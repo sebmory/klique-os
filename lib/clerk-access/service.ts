@@ -86,6 +86,7 @@ export type InviteAthleteResult =
 const allowedRoles: ClerkUserAccessRole[] = ["admin", "athlete", "partner_expert", "media"];
 const allowedStatuses: ClerkUserAccessStatus[] = ["invited", "active", "disabled"];
 const allowedInvitationStatuses: AthleteInvitationStatus[] = ["invited", "accepted", "revoked"];
+const clerkAuthorizedParties = ["http://localhost:3000", "https://klique-os.vercel.app"];
 
 const ensureNodeRuntime = () => {
   if (typeof window !== "undefined") {
@@ -422,7 +423,7 @@ export const evaluateBusinessAccess = async (
 const getAuthenticatedClerkUser = async (request: Request) => {
   const client = await clerkClient();
   const authResult = await client.authenticateRequest(request, {
-    authorizedParties: ["http://localhost:3000"],
+    authorizedParties: clerkAuthorizedParties,
   });
 
   if (!authResult.isAuthenticated) {
