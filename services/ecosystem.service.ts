@@ -37,7 +37,9 @@ const cleanDate = (value: string): string => {
 
 const typeFromPartner = (partner: Partner): string => {
   const relationType = normalize(partner.relationType ?? partner.type ?? "");
-  if (relationType) return relationType;
+  if (relationType.includes("expert")) return "Expert";
+  if (relationType.includes("media") || relationType.includes("média")) return "Média";
+  if (relationType.includes("partenaire")) return "Partenaire";
 
   if (partner.expertKlique) return "Expert";
 
@@ -56,6 +58,7 @@ const deriveMemberOffer = (partner: Partner): string => {
   const candidates = [
     normalize(partner.memberOffer ?? ""),
     normalize(partner.benefits ?? ""),
+    normalize(partner.benefitDetails ?? ""),
     normalize(partner.services ?? ""),
     normalize(partner.counterparts ?? ""),
     normalize(partner.description ?? ""),

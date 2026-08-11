@@ -95,9 +95,44 @@ type PartnerFormEntry = {
   name: string;
   contact: string;
   email: string;
+  phone: string;
+  website: string;
+  instagram: string;
+  description: string;
+  benefitType: string;
+  benefits: string;
+  collaboration: string;
+  communicationConsent: string;
+  logoUrl: string;
   relationType: string;
   expertKlique: boolean;
 };
+
+const partnerFormEntryToPartner = (entry: PartnerFormEntry): Partner => ({
+  row: 0,
+  id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
+  name: entry.name,
+  relationType: entry.relationType,
+  type: entry.relationType,
+  category: "Non renseigne",
+  expertKlique: entry.expertKlique,
+  contact: entry.contact,
+  contactRole: "",
+  email: entry.email,
+  phone: entry.phone,
+  website: entry.website,
+  instagram: entry.instagram,
+  description: entry.description,
+  benefitType: entry.benefitType || undefined,
+  benefits: entry.benefits,
+  benefitDetails: entry.benefits || undefined,
+  collaboration: entry.collaboration || undefined,
+  communicationConsent: entry.communicationConsent || undefined,
+  logoUrl: entry.logoUrl || undefined,
+  notes: "",
+  status: "À valider",
+  athletes: "",
+});
 
 const parseTimestampValue = (value: unknown): number | null => {
   const trimmed = String(value ?? "").trim();
@@ -150,55 +185,128 @@ const isMeaningfulWeeklyAppointment = (value: unknown): boolean => {
   return true;
 };
 
-const partnerFormColumns = (headers: string[]) => ({
-  email: findColumn(headers, ["email", "e mail", "adresse e-mail", "adresse mail"], 1),
-  structureName: findColumn(headers, ["nom de la structure", "structure", "entreprise", "nom structure", "nom de la societe", "nom societe"], 2),
-  contactName: findColumn(headers, ["nom du contact", "nom contact", "contact", "personne de contact"], 3),
-  type: findColumn(headers, ["type", "type de structure", "type de relation"], 4),
-});
+const normalizeBusinessRelationType = (value: string): "Partenaire" | "Expert" | "Média" => {
+  const normalized = normalize(value);
+  if (normalized.includes("expert")) return "Expert";
+  if (normalized.includes("media")) return "Média";
+  if (normalized.includes("partenaire")) return "Partenaire";
+  return "Partenaire";
+};
+
+const pickRicherText = (current: string, incoming: string): string => {
+  const currentText = current.trim();
+  const incomingText = incoming.trim();
+  if (!currentText) return incomingText;
+  if (!incomingText) return currentText;
+  return incomingText.length > currentText.length ? incomingText : currentText;
+};
+
+const mergePartnerFormEntries = (current: PartnerFormEntry, incoming: PartnerFormEntry): PartnerFormEntry => {
+  const currentRelationType = current.relationType.trim();
+  const incomingRelationType = incoming.relationType.trim();
+  const keepIncomingRelation =
+    Boolean(incomingRelationType)
+    && (!currentRelationType || normalize(currentRelationType) === "partenaire");
+
+  return {
+    name: pickRicherText(current.name, incoming.name),
+    contact: pickRicherText(current.contact, incoming.contact),
+    email: pickRicherText(current.email, incoming.email),
+    phone: pickRicherText(current.phone, incoming.phone),
+    website: pickRicherText(current.website, incoming.website),
+    instagram: pickRicherText(current.instagram, incoming.instagram),
+    description: pickRicherText(current.description, incoming.description),
+    benefitType: pickRicherText(current.benefitType, incoming.benefitType),
+    benefits: pickRicherText(current.benefits, incoming.benefits),
+    collaboration: pickRicherText(current.collaboration, incoming.collaboration),
+    communicationConsent: pickRicherText(current.communicationConsent, incoming.communicationConsent),
+    logoUrl: pickRicherText(current.logoUrl, incoming.logoUrl),
+    relationType: keepIncomingRelation ? incomingRelationType : currentRelationType || incomingRelationType,
+    expertKlique: current.expertKlique || incoming.expertKlique,
+  };
+};
 
 async function buildPartnerFormEntries(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string
 ): Promise<PartnerFormEntry[]> {
+  const byKey = new Map<string, PartnerFormEntry>();
+
+  const exactHeader = (headers: string[], candidates: string[]): number => {
+    const normalizedHeaders = headers.map(normalize);
+    for (const candidate of candidates) {
+      const normalizedCandidate = normalize(candidate);
+      const index = normalizedHeaders.findIndex((header) => header === normalizedCandidate);
+      if (index >= 0) return index;
+    }
+    return -1;
+  };
+
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Forms_Partenaires_Responses'!A1:Z500",
+      range: "'Forms_Partenaires_Responses'!A1:N500",
     });
-    const rows = res.data.values ?? [];
+
+    const rows = (res.data.values ?? []) as string[][];
     if (rows.length < 2) return [];
 
     const headers = rows[0].map(String);
-    const col = partnerFormColumns(headers);
-    const entries: PartnerFormEntry[] = [];
-    const seenKeys = new Set<string>();
+    const col = {
+      structureName: exactHeader(headers, ["Nom de l'entreprise"]),
+      contactName: exactHeader(headers, ["Personne de contact"]),
+      email: exactHeader(headers, ["E-mail de contact"]),
+      phone: exactHeader(headers, ["Téléphone"]),
+      website: exactHeader(headers, ["Site internet"]),
+      instagram: exactHeader(headers, ["Instagram"]),
+      description: exactHeader(headers, ["Présentez votre activité en quelques mots / lignes"]),
+      benefitType: exactHeader(headers, ["Quels avantages souhaiteriez-vous proposer aux membres Klique (la liste est évolutive) ?"]),
+      benefits: exactHeader(headers, ["Merci de préciser les détails des avantages sélectionnés (% de réduction, nature de l'offre / cadeau /produits à tester / etc.)"]),
+      collaboration: exactHeader(headers, ["Quels types de collaborations vous intéressent pour votre entreprise (la liste est évolutive) ?"]),
+      communicationConsent: exactHeader(headers, ["Communication - Acceptez-vous que Klique utilise votre logo et vos visuels pour présenter le partenariat ?"]),
+      logoUrl: exactHeader(headers, ["Logo - Disposez-vous d'un logo HD pour la communication de Klique ?"]),
+    } as const;
+
+    if (Object.values(col).some((index) => index < 0)) {
+      return [];
+    }
+
+    const rowValue = (row: unknown[], index: number): string => String(row[index] ?? "").trim();
 
     for (const row of rows.slice(1)) {
-      const rawEmail = String(row[col.email] ?? "").trim();
-      const structureName = String(row[col.structureName] ?? "").trim();
-      const contactName = String(row[col.contactName] ?? "").trim();
-      const rawType = String(row[col.type] ?? "").trim();
+      const structureName = rowValue(row, col.structureName);
+      const contactName = rowValue(row, col.contactName);
+      const rawEmail = rowValue(row, col.email);
+
       const normalizedEmail = normalize(rawEmail);
       const normalizedIdentity = normalizeNameKey([structureName, contactName].filter(Boolean).join(" "));
       const key = normalizedEmail || normalizedIdentity;
-      if (!key || seenKeys.has(key)) continue;
+      if (!key) continue;
 
-      const expertKlique = normalize(rawType).includes("expert");
-      const relationType = rawType || (expertKlique ? "Expert" : "Partenaire");
-      seenKeys.add(key);
-      entries.push({
+      const candidate: PartnerFormEntry = {
         name: structureName || contactName || rawEmail || "Nouvelle structure",
         contact: contactName,
         email: rawEmail,
-        relationType,
-        expertKlique,
-      });
+        phone: rowValue(row, col.phone),
+        website: rowValue(row, col.website),
+        instagram: rowValue(row, col.instagram),
+        description: rowValue(row, col.description),
+        benefitType: rowValue(row, col.benefitType),
+        benefits: rowValue(row, col.benefits),
+        collaboration: rowValue(row, col.collaboration),
+        communicationConsent: rowValue(row, col.communicationConsent),
+        logoUrl: rowValue(row, col.logoUrl),
+        relationType: "Partenaire",
+        expertKlique: false,
+      };
+
+      const existing = byKey.get(key);
+      byKey.set(key, existing ? mergePartnerFormEntries(existing, candidate) : candidate);
     }
 
-    return entries;
+    return Array.from(byKey.values());
   } catch (error) {
-    console.error("Erreur lecture Forms_Partenaires_Responses :", error);
+    console.error("Erreur lecture formulaires partenaires :", error);
     return [];
   }
 }
@@ -1368,7 +1476,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       .replace(/\s+/g, " ")
       .trim();
 
-  const parseRows = (rows: string[][]): Partner[] => {
+  const parseRows = (rows: string[][], sheetName: string): Partner[] => {
     if (rows.length < 2) return [];
 
     const headerRowIndex = rows.findIndex((row) => {
@@ -1378,6 +1486,54 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
     });
 
     if (headerRowIndex < 0) return [];
+
+    if (sheetName === "06_Partenaires") {
+      const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
+
+      const toPartner = (sheetRow: unknown[], index: number): Partner => ({
+        row: headerRowIndex + 2 + index,
+        id: valueAt(sheetRow, 0) || `partner-${headerRowIndex + 2 + index}`,
+        name: valueAt(sheetRow, 0),
+        relationType: normalizeBusinessRelationType(valueAt(sheetRow, 1)),
+        category: valueAt(sheetRow, 2) || "Non renseigne",
+        expertKlique: normalize(valueAt(sheetRow, 1)).includes("expert"),
+        contact: valueAt(sheetRow, 3),
+        contactRole: valueAt(sheetRow, 4),
+        email: valueAt(sheetRow, 5),
+        phone: sheetRow[6] != null && sheetRow[6] !== "" ? String(sheetRow[6]) : "",
+        website: valueAt(sheetRow, 7),
+        instagram: "",
+        description: valueAt(sheetRow, 8),
+        benefitType: "",
+        benefits: valueAt(sheetRow, 8),
+        benefitDetails: valueAt(sheetRow, 8),
+        firstContactDate: "",
+        lastContact: "",
+        nextFollowUp: "",
+        nextAction: "",
+        estimatedValueChf: "",
+        contractSigned: "",
+        collaborationStart: "",
+        collaborationEnd: "",
+        collaboration: "",
+        communicationConsent: "",
+        logoUrl: "",
+        counterparts: "",
+        notes: "",
+        status: valueAt(sheetRow, 10) || "Actif",
+        usageType: undefined,
+        usageLimit: undefined,
+        strategicPriority: "",
+        potential: "",
+        nextContactObjective: "",
+        athletes: valueAt(sheetRow, 9),
+      });
+
+      return rows
+        .slice(headerRowIndex + 1)
+        .map((sheetRow, index) => toPartner(sheetRow, index))
+        .filter((partner) => partner.name.trim().length > 0);
+    }
 
     const headers = (rows[headerRowIndex] ?? []).map((value) => String(value ?? ""));
     const normalizedHeaders = headers.map(normalizeHeader);
@@ -1390,10 +1546,18 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       return index >= 0 ? index : fallback;
     };
 
+    const findPartnerColumnExact = (candidates: string[], fallback = -1): number => {
+      const normalizedCandidates = candidates.map((item) => normalizeHeader(item));
+      const index = normalizedHeaders.findIndex((header) =>
+        normalizedCandidates.some((candidate) => header === candidate)
+      );
+      return index >= 0 ? index : fallback;
+    };
+
     const column = {
       id: findPartnerColumn(["id", "identifiant", "slug"], -1),
       name: findPartnerColumn(["nom", "nom partenaire"], 0),
-      relationType: findPartnerColumn(["type de relation", "type"], -1),
+      relationType: findPartnerColumnExact(["type de relation", "type", "relation type"], -1),
       category: findPartnerColumn(["categorie"], -1),
       expert: findPartnerColumn(["expert klique", "expert"], -1),
       contact: findPartnerColumn(["contact principal", "contact"], -1),
@@ -1403,9 +1567,13 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       siteInstagram: findPartnerColumn(["site instagram", "site", "instagram"], -1),
       website: findPartnerColumn(["site web", "site internet", "website"], -1),
       instagram: findPartnerColumn(["instagram"], -1),
+      benefitType: findPartnerColumn(["type avantage", "benefit type", "avantage propose", "avantages proposes"], -1),
       benefits: findPartnerColumn(["offre avantage membres", "offre", "avantage membres", "benefits"], -1),
       athletes: findPartnerColumn(["athletes concernes", "athletes"], -1),
       status: findPartnerColumn(["statut"], -1),
+      usageType: findPartnerColumn(["usage type", "usage", "type d'utilisation", "type d’utilisation", "frequence d'utilisation", "fréquence d'utilisation"], -1),
+      usageLimit: findPartnerColumn(["usage limit", "limite d'utilisation", "limite d’utilisation", "nombre de fois", "limite"], -1),
+      description: findPartnerColumn(["description", "presentation", "présentation", "presentez votre activite en quelques mots", "présentez votre activité en quelques mots"], -1),
       firstContactDate: findPartnerColumn(["date premier contact", "premier contact"], -1),
       lastContact: findPartnerColumn(["dernier contact"], -1),
       nextFollowUp: findPartnerColumn(["prochaine relance", "relance"], -1),
@@ -1414,7 +1582,11 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       contractSigned: findPartnerColumn(["contrat signe"], -1),
       collaborationStart: findPartnerColumn(["debut collaboration"], -1),
       collaborationEnd: findPartnerColumn(["fin collaboration"], -1),
+      collaboration: findPartnerColumn(["collaboration", "types de collaborations", "quels types de collaborations vous interessent", "quels types de collaborations vous intéressent", "quels types de collaborations souhaitez vous", "quels types de collaborations souhaitez-vous"], -1),
       counterparts: findPartnerColumn(["contenus contreparties", "contreparties"], -1),
+      benefitDetails: findPartnerColumn(["detail des avantages", "details des avantages", "merci de preciser les details des avantages", "merci de préciser les détails des avantages"], -1),
+      communicationConsent: findPartnerColumn(["communication", "acceptez vous que klique utilise votre logo"], -1),
+      logoUrl: findPartnerColumn(["logo", "logo hd"], -1),
       notes: findPartnerColumn(["notes"], -1),
       strategicPriority: findPartnerColumn(["priorite strategique", "priorite"], -1),
       potential: findPartnerColumn(["potentiel"], -1),
@@ -1426,11 +1598,27 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       return String(sheetRow[col] ?? "").trim();
     };
 
+    const parseUsageType = (value: string): Partner["usageType"] | undefined => {
+      const normalized = normalize(value);
+      if (["once", "one-time", "une seule fois", "1 fois", "single use", "single-use"].includes(normalized)) return "once";
+      if (["limited", "limited use", "nombre limite", "nombre limité", "plusieurs fois", "plusieurs"].includes(normalized)) return "limited";
+      if (["unlimited", "illimite", "illimité", "sans limite", "unlimited use"].includes(normalized)) return "unlimited";
+      return undefined;
+    };
+
+    const parseUsageLimit = (value: string): number | undefined => {
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      const numericMatch = trimmed.match(/\b(\d+)\b/);
+      if (!numericMatch) return undefined;
+      return Number(numericMatch[1]);
+    };
+
     return rows
       .slice(headerRowIndex + 1)
       .map((sheetRow, index) => {
         const name = rowFromSheet(sheetRow, column.name);
-        const relationType = rowFromSheet(sheetRow, column.relationType);
+        const relationType = normalizeBusinessRelationType(rowFromSheet(sheetRow, column.relationType));
         const category = rowFromSheet(sheetRow, column.category);
 
         const combinedSiteInstagram = rowFromSheet(sheetRow, column.siteInstagram);
@@ -1444,8 +1632,11 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
         const resolvedId = explicitId || stableKey(name);
 
         const expertRaw = rowFromSheet(sheetRow, column.expert);
-        const relationNormalized = normalize(relationType);
-        const isExpert = expertRaw ? boolValue(expertRaw) : relationNormalized.includes("expert");
+        const isExpert = expertRaw ? boolValue(expertRaw) : relationType === "Expert";
+        const usageTypeRaw = rowFromSheet(sheetRow, column.usageType);
+        const usageLimitRaw = rowFromSheet(sheetRow, column.usageLimit);
+        const parsedUsageType = parseUsageType(usageTypeRaw);
+        const parsedUsageLimit = parsedUsageType === "limited" ? parseUsageLimit(usageLimitRaw) : undefined;
 
         return {
           row: headerRowIndex + 2 + index,
@@ -1460,8 +1651,10 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
           phone: rowFromSheet(sheetRow, column.phone),
           website,
           instagram,
-          description: rowFromSheet(sheetRow, column.counterparts),
+          description: rowFromSheet(sheetRow, column.description) || rowFromSheet(sheetRow, column.counterparts),
+          benefitType: rowFromSheet(sheetRow, column.benefitType),
           benefits: rowFromSheet(sheetRow, column.benefits),
+          benefitDetails: rowFromSheet(sheetRow, column.benefitDetails),
           firstContactDate: rowFromSheet(sheetRow, column.firstContactDate),
           lastContact: rowFromSheet(sheetRow, column.lastContact),
           nextFollowUp: rowFromSheet(sheetRow, column.nextFollowUp),
@@ -1470,9 +1663,14 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
           contractSigned: rowFromSheet(sheetRow, column.contractSigned),
           collaborationStart: rowFromSheet(sheetRow, column.collaborationStart),
           collaborationEnd: rowFromSheet(sheetRow, column.collaborationEnd),
+          collaboration: rowFromSheet(sheetRow, column.collaboration),
+          communicationConsent: rowFromSheet(sheetRow, column.communicationConsent),
+          logoUrl: rowFromSheet(sheetRow, column.logoUrl),
           counterparts: rowFromSheet(sheetRow, column.counterparts),
           notes: rowFromSheet(sheetRow, column.notes),
           status: (rowFromSheet(sheetRow, column.status) || "Actif") as Partner["status"],
+          usageType: parsedUsageType,
+          usageLimit: parsedUsageLimit,
           strategicPriority: rowFromSheet(sheetRow, column.strategicPriority),
           potential: rowFromSheet(sheetRow, column.potential),
           nextContactObjective: rowFromSheet(sheetRow, column.nextContactObjective),
@@ -1492,7 +1690,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
         spreadsheetId: getSpreadsheetId(),
         range: `'${sheetName}'!A1:AZ300`,
       });
-      const parsed = parseRows((result.data.values ?? []) as string[][]);
+      const parsed = parseRows((result.data.values ?? []) as string[][], sheetName);
       diagnostics.push(`${sheetName}:${parsed.length}`);
       if (parsed.length > 0) {
         partners = parsed;
@@ -1512,8 +1710,9 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
   const existingKeys = new Set<string>();
 
   for (const partner of partners) {
-    if (normalize(partner.email)) {
-      existingKeys.add(`email:${normalize(partner.email)}`);
+    const normalizedPartnerEmail = normalize(partner.email);
+    if (normalizedPartnerEmail) {
+      existingKeys.add(`email:${normalizedPartnerEmail}`);
     }
     const identity = normalizeNameKey([partner.name, partner.contact].filter(Boolean).join(" "));
     if (identity) {
@@ -1521,12 +1720,67 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
     }
   }
 
+  const findExistingPartnerIndex = (entry: PartnerFormEntry): number => {
+    const normalizedEmail = normalize(entry.email);
+    if (normalizedEmail) {
+      const byEmail = partners.findIndex((partner) => normalize(partner.email) === normalizedEmail);
+      if (byEmail >= 0) return byEmail;
+    }
+
+    const normalizedIdentity = normalizeNameKey([entry.name, entry.contact].filter(Boolean).join(" "));
+    if (normalizedIdentity) {
+      const byIdentity = partners.findIndex((partner) => {
+        const partnerIdentity = normalizeNameKey([partner.name, partner.contact].filter(Boolean).join(" "));
+        return partnerIdentity === normalizedIdentity;
+      });
+      if (byIdentity >= 0) return byIdentity;
+    }
+
+    return -1;
+  };
+
+  const fillIfMissing = (current: string, incoming: string): string => {
+    const currentText = current.trim();
+    if (currentText) return current;
+    return incoming.trim();
+  };
+
+  const enrichPartnerWithFormEntry = (partner: Partner, entry: PartnerFormEntry): Partner => {
+    const relationType = fillIfMissing(partner.relationType ?? "", entry.relationType);
+    const type = fillIfMissing(partner.type ?? "", relationType);
+    return {
+      ...partner,
+      name: fillIfMissing(partner.name, entry.name),
+      relationType,
+      type,
+      expertKlique: partner.expertKlique || entry.expertKlique,
+      contact: fillIfMissing(partner.contact, entry.contact),
+      email: fillIfMissing(partner.email, entry.email),
+      phone: fillIfMissing(partner.phone, entry.phone),
+      website: fillIfMissing(partner.website, entry.website),
+      instagram: fillIfMissing(partner.instagram, entry.instagram),
+      description: fillIfMissing(partner.description, entry.description),
+      benefitType: fillIfMissing(partner.benefitType ?? "", entry.benefitType) || undefined,
+      benefits: fillIfMissing(partner.benefits, entry.benefits),
+      collaboration: fillIfMissing(partner.collaboration ?? "", entry.collaboration) || undefined,
+      communicationConsent: fillIfMissing(partner.communicationConsent ?? "", entry.communicationConsent) || undefined,
+      logoUrl: fillIfMissing(partner.logoUrl ?? "", entry.logoUrl) || undefined,
+    };
+  };
+
   for (const entry of formEntries) {
     const normalizedEmail = normalize(entry.email);
     const normalizedIdentity = normalizeNameKey([entry.name, entry.contact].filter(Boolean).join(" "));
     const duplicateByEmail = normalizedEmail && existingKeys.has(`email:${normalizedEmail}`);
     const duplicateByIdentity = normalizedIdentity && existingKeys.has(`identity:${normalizedIdentity}`);
-    if (duplicateByEmail || duplicateByIdentity) continue;
+
+    if (duplicateByEmail || duplicateByIdentity) {
+      const existingIndex = findExistingPartnerIndex(entry);
+      if (existingIndex >= 0) {
+        partners[existingIndex] = enrichPartnerWithFormEntry(partners[existingIndex], entry);
+      }
+      continue;
+    }
 
     partners.push({
       row: 0,
@@ -1539,11 +1793,16 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       contact: entry.contact,
       contactRole: "",
       email: entry.email,
-      phone: "",
-      website: "",
-      instagram: "",
-      description: "",
-      benefits: "",
+      phone: entry.phone,
+      website: entry.website,
+      instagram: entry.instagram,
+      description: entry.description,
+      benefitType: entry.benefitType || undefined,
+      benefits: entry.benefits,
+      benefitDetails: entry.benefits || undefined,
+      collaboration: entry.collaboration || undefined,
+      communicationConsent: entry.communicationConsent || undefined,
+      logoUrl: entry.logoUrl || undefined,
       notes: "",
       status: "À valider",
       athletes: "",
@@ -1558,6 +1817,70 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
   }
 
   return partners;
+}
+
+export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'06_Partenaires'!A4:T200",
+  });
+
+  const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
+
+  return ((response.data.values ?? []) as string[][])
+    .map((sheetRow, index) => {
+      const rowNumber = index + 4;
+      const relationType = valueAt(sheetRow, 1);
+      const memberOffer = valueAt(sheetRow, 19);
+
+      return {
+        row: rowNumber,
+        id: valueAt(sheetRow, 0) || `partner-${rowNumber}`,
+        name: valueAt(sheetRow, 0),
+        relationType,
+        type: relationType,
+        category: valueAt(sheetRow, 2) || "Non renseigne",
+        expertKlique: normalize(relationType).includes("expert"),
+        contactName: valueAt(sheetRow, 3),
+        contact: valueAt(sheetRow, 3),
+        contactRole: valueAt(sheetRow, 4),
+        email: valueAt(sheetRow, 5),
+        phone: valueAt(sheetRow, 6),
+        website: valueAt(sheetRow, 7),
+        instagram: "",
+        description: memberOffer,
+        benefitType: "",
+        benefits: memberOffer,
+        benefitDetails: memberOffer,
+        firstContactDate: "",
+        lastContact: "",
+        nextFollowUp: "",
+        nextAction: "",
+        estimatedValueChf: "",
+        contractSigned: "",
+        collaborationStart: "",
+        collaborationEnd: "",
+        collaboration: "",
+        communicationConsent: "",
+        logoUrl: "",
+        counterparts: "",
+        notes: "",
+        status: valueAt(sheetRow, 10) || "Actif",
+        usageType: undefined,
+        usageLimit: undefined,
+        strategicPriority: "",
+        potential: "",
+        nextContactObjective: "",
+        athletes: valueAt(sheetRow, 9),
+        memberOffer,
+      } satisfies Partner;
+    })
+    .filter((partner) => partner.name.trim().length > 0);
+}
+
+export async function getAthleteEcosystemPartnersFromGoogleSheets(): Promise<Partner[]> {
+  return getEcosystemPartnersFrom06Partenaires();
 }
 
 export async function addPartnerToGoogleSheets(

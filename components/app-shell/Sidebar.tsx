@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useClerk } from "@clerk/nextjs";
 import { mainNavigation, secondaryNavigation } from "./data";
 import { ChevronDown, iconByName, LayoutGrid, X } from "./icons";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
@@ -12,6 +14,7 @@ type SidebarProps = {
   mobileOpen: boolean;
   onCloseMobile: () => void;
   userRole?: string | null;
+  userIsAthlete?: boolean;
   userName?: string | null;
 };
 
@@ -68,16 +71,75 @@ export function Sidebar({
   mobileOpen,
   onCloseMobile,
   userRole,
+  userIsAthlete,
   userName,
 }: SidebarProps) {
-  const isAthlete = userRole === "athlete";
+  const { signOut } = useClerk();
+  const profileMenuRootRef = useRef<HTMLDivElement | null>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [profileMenuPosition, setProfileMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const isAthlete = userIsAthlete ?? userRole === "athlete";
   const profileName = isAthlete ? (userName ?? "Compte Clerk") : "Sebastien Mory";
   const profileLabel = isAthlete ? "Athlète" : "Administrateur";
   const visibleMainNavigation = isAthlete
-    ? [{ id: "today", label: "Aujourd’hui", href: "/today", icon: "house" as const }, { id: "profile", label: "Mon profil", href: "/athlete/profile", icon: "users" as const }, { id: "ecosystem", label: "Écosystème", href: "/ecosysteme", icon: "network" as const }]
+    ? [
+        { id: "today", label: "Aujourd’hui", href: "/athlete", icon: "house" as const },
+        { id: "profile", label: "Mon profil", href: "/athlete/profile", icon: "users" as const },
+        { id: "pass", label: "Mon Pass KLIQUE", href: "/athlete/pass", icon: "sparkles" as const },
+        { id: "ecosystem", label: "Écosystème", href: "/athlete/ecosysteme", icon: "network" as const },
+        { id: "community", label: "Communauté", href: "/athlete/community", icon: "messages" as const },
+      ]
     : mainNavigation;
 
   const visibleSecondaryNavigation = isAthlete ? [] : secondaryNavigation;
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!profileMenuRootRef.current) return;
+      if (!profileMenuRootRef.current.contains(event.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onEscape);
+
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+
+    const updatePosition = () => {
+      const trigger = profileTriggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const menuWidth = 240;
+      const spacing = 8;
+      const left = Math.max(spacing, rect.right - menuWidth);
+      const top = Math.max(spacing, rect.top - spacing);
+      setProfileMenuPosition({ top, left });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isProfileMenuOpen]);
 
   return (
     <>
@@ -120,24 +182,61 @@ export function Sidebar({
           </nav>
         ) : null}
 
-        <button
-          type="button"
-          className="sidebar-profile"
-          title={collapsed ? "Sebastien Mory" : undefined}
-          data-tooltip={collapsed ? "Sebastien Mory" : undefined}
-          aria-label="Profil utilisateur"
-        >
-          <span className="user-avatar" aria-hidden>
-            SM
-          </span>
-          {!collapsed ? (
-            <span className="user-meta">
-              <strong>{profileName}</strong>
-              <small>{profileLabel}</small>
+        <div className="header-dropdown" ref={profileMenuRootRef}>
+          <button
+            ref={profileTriggerRef}
+            type="button"
+            className="sidebar-profile"
+            title={collapsed ? "Sebastien Mory" : undefined}
+            data-tooltip={collapsed ? "Sebastien Mory" : undefined}
+            aria-label="Profil utilisateur"
+            aria-haspopup="menu"
+            aria-expanded={isProfileMenuOpen}
+            onClick={() => setIsProfileMenuOpen((value) => !value)}
+          >
+            <span className="user-avatar" aria-hidden>
+              SM
             </span>
+            {!collapsed ? (
+              <span className="user-meta">
+                <strong>{profileName}</strong>
+                <small>{profileLabel}</small>
+              </span>
+            ) : null}
+            {!collapsed ? <ChevronDown className="app-icon sidebar-profile-chevron" /> : null}
+          </button>
+
+          {isProfileMenuOpen && profileMenuPosition ? (
+            <div
+              className="header-menu user-menu"
+              role="menu"
+              aria-label="Menu utilisateur"
+              style={{
+                position: "fixed",
+                top: profileMenuPosition.top,
+                left: profileMenuPosition.left,
+                transform: "translateY(-100%)",
+                width: "240px",
+                zIndex: 9999,
+              }}
+            >
+              <ul>
+                <li>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={async () => {
+                      await signOut({ redirectUrl: "/sign-in" });
+                    }}
+                  >
+                    <span>Se déconnecter</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
           ) : null}
-          {!collapsed ? <ChevronDown className="app-icon sidebar-profile-chevron" /> : null}
-        </button>
+        </div>
       </aside>
 
       {mobileOpen ? (

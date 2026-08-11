@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { bootstrapCurrentUserAsAdmin, getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
+import { bootstrapCurrentUserAsAdmin, buildUserAccessPermissionContext, getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
     ok: true,
     clerkUser: profile.clerkUser,
     userAccess: profile.userAccess,
+    permissions: buildUserAccessPermissionContext(profile?.userAccess ?? null),
   });
 }
 

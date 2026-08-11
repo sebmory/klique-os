@@ -12,6 +12,7 @@ type AppShellProps = {
 
 type ClerkUserAccessState = {
   role: string | null;
+  isAthlete: boolean;
   athleteId: string | null;
   workspaceId: string | null;
   status: string | null;
@@ -23,6 +24,7 @@ const sidebarStorageKey = "klique-sidebar-collapsed";
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const { user } = useUser();
+  const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(sidebarStorageKey) === "true";
@@ -30,6 +32,7 @@ export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userAccess, setUserAccess] = useState<ClerkUserAccessState>({
     role: null,
+    isAthlete: false,
     athleteId: null,
     workspaceId: null,
     status: null,
@@ -45,7 +48,7 @@ export function AppShell({ children }: AppShellProps) {
 
     const loadUserAccess = async () => {
       try {
-        const response = await fetch("/api/clerk/access", { credentials: "include" });
+        const response = await fetch("/api/clerk/access", { credentials: "include", cache: "no-store" });
         if (!response.ok) {
           return;
         }
@@ -67,6 +70,7 @@ export function AppShell({ children }: AppShellProps) {
 
         setUserAccess({
           role: access?.role ?? null,
+          isAthlete: Boolean(data?.permissions?.isAthlete && data?.permissions?.isActive),
           athleteId: access?.athleteId ?? null,
           workspaceId: access?.workspaceId ?? null,
           status: access?.status ?? null,
@@ -76,6 +80,7 @@ export function AppShell({ children }: AppShellProps) {
         if (!cancelled) {
           setUserAccess({
             role: null,
+            isAthlete: false,
             athleteId: null,
             workspaceId: null,
             status: null,
@@ -90,7 +95,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -103,6 +108,10 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener("keydown", onEscape);
   }, []);
 
+  if (isPublicAuthRoute) {
+    return <>{children}</>;
+  }
+
   return (
     <div className={collapsed ? "klique-app is-collapsed" : "klique-app"}>
       <Sidebar
@@ -112,6 +121,7 @@ export function AppShell({ children }: AppShellProps) {
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
         userRole={userAccess.role}
+        userIsAthlete={userAccess.isAthlete}
         userName={userAccess.clerkDisplayName}
       />
 

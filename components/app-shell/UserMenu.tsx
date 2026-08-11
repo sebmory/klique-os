@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useClerk } from "@clerk/nextjs";
 import { ChevronDown, CircleUserRound } from "./icons";
 
 const mainMenuItems = ["Mon profil", "Préférences", "Changer de workspace"];
 
 export function UserMenu() {
+  const { signOut } = useClerk();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -66,9 +68,15 @@ export function UserMenu() {
             ))}
             <li className="menu-separator" role="separator" aria-hidden />
             <li>
-              <button type="button" role="menuitem" className="menu-item-disabled" disabled aria-disabled="true">
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={async () => {
+                  await signOut({ redirectUrl: "/sign-in" });
+                }}
+              >
                 <span>Se déconnecter</span>
-                <small>Bientôt disponible</small>
               </button>
             </li>
           </ul>

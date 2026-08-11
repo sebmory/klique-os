@@ -15,6 +15,11 @@ export type Partner = {
   website: string;
   instagram: string;
   memberOffer?: string;
+  benefitType?: string;
+  benefitDetails?: string;
+  collaboration?: string;
+  communicationConsent?: string;
+  logoUrl?: string;
   expertise?: string;
   services?: string;
   description: string;
@@ -32,6 +37,8 @@ export type Partner = {
   counterparts?: string;
   notes: string;
   status: "Actif" | "Inactif" | "Prospect" | string;
+  usageType?: "once" | "limited" | "unlimited";
+  usageLimit?: number;
   strategicPriority?: string;
   potential?: string;
   nextContactObjective?: string;
