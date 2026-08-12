@@ -1,5 +1,8 @@
 export type Athlete = {
   row?: number;
+  athleteId?: string;
+  profilePortraitUrl?: string;
+  kliqueArrivalVisualUrl?: string;
   key: string;
   name: string;
   initials: string;

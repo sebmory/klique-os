@@ -407,11 +407,18 @@ async function buildWeeklyResponsesMap(
 
     const headers = rows[0].map(String);
     const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
-    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1);
+    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], -1);
     const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
-    const importantAppointmentsColumn = findColumnExact(
+    const importantAppointmentsColumn = findColumn(
       headers,
-      "As-tu des rendez-vous importants cette semaine ? Si oui, lesquels ? (match, compétition, ...)"
+      [
+        "rendez-vous importants cette semaine",
+        "rendez vous importants cette semaine",
+        "rendez-vous important cette semaine",
+        "rendez vous important cette semaine",
+        "rendez-vous cette semaine",
+      ],
+      -1,
     );
 
     const weeklyResponses = new Map<string, WeeklyResponseValue>();
@@ -421,9 +428,9 @@ async function buildWeeklyResponsesMap(
 
       const rawAppointment = importantAppointmentsColumn >= 0 ? String(row[importantAppointmentsColumn] ?? "").trim() : "";
       const appointment = isMeaningfulWeeklyAppointment(rawAppointment) ? rawAppointment : "";
-      const email = normalize(String(row[emailColumn] ?? ""));
-      const name = normalizeNameKey(String(row[nameColumn] ?? ""));
-      const keys = [email, name].filter(Boolean);
+      const email = emailColumn >= 0 ? normalize(String(row[emailColumn] ?? "")) : "";
+      const name = nameColumn >= 0 ? normalizeNameKey(String(row[nameColumn] ?? "")) : "";
+      const keys = email ? [email, name].filter(Boolean) : [name].filter(Boolean);
       if (!keys.length) continue;
 
       for (const key of keys) {
@@ -455,7 +462,7 @@ async function buildMonthlyResponsesMap(
 
     const headers = rows[0].map(String);
     const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
-    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1);
+    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], -1);
     const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
 
     const monthlyResponses = new Map<string, string>();
@@ -463,9 +470,9 @@ async function buildMonthlyResponsesMap(
       const timestamp = String(row[timestampColumn] ?? "").trim();
       if (!timestamp) continue;
 
-      const email = normalize(String(row[emailColumn] ?? ""));
-      const name = normalizeNameKey(String(row[nameColumn] ?? ""));
-      const keys = [email, name].filter(Boolean);
+      const email = emailColumn >= 0 ? normalize(String(row[emailColumn] ?? "")) : "";
+      const name = nameColumn >= 0 ? normalizeNameKey(String(row[nameColumn] ?? "")) : "";
+      const keys = email ? [email, name].filter(Boolean) : [name].filter(Boolean);
       if (!keys.length) continue;
 
       for (const key of keys) {
@@ -484,6 +491,9 @@ async function buildMonthlyResponsesMap(
 }
 
 const athleteColumns = (headers: string[]) => ({
+  athleteId: findColumn(headers, ["athleteid", "athlete id", "id athlete", "id athlète", "identifiant athlete", "identifiant athlète"], -1),
+  profilePortraitUrl: findColumn(headers, ["profileportraiturl", "profile portrait url", "portrait url", "photo profil url", "photo de profil url"], -1),
+  kliqueArrivalVisualUrl: findColumn(headers, ["kliquearrivalvisualurl", "klique arrival visual url", "arrival visual url", "visuel arrivee klique url", "visuel arrivée klique url"], -1),
   name: findColumn(headers, ["nom", "athlete"], 0),
   sport: findColumn(headers, ["sport"], 1),
   club: findColumn(headers, ["club"], 2),
@@ -514,6 +524,29 @@ const athleteColumns = (headers: string[]) => ({
   premium: findColumn(headers, ["premium"], 27),
   coverage: findColumn(headers, ["couverture", "score media"], 28),
 });
+
+const athleteSheetRange = "'02_Athlètes'!A3:AD200";
+const athleteSheetHeaderRange = "'02_Athlètes'!A3:AD3";
+const athleteSheetAppendRange = "'02_Athlètes'!A:AD";
+
+const getAthleteRowLength = (column: ReturnType<typeof athleteColumns>): number => {
+  const maxIndex = Math.max(...Object.values(column));
+  return Math.max(29, maxIndex + 1);
+};
+
+const resolveAthleteIdentifier = (explicitAthleteId: unknown, name: string): string => {
+  const normalizedExplicit = normalize(explicitAthleteId);
+  if (normalizedExplicit) {
+    return normalizedExplicit;
+  }
+  return stableKey(name);
+};
+
+const readOptionalSheetValue = (row: unknown[], columnIndex: number): string | undefined => {
+  if (columnIndex < 0) return undefined;
+  const text = String(row[columnIndex] ?? "").trim();
+  return text || undefined;
+};
 
 type ServiceAccountCredentials = {
   client_email: string;
@@ -593,7 +626,7 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
   const [response, formMap, weeklyResponses, monthlyResponses] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'02_Athlètes'!A3:AC200",
+      range: athleteSheetRange,
     }),
     buildFormAdhesionMap(sheets, spreadsheetId),
     buildWeeklyResponsesMap(sheets, spreadsheetId),
@@ -619,6 +652,12 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
     })
     .map(({ row, sheetRow }) => {
       const name = String(row[column.name] ?? "").trim();
+      const resolvedAthleteId = resolveAthleteIdentifier(
+        column.athleteId >= 0 ? row[column.athleteId] : "",
+        name,
+      );
+      const profilePortraitUrl = readOptionalSheetValue(row, column.profilePortraitUrl);
+      const kliqueArrivalVisualUrl = readOptionalSheetValue(row, column.kliqueArrivalVisualUrl);
       const coverage =
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
       const athleteEmail = normalize(String(row[column.email] ?? ""));
@@ -630,7 +669,10 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
 
       return {
         row: sheetRow,
-        key: stableKey(name),
+        athleteId: resolvedAthleteId,
+        profilePortraitUrl,
+        kliqueArrivalVisualUrl,
+        key: resolvedAthleteId,
         name,
         initials: initials(name),
         sport: String(row[column.sport] ?? ""),
@@ -696,9 +738,13 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
     const isDuplicateByName = normalizedName && existingNames.has(normalizedName);
     if (isDuplicateByEmail || isDuplicateByName) continue;
     const name = form.name || form.rawEmail || "Nouvel athlète";
+    const generatedAthleteId = stableKey(name);
     athletes.push({
       row: 0,
-      key: stableKey(name),
+      athleteId: generatedAthleteId,
+      profilePortraitUrl: undefined,
+      kliqueArrivalVisualUrl: undefined,
+      key: generatedAthleteId,
       name,
       initials: initials(name),
       sport: "",
@@ -756,7 +802,7 @@ export async function rejectFormEntry(email: string): Promise<void> {
 
   const sheetData = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'02_Athl\u00e8tes'!A3:AC200",
+    range: athleteSheetRange,
   });
   const rows = sheetData.data.values ?? [];
   if (rows.length < 1) throw new Error("Impossible de lire 02_Athl\u00e8tes.");
@@ -769,13 +815,14 @@ export async function rejectFormEntry(email: string): Promise<void> {
   );
   if (isDuplicate) return;
 
-  const newRow = Array.from({ length: 29 }, () => "");
+  const rowLength = getAthleteRowLength(column);
+  const newRow = Array.from({ length: rowLength }, () => "");
   newRow[column.email]  = email;
   newRow[column.status] = "Refus\u00e9";
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "'02_Athl\u00e8tes'!A:AC",
+    range: athleteSheetAppendRange,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [newRow] },
@@ -788,7 +835,7 @@ export async function addAthleteToGoogleSheets(athlete: Athlete): Promise<void> 
 
   const sheetData = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "'02_Athl\u00e8tes'!A3:AC200",
+    range: athleteSheetRange,
   });
   const rows = sheetData.data.values ?? [];
   if (rows.length < 1) throw new Error("Impossible de lire 02_Athl\u00e8tes.");
@@ -801,7 +848,12 @@ export async function addAthleteToGoogleSheets(athlete: Athlete): Promise<void> 
   );
   if (isDuplicate) throw new Error("Cet e-mail est d\u00e9j\u00e0 enregistr\u00e9 dans 02_Athl\u00e8tes.");
 
-  const newRow = Array.from({ length: 29 }, () => "");
+  const rowLength = getAthleteRowLength(column);
+  const newRow = Array.from({ length: rowLength }, () => "");
+  const resolvedAthleteId = normalize(athlete.athleteId) || normalize(athlete.key) || stableKey(athlete.name);
+  if (column.athleteId >= 0) {
+    newRow[column.athleteId] = resolvedAthleteId;
+  }
   newRow[column.name]    = athlete.name;
   newRow[column.sport]   = athlete.sport;
   newRow[column.club]    = athlete.club;
@@ -818,7 +870,7 @@ export async function addAthleteToGoogleSheets(athlete: Athlete): Promise<void> 
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "'02_Athl\u00e8tes'!A:AC",
+    range: athleteSheetAppendRange,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [newRow] },
@@ -835,7 +887,7 @@ export async function updateAthleteInGoogleSheets(
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const headerResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'02_Athlètes'!A3:AC3",
+    range: athleteSheetHeaderRange,
   });
 
   const headers = headerResponse.data.values?.[0]?.map(String) ?? [];
@@ -846,11 +898,12 @@ export async function updateAthleteInGoogleSheets(
   const column = athleteColumns(headers);
   const currentResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `'02_Athlètes'!A${update.row}:AC${update.row}`,
+    range: `'02_Athlètes'!A${update.row}:AD${update.row}`,
   });
 
   const current = currentResponse.data.values?.[0] ?? [];
-  const next = Array.from({ length: 29 }, (_, index) => current[index] ?? "");
+  const rowLength = getAthleteRowLength(column);
+  const next = Array.from({ length: rowLength }, (_, index) => current[index] ?? "");
 
   if (update.name !== undefined) next[column.name] = update.name;
   if (update.sport !== undefined) next[column.sport] = update.sport;
@@ -885,7 +938,7 @@ export async function updateAthleteInGoogleSheets(
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: getSpreadsheetId(),
-    range: `'02_Athlètes'!A${update.row}:AC${update.row}`,
+    range: `'02_Athlètes'!A${update.row}:AD${update.row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
   });
