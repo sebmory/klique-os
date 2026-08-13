@@ -777,6 +777,24 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
                     </button>
                   </dd>
                 </div>
+                {isAdmin ? (
+                  <div>
+                    <dt>
+                      <Sparkles size={14} aria-hidden />
+                      Action
+                    </dt>
+                    <dd>
+                      <Link
+                        href={`/crm/personnes/${encodeURIComponent(id)}/profil-athlete`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#4f46e5", textDecoration: "underline" }}
+                      >
+                        Prévisualiser le profil Athlète
+                      </Link>
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
 
               <dl className="crm-person-info-grid">
