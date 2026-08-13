@@ -188,6 +188,8 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
   const [distinctionDescription, setDistinctionDescription] = useState("");
   const [isSubmittingDistinction, setIsSubmittingDistinction] = useState(false);
   const [deletingDistinctionId, setDeletingDistinctionId] = useState<string | null>(null);
+  const [uploadingVisual, setUploadingVisual] = useState<"profilePortrait" | "kliqueArrivalVisual" | null>(null);
+  const [visualUploadError, setVisualUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -342,6 +344,45 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
       setInviteError(error instanceof Error ? error.message : resend ? "Impossible de renvoyer l'invitation." : "Impossible d'envoyer l'invitation.");
     } finally {
       setIsInviting(false);
+    }
+  };
+
+  const handleUploadVisual = async (usage: "profilePortrait" | "kliqueArrivalVisual", file: File) => {
+    if (!isAdmin || !athlete) return;
+
+    setUploadingVisual(usage);
+    setVisualUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("athleteId", athlete.athleteId || athlete.key);
+      formData.append("usage", usage);
+      formData.append("file", file);
+
+      const response = await fetch("/api/athlete-visuals", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      const payload = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !payload.url) {
+        throw new Error(payload.error || "Impossible d'uploader le visuel.");
+      }
+
+      setAthlete((current) =>
+        current
+          ? {
+              ...current,
+              ...(usage === "profilePortrait"
+                ? { profilePortraitUrl: payload.url }
+                : { kliqueArrivalVisualUrl: payload.url }),
+            }
+          : current,
+      );
+    } catch (error) {
+      setVisualUploadError(error instanceof Error ? error.message : "Impossible d'uploader le visuel.");
+    } finally {
+      setUploadingVisual(null);
     }
   };
 
@@ -917,6 +958,72 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
 
             {distinctionError ? <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.84rem" }}>{distinctionError}</p> : null}
           </article>
+
+          {isAdmin ? (
+            <article className="crm-person-card-shell">
+              <header>
+                <h2>Visuels KLIQUE</h2>
+              </header>
+
+              <div style={{ display: "grid", gap: "1rem" }}>
+                {(
+                  [
+                    { usage: "profilePortrait" as const, label: "Portrait de profil", url: athlete.profilePortraitUrl },
+                    { usage: "kliqueArrivalVisual" as const, label: "Visuel d'arrivée KLIQUE", url: athlete.kliqueArrivalVisualUrl },
+                  ]
+                ).map(({ usage, label, url }) => (
+                  <div key={usage} style={{ display: "grid", gap: "0.5rem" }}>
+                    <span style={{ color: "#7b7b7b", fontSize: "0.76rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      {label}
+                    </span>
+
+                    {url ? (
+                      <img
+                        src={url}
+                        alt={label}
+                        style={{ width: "100%", maxWidth: "220px", borderRadius: "12px", border: "1px solid #e5e7eb", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <p style={{ margin: 0, color: "#6b7280", fontSize: "0.86rem" }}>Aucun visuel importé.</p>
+                    )}
+
+                    <label
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "999px",
+                        padding: "0.45rem 0.8rem",
+                        fontSize: "0.82rem",
+                        fontWeight: 700,
+                        cursor: uploadingVisual === usage ? "not-allowed" : "pointer",
+                        opacity: uploadingVisual === usage ? 0.7 : 1,
+                        width: "fit-content",
+                      }}
+                    >
+                      {uploadingVisual === usage ? "Envoi…" : url ? "Remplacer l'image" : "Importer une image"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        style={{ display: "none" }}
+                        disabled={uploadingVisual !== null}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) {
+                            void handleUploadVisual(usage, file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              {visualUploadError ? <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.84rem" }}>{visualUploadError}</p> : null}
+            </article>
+          ) : null}
 
         </div>
 
