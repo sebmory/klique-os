@@ -1672,6 +1672,16 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
     if (sheetName === "06_Partenaires") {
       const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
 
+      const branchHeaders = (rows[headerRowIndex] ?? []).map((value) => normalizeHeader(value));
+      const findBranchColumn = (candidate: string): number =>
+        branchHeaders.findIndex((header) => header === normalizeHeader(candidate));
+      const firstContactDateColumn = findBranchColumn("Date premier contact");
+      const kliqueArrivalDateColumn = findBranchColumn("Date arrivée KLIQUE");
+      const lastContactColumn = findBranchColumn("Dernier contact");
+      const collaborationStartColumn = findBranchColumn("Début collaboration");
+      const collaborationEndColumn = findBranchColumn("Fin collaboration");
+      const dateAt = (sheetRow: unknown[], index: number): string => (index >= 0 ? valueAt(sheetRow, index) : "");
+
       const toPartner = (sheetRow: unknown[], index: number): Partner => ({
         row: headerRowIndex + 2 + index,
         id: valueAt(sheetRow, 0) || `partner-${headerRowIndex + 2 + index}`,
@@ -1689,14 +1699,15 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
         benefitType: "",
         benefits: valueAt(sheetRow, 8),
         benefitDetails: valueAt(sheetRow, 8),
-        firstContactDate: "",
-        lastContact: "",
+        firstContactDate: dateAt(sheetRow, firstContactDateColumn),
+        kliqueArrivalDate: dateAt(sheetRow, kliqueArrivalDateColumn),
+        lastContact: dateAt(sheetRow, lastContactColumn),
         nextFollowUp: "",
         nextAction: "",
         estimatedValueChf: "",
         contractSigned: "",
-        collaborationStart: "",
-        collaborationEnd: "",
+        collaborationStart: dateAt(sheetRow, collaborationStartColumn),
+        collaborationEnd: dateAt(sheetRow, collaborationEndColumn),
         collaboration: "",
         communicationConsent: "",
         logoUrl: "",
@@ -1757,6 +1768,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       usageLimit: findPartnerColumn(["usage limit", "limite d'utilisation", "limite d’utilisation", "nombre de fois", "limite"], -1),
       description: findPartnerColumn(["description", "presentation", "présentation", "presentez votre activite en quelques mots", "présentez votre activité en quelques mots"], -1),
       firstContactDate: findPartnerColumn(["date premier contact", "premier contact"], -1),
+      kliqueArrivalDate: findPartnerColumnExact(["date arrivee klique"], -1),
       lastContact: findPartnerColumn(["dernier contact"], -1),
       nextFollowUp: findPartnerColumn(["prochaine relance", "relance"], -1),
       nextAction: findPartnerColumn(["prochaine action"], -1),
@@ -1838,6 +1850,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
           benefits: rowFromSheet(sheetRow, column.benefits),
           benefitDetails: rowFromSheet(sheetRow, column.benefitDetails),
           firstContactDate: rowFromSheet(sheetRow, column.firstContactDate),
+          kliqueArrivalDate: rowFromSheet(sheetRow, column.kliqueArrivalDate),
           lastContact: rowFromSheet(sheetRow, column.lastContact),
           nextFollowUp: rowFromSheet(sheetRow, column.nextFollowUp),
           nextAction: rowFromSheet(sheetRow, column.nextAction),
@@ -2005,7 +2018,7 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'06_Partenaires'!A4:T200",
+    range: "'06_Partenaires'!A4:Y200",
   });
 
   const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
@@ -2036,6 +2049,7 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
         benefits: memberOffer,
         benefitDetails: memberOffer,
         firstContactDate: "",
+        kliqueArrivalDate: valueAt(sheetRow, 24),
         lastContact: "",
         nextFollowUp: "",
         nextAction: "",

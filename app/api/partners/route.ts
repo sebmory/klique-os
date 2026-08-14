@@ -86,6 +86,7 @@ const toAthleteEcosystemPartner = (partner: PartnerResponse["partners"][number])
   expertise: normalize(partner.expertise),
   services: normalize(partner.services),
   expertKlique: partner.expertKlique,
+  kliqueArrivalDate: normalize(partner.kliqueArrivalDate),
 });
 
 export async function GET(request: NextRequest) {

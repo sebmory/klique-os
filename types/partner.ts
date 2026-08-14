@@ -25,6 +25,7 @@ export type Partner = {
   description: string;
   benefits: string;
   firstContactDate?: string;
+  kliqueArrivalDate?: string;
   lastContact?: string;
   nextFollowUp?: string;
   nextAction?: string;
