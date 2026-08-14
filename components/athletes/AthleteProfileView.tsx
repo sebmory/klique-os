@@ -27,6 +27,9 @@ export type AthleteProfileData = {
   adhesionDate?: string;
   profilePortraitUrl?: string;
   kliqueArrivalVisualUrl?: string;
+  profilePortraitScale?: number;
+  profilePortraitX?: number;
+  profilePortraitY?: number;
 };
 
 export type AthleteProfileDistinction = {
@@ -184,7 +187,8 @@ export function AthleteProfileView({
   const initials = computeInitials(String(athlete.name ?? ""));
   const sport = readValue(athlete.sport);
   const club = readValue(athlete.club);
-  const position = readValue(athlete.position);
+  const rawPosition = readValue(athlete.position);
+  const position = rawPosition && !/^[-–—]+$/.test(rawPosition) ? rawPosition : null;
   const nationality = readValue(athlete.nationality);
   const birthDate = readValue(athlete.birthDate);
   const palmares = readValue(athlete.palmares);
@@ -198,6 +202,9 @@ export function AthleteProfileView({
   const instagram = readValue(athlete.instagram);
   const profilePortraitUrl = readValue(athlete.profilePortraitUrl);
   const kliqueArrivalVisualUrl = readValue(athlete.kliqueArrivalVisualUrl);
+  const portraitScale = Number.isFinite(athlete.profilePortraitScale) ? Number(athlete.profilePortraitScale) : 1;
+  const portraitX = Number.isFinite(athlete.profilePortraitX) ? Number(athlete.profilePortraitX) : 0;
+  const portraitY = Number.isFinite(athlete.profilePortraitY) ? Number(athlete.profilePortraitY) : 0;
   const hasParcours = Boolean(nationality || birthDate || palmares || heightWeight);
   const hasObjectives = Boolean(objective || longTerm || desiredAreas.length > 0);
   const hasContact = Boolean(email || phone || instagram);
@@ -311,6 +318,8 @@ export function AthleteProfileView({
                   objectFit: "cover",
                   objectPosition: "center top",
                   display: "block",
+                  transform: `translate(${portraitX}%, ${portraitY}%) scale(${portraitScale})`,
+                  transformOrigin: "center center",
                 }}
               />
               {/* Blends a possibly white photo background into the dark Hero without touching the source file */}

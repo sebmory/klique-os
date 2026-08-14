@@ -3,6 +3,9 @@ export type Athlete = {
   athleteId?: string;
   profilePortraitUrl?: string;
   kliqueArrivalVisualUrl?: string;
+  profilePortraitScale?: number;
+  profilePortraitX?: number;
+  profilePortraitY?: number;
   key: string;
   name: string;
   initials: string;

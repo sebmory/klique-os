@@ -190,6 +190,11 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
   const [deletingDistinctionId, setDeletingDistinctionId] = useState<string | null>(null);
   const [uploadingVisual, setUploadingVisual] = useState<"profilePortrait" | "kliqueArrivalVisual" | null>(null);
   const [visualUploadError, setVisualUploadError] = useState<string | null>(null);
+  const [portraitFraming, setPortraitFraming] = useState({ scale: 1, x: 0, y: 0 });
+  const [isDraggingPortrait, setIsDraggingPortrait] = useState(false);
+  const [savingFraming, setSavingFraming] = useState(false);
+  const [framingError, setFramingError] = useState<string | null>(null);
+  const [framingSaved, setFramingSaved] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -383,6 +388,58 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
       setVisualUploadError(error instanceof Error ? error.message : "Impossible d'uploader le visuel.");
     } finally {
       setUploadingVisual(null);
+    }
+  };
+
+  useEffect(() => {
+    setPortraitFraming({
+      scale: Number.isFinite(athlete?.profilePortraitScale) ? Number(athlete?.profilePortraitScale) : 1,
+      x: Number.isFinite(athlete?.profilePortraitX) ? Number(athlete?.profilePortraitX) : 0,
+      y: Number.isFinite(athlete?.profilePortraitY) ? Number(athlete?.profilePortraitY) : 0,
+    });
+    setFramingSaved(false);
+    setFramingError(null);
+  }, [athlete?.profilePortraitScale, athlete?.profilePortraitX, athlete?.profilePortraitY, athlete?.profilePortraitUrl]);
+
+  const handleSavePortraitFraming = async () => {
+    if (!isAdmin || !athlete) return;
+
+    setSavingFraming(true);
+    setFramingError(null);
+    setFramingSaved(false);
+    try {
+      const response = await fetch("/api/athlete-visuals", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          athleteId: athlete.athleteId || athlete.key,
+          scale: portraitFraming.scale,
+          x: portraitFraming.x,
+          y: portraitFraming.y,
+        }),
+      });
+
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Impossible d'enregistrer le cadrage.");
+      }
+
+      setAthlete((current) =>
+        current
+          ? {
+              ...current,
+              profilePortraitScale: portraitFraming.scale,
+              profilePortraitX: portraitFraming.x,
+              profilePortraitY: portraitFraming.y,
+            }
+          : current,
+      );
+      setFramingSaved(true);
+    } catch (error) {
+      setFramingError(error instanceof Error ? error.message : "Impossible d'enregistrer le cadrage.");
+    } finally {
+      setSavingFraming(false);
     }
   };
 
@@ -1035,6 +1092,127 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
                         }}
                       />
                     </label>
+
+                    {usage === "profilePortrait" && url ? (
+                      <div style={{ display: "grid", gap: "0.55rem", marginTop: "0.35rem" }}>
+                        <span style={{ color: "#7b7b7b", fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Cadrage dans le Hero
+                        </span>
+
+                        <div
+                          role="presentation"
+                          onPointerDown={(event) => {
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                            setIsDraggingPortrait(true);
+                          }}
+                          onPointerMove={(event) => {
+                            if (!isDraggingPortrait) return;
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            setPortraitFraming((current) => ({
+                              ...current,
+                              x: Math.min(Math.max(current.x + (event.movementX / rect.width) * 100, -100), 100),
+                              y: Math.min(Math.max(current.y + (event.movementY / rect.height) * 100, -100), 100),
+                            }));
+                            setFramingSaved(false);
+                          }}
+                          onPointerUp={(event) => {
+                            event.currentTarget.releasePointerCapture(event.pointerId);
+                            setIsDraggingPortrait(false);
+                          }}
+                          onPointerCancel={() => setIsDraggingPortrait(false)}
+                          style={{
+                            position: "relative",
+                            width: "100%",
+                            maxWidth: "260px",
+                            height: "190px",
+                            borderRadius: "14px",
+                            overflow: "hidden",
+                            background: "linear-gradient(160deg, #14151a 0%, #0e0f13 60%, #0a0b0f 100%)",
+                            border: "1px solid #e5e7eb",
+                            cursor: isDraggingPortrait ? "grabbing" : "grab",
+                            touchAction: "none",
+                          }}
+                        >
+                          <img
+                            src={url}
+                            alt="Aperçu du cadrage"
+                            draggable={false}
+                            style={{
+                              position: "absolute",
+                              inset: 0,
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              objectPosition: "center top",
+                              transform: `translate(${portraitFraming.x}%, ${portraitFraming.y}%) scale(${portraitFraming.scale})`,
+                              transformOrigin: "center center",
+                              userSelect: "none",
+                              pointerEvents: "none",
+                            }}
+                          />
+                        </div>
+
+                        <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem", color: "#4b5563" }}>
+                          Zoom · {portraitFraming.scale.toFixed(2)}×
+                          <input
+                            type="range"
+                            min={0.5}
+                            max={3}
+                            step={0.01}
+                            value={portraitFraming.scale}
+                            onChange={(event) => {
+                              const nextScale = Number(event.target.value);
+                              setPortraitFraming((current) => ({ ...current, scale: nextScale }));
+                              setFramingSaved(false);
+                            }}
+                          />
+                        </label>
+
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPortraitFraming({ scale: 1, x: 0, y: 0 });
+                              setFramingSaved(false);
+                            }}
+                            style={{
+                              border: "1px solid #e5e7eb",
+                              background: "#ffffff",
+                              borderRadius: "999px",
+                              padding: "0.4rem 0.8rem",
+                              fontSize: "0.8rem",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Réinitialiser
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleSavePortraitFraming();
+                            }}
+                            disabled={savingFraming}
+                            style={{
+                              border: "1px solid #111827",
+                              background: "linear-gradient(135deg, #111827 0%, #374151 100%)",
+                              color: "#fff",
+                              borderRadius: "999px",
+                              padding: "0.4rem 0.85rem",
+                              fontSize: "0.8rem",
+                              fontWeight: 700,
+                              cursor: savingFraming ? "not-allowed" : "pointer",
+                              opacity: savingFraming ? 0.7 : 1,
+                            }}
+                          >
+                            {savingFraming ? "Enregistrement…" : "Enregistrer le cadrage"}
+                          </button>
+                          {framingSaved ? <span style={{ color: "#166534", fontSize: "0.8rem", fontWeight: 700 }}>Cadrage enregistré</span> : null}
+                        </div>
+
+                        {framingError ? <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.82rem" }}>{framingError}</p> : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

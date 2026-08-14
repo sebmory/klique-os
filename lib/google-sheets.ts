@@ -494,6 +494,9 @@ const athleteColumns = (headers: string[]) => ({
   athleteId: findColumn(headers, ["athleteid", "athlete id", "id athlete", "id athlète", "identifiant athlete", "identifiant athlète"], -1),
   profilePortraitUrl: findColumn(headers, ["profileportraiturl", "profile portrait url", "portrait url", "photo profil url", "photo de profil url"], -1),
   kliqueArrivalVisualUrl: findColumn(headers, ["kliquearrivalvisualurl", "klique arrival visual url", "arrival visual url", "visuel arrivee klique url", "visuel arrivée klique url"], -1),
+  profilePortraitScale: findColumn(headers, ["profileportraitscale", "profile portrait scale", "portrait scale"], -1),
+  profilePortraitX: findColumn(headers, ["profileportraitx", "profile portrait x", "portrait x"], -1),
+  profilePortraitY: findColumn(headers, ["profileportraity", "profile portrait y", "portrait y"], -1),
   name: findColumn(headers, ["nom", "athlete"], 0),
   sport: findColumn(headers, ["sport"], 1),
   club: findColumn(headers, ["club"], 2),
@@ -525,9 +528,9 @@ const athleteColumns = (headers: string[]) => ({
   coverage: findColumn(headers, ["couverture", "score media"], 28),
 });
 
-const athleteSheetRange = "'02_Athlètes'!A3:AF200";
-const athleteSheetHeaderRange = "'02_Athlètes'!A3:AF3";
-const athleteSheetAppendRange = "'02_Athlètes'!A:AF";
+const athleteSheetRange = "'02_Athlètes'!A3:AI200";
+const athleteSheetHeaderRange = "'02_Athlètes'!A3:AI3";
+const athleteSheetAppendRange = "'02_Athlètes'!A:AI";
 
 const getAthleteRowLength = (column: ReturnType<typeof athleteColumns>): number => {
   const maxIndex = Math.max(...Object.values(column));
@@ -546,6 +549,13 @@ const readOptionalSheetValue = (row: unknown[], columnIndex: number): string | u
   if (columnIndex < 0) return undefined;
   const text = String(row[columnIndex] ?? "").trim();
   return text || undefined;
+};
+
+const readPortraitNumber = (row: unknown[], columnIndex: number, fallback: number): number => {
+  const raw = readOptionalSheetValue(row, columnIndex);
+  if (!raw) return fallback;
+  const parsed = Number(raw.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 type ServiceAccountCredentials = {
@@ -658,6 +668,9 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       );
       const profilePortraitUrl = readOptionalSheetValue(row, column.profilePortraitUrl);
       const kliqueArrivalVisualUrl = readOptionalSheetValue(row, column.kliqueArrivalVisualUrl);
+      const profilePortraitScale = readPortraitNumber(row, column.profilePortraitScale, 1);
+      const profilePortraitX = readPortraitNumber(row, column.profilePortraitX, 0);
+      const profilePortraitY = readPortraitNumber(row, column.profilePortraitY, 0);
       const coverage =
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
       const athleteEmail = normalize(String(row[column.email] ?? ""));
@@ -672,6 +685,9 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
         athleteId: resolvedAthleteId,
         profilePortraitUrl,
         kliqueArrivalVisualUrl,
+        profilePortraitScale,
+        profilePortraitX,
+        profilePortraitY,
         key: resolvedAthleteId,
         name,
         initials: initials(name),
@@ -744,6 +760,9 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       athleteId: generatedAthleteId,
       profilePortraitUrl: undefined,
       kliqueArrivalVisualUrl: undefined,
+      profilePortraitScale: 1,
+      profilePortraitX: 0,
+      profilePortraitY: 0,
       key: generatedAthleteId,
       name,
       initials: initials(name),
@@ -898,7 +917,7 @@ export async function updateAthleteInGoogleSheets(
   const column = athleteColumns(headers);
   const currentResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `'02_Athlètes'!A${update.row}:AF${update.row}`,
+    range: `'02_Athlètes'!A${update.row}:AI${update.row}`,
   });
 
   const current = currentResponse.data.values?.[0] ?? [];
@@ -938,7 +957,7 @@ export async function updateAthleteInGoogleSheets(
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: getSpreadsheetId(),
-    range: `'02_Athlètes'!A${update.row}:AF${update.row}`,
+    range: `'02_Athlètes'!A${update.row}:AI${update.row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
   });
@@ -993,7 +1012,62 @@ export async function updateAthleteVisualUrlInGoogleSheets(
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: getSpreadsheetId(),
-    range: `'02_Athlètes'!A${sheetRow}:AF${sheetRow}`,
+    range: `'02_Athlètes'!A${sheetRow}:AI${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [next] },
+  });
+}
+
+export async function updateAthletePortraitFramingInGoogleSheets(
+  athleteId: string,
+  framing: { scale: number; x: number; y: number }
+): Promise<void> {
+  const targetAthleteId = normalize(athleteId);
+  if (!targetAthleteId) {
+    throw new Error("athleteId est obligatoire.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const sheetData = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: athleteSheetRange,
+  });
+
+  const rows = sheetData.data.values ?? [];
+  if (rows.length < 2) {
+    throw new Error("Impossible de lire 02_Athlètes.");
+  }
+
+  const headers = rows[0].map(String);
+  const column = athleteColumns(headers);
+  if (column.profilePortraitScale < 0 || column.profilePortraitX < 0 || column.profilePortraitY < 0) {
+    throw new Error("Colonnes profilePortraitScale / profilePortraitX / profilePortraitY introuvables dans 02_Athlètes.");
+  }
+
+  const matchedIndex = rows.slice(1).findIndex((row) => {
+    const name = String(row[column.name] ?? "").trim();
+    const resolvedAthleteId = resolveAthleteIdentifier(
+      column.athleteId >= 0 ? row[column.athleteId] : "",
+      name,
+    );
+    return resolvedAthleteId === targetAthleteId;
+  });
+
+  if (matchedIndex < 0) {
+    throw new Error("Athlète introuvable pour cet athleteId.");
+  }
+
+  const sheetRow = matchedIndex + 4;
+  const current = rows[matchedIndex + 1] ?? [];
+  const rowLength = getAthleteRowLength(column);
+  const next = Array.from({ length: rowLength }, (_, index) => current[index] ?? "");
+  next[column.profilePortraitScale] = String(framing.scale);
+  next[column.profilePortraitX] = String(framing.x);
+  next[column.profilePortraitY] = String(framing.y);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'02_Athlètes'!A${sheetRow}:AI${sheetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
   });
