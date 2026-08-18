@@ -10,6 +10,10 @@ const isPublicRoute = createRouteMatcher([
   "/__clerk/(.*)",
 ]);
 
+const accessPendingPath = "/access-pending";
+
+const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
+
 const isAthleteAllowedRoute = (pathname: string): boolean => {
   if (pathname === "/athlete" || pathname.startsWith("/athlete/")) {
     return true;
@@ -46,14 +50,33 @@ export default clerkMiddleware(
 
     await auth.protect();
 
-    const profile = await getCurrentUserAccessProfile(request);
-    const role = profile?.userAccess?.role;
+    const { pathname } = request.nextUrl;
+    if (pathname === accessPendingPath) {
+      return NextResponse.next();
+    }
 
-    if (role === "athlete") {
-      const { pathname } = request.nextUrl;
-      if (!isAthleteAllowedRoute(pathname)) {
+    try {
+      const profile = await getCurrentUserAccessProfile(request);
+      const access = profile?.userAccess;
+      const hasWorkspace = Boolean(access?.workspaceId?.trim());
+      const hasActiveAccess =
+        access?.status === "active" &&
+        hasWorkspace &&
+        (access.role === "admin" || (access.role === "athlete" && Boolean(access.athleteId?.trim())));
+
+      if (!hasActiveAccess) {
+        return isApiRoute(pathname)
+          ? NextResponse.next()
+          : NextResponse.redirect(new URL(accessPendingPath, request.url));
+      }
+
+      if (access.role === "athlete" && !isAthleteAllowedRoute(pathname)) {
         return NextResponse.redirect(new URL("/athlete", request.url));
       }
+    } catch {
+      return isApiRoute(pathname)
+        ? NextResponse.next()
+        : NextResponse.redirect(new URL(accessPendingPath, request.url));
     }
 
     return NextResponse.next();

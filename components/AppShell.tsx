@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Header } from "@/components/app-shell/Header";
 import { Sidebar } from "@/components/app-shell/Sidebar";
 
@@ -19,12 +19,16 @@ type ClerkUserAccessState = {
   clerkDisplayName: string | null;
 };
 
+type AccessLoadStatus = "loading" | "authorized" | "denied";
+
 const sidebarStorageKey = "klique-sidebar-collapsed";
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user } = useUser();
   const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
+  const isAccessPendingRoute = pathname === "/access-pending";
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(sidebarStorageKey) === "true";
@@ -38,18 +42,32 @@ export function AppShell({ children }: AppShellProps) {
     status: null,
     clerkDisplayName: null,
   });
+  const [accessLoadStatus, setAccessLoadStatus] = useState<AccessLoadStatus>("loading");
 
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
   }, [collapsed]);
 
   useEffect(() => {
+    if (isPublicAuthRoute || isAccessPendingRoute) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadUserAccess = async () => {
+      setAccessLoadStatus("loading");
+
+      const denyAccess = () => {
+        if (cancelled) return;
+        setAccessLoadStatus("denied");
+        router.replace("/access-pending");
+      };
+
       try {
         const response = await fetch("/api/clerk/access", { credentials: "include", cache: "no-store" });
         if (!response.ok) {
+          denyAccess();
           return;
         }
 
@@ -59,6 +77,18 @@ export function AppShell({ children }: AppShellProps) {
         }
 
         const access = data?.userAccess ?? null;
+        const hasWorkspace = typeof access?.workspaceId === "string" && access.workspaceId.trim().length > 0;
+        const hasActiveAccess =
+          access?.status === "active" &&
+          hasWorkspace &&
+          (access?.role === "admin" ||
+            (access?.role === "athlete" && typeof access?.athleteId === "string" && access.athleteId.trim().length > 0));
+
+        if (!hasActiveAccess) {
+          denyAccess();
+          return;
+        }
+
         const resolvedDisplayName =
           user?.fullName ||
           [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
@@ -76,17 +106,9 @@ export function AppShell({ children }: AppShellProps) {
           status: access?.status ?? null,
           clerkDisplayName: resolvedDisplayName,
         });
+        setAccessLoadStatus("authorized");
       } catch {
-        if (!cancelled) {
-          setUserAccess({
-            role: null,
-            isAthlete: false,
-            athleteId: null,
-            workspaceId: null,
-            status: null,
-            clerkDisplayName: null,
-          });
-        }
+        denyAccess();
       }
     };
 
@@ -95,7 +117,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [isAccessPendingRoute, isPublicAuthRoute, router, user?.id]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -108,8 +130,12 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener("keydown", onEscape);
   }, []);
 
-  if (isPublicAuthRoute) {
+  if (isPublicAuthRoute || isAccessPendingRoute) {
     return <>{children}</>;
+  }
+
+  if (accessLoadStatus !== "authorized") {
+    return null;
   }
 
   return (
