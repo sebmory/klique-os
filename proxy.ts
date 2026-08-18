@@ -39,6 +39,10 @@ const isAthleteAllowedRoute = (pathname: string): boolean => {
     return true;
   }
 
+  if (pathname === "/api/contact-requests" || pathname.startsWith("/api/contact-requests/")) {
+    return true;
+  }
+
   return false;
 };
 
