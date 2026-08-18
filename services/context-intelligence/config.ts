@@ -6,7 +6,8 @@ export const contextIntelligenceConfig = {
   defaultSearchDepth: "standard" as ContextSearchDepth,
   defaultConnectors: ["crm", "productions", "manual", "external_news"] as ContextConnectorId[],
   externalNews: {
-    defaultModel: process.env.OPENAI_WEB_SEARCH_MODEL || "gpt-4.1",
+    // Modele de recherche Web : uniquement OPENAI_WEB_SEARCH_MODEL, avec repli sur un modele compatible web_search.
+    defaultModel: process.env.OPENAI_WEB_SEARCH_MODEL?.trim() || "gpt-4.1",
     depth: {
       quick: {
         maxResults: 5,
@@ -28,7 +29,9 @@ export const contextIntelligenceConfig = {
     maxCharactersPerItem: 680,
     maxTotalContextCharacters: 8000,
     maxSourcesPerItem: 4,
-    searchTimeoutMs: 30000,
+    searchTimeoutMs: 100000,
+    webSearchPhaseTimeoutMs: 60000,
+    normalizationPhaseTimeoutMs: 30000,
     cacheDurationMs: 5 * 60 * 1000,
   },
 } as const;

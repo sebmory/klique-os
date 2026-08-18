@@ -10,6 +10,7 @@ import {
   runPublicationRegenerateOneEngine,
 } from "@/services/content-intelligence/engine";
 import { validateCreationPayload } from "@/services/content-generation/validation";
+import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { runContentVariationEngine } from "@/services/content-intelligence/variation-engine";
 import { validateVariationRequest } from "@/services/content-variants/request-validation";
@@ -124,6 +125,7 @@ const resolvePublicationDiagnostics = (error: ContentGenerationError): Publicati
 
 export async function POST(request: Request) {
   try {
+    await requireContentAccess(request);
     const body = (await request.json()) as GenerateContentApiRequest;
 
     if (body?.operation === "publication_angles") {
@@ -192,6 +194,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(response);
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     const normalized =
       error instanceof ContentGenerationError
         ? error

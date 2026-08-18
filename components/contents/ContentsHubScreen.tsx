@@ -16,9 +16,36 @@ import {
 } from "lucide-react";
 import { ContentsHubService, type ContentCreationContext, type ContentGenerator, type ContentTemplate } from "@/services/contents-hub";
 import { runContentsBackfill } from "@/services/content-backfill";
+import type { ContentDocument } from "@/types/content-document";
 
 type ContentsHubScreenProps = {
   context: ContentCreationContext;
+};
+
+const normalizeText = (value: unknown): string => String(value ?? "").trim();
+
+const documentTypeLabels: Record<string, string> = {
+  interview: "Interview",
+  publication: "Publication",
+  reel: "Reel",
+};
+
+const getDocumentTitle = (document: ContentDocument): string => {
+  const title = normalizeText(document.sections?.title);
+  if (title) return title;
+  return documentTypeLabels[document.type] ? `${documentTypeLabels[document.type]} sans titre` : "Document sans titre";
+};
+
+const formatUpdatedAt = (value: string): string => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Date inconnue";
+  return new Intl.DateTimeFormat("fr-CH", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
 };
 
 const generatorIconById: Record<ContentGenerator["id"], ComponentType<{ size?: number; className?: string }>> = {
@@ -44,10 +71,53 @@ const templateIconById: Record<ContentTemplate["id"], ComponentType<{ size?: num
 
 export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
   const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState<ContentDocument[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(true);
+  const [draftsError, setDraftsError] = useState<string | null>(null);
+  const [draftsRetryToken, setDraftsRetryToken] = useState(0);
 
   useEffect(() => {
     void runContentsBackfill();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDrafts = async () => {
+      setDraftsLoading(true);
+      setDraftsError(null);
+
+      try {
+        const response = await fetch("/api/contents/storage/drafts", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!response.ok) throw new Error("Unable to load drafts");
+
+        const payload = (await response.json()) as { drafts?: Array<{ document?: ContentDocument }> };
+        if (!active) return;
+
+        setDrafts(
+          (payload.drafts ?? [])
+            .map((entry) => entry.document)
+            .filter((document): document is ContentDocument => Boolean(document?.id)),
+        );
+      } catch {
+        if (!active) return;
+        setDrafts([]);
+        setDraftsError("Vos brouillons n’ont pas pu être chargés.");
+      } finally {
+        if (active) setDraftsLoading(false);
+      }
+    };
+
+    void loadDrafts();
+
+    return () => {
+      active = false;
+    };
+  }, [draftsRetryToken]);
 
   const generators = useMemo(() => ContentsHubService.generators(), []);
   const templates = useMemo(() => ContentsHubService.templates(), []);
@@ -144,10 +214,44 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
         <div className="contents-section-head">
           <h2 id="contents-resume-title">Brouillons</h2>
         </div>
-        <article className="contents-empty-card">
-          <strong>Aucun brouillon pour le moment.</strong>
-          <p>Vos contenus commencés apparaîtront ici pour vous permettre de les reprendre rapidement.</p>
-        </article>
+
+        {draftsLoading ? (
+          <article className="contents-empty-card" aria-live="polite">
+            <strong>Chargement de vos brouillons…</strong>
+          </article>
+        ) : draftsError ? (
+          <article className="contents-empty-card" role="alert">
+            <strong>{draftsError}</strong>
+            <p>Vérifiez votre connexion puis relancez le chargement.</p>
+            <button type="button" className="contents-ghost-button" onClick={() => setDraftsRetryToken((value) => value + 1)}>
+              Réessayer
+            </button>
+          </article>
+        ) : drafts.length === 0 ? (
+          <article className="contents-empty-card">
+            <strong>Aucun brouillon pour le moment.</strong>
+            <p>Vos contenus commencés apparaîtront ici pour vous permettre de les reprendre rapidement.</p>
+          </article>
+        ) : (
+          <div className="contents-generators-grid">
+            {drafts.map((document) => (
+              <article key={document.id} className="contents-generator-card">
+                <div className="contents-generator-copy">
+                  <h3>{getDocumentTitle(document)}</h3>
+                  <p>{documentTypeLabels[document.type] ?? document.type}</p>
+                </div>
+                <Link
+                  href={`/contents/create/result?documentId=${encodeURIComponent(document.id)}`}
+                  className="contents-ghost-button"
+                  aria-label={`Ouvrir le brouillon ${getDocumentTitle(document)}`}
+                >
+                  Ouvrir
+                </Link>
+                <small>Modifié le {formatUpdatedAt(document.updatedAt || document.createdAt)}</small>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="contents-section" aria-labelledby="contents-templates-title">

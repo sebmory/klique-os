@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ContentStorageRepository } from "@/lib/content-storage/repository";
+import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import {
   ContentStorageValidationError,
   validateContentDocumentUpdateBody,
@@ -12,14 +13,15 @@ type RouteParams = {
   params: Promise<{ id: string }>;
 };
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
+    const access = await requireContentAccess(request);
     const { id } = await params;
     if (!id?.trim()) {
       return NextResponse.json({ ok: false, message: "Identifiant de document manquant." }, { status: 400 });
     }
 
-    const draft = await ContentStorageRepository.getDraft(id);
+    const draft = await ContentStorageRepository.getDraft(id, access);
     if (!draft) {
       return NextResponse.json({ ok: false, message: "Brouillon introuvable." }, { status: 404 });
     }
@@ -31,6 +33,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
       document: draft.document,
     });
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     return NextResponse.json(
       { ok: false, message: error instanceof Error ? error.message : "Impossible de lire le brouillon." },
       { status: 500 }
@@ -40,6 +45,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
 export async function PATCH(request: Request, { params }: RouteParams) {
   try {
+    const access = await requireContentAccess(request);
     const { id } = await params;
     if (!id?.trim()) {
       return NextResponse.json({ ok: false, message: "Identifiant de document manquant." }, { status: 400 });
@@ -51,7 +57,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       return NextResponse.json({ ok: false, message: "L identifiant du document ne correspond pas a la route." }, { status: 400 });
     }
 
-    const result = await ContentStorageRepository.updateDraft(id, document, expectedVersion);
+    const result = await ContentStorageRepository.updateDraft(id, document, expectedVersion, access);
     if (result.status === "not_found") {
       return NextResponse.json({ ok: false, message: "Brouillon introuvable." }, { status: 404 });
     }
@@ -74,6 +80,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       document: result.draft.document,
     });
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     if (error instanceof ContentStorageValidationError) {
       return NextResponse.json({ ok: false, message: error.message }, { status: 400 });
     }

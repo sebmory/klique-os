@@ -86,7 +86,9 @@ const parseCloudDraftResponse = async (response: Response): Promise<CloudDraftRe
 };
 
 const fetchCloudDraft = async (documentId: string): Promise<CloudFetchResult> => {
-  const response = await fetch(`/api/contents/storage/drafts/${encodeURIComponent(documentId)}`);
+  const response = await fetch(`/api/contents/storage/drafts/${encodeURIComponent(documentId)}`, {
+    credentials: "include",
+  });
   if (response.ok) {
     const payload = await parseCloudDraftResponse(response);
     if (!payload.document || typeof payload.version !== "number") {
@@ -111,6 +113,7 @@ const fetchCloudDraft = async (documentId: string): Promise<CloudFetchResult> =>
 const createCloudDraft = async (document: ContentDocument) => {
   const response = await fetch("/api/contents/storage/drafts", {
     method: "POST",
+    credentials: "include",
     headers: {
       "content-type": "application/json",
     },
@@ -144,6 +147,7 @@ const createCloudDraft = async (document: ContentDocument) => {
 const updateCloudDraft = async (document: ContentDocument, expectedVersion: number) => {
   const response = await fetch(`/api/contents/storage/drafts/${encodeURIComponent(document.id)}`, {
     method: "PATCH",
+    credentials: "include",
     headers: {
       "content-type": "application/json",
     },

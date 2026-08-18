@@ -15,6 +15,7 @@ type SidebarProps = {
   onCloseMobile: () => void;
   userRole?: string | null;
   userIsAthlete?: boolean;
+  userIsMedia?: boolean;
   userName?: string | null;
 };
 
@@ -72,6 +73,7 @@ export function Sidebar({
   onCloseMobile,
   userRole,
   userIsAthlete,
+  userIsMedia,
   userName,
 }: SidebarProps) {
   const { signOut } = useClerk();
@@ -80,8 +82,9 @@ export function Sidebar({
   const [profileMenuPosition, setProfileMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const isAthlete = userIsAthlete ?? userRole === "athlete";
-  const profileName = isAthlete ? (userName ?? "Compte Clerk") : "Sebastien Mory";
-  const profileLabel = isAthlete ? "Athlète" : "Administrateur";
+  const isMedia = (userIsMedia ?? userRole === "media") && !isAthlete;
+  const profileName = isAthlete || isMedia ? (userName ?? "Compte Clerk") : "Sebastien Mory";
+  const profileLabel = isAthlete ? "Athlète" : isMedia ? "Média" : "Administrateur";
   const visibleMainNavigation = isAthlete
     ? [
         { id: "today", label: "Aujourd’hui", href: "/athlete", icon: "house" as const },
@@ -92,9 +95,11 @@ export function Sidebar({
         { id: "community", label: "Communauté", href: "/athlete/community", icon: "messages" as const },
         { id: "contact", label: "Contacter KLIQUE", href: "/athlete/contact", icon: "messages" as const },
       ]
-    : mainNavigation;
+    : isMedia
+      ? [{ id: "contents", label: "Contenus", href: "/contents", icon: "contents" as const }]
+      : mainNavigation;
 
-  const visibleSecondaryNavigation = isAthlete ? [] : secondaryNavigation;
+  const visibleSecondaryNavigation = isAthlete || isMedia ? [] : secondaryNavigation;
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -173,7 +178,7 @@ export function Sidebar({
           />
         </nav>
 
-        {!isAthlete ? (
+        {!isAthlete && !isMedia ? (
           <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
             <NavigationSection
               items={visibleSecondaryNavigation}
@@ -189,8 +194,8 @@ export function Sidebar({
             ref={profileTriggerRef}
             type="button"
             className="sidebar-profile"
-            title={collapsed ? "Sebastien Mory" : undefined}
-            data-tooltip={collapsed ? "Sebastien Mory" : undefined}
+            title={collapsed ? profileName : undefined}
+            data-tooltip={collapsed ? profileName : undefined}
             aria-label="Profil utilisateur"
             aria-haspopup="menu"
             aria-expanded={isProfileMenuOpen}
@@ -272,7 +277,7 @@ export function Sidebar({
               />
             </nav>
 
-            {!isAthlete ? (
+            {!isAthlete && !isMedia ? (
               <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
                 <NavigationSection
                   items={visibleSecondaryNavigation}

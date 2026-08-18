@@ -278,9 +278,24 @@ const mapPublicationRow = async (
 };
 
 export const loadCommunityPublications = async (currentUserId: string | null, request?: Request): Promise<CommunityPublicationRecord[]> => {
+  const currentProfile = request ? await getCurrentUserAccessProfile(request) : null;
+  const access = currentProfile?.userAccess ?? null;
+
+  if (!currentProfile?.clerkUser?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const hasActiveAccess =
+    access?.status === "active" &&
+    Boolean(access.workspaceId?.trim()) &&
+    ["admin", "athlete", "partner_expert", "media"].includes(access.role);
+
+  if (!hasActiveAccess) {
+    throw new Error("Forbidden");
+  }
+
   await createCommunityTables();
   const sql = getSql();
-  const currentProfile = request ? await getCurrentUserAccessProfile(request) : null;
   const rows = await sql`SELECT id, author_clerk_user_id, author_role, author_name, author_specialty, type, title, content, created_at FROM community_publications ORDER BY created_at DESC, id DESC`;
 
   const publications = [] as CommunityPublicationRecord[];
@@ -298,6 +313,11 @@ export const createCommunityPublication = async (
   const profile = await getCurrentUserAccessProfile(request);
   if (!profile?.clerkUser?.id) {
     throw new Error("Unauthorized");
+  }
+
+  const access = profile.userAccess ?? null;
+  if (access?.role !== "admin" || access.status !== "active" || !access.workspaceId?.trim()) {
+    throw new Error("Forbidden");
   }
 
   await createCommunityTables();
@@ -351,6 +371,77 @@ export const createCommunityPublication = async (
     profile.clerkUser.id,
     profile
   );
+};
+
+// Le workspace est resolu via user_access : community_publications ne porte pas encore de colonne workspace_id.
+const requireActiveAdmin = async (request: Request) => {
+  const profile = await getCurrentUserAccessProfile(request);
+  if (!profile?.clerkUser?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const access = profile.userAccess ?? null;
+  if (access?.role !== "admin" || access.status !== "active" || !access.workspaceId?.trim()) {
+    throw new Error("Forbidden");
+  }
+
+  return profile;
+};
+
+export const updateCommunityPublication = async (
+  request: Request,
+  publicationId: string,
+  payload: { title?: string; content?: string }
+): Promise<CommunityPublicationRecord> => {
+  const profile = await requireActiveAdmin(request);
+
+  const id = String(publicationId ?? "").trim();
+  const title = payload.title?.trim() ?? "";
+  const content = payload.content?.trim() ?? "";
+
+  if (!id || !content) {
+    throw new Error("InvalidInput");
+  }
+
+  await createCommunityTables();
+  const sql = getSql();
+
+  const rows = await sql`
+    UPDATE community_publications
+    SET title = ${title || null}, content = ${content}
+    WHERE id = ${id}
+    RETURNING id, author_clerk_user_id, author_role, author_name, author_specialty, type, title, content, created_at
+  `;
+
+  if (!rows[0]) {
+    throw new Error("NotFound");
+  }
+
+  return mapPublicationRow(rows[0] as Record<string, unknown>, profile.clerkUser.id, profile);
+};
+
+export const deleteCommunityPublication = async (request: Request, publicationId: string): Promise<{ id: string }> => {
+  await requireActiveAdmin(request);
+
+  const id = String(publicationId ?? "").trim();
+  if (!id) {
+    throw new Error("InvalidInput");
+  }
+
+  await createCommunityTables();
+  const sql = getSql();
+
+  const rows = await sql`
+    DELETE FROM community_publications
+    WHERE id = ${id}
+    RETURNING id
+  `;
+
+  if (!rows[0]) {
+    throw new Error("NotFound");
+  }
+
+  return { id: String((rows[0] as Record<string, unknown>).id ?? "") };
 };
 
 export const toggleCommunityReaction = async (publicationId: string, request: Request): Promise<CommunityPublicationRecord> => {

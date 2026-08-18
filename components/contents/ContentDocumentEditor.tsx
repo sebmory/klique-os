@@ -70,8 +70,13 @@ const formatDateTime = (value: string): string => {
   });
 };
 
-const stableSerialize = (document: ContentDocument): string => JSON.stringify(document);
+const formatPublishedDate = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("fr-CH", { day: "2-digit", month: "long", year: "numeric" });
+};
 
+const stableSerialize = (document: ContentDocument): string => JSON.stringify(document);
 const createEmptyQuestion = (index: number): InterviewDocumentQuestion => ({
   id: `manual-${Date.now()}-${index}`,
   text: "",
@@ -222,6 +227,39 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
 
   const hasUnsavedChanges = stableSerialize(document) !== baselineSnapshot;
   const selectedContextItems = interviewDocument?.contextUsage.selectedItems ?? [];
+  const verifiedSources = (() => {
+    if (!interviewDocument) return [];
+
+    const usedIds = new Set(interviewDocument.contextUsage.usedContextItemIds ?? []);
+    const seenUrls = new Set<string>();
+
+    return selectedContextItems
+      .filter((item) => usedIds.has(item.id))
+      .map((item) => {
+        const url = String(item.sourceUrl ?? "").trim();
+        if (!url) return null;
+
+        let parsed: URL;
+        try {
+          parsed = new URL(url);
+        } catch {
+          return null;
+        }
+
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+        if (seenUrls.has(parsed.href)) return null;
+        seenUrls.add(parsed.href);
+
+        return {
+          id: item.id,
+          title: String(item.title ?? "").trim() || "Source",
+          sourceName: String(item.sourceName ?? "").trim(),
+          publishedAt: String(item.publishedAt ?? "").trim(),
+          href: parsed.href,
+        };
+      })
+      .filter((item): item is { id: string; title: string; sourceName: string; publishedAt: string; href: string } => Boolean(item));
+  })();
   const activeVariant = variants.find((item) => item.id === activeVariantId) ?? null;
 
   useEffect(() => {
@@ -443,17 +481,22 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
     setSaveState({ saving: true, savedAt: saveState.savedAt, error: null });
     try {
       const result = await onSaveDraft(document);
-      setBaselineSnapshot(stableSerialize(document));
-      const cloudError =
-        result.cloud.status === "conflict"
+      const cloudSynced = result.cloud.status === "created" || result.cloud.status === "updated";
+
+      const cloudError = cloudSynced
+        ? null
+        : result.cloud.status === "conflict"
           ? result.cloud.message || "Conflit de version cloud detecte."
-          : result.cloud.status === "unavailable"
-            ? result.cloud.message || "Synchronisation cloud indisponible."
-            : null;
+          : result.cloud.message || "Synchronisation cloud indisponible.";
+
+      // Le document n est considere comme enregistre que si le cloud a confirme l ecriture.
+      if (cloudSynced) {
+        setBaselineSnapshot(stableSerialize(document));
+      }
 
       setSaveState({
         saving: false,
-        savedAt: new Date().toISOString(),
+        savedAt: cloudSynced ? new Date().toISOString() : saveState.savedAt,
         error: cloudError,
       });
     } catch {
@@ -546,6 +589,12 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
             >
               <Copy size={15} aria-hidden /> Copier
             </button>
+
+            {saveState.error ? (
+              <p className="document-save-error" role="alert">
+                Sauvegardé localement uniquement — {saveState.error}
+              </p>
+            ) : null}
 
             {isEditing ? (
               <button type="button" className="contents-ghost-button" onClick={() => setIsEditing(false)}>
@@ -860,6 +909,12 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               <Copy size={15} aria-hidden /> Copier
             </button>
 
+            {saveState.error ? (
+              <p className="document-save-error" role="alert">
+                Sauvegardé localement uniquement — {saveState.error}
+              </p>
+            ) : null}
+
             {isEditing ? (
               <button type="button" className="contents-ghost-button" onClick={() => setIsEditing(false)}>
                 Terminer l edition
@@ -1083,6 +1138,12 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
           >
             <Copy size={15} aria-hidden /> Copier
           </button>
+
+          {saveState.error ? (
+            <p className="document-save-error" role="alert">
+              Sauvegardé localement uniquement — {saveState.error}
+            </p>
+          ) : null}
 
           {isEditing ? (
             <button type="button" className="contents-ghost-button" onClick={() => setIsEditing(false)}>
@@ -1429,6 +1490,27 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               </button>
             ) : null}
           </section>
+
+          {verifiedSources.length > 0 ? (
+            <section className="document-section" aria-labelledby="document-sources-title">
+              <h2 id="document-sources-title">Sources vérifiées</h2>
+              <p className="document-note-hint">
+                Ces sources ont servi à contextualiser l’interview. Elles ne sont pas rattachées individuellement à chaque question.
+              </p>
+              <ul className="document-context-list">
+                {verifiedSources.map((source) => (
+                  <li key={source.id}>
+                    <strong>{source.title}</strong>
+                    {source.sourceName ? <span>{source.sourceName}</span> : null}
+                    {source.publishedAt ? <small>{formatPublishedDate(source.publishedAt)}</small> : null}
+                    <a href={source.href} target="_blank" rel="noreferrer noopener">
+                      Consulter la source
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           <section className="document-section document-prose-section" aria-labelledby="document-conclusion-title">
             <h2 id="document-conclusion-title">Conclusion</h2>

@@ -51,6 +51,18 @@ const isAthleteAllowedRoute = (pathname: string): boolean => {
     return true;
   }
 
+  if (pathname === "/api/hub-community" || pathname.startsWith("/api/hub-community/")) {
+    return true;
+  }
+
+  return false;
+};
+
+const isMediaAllowedRoute = (pathname: string): boolean => {
+  if (pathname === "/contents" || pathname.startsWith("/contents/")) {
+    return true;
+  }
+
   return false;
 };
 
@@ -74,7 +86,9 @@ export default clerkMiddleware(
       const hasActiveAccess =
         access?.status === "active" &&
         hasWorkspace &&
-        (access.role === "admin" || (access.role === "athlete" && Boolean(access.athleteId?.trim())));
+        (access.role === "admin" ||
+          access.role === "media" ||
+          (access.role === "athlete" && Boolean(access.athleteId?.trim())));
 
       if (!hasActiveAccess) {
         return isApiRoute(pathname)
@@ -84,6 +98,11 @@ export default clerkMiddleware(
 
       if (access.role === "athlete" && !isAthleteAllowedRoute(pathname)) {
         return NextResponse.redirect(new URL("/athlete", request.url));
+      }
+
+      // Les routes API conservent leurs propres controles : jamais de redirection HTML.
+      if (access.role === "media" && !isApiRoute(pathname) && !isMediaAllowedRoute(pathname)) {
+        return NextResponse.redirect(new URL("/contents", request.url));
       }
     } catch {
       return isApiRoute(pathname)

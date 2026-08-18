@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ContentStorageRepository } from "@/lib/content-storage/repository";
+import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import {
   ContentStorageValidationError,
   validateContentVariantWriteBody,
@@ -10,14 +11,23 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireContentAccess(request);
     const sourceDocumentId = request.nextUrl.searchParams.get("sourceDocumentId")?.trim() || "";
     if (!sourceDocumentId) {
       return NextResponse.json({ ok: false, message: "sourceDocumentId est obligatoire." }, { status: 400 });
     }
 
-    const variants = await ContentStorageRepository.listVariantsBySourceDocumentId(sourceDocumentId);
+    const sourceDocument = await ContentStorageRepository.getDraft(sourceDocumentId, access);
+    if (!sourceDocument) {
+      return NextResponse.json({ ok: false, message: "Document source introuvable." }, { status: 404 });
+    }
+
+    const variants = await ContentStorageRepository.listVariantsBySourceDocumentId(sourceDocumentId, access);
     return NextResponse.json({ ok: true, sourceDocumentId, variants });
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     return NextResponse.json(
       { ok: false, message: error instanceof Error ? error.message : "Impossible de lister les variantes." },
       { status: 500 }
@@ -27,9 +37,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: Request) {
   try {
+    const access = await requireContentAccess(request);
     const body = await request.json();
     const variant = validateContentVariantWriteBody(body);
-    const stored = await ContentStorageRepository.createVariant(variant);
+
+    const sourceDocument = await ContentStorageRepository.getDraft(variant.sourceDocumentId, access);
+    if (!sourceDocument) {
+      return NextResponse.json({ ok: false, message: "Document source introuvable." }, { status: 404 });
+    }
+
+    const stored = await ContentStorageRepository.createVariant(variant, access);
 
     return NextResponse.json({
       ok: true,
@@ -37,6 +54,9 @@ export async function POST(request: Request) {
       variant: stored.variant,
     }, { status: 201 });
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     if (error instanceof ContentStorageValidationError) {
       return NextResponse.json({ ok: false, message: error.message }, { status: 400 });
     }

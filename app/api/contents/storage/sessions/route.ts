@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ContentStorageRepository } from "@/lib/content-storage/repository";
+import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import {
   ContentStorageValidationError,
   validateStoredInterviewResultWriteBody,
@@ -10,9 +11,10 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const access = await requireContentAccess(request);
     const body = await request.json();
     const { sessionId, session, expiresAt } = validateStoredInterviewResultWriteBody(body);
-    const stored = await ContentStorageRepository.createSession(sessionId, session, expiresAt);
+    const stored = await ContentStorageRepository.createSession(sessionId, session, expiresAt, access);
 
     return NextResponse.json({
       ok: true,
@@ -22,6 +24,9 @@ export async function POST(request: Request) {
       session: stored.session,
     }, { status: 201 });
   } catch (error) {
+    const accessResponse = contentAccessErrorResponse(error);
+    if (accessResponse) return accessResponse;
+
     if (error instanceof ContentStorageValidationError) {
       return NextResponse.json({ ok: false, message: error.message }, { status: 400 });
     }

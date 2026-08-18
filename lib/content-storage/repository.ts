@@ -1,6 +1,6 @@
 import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
-import { getContentStorageServerConfig } from "@/lib/content-storage/config";
+import type { ContentAccessContext } from "@/lib/content-storage/access";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import type { StoredInterviewResult } from "@/lib/content-storage/validation";
 
@@ -11,11 +11,6 @@ const readJson = <T>(value: unknown): T => {
     return JSON.parse(value) as T;
   }
   return value as T;
-};
-
-const getWorkspaceId = (): string => {
-  const { defaultWorkspaceId } = getContentStorageServerConfig();
-  return defaultWorkspaceId;
 };
 
 const getDocumentSource = (document: ContentDocument): string => {
@@ -85,8 +80,7 @@ export type UpdateDraftResult =
   | { status: "updated"; draft: { document: ContentDocument; version: number; workspaceId: string; userId: string | null } };
 
 export const ContentStorageRepository = {
-  async createDraft(document: ContentDocument) {
-    const workspaceId = getWorkspaceId();
+  async createDraft(document: ContentDocument, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       INSERT INTO content_documents (
@@ -102,8 +96,8 @@ export const ContentStorageRepository = {
         version
       ) VALUES (
         ${document.id},
-        ${workspaceId},
-        ${null},
+        ${access.workspaceId},
+        ${access.clerkUserId},
         ${document.type},
         ${document.status},
         ${getDocumentSource(document)},
@@ -118,21 +112,35 @@ export const ContentStorageRepository = {
     return mapDraftRow(rows[0]);
   },
 
-  async getDraft(id: string) {
-    const workspaceId = getWorkspaceId();
-    const sql = createContentStorageClient();
+  async getDraft(id: string, access: ContentAccessContext) {    const sql = createContentStorageClient();
     const rows = (await sql`
       SELECT id, workspace_id, user_id, type, status, source, created_at, updated_at, payload_json, version
       FROM content_documents
-      WHERE workspace_id = ${workspaceId} AND id = ${normalize(id)}
+      WHERE workspace_id = ${access.workspaceId}
+        AND id = ${normalize(id)}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
       LIMIT 1
     `) as DraftRow[];
 
     return rows[0] ? mapDraftRow(rows[0]) : null;
   },
 
-  async updateDraft(id: string, document: ContentDocument, expectedVersion: number): Promise<UpdateDraftResult> {
-    const current = await this.getDraft(id);
+  async listDrafts(access: ContentAccessContext) {
+    const sql = createContentStorageClient();
+    const rows = (await sql`
+      SELECT id, workspace_id, user_id, type, status, source, created_at, updated_at, payload_json, version
+      FROM content_documents
+      WHERE workspace_id = ${access.workspaceId}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
+      ORDER BY updated_at DESC
+      LIMIT 50
+    `) as DraftRow[];
+
+    return rows.map((row) => mapDraftRow(row));
+  },
+
+  async updateDraft(id: string, document: ContentDocument, expectedVersion: number, access: ContentAccessContext): Promise<UpdateDraftResult> {
+    const current = await this.getDraft(id, access);
     if (!current) {
       return { status: "not_found" };
     }
@@ -141,7 +149,6 @@ export const ContentStorageRepository = {
       return { status: "version_conflict", currentVersion: current.version, current };
     }
 
-    const workspaceId = getWorkspaceId();
     const sql = createContentStorageClient();
     const rows = (await sql`
       UPDATE content_documents
@@ -152,12 +159,15 @@ export const ContentStorageRepository = {
         updated_at = ${document.updatedAt},
         payload_json = ${JSON.stringify(document)}::jsonb,
         version = ${expectedVersion + 1}
-      WHERE workspace_id = ${workspaceId} AND id = ${normalize(id)} AND version = ${expectedVersion}
+      WHERE workspace_id = ${access.workspaceId}
+        AND id = ${normalize(id)}
+        AND version = ${expectedVersion}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
       RETURNING id, workspace_id, user_id, type, status, source, created_at, updated_at, payload_json, version
     `) as DraftRow[];
 
     if (!rows[0]) {
-      const refreshed = await this.getDraft(id);
+      const refreshed = await this.getDraft(id, access);
       if (!refreshed) {
         return { status: "not_found" };
       }
@@ -167,8 +177,7 @@ export const ContentStorageRepository = {
     return { status: "updated", draft: mapDraftRow(rows[0]) };
   },
 
-  async createSession(sessionId: string, session: StoredInterviewResult, expiresAt: string) {
-    const workspaceId = getWorkspaceId();
+  async createSession(sessionId: string, session: StoredInterviewResult, expiresAt: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       INSERT INTO content_generation_sessions (
@@ -180,8 +189,8 @@ export const ContentStorageRepository = {
         payload_json
       ) VALUES (
         ${normalize(sessionId)},
-        ${workspaceId},
-        ${null},
+        ${access.workspaceId},
+        ${access.clerkUserId},
         ${session.createdAt},
         ${expiresAt},
         ${JSON.stringify(session)}::jsonb
@@ -192,21 +201,21 @@ export const ContentStorageRepository = {
     return mapSessionRow(rows[0]);
   },
 
-  async getSession(sessionId: string) {
-    const workspaceId = getWorkspaceId();
+  async getSession(sessionId: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       SELECT session_id, workspace_id, user_id, created_at, expires_at, payload_json
       FROM content_generation_sessions
-      WHERE workspace_id = ${workspaceId} AND session_id = ${normalize(sessionId)}
+      WHERE workspace_id = ${access.workspaceId}
+        AND session_id = ${normalize(sessionId)}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
       LIMIT 1
     `) as SessionRow[];
 
     return rows[0] ? mapSessionRow(rows[0]) : null;
   },
 
-  async createVariant(variant: ContentVariant) {
-    const workspaceId = getWorkspaceId();
+  async createVariant(variant: ContentVariant, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       INSERT INTO content_variants (
@@ -220,8 +229,8 @@ export const ContentStorageRepository = {
       ) VALUES (
         ${normalize(variant.id)},
         ${normalize(variant.sourceDocumentId)},
-        ${workspaceId},
-        ${null},
+        ${access.workspaceId},
+        ${access.clerkUserId},
         ${variant.createdAt},
         ${variant.updatedAt},
         ${JSON.stringify(variant)}::jsonb
@@ -232,26 +241,28 @@ export const ContentStorageRepository = {
     return mapVariantRow(rows[0]);
   },
 
-  async getVariant(id: string) {
-    const workspaceId = getWorkspaceId();
+  async getVariant(id: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       SELECT id, source_document_id, workspace_id, user_id, created_at, updated_at, payload_json
       FROM content_variants
-      WHERE workspace_id = ${workspaceId} AND id = ${normalize(id)}
+      WHERE workspace_id = ${access.workspaceId}
+        AND id = ${normalize(id)}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
       LIMIT 1
     `) as VariantRow[];
 
     return rows[0] ? mapVariantRow(rows[0]) : null;
   },
 
-  async listVariantsBySourceDocumentId(sourceDocumentId: string) {
-    const workspaceId = getWorkspaceId();
+  async listVariantsBySourceDocumentId(sourceDocumentId: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       SELECT id, source_document_id, workspace_id, user_id, created_at, updated_at, payload_json
       FROM content_variants
-      WHERE workspace_id = ${workspaceId} AND source_document_id = ${normalize(sourceDocumentId)}
+      WHERE workspace_id = ${access.workspaceId}
+        AND source_document_id = ${normalize(sourceDocumentId)}
+        AND (${access.isAdmin}::boolean OR user_id = ${access.clerkUserId})
       ORDER BY updated_at DESC
     `) as VariantRow[];
 

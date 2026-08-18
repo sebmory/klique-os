@@ -82,6 +82,7 @@ export function AppShell({ children }: AppShellProps) {
           access?.status === "active" &&
           hasWorkspace &&
           (access?.role === "admin" ||
+            access?.role === "media" ||
             (access?.role === "athlete" && typeof access?.athleteId === "string" && access.athleteId.trim().length > 0));
 
         if (!hasActiveAccess) {
@@ -148,6 +149,7 @@ export function AppShell({ children }: AppShellProps) {
         onCloseMobile={() => setMobileOpen(false)}
         userRole={userAccess.role}
         userIsAthlete={userAccess.isAthlete}
+        userIsMedia={userAccess.role === "media" && userAccess.status === "active"}
         userName={userAccess.clerkDisplayName}
       />
 

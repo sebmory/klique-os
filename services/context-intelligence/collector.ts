@@ -33,15 +33,27 @@ const buildCacheKey = (request: ContextCollectionRequest): string => {
   ].join("|");
 };
 
-const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+// Le controleur annule reellement l appel en cours au lieu de laisser la promesse tourner en arriere-plan.
+const withAbortTimeout = async <T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T> => {
+  const controller = new AbortController();
   let timeout: NodeJS.Timeout | null = null;
+  let timedOut = false;
 
-  const timeoutPromise = new Promise<T>((_, reject) => {
-    timeout = setTimeout(() => reject(new ContextCollectionError("CONTEXT_TIMEOUT", "La collecte de contexte a depasse le delai autorise.")), timeoutMs);
-  });
+  timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
-    return await Promise.race([promise, timeoutPromise]);
+    return await run(controller.signal);
+  } catch (error) {
+    if (timedOut) {
+      throw new ContextCollectionError("CONTEXT_TIMEOUT", "La collecte de contexte a depasse le delai autorise.");
+    }
+    throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
   }
@@ -94,7 +106,10 @@ const collectSingleConnector = async (request: ContextCollectionRequest, connect
     };
   }
 
-  return withTimeout(connector.collect(request), contextIntelligenceConfig.limits.searchTimeoutMs);
+  return withAbortTimeout(
+    (signal) => connector.collect(request, signal),
+    contextIntelligenceConfig.limits.searchTimeoutMs
+  );
 };
 
 export const collectContextIntelligence = async (request: ContextCollectionRequest): Promise<ContextCollectionResponse> => {

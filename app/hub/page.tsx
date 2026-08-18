@@ -53,6 +53,8 @@ type PublicationItem = {
   scope: FeedFilter;
   type: "publication" | "présentation" | "résultat" | "question" | "conseil" | "annonce";
   content: string;
+  title?: string | null;
+  rawContent?: string;
   reactions: number;
   comments: CommentItem[];
   imageUrl?: string;
@@ -388,67 +390,6 @@ const createEmptyResourceForm = (): ResourceFormState => ({
   date: new Date().toISOString().slice(0, 10),
 });
 
-const demoPublications: PublicationItem[] = [
-  {
-    id: "pub-1",
-    author: "Mila Benjak",
-    role: "Athlète",
-    specialty: "Football",
-    date: "Aujourd’hui • 12:30",
-    scope: "Athlètes",
-    type: "publication",
-    content: "Session de préparation en studio avec une approche plus naturelle, pour travailler la présence et le regard avant la prochaine rencontre.",
-    reactions: 24,
-    comments: [
-      { id: "c1", author: "Léa", text: "Très belle idée de mise en scène." },
-      { id: "c2", author: "Noah", text: "Le ton est vraiment plus naturel." },
-    ],
-  },
-  {
-    id: "pub-2",
-    author: "Léa Martin",
-    role: "Expert & partenaire",
-    specialty: "Branding sportif",
-    date: "Hier • 18:10",
-    scope: "Experts & partenaires",
-    type: "conseil",
-    content: "Petit rappel utile pour les profils sportifs : privilégier des plans plus simples et des messages clairs lorsque le contenu est pensé pour les réseaux.",
-    reactions: 19,
-    comments: [
-      { id: "c3", author: "Mina", text: "À garder pour les prochaines publications." },
-    ],
-  },
-  {
-    id: "pub-3",
-    author: "KLIQUE OS",
-    role: "KLIQUE",
-    specialty: "Production",
-    date: "Mercredi • 09:40",
-    scope: "KLIQUE",
-    type: "annonce",
-    content: "Nouvelle version de la Communauté KLIQUE en cours de structuration avec des briques pratiques pour les publications, les opportunités et les ressources partenaires.",
-    reactions: 31,
-    comments: [
-      { id: "c4", author: "Sami", text: "Très clair et très utile." },
-      { id: "c5", author: "Iris", text: "J’aime déjà la direction prise." },
-    ],
-  },
-  {
-    id: "pub-4",
-    author: "Nicolas Renaud",
-    role: "Athlète",
-    specialty: "Basketball",
-    date: "Mardi • 20:05",
-    scope: "Athlètes",
-    type: "résultat",
-    content: "Résultat de la dernière séance : meilleure cohérence du regard, plus de naturel dans le mouvement et une image plus proche de l’identité recherchée.",
-    reactions: 15,
-    comments: [
-      { id: "c6", author: "Jules", text: "Le résultat est vraiment visible." },
-    ],
-  },
-];
-
 const formatTypeLabel = (type: PublicationItem["type"]): string => {
   switch (type) {
     case "publication":
@@ -547,6 +488,8 @@ const mapApiPublicationToFeedItem = (record: {
     scope,
     type: (record.type as PublicationItem["type"]) ?? "publication",
     content: record.title ? `${record.title} — ${record.content ?? ""}`.trim() : record.content ?? "",
+    title: record.title ?? null,
+    rawContent: record.content ?? "",
     reactions: Number(record.reactions ?? 0),
     comments: (record.comments ?? []).map((comment) => ({
       id: comment.id,
@@ -582,8 +525,13 @@ export default function HubPage() {
   const [slotForm, setSlotForm] = useState({ startsAt: "", endsAt: "", capacity: "1" });
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [composerTitle, setComposerTitle] = useState("");
+  const [editingPublicationId, setEditingPublicationId] = useState<string | null>(null);
   const [composerContent, setComposerContent] = useState("");
-  const [feedItems, setFeedItems] = useState<PublicationItem[]>(demoPublications);
+  const [feedItems, setFeedItems] = useState<PublicationItem[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [feedRetryToken, setFeedRetryToken] = useState(0);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [canCreateOpportunity, setCanCreateOpportunity] = useState(false);
   const [isOpportunityComposerOpen, setIsOpportunityComposerOpen] = useState(false);
@@ -661,18 +609,19 @@ export default function HubPage() {
 
   useEffect(() => {
     const loadFeed = async () => {
+      setFeedLoading(true);
+      setFeedError(null);
       try {
-        const response = await fetch("/api/hub-community", { cache: "no-store" });
+        const response = await fetch("/api/hub-community", { credentials: "include", cache: "no-store" });
         if (!response.ok) throw new Error("Unable to load community feed");
         const payload = (await response.json()) as { publications?: Array<Record<string, unknown>> };
         const publications = Array.isArray(payload.publications) ? payload.publications : [];
-        if (publications.length > 0) {
-          setFeedItems(publications.map((publication) => mapApiPublicationToFeedItem(publication as Parameters<typeof mapApiPublicationToFeedItem>[0])));
-        } else {
-          setFeedItems(isAthleteCommunity ? [] : demoPublications);
-        }
+        setFeedItems(publications.map((publication) => mapApiPublicationToFeedItem(publication as Parameters<typeof mapApiPublicationToFeedItem>[0])));
       } catch {
-        setFeedItems(isAthleteCommunity ? [] : demoPublications);
+        setFeedItems([]);
+        setFeedError("Le fil de la communauté n’a pas pu être chargé.");
+      } finally {
+        setFeedLoading(false);
       }
     };
 
@@ -743,7 +692,7 @@ export default function HubPage() {
     void loadOpportunities();
     void loadPartnerBenefits();
     void loadResources();
-  }, [isAthleteCommunity]);
+  }, [isAthleteCommunity, feedRetryToken]);
 
   const toggleComments = (publicationId: string) => {
     setExpandedComments((current) => ({
@@ -1191,9 +1140,41 @@ export default function HubPage() {
     const trimmedContent = composerContent.trim();
     if (!trimmedContent) return;
 
+    setComposerError(null);
+
+    if (editingPublicationId) {
+      try {
+        const response = await fetch("/api/hub-community", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            publicationId: editingPublicationId,
+            title: composerTitle.trim(),
+            content: trimmedContent,
+          }),
+        });
+
+        if (!response.ok) throw new Error("Failed to update publication");
+
+        const payload = (await response.json()) as { publication?: Record<string, unknown> };
+        if (!payload.publication) throw new Error("Missing publication payload");
+
+        const updated = mapApiPublicationToFeedItem(payload.publication as Parameters<typeof mapApiPublicationToFeedItem>[0]);
+        setFeedItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setEditingPublicationId(null);
+        setComposerTitle("");
+        setComposerContent("");
+      } catch {
+        setComposerError("La publication n’a pas pu être modifiée. Veuillez réessayer.");
+      }
+      return;
+    }
+
     try {
       const response = await fetch("/api/hub-community", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: composerTitle.trim(),
@@ -1205,26 +1186,55 @@ export default function HubPage() {
       if (!response.ok) throw new Error("Failed to publish");
 
       const payload = (await response.json()) as { publication?: Record<string, unknown> };
-      if (payload.publication) {
-        setFeedItems((current) => [mapApiPublicationToFeedItem(payload.publication as Parameters<typeof mapApiPublicationToFeedItem>[0]), ...current]);
-      }
-    } catch {
-      const fallbackPublication: PublicationItem = {
-        id: `local-${Date.now()}`,
-        author: "KLIQUE OS",
-        role: "Admin",
-        specialty: "Communauté",
-        date: "À l’instant",
-        scope: "KLIQUE",
-        type: "publication",
-        content: composerTitle.trim() ? `${composerTitle.trim()} — ${trimmedContent}` : trimmedContent,
-        reactions: 0,
-        comments: [],
-      };
-      setFeedItems((current) => [fallbackPublication, ...current]);
-    } finally {
+      if (!payload.publication) throw new Error("Missing publication payload");
+
+      setFeedItems((current) => [mapApiPublicationToFeedItem(payload.publication as Parameters<typeof mapApiPublicationToFeedItem>[0]), ...current]);
       setComposerTitle("");
       setComposerContent("");
+    } catch {
+      setComposerError("Votre publication n’a pas pu être enregistrée. Veuillez réessayer.");
+    }
+  };
+
+  const handleEditPublication = (publication: PublicationItem) => {
+    if (!canCreateOpportunity) return;
+    setComposerError(null);
+    setEditingPublicationId(publication.id);
+    setComposerTitle(publication.title ?? "");
+    setComposerContent(publication.rawContent ?? publication.content);
+  };
+
+  const handleCancelEditPublication = () => {
+    setEditingPublicationId(null);
+    setComposerTitle("");
+    setComposerContent("");
+    setComposerError(null);
+  };
+
+  const handleDeletePublication = async (publication: PublicationItem) => {
+    if (!canCreateOpportunity) return;
+    if (typeof window !== "undefined" && !window.confirm("Supprimer définitivement cette publication du fil communautaire ?")) {
+      return;
+    }
+
+    setComposerError(null);
+
+    try {
+      const response = await fetch("/api/hub-community", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ publicationId: publication.id }),
+      });
+
+      if (!response.ok) throw new Error("Failed to delete publication");
+
+      setFeedItems((current) => current.filter((item) => item.id !== publication.id));
+      if (editingPublicationId === publication.id) {
+        handleCancelEditPublication();
+      }
+    } catch {
+      setComposerError("La publication n’a pas pu être supprimée.");
     }
   };
 
@@ -1242,17 +1252,7 @@ export default function HubPage() {
         setFeedItems((current) => current.map((publication) => (publication.id === publicationId ? mapApiPublicationToFeedItem(payload.publication as Parameters<typeof mapApiPublicationToFeedItem>[0]) : publication)));
       }
     } catch {
-      setFeedItems((current) =>
-        current.map((publication) => {
-          if (publication.id !== publicationId) return publication;
-          const reacted = Boolean(publication.reactedByCurrentUser);
-          return {
-            ...publication,
-            reactedByCurrentUser: !reacted,
-            reactions: reacted ? publication.reactions - 1 : publication.reactions + 1,
-          };
-        })
-      );
+      setFeedError("Votre réaction n’a pas pu être enregistrée.");
     }
   };
 
@@ -1272,18 +1272,9 @@ export default function HubPage() {
       if (payload.publication) {
         setFeedItems((current) => current.map((publication) => (publication.id === publicationId ? mapApiPublicationToFeedItem(payload.publication as Parameters<typeof mapApiPublicationToFeedItem>[0]) : publication)));
       }
-    } catch {
-      setFeedItems((current) =>
-        current.map((publication) => {
-          if (publication.id !== publicationId) return publication;
-          return {
-            ...publication,
-            comments: [...publication.comments, { id: `comment-${Date.now()}`, author: "Vous", text: draft }],
-          };
-        })
-      );
-    } finally {
       setCommentDrafts((current) => ({ ...current, [publicationId]: "" }));
+    } catch {
+      setFeedError("Votre commentaire n’a pas pu être enregistré.");
     }
   };
 
@@ -1341,28 +1332,45 @@ export default function HubPage() {
                     KC
                   </Avatar>
                   <div>
-                    <h2 style={{ margin: 0, fontSize: "1.08rem", color: "#111827" }}>Créer une publication</h2>
-                    <p style={{ margin: "0.2rem 0 0", color: "#6b7280" }}>Partagez une mise à jour, un conseil ou un résultat avec la communauté KLIQUE.</p>
+                    <h2 style={{ margin: 0, fontSize: "1.08rem", color: "#111827" }}>
+                      {editingPublicationId ? "Modifier la publication" : "Créer une publication"}
+                    </h2>
+                    <p style={{ margin: "0.2rem 0 0", color: "#6b7280" }}>
+                      {editingPublicationId
+                        ? "Vous modifiez une publication existante du fil communautaire."
+                        : "Partagez une mise à jour, un conseil ou un résultat avec la communauté KLIQUE."}
+                    </p>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  onClick={handlePublish}
-                  disabled={!composerContent.trim()}
-                  style={{
-                    padding: "0.72rem 1rem",
-                    borderRadius: "999px",
-                    background: "linear-gradient(135deg, #f59e0b 0%, #fb923c 100%)",
-                    color: "#fff",
-                    border: "1px solid #f59e0b",
-                    boxShadow: "0 10px 20px rgba(245, 158, 11, 0.24)",
-                    fontWeight: 800,
-                    opacity: composerContent.trim() ? 1 : 0.6,
-                    cursor: composerContent.trim() ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Publier
-                </Button>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {editingPublicationId ? (
+                    <Button
+                      type="button"
+                      onClick={handleCancelEditPublication}
+                      style={{ padding: "0.72rem 1rem", borderRadius: "999px", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb", fontWeight: 700 }}
+                    >
+                      Annuler la modification
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={!composerContent.trim()}
+                    style={{
+                      padding: "0.72rem 1rem",
+                      borderRadius: "999px",
+                      background: "linear-gradient(135deg, #f59e0b 0%, #fb923c 100%)",
+                      color: "#fff",
+                      border: "1px solid #f59e0b",
+                      boxShadow: "0 10px 20px rgba(245, 158, 11, 0.24)",
+                      fontWeight: 800,
+                      opacity: composerContent.trim() ? 1 : 0.6,
+                      cursor: composerContent.trim() ? "pointer" : "not-allowed",
+                    }}
+                  >
+                    {editingPublicationId ? "Enregistrer les modifications" : "Publier"}
+                  </Button>
+                </div>
               </div>
 
               <Input
@@ -1442,9 +1450,28 @@ export default function HubPage() {
             </div>
 
             <div style={{ display: "grid", gap: "0.9rem" }}>
-              {visiblePublications.length === 0 ? (
+              {composerError ? (
+                <p role="alert" style={{ margin: 0, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
+                  {composerError}
+                </p>
+              ) : null}
+
+              {feedLoading ? (
+                <p style={{ margin: 0, color: "#6b7280" }} aria-live="polite">Chargement du fil…</p>
+              ) : feedError ? (
+                <div role="alert" style={{ display: "grid", gap: "0.5rem", border: "1px solid #fecaca", background: "#fef2f2", borderRadius: "12px", padding: "0.85rem" }}>
+                  <p style={{ margin: 0, color: "#b91c1c" }}>{feedError}</p>
+                  <Button
+                    type="button"
+                    onClick={() => setFeedRetryToken((value) => value + 1)}
+                    style={{ borderRadius: "999px", padding: "0.55rem 0.9rem", width: "fit-content" }}
+                  >
+                    Réessayer
+                  </Button>
+                </div>
+              ) : visiblePublications.length === 0 ? (
                 <EmptyState style={{ border: "1px dashed #d1d5db", padding: "1rem", textAlign: "center" }}>
-                  <h3 style={{ margin: "0 0 0.25rem", color: "#111827" }}>Aucune publication pour le moment.</h3>
+                  <h3 style={{ margin: "0 0 0.25rem", color: "#111827" }}>Aucune publication pour le moment</h3>
                   <p style={{ margin: 0, color: "#6b7280" }}>Les actualités et échanges de la Communauté KLIQUE apparaîtront ici.</p>
                 </EmptyState>
               ) : null}
@@ -1528,6 +1555,25 @@ export default function HubPage() {
                       </div>
                       <Badge style={{ background: "#fff7ed", color: "#b45309" }}>{publication.scope}</Badge>
                     </div>
+
+                    {canCreateOpportunity ? (
+                      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                        <Button
+                          type="button"
+                          onClick={() => handleEditPublication(publication)}
+                          style={{ borderRadius: "999px", padding: "0.45rem 0.8rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}
+                        >
+                          Modifier
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleDeletePublication(publication)}
+                          style={{ borderRadius: "999px", padding: "0.45rem 0.8rem", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}
+                        >
+                          Supprimer
+                        </Button>
+                      </div>
+                    ) : null}
 
                     {expandedComments[publication.id] ? (
                       <div style={{ borderTop: "1px solid #f3e7d5", paddingTop: "0.8rem", display: "grid", gap: "0.6rem" }}>

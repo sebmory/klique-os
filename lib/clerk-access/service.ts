@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
 import { getAthletesFromGoogleSheets, getMediaFromGoogleSheets, getPartnersFromGoogleSheets } from "@/lib/google-sheets";
@@ -129,6 +130,29 @@ const createAthleteInvitationsTable = async () => {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
+  `;
+};
+
+const createMediaInvitationsTable = async () => {
+  const sql = getSql();
+  await sql`
+    CREATE TABLE IF NOT EXISTS media_invitations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'accepted', 'revoked')),
+      invited_by_clerk_user_id TEXT NOT NULL,
+      clerk_invitation_id TEXT NULL,
+      accepted_clerk_user_id TEXT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      accepted_at TIMESTAMPTZ NULL
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS media_invitations_workspace_email_active_unique
+      ON media_invitations (workspace_id, lower(btrim(email)))
+      WHERE status = 'invited'
   `;
 };
 
@@ -525,6 +549,81 @@ const linkAthleteAccessFromInvitation = async (
   return upsertRows[0] ? mapRow(upsertRows[0] as Record<string, unknown>) : null;
 };
 
+// L acces est accorde par media_invitations, jamais sur la seule foi des publicMetadata Clerk.
+const linkMediaAccessFromInvitation = async (
+  userId: string,
+  clerkUser: LinkableClerkUser,
+): Promise<ClerkUserAccessRecord | null> => {
+  const verifiedEmails = (clerkUser.emailAddresses ?? [])
+    .filter((entry) => entry.verification?.status === "verified")
+    .map((entry) => entry.emailAddress.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (verifiedEmails.length === 0) {
+    return null;
+  }
+
+  await createMediaInvitationsTable();
+  const sql = getSql();
+
+  // Instruction unique donc transaction implicite : reservation, creation d acces et acceptation reussissent ou echouent ensemble.
+  const rows = await sql`
+    WITH claimed AS (
+      SELECT id, workspace_id, btrim(email) AS email
+      FROM media_invitations
+      WHERE status = 'invited' AND lower(btrim(email)) = ANY(${verifiedEmails})
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    ),
+    upserted AS (
+      INSERT INTO user_access (
+        clerk_user_id,
+        email,
+        role,
+        workspace_id,
+        athlete_id,
+        partner_id,
+        media_id,
+        status,
+        created_at,
+        updated_at
+      )
+      SELECT
+        ${userId},
+        claimed.email,
+        'media',
+        claimed.workspace_id,
+        NULL,
+        NULL,
+        NULL,
+        'active',
+        NOW(),
+        NOW()
+      FROM claimed
+      ON CONFLICT (clerk_user_id) DO UPDATE SET
+        email = EXCLUDED.email,
+        status = 'active',
+        updated_at = NOW()
+      WHERE user_access.role = 'media' AND user_access.workspace_id = EXCLUDED.workspace_id
+      RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    ),
+    accepted AS (
+      UPDATE media_invitations m
+      SET status = 'accepted', accepted_clerk_user_id = ${userId}, accepted_at = NOW()
+      FROM claimed
+      WHERE m.id = claimed.id
+        AND m.status = 'invited'
+        AND EXISTS (SELECT 1 FROM upserted)
+      RETURNING m.id
+    )
+    SELECT clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    FROM upserted
+  `;
+
+  return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
+};
+
 export const getCurrentUserAccessProfile = async (request?: Request): Promise<CurrentUserAccessProfile | null> => {
   const currentRequest = request ?? new Request("http://localhost");
   const authResult = await getAuthenticatedClerkUser(currentRequest);
@@ -542,6 +641,10 @@ export const getCurrentUserAccessProfile = async (request?: Request): Promise<Cu
 
   if (!userAccess) {
     userAccess = await linkAthleteAccessFromInvitation(userId, clerkUser);
+  }
+
+  if (!userAccess) {
+    userAccess = await linkMediaAccessFromInvitation(userId, clerkUser);
   }
 
   return {
@@ -613,8 +716,115 @@ export const bootstrapCurrentUserAsAdmin = async (request?: Request): Promise<Cl
   return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
 
-export const getAthleteAccessState = async (athleteId: string): Promise<{ state: AthleteAccessState; email: string | null }> => {
-  const trimmedAthleteId = athleteId.trim();
+// Clerk exige une URL absolue : on privilegie l origine publique configuree, avec repli local en developpement.
+const getAppOrigin = (): string => {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) {
+    return `https://${vercelUrl.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
+  }
+
+  return "http://localhost:3000";
+};
+
+export type InviteMediaResult =
+  | { ok: true; invitationId: string; email: string }
+  | { ok: false; reason: "forbidden" | "invalid_email" | "already_invited" | "already_active" | "clerk_error"; message?: string };
+
+// L invitation Clerk est la seule voie d entree : aucun signup public n est ouvert.
+export const inviteMediaToKlique = async (request: Request, rawEmail: string): Promise<InviteMediaResult> => {
+  const profile = await getCurrentUserAccessProfile(request);
+  const access = profile?.userAccess ?? null;
+  const inviterId = profile?.clerkUser?.id?.trim() ?? "";
+  const workspaceId = access?.workspaceId?.trim() ?? "";
+
+  if (!inviterId || access?.role !== "admin" || access.status !== "active" || !workspaceId) {
+    return { ok: false, reason: "forbidden" };
+  }
+
+  const email = String(rawEmail ?? "").trim().toLowerCase();
+  if (!email || !isValidEmail(email)) {
+    return { ok: false, reason: "invalid_email" };
+  }
+
+  await createUserAccessTable();
+  await createMediaInvitationsTable();
+  const sql = getSql();
+
+  const activeRows = await sql`
+    SELECT clerk_user_id FROM user_access
+    WHERE lower(btrim(email)) = ${email} AND role = 'media' AND status = 'active'
+  `;
+  if (activeRows[0]) {
+    return { ok: false, reason: "already_active" };
+  }
+
+  const pendingRows = await sql`
+    SELECT id FROM media_invitations
+    WHERE workspace_id = ${workspaceId} AND lower(btrim(email)) = ${email} AND status = 'invited'
+  `;
+  if (pendingRows[0]) {
+    return { ok: false, reason: "already_invited" };
+  }
+
+  let clerkInvitationId: string;
+  try {
+    const client = await clerkClient();
+    const invitation = await client.invitations.createInvitation({
+      emailAddress: email,
+      publicMetadata: {
+        role: "media",
+        workspaceId,
+      },
+      redirectUrl: `${getAppOrigin()}/sign-up`,
+      notify: true,
+    });
+    clerkInvitationId = invitation.id;
+  } catch (error) {
+    const clerkError = error as { status?: unknown; message?: unknown };
+    console.error("[media_invite][clerk_error]", {
+      status: clerkError?.status ?? null,
+      message: clerkError?.message ?? null,
+    });
+    return { ok: false, reason: "clerk_error", message: "Echec de l invitation Clerk." };
+  }
+
+  const id = randomUUID();
+  const rows = await sql`
+    INSERT INTO media_invitations (
+      id,
+      workspace_id,
+      email,
+      status,
+      invited_by_clerk_user_id,
+      clerk_invitation_id,
+      created_at
+    )
+    VALUES (
+      ${id},
+      ${workspaceId},
+      ${email},
+      'invited',
+      ${inviterId},
+      ${clerkInvitationId},
+      NOW()
+    )
+    RETURNING id, email
+  `;
+
+  const created = rows[0] as Record<string, unknown> | undefined;
+  if (!created) {
+    return { ok: false, reason: "already_invited" };
+  }
+
+  return { ok: true, invitationId: String(created.id ?? ""), email: String(created.email ?? "") };
+};
+
+export const getAthleteAccessState = async (athleteId: string): Promise<{ state: AthleteAccessState; email: string | null }> => {  const trimmedAthleteId = athleteId.trim();
   if (!trimmedAthleteId) {
     return { state: "none", email: null };
   }

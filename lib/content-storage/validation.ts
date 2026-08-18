@@ -149,7 +149,10 @@ const validateInterviewSections = (value: unknown): void => {
     requireString(item.topic, `sections.questions[${index}].topic`);
     requireStringArray(item.followUps, `sections.questions[${index}].followUps`);
     requireBoolean(item.locked, `sections.questions[${index}].locked`);
-    requireString(item.privateNotes, `sections.questions[${index}].privateNotes`);
+    // Une note privee vide est valide : seul le type est contraint.
+    if (typeof item.privateNotes !== "string") {
+      throw new ContentStorageValidationError(`sections.questions[${index}].privateNotes doit etre une chaine.`);
+    }
   });
   requireString(sections.conclusion, "sections.conclusion");
 };

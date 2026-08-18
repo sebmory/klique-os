@@ -91,7 +91,7 @@ const createDiagnostics = (): ExternalSearchDiagnostics => ({
 
 export interface ExternalContextProvider {
   isAvailable(): Promise<boolean>;
-  search(request: ContextCollectionRequest): Promise<ExternalNewsSearchResult>;
+  search(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ExternalNewsSearchResult>;
 }
 
 const normalizationResponseSchema = {
@@ -101,23 +101,32 @@ const normalizationResponseSchema = {
   properties: {
     items: {
       type: "array",
-      maxItems: contextIntelligenceConfig.externalNews.depth.deep.maxResults,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "summary", "factualStatement", "category", "statementType", "sourceName", "sourceType", "sourceUrl"],
+        required: [
+          "title",
+          "summary",
+          "factualStatement",
+          "category",
+          "statementType",
+          "sourceName",
+          "sourceType",
+          "sourceUrl",
+          "publishedAt",
+        ],
         properties: {
-          title: { type: "string", minLength: 1 },
-          summary: { type: "string", minLength: 1 },
-          factualStatement: { type: "string", minLength: 1 },
+          title: { type: "string" },
+          summary: { type: "string" },
+          factualStatement: { type: "string" },
           category: {
             type: "string",
             enum: ["recent_news", "result", "performance", "schedule", "transfer_or_contract", "injury_or_return", "selection", "event", "other"],
           },
           statementType: { type: "string", enum: ["fact", "editorial_lead"] },
-          sourceName: { type: "string", minLength: 1 },
+          sourceName: { type: "string" },
           sourceType: { type: "string", enum: ["official", "media", "external"] },
-          sourceUrl: { type: "string", minLength: 1 },
+          sourceUrl: { type: "string" },
           publishedAt: { type: ["string", "null"] },
         },
       },
@@ -148,6 +157,42 @@ const writeNormalizationResponseDebugFile = async (normalizationResponse: unknow
 };
 
 const getWebSearchModel = (): string => contextIntelligenceConfig.externalNews.defaultModel;
+
+// Chaque phase dispose de son propre budget : l expiration annule l appel OpenAI au lieu de le laisser tourner.
+const runPhaseWithBudget = async <T>(
+  phase: "web_search" | "normalization",
+  timeoutMs: number,
+  parentSignal: AbortSignal | undefined,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> => {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener("abort", onParentAbort);
+
+  try {
+    return await run(controller.signal);
+  } catch (error) {
+    if (timedOut) {
+      throw new ContextCollectionError(
+        "CONTEXT_TIMEOUT",
+        phase === "web_search"
+          ? "La recherche Web a depasse le delai autorise."
+          : "La normalisation de la reponse externe a depasse le delai autorise."
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", onParentAbort);
+  }
+};
 
 const getDepthConfig = (depth: ContextSearchDepth) => contextIntelligenceConfig.externalNews.depth[depth];
 
@@ -486,6 +531,14 @@ const mapOpenAIError = (error: unknown): ContextCollectionError => {
   const maybe = error as OpenAIErrorLike;
   const lowerMessage = normalize(maybe.message).toLowerCase();
 
+  // Trace technique volontairement limitee au statut, au type et au message SDK : aucun prompt, resultat Web ou secret.
+  console.error("[external_news][openai_error]", {
+    status: maybe.status ?? null,
+    type: maybe.type ?? null,
+    code: maybe.code ?? null,
+    message: maybe.message ?? null,
+  });
+
   if (maybe.status === 401 || maybe.status === 403 || lowerMessage.includes("authentication") || lowerMessage.includes("api key")) {
     return new ContextCollectionError("EXTERNAL_SEARCH_NOT_CONFIGURED", "La recherche externe n est pas configuree correctement.");
   }
@@ -501,7 +554,7 @@ const mapOpenAIError = (error: unknown): ContextCollectionError => {
     return new ContextCollectionError("EXTERNAL_SEARCH_FAILED", "La recherche externe est temporairement indisponible.");
   }
 
-  if (lowerMessage.includes("invalid") || lowerMessage.includes("malformed") || lowerMessage.includes("json")) {
+  if (lowerMessage.includes("malformed") || lowerMessage.includes("json parse") || lowerMessage.includes("could not parse")) {
     return new ContextCollectionError("EXTERNAL_NORMALIZATION_FAILED", "La normalisation de la reponse externe a echoue.");
   }
 
@@ -628,7 +681,8 @@ const normalizeWithPhaseB = async (
   client: OpenAI,
   request: ContextCollectionRequest,
   webResearch: WebResearchResult,
-  diagnostics: ExternalSearchDiagnostics
+  diagnostics: ExternalSearchDiagnostics,
+  parentSignal?: AbortSignal
 ): Promise<ExternalNewsSearchItem[]> => {
   diagnostics.normalizationWasCalled = true;
 
@@ -636,28 +690,41 @@ const normalizeWithPhaseB = async (
   const maxResults = getDepthConfig(request.searchDepth).maxResults;
   const prompt = buildPhaseBNormalizationPrompt(request, webResearch, maxResults);
 
-  const normalizationResponse = await client.responses.create({
-    model,
-    input: [
-      {
-        role: "system",
-        content:
-          "Tu renvoies uniquement un JSON strict de normalisation. N ajoute aucun fait hors du texte fourni. N utilise pas d outil externe.",
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "external_news_normalization",
-        strict: true,
-        schema: normalizationResponseSchema,
-      },
-    },
-  });
+  const normalizationResponse = await runPhaseWithBudget(
+    "normalization",
+    contextIntelligenceConfig.limits.normalizationPhaseTimeoutMs,
+    parentSignal,
+    (signal) =>
+      client.responses.create(
+        {
+          model,
+          input: [
+            {
+              role: "system",
+              content:
+                "Tu renvoies uniquement un JSON strict de normalisation. N ajoute aucun fait hors du texte fourni. N utilise pas d outil externe.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "external_news_normalization",
+              strict: true,
+              schema: normalizationResponseSchema,
+            },
+          },
+        },
+        {
+          signal,
+          timeout: contextIntelligenceConfig.limits.normalizationPhaseTimeoutMs,
+          maxRetries: 0,
+        }
+      )
+  );
 
   await writeNormalizationResponseDebugFile(normalizationResponse);
 
@@ -743,7 +810,7 @@ class OpenAIExternalContextProvider implements ExternalContextProvider {
     return Boolean(this.getClient());
   }
 
-  async search(request: ContextCollectionRequest): Promise<ExternalNewsSearchResult> {
+  async search(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ExternalNewsSearchResult> {
     const client = this.getClient();
     if (!client) {
       throw new ContextCollectionError("EXTERNAL_SEARCH_NOT_CONFIGURED", "Provider externe non configure.");
@@ -755,26 +822,39 @@ class OpenAIExternalContextProvider implements ExternalContextProvider {
     const diagnostics = createDiagnostics();
 
     try {
-      const phaseAResponse = await client.responses.create({
-        model,
-        input: [
-          {
-            role: "system",
-            content: "Tu recherches des faits recents verifiables et cites les sources.",
-          },
-          {
-            role: "user",
-            content: `${buildPhaseAResearchPrompt(request)}\n\n${querySummary}`,
-          },
-        ],
-        include: ["web_search_call.action.sources", "web_search_call.results"],
-        tools: [
-          {
-            type: "web_search",
-            search_context_size: depthConfig.searchContextSize,
-          },
-        ],
-      });
+      const phaseAResponse = await runPhaseWithBudget(
+        "web_search",
+        contextIntelligenceConfig.limits.webSearchPhaseTimeoutMs,
+        signal,
+        (phaseSignal) =>
+          client.responses.create(
+            {
+              model,
+              input: [
+                {
+                  role: "system",
+                  content: "Tu recherches des faits recents verifiables et cites les sources.",
+                },
+                {
+                  role: "user",
+                  content: `${buildPhaseAResearchPrompt(request)}\n\n${querySummary}`,
+                },
+              ],
+              include: ["web_search_call.action.sources", "web_search_call.results"],
+              tools: [
+                {
+                  type: "web_search",
+                  search_context_size: depthConfig.searchContextSize,
+                },
+              ],
+            },
+            {
+              signal: phaseSignal,
+              timeout: contextIntelligenceConfig.limits.webSearchPhaseTimeoutMs,
+              maxRetries: 0,
+            }
+          )
+      );
 
       const phaseAOutputItems = Array.isArray(phaseAResponse.output) ? phaseAResponse.output : [];
       diagnostics.webSearchCallCount = phaseAOutputItems.filter(isWebSearchCall).length;
@@ -787,7 +867,7 @@ class OpenAIExternalContextProvider implements ExternalContextProvider {
       diagnostics.outputTextLength = collectResponseText(phaseAResponse).length;
 
       const webResearch = extractWebResearchResult(phaseAResponse, request);
-      const items = await normalizeWithPhaseB(client, request, webResearch, diagnostics);
+      const items = await normalizeWithPhaseB(client, request, webResearch, diagnostics, signal);
 
       if (process.env.NODE_ENV !== "production") {
         console.info(
