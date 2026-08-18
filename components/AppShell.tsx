@@ -156,6 +156,7 @@ export function AppShell({ children }: AppShellProps) {
           pathname={pathname}
           onOpenMobileSidebar={() => setMobileOpen(true)}
           isAdmin={userAccess.role === "admin"}
+          isAthlete={userAccess.role === "athlete"}
         />
         <main className="klique-main-content">{children}</main>
       </div>

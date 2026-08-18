@@ -1,12 +1,13 @@
 import { randomUUID } from "crypto";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
-import { createContentStorageClient } from "@/lib/content-storage/db";
+import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
 
 export type HubOpportunityStatus = "Ouverte" | "Bientôt" | "Fermée" | "Brouillon";
 export type HubOpportunityCategory = "Collaboration" | "Shooting" | "Événement" | "Média" | "Casting" | "Partenariat" | "Sport" | "Autre";
 
 export type HubOpportunityRecord = {
   id: string;
+  workspaceId: string;
   title: string;
   type: HubOpportunityCategory | string;
   organization: string;
@@ -47,6 +48,34 @@ export type HubOpportunityCreateInput = {
 
 const getSql = () => createContentStorageClient();
 
+// Toute valeur de statut differente de "Brouillon" est consideree comme publiee.
+const publishedStatuses: HubOpportunityStatus[] = ["Ouverte", "Bientôt", "Fermée"];
+
+type ActiveAccess = {
+  role: string;
+  workspaceId: string;
+  athleteId: string | null;
+};
+
+export const resolveActiveAccess = async (request: Request): Promise<ActiveAccess> => {
+  const profile = await getCurrentUserAccessProfile(request);
+  const access = profile?.userAccess ?? null;
+
+  if (!profile?.clerkUser?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const workspaceId = access?.workspaceId?.trim() ?? "";
+  const role = access?.role ?? "";
+  const isKnownRole = ["admin", "athlete", "partner_expert", "media"].includes(role);
+
+  if (access?.status !== "active" || !workspaceId || !isKnownRole) {
+    throw new Error("Forbidden");
+  }
+
+  return { role, workspaceId, athleteId: access?.athleteId?.trim() || null };
+};
+
 const normalizeStatus = (value: unknown): HubOpportunityStatus => {
   if (value === "Ouverte" || value === "Bientôt" || value === "Fermée" || value === "Brouillon") {
     return value;
@@ -67,6 +96,7 @@ const ensureHubOpportunityTables = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS hub_opportunities (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL DEFAULT 'klique-os',
       title TEXT NOT NULL,
       type TEXT NOT NULL,
       organization TEXT NOT NULL,
@@ -86,6 +116,11 @@ const ensureHubOpportunityTables = async () => {
   `;
 
   await sql`
+    CREATE INDEX IF NOT EXISTS hub_opportunities_workspace_status_created_at_idx
+      ON hub_opportunities (workspace_id, status, created_at DESC)
+  `;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS hub_opportunity_interests (
       opportunity_id TEXT NOT NULL REFERENCES hub_opportunities(id) ON DELETE CASCADE,
       clerk_user_id TEXT NOT NULL,
@@ -97,6 +132,7 @@ const ensureHubOpportunityTables = async () => {
 
 const mapOpportunityRow = (row: Record<string, unknown>): HubOpportunityRecord => ({
   id: String(row.id ?? ""),
+  workspaceId: String(row.workspace_id ?? ""),
   title: String(row.title ?? ""),
   type: normalizeCategory(row.type),
   organization: String(row.organization ?? ""),
@@ -121,23 +157,33 @@ const mapInterestRow = (row: Record<string, unknown>): HubOpportunityInterestRec
 });
 
 export const loadHubOpportunities = async (request: Request, currentUserId: string | null) => {
+  const access = await resolveActiveAccess(request);
   await ensureHubOpportunityTables();
   const sql = getSql();
 
-  const rows = await sql`
-    SELECT id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
-    FROM hub_opportunities
-    ORDER BY created_at DESC, id DESC
-  `;
+  const rows = access.role === "admin"
+    ? await sql`
+        SELECT id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
+        FROM hub_opportunities
+        WHERE workspace_id = ${access.workspaceId}
+        ORDER BY created_at DESC, id DESC
+      `
+    : await sql`
+        SELECT id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
+        FROM hub_opportunities
+        WHERE workspace_id = ${access.workspaceId} AND status = ANY(${publishedStatuses})
+        ORDER BY created_at DESC, id DESC
+      `;
 
   const opportunities = rows.map((row) => mapOpportunityRow(row as Record<string, unknown>));
 
   let currentUserInterestIds: string[] = [];
-  if (currentUserId) {
+  if (currentUserId && opportunities.length > 0) {
+    const visibleIds = opportunities.map((opportunity) => opportunity.id);
     const interestRows = await sql`
       SELECT opportunity_id
       FROM hub_opportunity_interests
-      WHERE clerk_user_id = ${currentUserId}
+      WHERE clerk_user_id = ${currentUserId} AND opportunity_id = ANY(${visibleIds})
     `;
     currentUserInterestIds = interestRows.map((row) => String(row.opportunity_id ?? ""));
   }
@@ -149,10 +195,9 @@ export const loadHubOpportunities = async (request: Request, currentUserId: stri
 };
 
 export const createHubOpportunity = async (request: Request, input: HubOpportunityCreateInput, currentUserId: string | null) => {
-  const accessProfile = await getCurrentUserAccessProfile(request);
-  const role = accessProfile?.userAccess?.role ?? null;
+  const access = await resolveActiveAccess(request);
 
-  if (!currentUserId || !accessProfile?.clerkUser?.id || role !== "admin") {
+  if (!currentUserId || access.role !== "admin") {
     throw new Error("Forbidden");
   }
 
@@ -160,10 +205,12 @@ export const createHubOpportunity = async (request: Request, input: HubOpportuni
   const sql = getSql();
   const now = new Date().toISOString();
   const id = randomUUID();
+  const workspaceId = access.workspaceId || getDefaultWorkspaceId();
 
   const rows = await sql`
     INSERT INTO hub_opportunities (
       id,
+      workspace_id,
       title,
       type,
       organization,
@@ -182,6 +229,7 @@ export const createHubOpportunity = async (request: Request, input: HubOpportuni
     )
     VALUES (
       ${id},
+      ${workspaceId},
       ${input.title},
       ${input.type},
       ${input.organization},
@@ -193,12 +241,12 @@ export const createHubOpportunity = async (request: Request, input: HubOpportuni
       ${input.description},
       ${input.requirements},
       ${input.practicalInfo},
-      ${input.status},
+      ${normalizeStatus(input.status)},
       ${currentUserId},
       ${now},
       ${now}
     )
-    RETURNING id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
+    RETURNING id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
   `;
 
   return mapOpportunityRow(rows[0] as Record<string, unknown>);
@@ -209,14 +257,20 @@ export const toggleHubOpportunityInterest = async (request: Request, opportunity
     throw new Error("Unauthorized");
   }
 
-  const accessProfile = await getCurrentUserAccessProfile(request);
-  const role = accessProfile?.userAccess?.role ?? null;
-  if (!accessProfile?.clerkUser?.id || !role || !["admin", "athlete", "partner_expert", "media"].includes(role)) {
-    throw new Error("Forbidden");
-  }
+  const access = await resolveActiveAccess(request);
 
   await ensureHubOpportunityTables();
   const sql = getSql();
+
+  const opportunityRows = await sql`
+    SELECT id FROM hub_opportunities
+    WHERE id = ${opportunityId}
+      AND workspace_id = ${access.workspaceId}
+      AND status = ANY(${publishedStatuses})
+  `;
+  if (!opportunityRows[0]) {
+    throw new Error("NotFound");
+  }
 
   const existingRows = await sql`
     SELECT opportunity_id
@@ -232,19 +286,89 @@ export const toggleHubOpportunityInterest = async (request: Request, opportunity
     return { opportunityId, interested: false };
   }
 
-  const opportunityRows = await sql`
-    SELECT id FROM hub_opportunities WHERE id = ${opportunityId}
-  `;
-  if (!opportunityRows[0]) {
-    throw new Error("NotFound");
-  }
-
   await sql`
     INSERT INTO hub_opportunity_interests (opportunity_id, clerk_user_id, created_at)
     VALUES (${opportunityId}, ${currentUserId}, NOW())
   `;
 
   return { opportunityId, interested: true };
+};
+
+export const updateHubOpportunity = async (
+  request: Request,
+  opportunityId: string,
+  input: HubOpportunityCreateInput,
+) => {
+  const access = await resolveActiveAccess(request);
+  if (access.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+
+  const id = String(opportunityId ?? "").trim();
+  const title = String(input.title ?? "").trim();
+  const type = String(input.type ?? "").trim();
+  const description = String(input.description ?? "").trim();
+
+  if (!id || !title || !type || !description) {
+    throw new Error("InvalidInput");
+  }
+
+  await ensureHubOpportunityTables();
+  const sql = getSql();
+
+  const rows = await sql`
+    UPDATE hub_opportunities
+    SET
+      title = ${title},
+      type = ${type},
+      organization = ${input.organization},
+      target_audience = ${input.targetAudience},
+      sport_or_domain = ${input.sportOrDomain},
+      location = ${input.location},
+      date = ${input.date},
+      deadline = ${input.deadline},
+      description = ${description},
+      requirements = ${input.requirements},
+      practical_info = ${input.practicalInfo},
+      status = ${normalizeStatus(input.status)},
+      updated_at = NOW()
+    WHERE id = ${id} AND workspace_id = ${access.workspaceId}
+    RETURNING id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
+  `;
+
+  if (!rows[0]) {
+    throw new Error("NotFound");
+  }
+
+  return mapOpportunityRow(rows[0] as Record<string, unknown>);
+};
+
+// Les interets, creneaux et demandes sont supprimes par les contraintes ON DELETE CASCADE.
+export const deleteHubOpportunity = async (request: Request, opportunityId: string) => {
+  const access = await resolveActiveAccess(request);
+  if (access.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+
+  const id = String(opportunityId ?? "").trim();
+  if (!id) {
+    throw new Error("InvalidInput");
+  }
+
+  await ensureHubOpportunityTables();
+  const sql = getSql();
+
+  const rows = await sql`
+    DELETE FROM hub_opportunities
+    WHERE id = ${id} AND workspace_id = ${access.workspaceId}
+    RETURNING id
+  `;
+
+  if (!rows[0]) {
+    throw new Error("NotFound");
+  }
+
+  return { id: String((rows[0] as Record<string, unknown>).id ?? "") };
 };
 
 export const listHubOpportunityInterests = async (request: Request, currentUserId: string | null) => {

@@ -87,6 +87,7 @@ export function Sidebar({
         { id: "today", label: "Aujourd’hui", href: "/athlete", icon: "house" as const },
         { id: "profile", label: "Mon profil", href: "/athlete/profile", icon: "users" as const },
         { id: "pass", label: "Mon Pass KLIQUE", href: "/athlete/pass", icon: "sparkles" as const },
+        { id: "opportunities", label: "Opportunités", href: "/athlete/opportunities", icon: "folder" as const },
         { id: "ecosystem", label: "Écosystème", href: "/athlete/ecosysteme", icon: "network" as const },
         { id: "community", label: "Communauté", href: "/athlete/community", icon: "messages" as const },
         { id: "contact", label: "Contacter KLIQUE", href: "/athlete/contact", icon: "messages" as const },

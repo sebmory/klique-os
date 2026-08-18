@@ -160,6 +160,14 @@ export default function AthletePage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [newsItems, setNewsItems] = useState<NewsItem[]>([]);
+  const [featuredOpportunity, setFeaturedOpportunity] = useState<{
+    id: string;
+    title: string;
+    type: string;
+    date: string;
+    location: string;
+    deadline: string;
+  } | null>(null);
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState<string | null>(null);
 
@@ -277,20 +285,42 @@ export default function AthletePage() {
           });
         }
 
+        const openOpportunities = (opportunitiesPayload.opportunities ?? [])
+          .filter((item) => normalize(item.status) === "Ouverte" && normalize(item.id) && normalize(item.title))
+          .sort((a, b) => (parseDateValue(b.createdAt)?.getTime() ?? 0) - (parseDateValue(a.createdAt)?.getTime() ?? 0));
+
+        const featured = openOpportunities[0];
+        const featuredId = featured ? normalize(featured.id) : null;
+
         for (const item of opportunitiesPayload.opportunities ?? []) {
+          const opportunityId = normalize(item.id);
+          if (featuredId && opportunityId === featuredId) continue;
           const date = parseDateValue(item.createdAt);
           const title = normalize(item.title);
           if (!date || !title) continue;
           collected.push({
-            id: `opportunity-${normalize(item.id)}`,
+            id: `opportunity-${opportunityId}`,
             type: "Opportunité",
             title,
             description: truncate(normalize(item.description) || normalize(item.organization)),
             timestamp: date.getTime(),
             dateLabel: formatNewsDate(date),
-            href: "/athlete/community",
+            href: `/athlete/opportunities/${encodeURIComponent(opportunityId)}`,
           });
         }
+
+        setFeaturedOpportunity(
+          featured
+            ? {
+                id: normalize(featured.id),
+                title: normalize(featured.title),
+                type: normalize(featured.type) || "Autre",
+                date: normalize(featured.date),
+                location: normalize(featured.location),
+                deadline: normalize(featured.deadline),
+              }
+            : null,
+        );
 
         for (const item of resourcesPayload.resources ?? []) {
           if (normalize(item.status).toLowerCase() !== "published") continue;
@@ -635,6 +665,56 @@ export default function AthletePage() {
           </div>
         </section>
       </div>
+
+      {/* OPPORTUNITÉ À SAISIR */}
+      {featuredOpportunity ? (
+        <section
+          style={{
+            border: "1px solid rgba(232, 184, 75, 0.45)",
+            borderRadius: "20px",
+            background: "linear-gradient(160deg, rgba(232, 184, 75, 0.14) 0%, #14151a 45%, #0a0b0f 100%)",
+            padding: "1.15rem",
+            display: "grid",
+            gap: "0.6rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.7rem", color: KLIQUE_GOLD, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 800 }}>
+              Opportunité à saisir
+            </span>
+            <span style={{ borderRadius: "999px", padding: "0.14rem 0.5rem", fontSize: "0.68rem", fontWeight: 700, background: "rgba(255, 255, 255, 0.06)", color: "#d1d5db", border: `1px solid ${SURFACE_BORDER}` }}>
+              {featuredOpportunity.type}
+            </span>
+          </div>
+
+          <h3 style={{ margin: 0, fontSize: "1.15rem", color: "#f8fafc", fontWeight: 800, lineHeight: 1.25 }}>
+            {featuredOpportunity.title}
+          </h3>
+
+          <div style={{ display: "grid", gap: "0.2rem", color: TEXT_MUTED, fontSize: "0.88rem" }}>
+            <span>Date : {featuredOpportunity.date || "Non renseignée"}</span>
+            <span>Lieu : {featuredOpportunity.location || "Non renseigné"}</span>
+            <span>Deadline : {featuredOpportunity.deadline || "Non renseignée"}</span>
+          </div>
+
+          <Link
+            href={`/athlete/opportunities/${encodeURIComponent(featuredOpportunity.id)}`}
+            style={{
+              width: "fit-content",
+              border: `1px solid ${KLIQUE_GOLD}`,
+              borderRadius: "999px",
+              padding: "0.5rem 1rem",
+              textDecoration: "none",
+              fontWeight: 800,
+              fontSize: "0.88rem",
+              color: "#0a0b0f",
+              background: KLIQUE_GOLD,
+            }}
+          >
+            Découvrir l’opportunité
+          </Link>
+        </section>
+      ) : null}
 
       {/* NOUVEAUTÉS KLIQUE */}
       <section style={cardStyle}>

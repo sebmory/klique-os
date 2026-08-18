@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { Partner } from "@/types/partner";
 
 type CommunityTab = "Fil" | "Opportunités" | "Avantages" | "Ressources";
@@ -40,6 +41,16 @@ type ResourceItem = {
 };
 
 const tabs: CommunityTab[] = ["Fil", "Opportunités", "Avantages", "Ressources"];
+
+// Une reponse redirigee renvoie du HTML avec un statut 200 : le parsing doit rester isole par onglet.
+const readJson = async <T,>(response: Response, fallback: T): Promise<T | null> => {
+  if (!response.ok) return null;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+};
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -87,6 +98,12 @@ export default function AthleteCommunityPage() {
   const [opportunities, setOpportunities] = useState<OpportunityItem[]>([]);
   const [benefits, setBenefits] = useState<BenefitItem[]>([]);
   const [resources, setResources] = useState<ResourceItem[]>([]);
+  const [tabErrors, setTabErrors] = useState<Record<CommunityTab, string | null>>({
+    Fil: null,
+    "Opportunités": null,
+    Avantages: null,
+    Ressources: null,
+  });
 
   useEffect(() => {
     let active = true;
@@ -94,80 +111,85 @@ export default function AthleteCommunityPage() {
     const loadCommunity = async () => {
       setLoading(true);
 
-      try {
-        const [feedResponse, opportunitiesResponse, partnersResponse, resourcesResponse] = await Promise.all([
-          fetch("/api/hub-community", { cache: "no-store" }),
-          fetch("/api/hub-opportunities", { cache: "no-store" }),
-          fetch("/api/partners", { cache: "no-store" }),
-          fetch("/api/hub-resources", { cache: "no-store" }),
-        ]);
+      const [feedResult, opportunitiesResult, partnersResult, resourcesResult] = await Promise.allSettled([
+        fetch("/api/hub-community", { credentials: "include", cache: "no-store" }),
+        fetch("/api/hub-opportunities", { credentials: "include", cache: "no-store" }),
+        fetch("/api/partners", { credentials: "include", cache: "no-store" }),
+        fetch("/api/hub-resources", { credentials: "include", cache: "no-store" }),
+      ]);
 
-        if (!active) return;
+      if (!active) return;
 
-        const feedPayload = feedResponse.ok
-          ? (await feedResponse.json() as { publications?: Array<Record<string, unknown>> })
-          : { publications: [] as Array<Record<string, unknown>> };
+      const feedPayload =
+        feedResult.status === "fulfilled"
+          ? await readJson(feedResult.value, { publications: [] as Array<Record<string, unknown>> })
+          : null;
 
-        const opportunitiesPayload = opportunitiesResponse.ok
-          ? (await opportunitiesResponse.json() as { opportunities?: Array<Record<string, unknown>> })
-          : { opportunities: [] as Array<Record<string, unknown>> };
+      const opportunitiesPayload =
+        opportunitiesResult.status === "fulfilled"
+          ? await readJson(opportunitiesResult.value, { opportunities: [] as Array<Record<string, unknown>> })
+          : null;
 
-        const partnersPayload = partnersResponse.ok
-          ? (await partnersResponse.json() as { partners?: Partner[] })
-          : { partners: [] as Partner[] };
+      const partnersPayload =
+        partnersResult.status === "fulfilled"
+          ? await readJson(partnersResult.value, { partners: [] as Partner[] })
+          : null;
 
-        const resourcesPayload = resourcesResponse.ok
-          ? (await resourcesResponse.json() as { resources?: Array<Record<string, unknown>> })
-          : { resources: [] as Array<Record<string, unknown>> };
+      const resourcesPayload =
+        resourcesResult.status === "fulfilled"
+          ? await readJson(resourcesResult.value, { resources: [] as Array<Record<string, unknown>> })
+          : null;
 
-        setFeedItems(
-          (feedPayload.publications ?? []).map((item) => ({
-            id: normalize(item.id),
-            authorName: normalize(item.authorDisplayName) || "KLIQUE",
-            title: normalize(item.title) || null,
-            content: normalize(item.content),
-            createdAt: normalize(item.createdAt),
-          }))
-          .filter((item) => item.id && item.content)
-        );
+      if (!active) return;
 
-        setOpportunities(
-          (opportunitiesPayload.opportunities ?? []).map((item) => ({
+      setTabErrors({
+        Fil: feedPayload ? null : "Le fil de la communauté n’a pas pu être chargé.",
+        "Opportunités": opportunitiesPayload ? null : "Les opportunités n’ont pas pu être chargées.",
+        Avantages: partnersPayload ? null : "Les avantages n’ont pas pu être chargés.",
+        Ressources: resourcesPayload ? null : "Les ressources n’ont pas pu être chargées.",
+      });
+
+      setFeedItems(
+        (feedPayload?.publications ?? []).map((item) => ({
+          id: normalize(item.id),
+          authorName: normalize(item.authorDisplayName) || "KLIQUE",
+          title: normalize(item.title) || null,
+          content: normalize(item.content),
+          createdAt: normalize(item.createdAt),
+        }))
+        .filter((item) => item.id && item.content)
+      );
+
+      setOpportunities(
+        (opportunitiesPayload?.opportunities ?? []).map((item) => ({
+          id: normalize(item.id),
+          title: normalize(item.title),
+          type: normalize(item.type) || "Autre",
+          organization: normalize(item.organization),
+          date: normalize(item.date),
+          deadline: normalize(item.deadline),
+          description: normalize(item.description),
+          status: normalize(item.status),
+        }))
+        .filter((item) => item.id && item.title)
+      );
+
+      setBenefits(buildBenefits(partnersPayload?.partners ?? []));
+
+      setResources(
+        (resourcesPayload?.resources ?? [])
+          .filter((item) => normalize(item.status).toLowerCase() === "published")
+          .map((item) => ({
             id: normalize(item.id),
             title: normalize(item.title),
-            type: normalize(item.type) || "Autre",
-            organization: normalize(item.organization),
-            date: normalize(item.date),
-            deadline: normalize(item.deadline),
+            category: normalize(item.category) || "Autre",
+            author: normalize(item.author) || "KLIQUE",
             description: normalize(item.description),
-            status: normalize(item.status),
           }))
           .filter((item) => item.id && item.title)
-        );
+      );
 
-        setBenefits(buildBenefits(partnersPayload.partners ?? []));
-
-        setResources(
-          (resourcesPayload.resources ?? [])
-            .filter((item) => normalize(item.status).toLowerCase() === "published")
-            .map((item) => ({
-              id: normalize(item.id),
-              title: normalize(item.title),
-              category: normalize(item.category) || "Autre",
-              author: normalize(item.author) || "KLIQUE",
-              description: normalize(item.description),
-            }))
-            .filter((item) => item.id && item.title)
-        );
-      } catch {
-        if (!active) return;
-        setFeedItems([]);
-        setOpportunities([]);
-        setBenefits([]);
-        setResources([]);
-      } finally {
-        if (active) setLoading(false);
-      }
+      setLoading(false);
     };
 
     void loadCommunity();
@@ -225,7 +247,9 @@ export default function AthleteCommunityPage() {
         {loading ? (
           <p style={{ margin: 0, color: "#6b7280" }}>Chargement de la communauté…</p>
         ) : activeTab === "Fil" ? (
-          feedItems.length === 0 ? (
+          tabErrors.Fil ? (
+            <p style={{ margin: 0, color: "#b91c1c" }} role="alert">{tabErrors.Fil}</p>
+          ) : feedItems.length === 0 ? (
             <p style={{ margin: 0, color: "#6b7280" }}>Aucune publication réelle n’est disponible pour le moment.</p>
           ) : (
             <div style={{ display: "grid", gap: "0.8rem" }}>
@@ -240,12 +264,18 @@ export default function AthleteCommunityPage() {
             </div>
           )
         ) : activeTab === "Opportunités" ? (
-          opportunities.length === 0 ? (
+          tabErrors["Opportunités"] ? (
+            <p style={{ margin: 0, color: "#b91c1c" }} role="alert">{tabErrors["Opportunités"]}</p>
+          ) : opportunities.length === 0 ? (
             <p style={{ margin: 0, color: "#6b7280" }}>Aucune opportunité réelle n’est disponible pour le moment.</p>
           ) : (
             <div style={{ display: "grid", gap: "0.8rem" }}>
               {opportunities.map((item) => (
-                <article key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "0.85rem" }}>
+                <Link
+                  key={item.id}
+                  href={`/athlete/opportunities/${encodeURIComponent(item.id)}`}
+                  style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "0.85rem", display: "block", textDecoration: "none", color: "inherit" }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap" }}>
                     <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>{item.title}</p>
                     <span style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 700 }}>{item.status || "Non renseigné"}</span>
@@ -255,12 +285,14 @@ export default function AthleteCommunityPage() {
                     Type: {item.type || "Autre"} · Date: {item.date || "Non renseignée"} · Clôture: {item.deadline || "Non renseignée"}
                   </p>
                   {item.description ? <p style={{ margin: "0.45rem 0 0", color: "#374151", lineHeight: 1.6 }}>{item.description}</p> : null}
-                </article>
+                </Link>
               ))}
             </div>
           )
         ) : activeTab === "Avantages" ? (
-          benefits.length === 0 ? (
+          tabErrors.Avantages ? (
+            <p style={{ margin: 0, color: "#b91c1c" }} role="alert">{tabErrors.Avantages}</p>
+          ) : benefits.length === 0 ? (
             <p style={{ margin: 0, color: "#6b7280" }}>Aucun avantage réel n’est disponible pour le moment.</p>
           ) : (
             <div style={{ display: "grid", gap: "0.8rem" }}>
@@ -273,6 +305,8 @@ export default function AthleteCommunityPage() {
               ))}
             </div>
           )
+        ) : tabErrors.Ressources ? (
+          <p style={{ margin: 0, color: "#b91c1c" }} role="alert">{tabErrors.Ressources}</p>
         ) : resources.length === 0 ? (
           <p style={{ margin: 0, color: "#6b7280" }}>Aucune ressource réelle n’est disponible pour le moment.</p>
         ) : (

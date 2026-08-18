@@ -43,6 +43,14 @@ const isAthleteAllowedRoute = (pathname: string): boolean => {
     return true;
   }
 
+  if (pathname === "/api/hub-opportunities" || pathname.startsWith("/api/hub-opportunities/")) {
+    return true;
+  }
+
+  if (pathname === "/api/hub-opportunity-slots" || pathname.startsWith("/api/hub-opportunity-slots/")) {
+    return true;
+  }
+
   return false;
 };
 

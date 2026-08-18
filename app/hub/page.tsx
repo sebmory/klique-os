@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Select, Textarea } from "@/src/design-system/components";
 import { inferBenefitUsage, type BenefitUsage } from "@/lib/benefits-usage";
@@ -32,7 +32,6 @@ type OpportunityFormState = {
   location: string;
   date: string;
   deadline: string;
-  description: string;
   fullDescription: string;
   prerequisites: string;
   practicalInfo: string;
@@ -76,7 +75,6 @@ const createEmptyOpportunityForm = (): OpportunityFormState => ({
   location: "",
   date: "",
   deadline: "",
-  description: "",
   fullDescription: "",
   prerequisites: "",
   practicalInfo: "",
@@ -98,6 +96,51 @@ type OpportunityItem = {
   prerequisites: string;
   practicalInfo: string;
   status: OpportunityStatus;
+};
+
+type SlotStatus = "open" | "closed" | "cancelled";
+type SlotRequestStatus = "requested" | "confirmed" | "declined" | "cancelled";
+
+type SlotItem = {
+  id: string;
+  opportunityId: string;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  status: SlotStatus;
+};
+
+type SlotRequestItem = {
+  id: string;
+  slotId: string;
+  athleteId: string;
+  status: SlotRequestStatus;
+};
+
+const slotStatusLabels: Record<SlotStatus, string> = {
+  open: "Ouvert",
+  closed: "Fermé",
+  cancelled: "Annulé",
+};
+
+const slotRequestStatusLabels: Record<SlotRequestStatus, string> = {
+  requested: "Demandée",
+  confirmed: "Confirmée",
+  declined: "Refusée",
+  cancelled: "Annulée",
+};
+
+const slotDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+const slotTimeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+const formatSlotDate = (value: string): string => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "Date inconnue" : slotDateFormatter.format(parsed);
+};
+
+const formatSlotTime = (value: string): string => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "--:--" : slotTimeFormatter.format(parsed);
 };
 
 type BenefitItem = {
@@ -138,105 +181,6 @@ type ResourceFormState = {
   status: "Brouillon" | "Publié";
   date: string;
 };
-
-const demoOpportunities: OpportunityItem[] = [
-  {
-    id: "opp-1",
-    title: "Camp de préparation créatif pour profils sportifs",
-    category: "Sport",
-    organisation: "KLIQUE Studio",
-    audience: "Athlètes de niveau national",
-    domain: "Football, image de marque et storytelling",
-    location: "Lausanne",
-    date: "Du 18 au 22 septembre",
-    deadline: "12 septembre",
-    description: "Un format intensif pour renforcer la cohérence de l’image personnelle avant la saison.",
-    fullDescription: "Ce camp de préparation créatif réunit des athlètes, des créateurs et des experts pour travailler la cohérence de l’image personnelle, la présence devant la caméra et la narration de sa saison.",
-    prerequisites: "Avoir un profil sportif actif et une disponibilité d’au moins 3 jours sur la période prévue.",
-    practicalInfo: "Le format comprend un accompagnement créatif, des ateliers de contenu et un suivi de production. Les participants recevront un accès à une checklist de préparation avant la venue.",
-    status: "Ouverte",
-  },
-  {
-    id: "opp-2",
-    title: "Shooting portrait premium pour ambassadeurs",
-    category: "Shooting",
-    organisation: "Studio North",
-    audience: "Athlètes et créateurs de contenu",
-    domain: "Portrait, motion et contenu de marque",
-    location: "Genève",
-    date: "25 septembre",
-    deadline: "18 septembre",
-    description: "Mission courte et premium pour des visuels à fort impact dédiés aux réseaux et aux partenaires.",
-    fullDescription: "Ce shooting portrait premium vise à produire des visuels modernes, authentiques et orientés marque pour des ambassadeurs sportifs et créatifs.",
-    prerequisites: "Prévoir un dossier de références et une disponibilité pour une séance courte d’environ 2 heures.",
-    practicalInfo: "Le planning sera envoyé après validation de la sélection. La participation comprend une direction artistique et la livraison de fichiers prêts à l’emploi.",
-    status: "Bientôt",
-  },
-  {
-    id: "opp-3",
-    title: "Collaboration éditoriale avec une marque lifestyle",
-    category: "Collaboration",
-    organisation: "Maison Éclipse",
-    audience: "Athlètes et experts de l’image",
-    domain: "Brand content et activation digitale",
-    location: "Paris",
-    date: "Octobre",
-    deadline: "30 septembre",
-    description: "Un projet de contenu court, élégant et orienté communauté pour une campagne d’automne.",
-    fullDescription: "Cette collaboration éditoriale propose de créer du contenu en mode lifestyle sur mesure pour une marque qui souhaite renforcer sa présence auprès d’une audience sportive et créative.",
-    prerequisites: "Avoir une présence digitale crédible et un intérêt pour le storytelling de marque.",
-    practicalInfo: "Les profils retenus recevront un brief détaillé, un planning de production et un accès à une mini session de préparation.",
-    status: "Ouverte",
-  },
-  {
-    id: "opp-4",
-    title: "Événement de networking pour talents et partenaires",
-    category: "Événement",
-    organisation: "KLIQUE Community",
-    audience: "Professionnels du sport et du média",
-    domain: "Networking, découverte et visibilité",
-    location: "Lyon",
-    date: "18 octobre",
-    deadline: "10 octobre",
-    description: "Une soirée pensée pour relier athlètes, créateurs, médias et partenaires autour de projets concrets.",
-    fullDescription: "Cet événement de networking propose un cadre premium pour rencontrer des acteurs du sport, du média et de la création autour de réels projets d’activation.",
-    prerequisites: "Aucune expérience particulière, mais une envie de construire des liens dans la communauté.",
-    practicalInfo: "L’inscription est gratuite et comprend l’accès au programme, un accueil premium et le partage des contacts après l’événement.",
-    status: "Bientôt",
-  },
-  {
-    id: "opp-5",
-    title: "Casting pour ambassadeurs de contenu sportif",
-    category: "Casting",
-    organisation: "Lumen Talent",
-    audience: "Profils sportifs à forte présence digitale",
-    domain: "Vidéo courte et storytelling",
-    location: "Téléprésentiel",
-    date: "Mi-octobre",
-    deadline: "8 octobre",
-    description: "Sélection de talents pour une série de contenus courts à destination de marques partenaires.",
-    fullDescription: "Ce casting vise à identifier des profils sportifs à forte présence digitale pour une série de vidéos courtes et engageantes, pensées pour les réseaux sociaux.",
-    prerequisites: "Disposer d’une bonne qualité de vidéo, d’un profil propre et d’un intérêt pour la création de contenu.",
-    practicalInfo: "Un brief de casting sera envoyé aux profils sélectionnés, ainsi qu’un calendrier de tournage et de livraison.",
-    status: "Ouverte",
-  },
-  {
-    id: "opp-6",
-    title: "Partenariat média pour la saison 2026",
-    category: "Partenariat",
-    organisation: "Bourse Média Sport",
-    audience: "Athlètes, clubs et créateurs",
-    domain: "Visibilité, production et diffusion",
-    location: "Zurich",
-    date: "Saison 2026",
-    deadline: "14 octobre",
-    description: "Programme de visibilité et de production pour les profils qui souhaitent développer leur présence médiatique.",
-    fullDescription: "Ce partenariat média propose un accompagnement et un cadre de diffusion pour les profils qui veulent professionnaliser leur présence dans le paysage sportif et médiatique.",
-    prerequisites: "Avoir déjà une présence publique et une capacité à produire du contenu de qualité.",
-    practicalInfo: "Le dossier de candidature sera étudié par l’équipe média et des échanges de cadrage seront proposés aux profils retenus.",
-    status: "Fermée",
-  },
-];
 
 const normalizeBenefitText = (value: unknown): string => String(value ?? "").trim();
 const isStatusLike = (value: string): boolean => {
@@ -625,9 +569,17 @@ export default function HubPage() {
   const [activeResourceCategory, setActiveResourceCategory] = useState<ResourceCategory | "Tout">("Tout");
   const [activeOpportunityStatus, setActiveOpportunityStatus] = useState<OpportunityStatusFilter>("Ouvertes");
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>(null);
-  const [opportunities, setOpportunities] = useState<OpportunityItem[]>(demoOpportunities);
+  const [opportunities, setOpportunities] = useState<OpportunityItem[]>([]);
   const [benefits, setBenefits] = useState<BenefitItem[]>([]);
   const [interestedOpportunities, setInterestedOpportunities] = useState<Record<string, boolean>>({});
+  const [opportunitiesLoading, setOpportunitiesLoading] = useState(true);
+  const [opportunitiesError, setOpportunitiesError] = useState<string | null>(null);
+  const [slots, setSlots] = useState<SlotItem[]>([]);
+  const [slotRequests, setSlotRequests] = useState<SlotRequestItem[]>([]);
+  const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [slotForm, setSlotForm] = useState({ startsAt: "", endsAt: "", capacity: "1" });
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
   const [composerTitle, setComposerTitle] = useState("");
   const [composerContent, setComposerContent] = useState("");
@@ -636,6 +588,9 @@ export default function HubPage() {
   const [canCreateOpportunity, setCanCreateOpportunity] = useState(false);
   const [isOpportunityComposerOpen, setIsOpportunityComposerOpen] = useState(false);
   const [opportunityForm, setOpportunityForm] = useState<OpportunityFormState>(createEmptyOpportunityForm);
+  const [opportunityFormError, setOpportunityFormError] = useState<string | null>(null);
+  const [editingOpportunityId, setEditingOpportunityId] = useState<string | null>(null);
+  const [opportunityActionError, setOpportunityActionError] = useState<string | null>(null);
   const [isCompactBenefitsLayout, setIsCompactBenefitsLayout] = useState(false);
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [isResourceComposerOpen, setIsResourceComposerOpen] = useState(false);
@@ -678,31 +633,12 @@ export default function HubPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    try {
-      const stored = window.localStorage.getItem("klique-hub-interested-opportunities");
-      if (stored) {
-        const parsed = JSON.parse(stored) as Record<string, boolean>;
-        setInterestedOpportunities(parsed);
-      }
-    } catch {
-      // Ignore malformed stored state.
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
     const updateLayout = () => setIsCompactBenefitsLayout(window.innerWidth < 980);
     updateLayout();
     window.addEventListener("resize", updateLayout);
 
     return () => window.removeEventListener("resize", updateLayout);
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("klique-hub-interested-opportunities", JSON.stringify(interestedOpportunities));
-  }, [interestedOpportunities]);
 
   useEffect(() => {
     const loadAccess = async () => {
@@ -741,23 +677,29 @@ export default function HubPage() {
     };
 
     const loadOpportunities = async () => {
+      setOpportunitiesLoading(true);
+      setOpportunitiesError(null);
       try {
         const response = await fetch("/api/hub-opportunities", { cache: "no-store" });
         if (!response.ok) throw new Error("Unable to load opportunities");
         const payload = (await response.json()) as { opportunities?: Array<Record<string, unknown>>; currentUserInterestIds?: string[] };
         const opportunities = Array.isArray(payload.opportunities) ? payload.opportunities : [];
-        if (opportunities.length > 0) {
-          setOpportunities(opportunities.map((opportunity) => mapApiOpportunityToItem(opportunity as Parameters<typeof mapApiOpportunityToItem>[0])));
-        }
-        if (Array.isArray(payload.currentUserInterestIds)) {
-          const nextInterestState = payload.currentUserInterestIds.reduce<Record<string, boolean>>((accumulator, opportunityId) => {
-            accumulator[opportunityId] = true;
-            return accumulator;
-          }, {});
-          setInterestedOpportunities(nextInterestState);
-        }
+        setOpportunities(opportunities.map((opportunity) => mapApiOpportunityToItem(opportunity as Parameters<typeof mapApiOpportunityToItem>[0])));
+        setInterestedOpportunities(
+          (Array.isArray(payload.currentUserInterestIds) ? payload.currentUserInterestIds : []).reduce<Record<string, boolean>>(
+            (accumulator, opportunityId) => {
+              accumulator[opportunityId] = true;
+              return accumulator;
+            },
+            {},
+          ),
+        );
       } catch {
-        setOpportunities(demoOpportunities);
+        setOpportunities([]);
+        setInterestedOpportunities({});
+        setOpportunitiesError("Les opportunités n’ont pas pu être chargées.");
+      } finally {
+        setOpportunitiesLoading(false);
       }
     };
 
@@ -838,25 +780,279 @@ export default function HubPage() {
     }
   };
 
+  const isShootingDetail = Boolean(canCreateOpportunity && selectedOpportunity && selectedOpportunity.category === "Shooting");
+
+  const loadSlots = useCallback(async (opportunityId: string) => {
+    setSlotsLoading(true);
+    setSlotsError(null);
+
+    try {
+      const [slotsResponse, athletesResponse] = await Promise.all([
+        fetch(`/api/hub-opportunity-slots?opportunityId=${encodeURIComponent(opportunityId)}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch("/api/athletes", { credentials: "include", cache: "no-store" }),
+      ]);
+
+      if (!slotsResponse.ok) throw new Error("Unable to load slots");
+
+      const payload = (await slotsResponse.json()) as { slots?: SlotItem[]; requests?: SlotRequestItem[] };
+      setSlots(Array.isArray(payload.slots) ? payload.slots : []);
+      setSlotRequests(Array.isArray(payload.requests) ? payload.requests : []);
+
+      if (athletesResponse.ok) {
+        const athletesPayload = (await athletesResponse.json()) as { athletes?: { key?: string; name?: string }[] };
+        setAthleteNames(
+          (athletesPayload.athletes ?? []).reduce<Record<string, string>>((accumulator, athlete) => {
+            if (athlete.key && athlete.name) accumulator[athlete.key] = athlete.name;
+            return accumulator;
+          }, {}),
+        );
+      }
+    } catch {
+      setSlots([]);
+      setSlotRequests([]);
+      setSlotsError("Les créneaux n’ont pas pu être chargés.");
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isShootingDetail || !selectedOpportunity) {
+      setSlots([]);
+      setSlotRequests([]);
+      setSlotsError(null);
+      return;
+    }
+
+    void loadSlots(selectedOpportunity.id);
+  }, [isShootingDetail, loadSlots, selectedOpportunity]);
+
+  const handleAddSlot = async () => {
+    if (!selectedOpportunity) return;
+
+    const capacity = Number(slotForm.capacity);
+    if (!slotForm.startsAt || !slotForm.endsAt) {
+      setSlotsError("Le début et la fin du créneau sont obligatoires.");
+      return;
+    }
+    if (new Date(slotForm.endsAt).getTime() <= new Date(slotForm.startsAt).getTime()) {
+      setSlotsError("La fin doit être postérieure au début.");
+      return;
+    }
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) {
+      setSlotsError("La capacité doit être comprise entre 1 et 20.");
+      return;
+    }
+
+    setSlotsError(null);
+
+    try {
+      const response = await fetch("/api/hub-opportunity-slots", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId: selectedOpportunity.id,
+          startsAt: new Date(slotForm.startsAt).toISOString(),
+          endsAt: new Date(slotForm.endsAt).toISOString(),
+          capacity,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Unable to create slot");
+
+      setSlotForm({ startsAt: "", endsAt: "", capacity: "1" });
+      await loadSlots(selectedOpportunity.id);
+    } catch {
+      setSlotsError("Le créneau n’a pas pu être créé.");
+    }
+  };
+
+  const handleSlotStatusChange = async (slotId: string, status: SlotStatus) => {
+    if (!selectedOpportunity) return;
+    setSlotsError(null);
+
+    try {
+      const response = await fetch("/api/hub-opportunity-slots", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slotId, status }),
+      });
+
+      if (!response.ok) throw new Error("Unable to update slot");
+      await loadSlots(selectedOpportunity.id);
+    } catch {
+      setSlotsError("Le statut du créneau n’a pas pu être modifié.");
+    }
+  };
+
+  const handleSlotRequestStatusChange = async (requestId: string, status: Exclude<SlotRequestStatus, "requested">) => {
+    if (!selectedOpportunity) return;
+    setSlotsError(null);
+
+    try {
+      const response = await fetch("/api/hub-opportunity-slots", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId, status }),
+      });
+
+      if (response.status === 409) {
+        setSlotsError("Le créneau est complet : la demande ne peut pas être confirmée.");
+        return;
+      }
+
+      if (!response.ok) throw new Error("Unable to update request");
+      await loadSlots(selectedOpportunity.id);
+    } catch {
+      setSlotsError("La demande n’a pas pu être mise à jour.");
+    }
+  };
+
   const handleCreateOpportunity = () => {
     if (!canCreateOpportunity) return;
+    setOpportunityFormError(null);
+    setEditingOpportunityId(null);
+    setOpportunityForm(createEmptyOpportunityForm());
     setIsOpportunityComposerOpen(true);
     setSelectedOpportunityId(null);
   };
 
-  const handlePublishOpportunity = async () => {
-    const trimmedTitle = opportunityForm.title.trim();
-    const trimmedDescription = opportunityForm.description.trim();
-    const trimmedFullDescription = opportunityForm.fullDescription.trim();
-    if (!trimmedTitle || !trimmedDescription || !trimmedFullDescription) return;
+  const handleEditOpportunity = (opportunity: OpportunityItem) => {
+    if (!canCreateOpportunity) return;
+    setOpportunityFormError(null);
+    setOpportunityActionError(null);
+    setEditingOpportunityId(opportunity.id);
+    setOpportunityForm({
+      title: opportunity.title,
+      category: opportunity.category,
+      organisation: opportunity.organisation,
+      audience: opportunity.audience,
+      domain: opportunity.domain,
+      location: opportunity.location,
+      date: opportunity.date,
+      deadline: opportunity.deadline,
+      fullDescription: opportunity.fullDescription,
+      prerequisites: opportunity.prerequisites,
+      practicalInfo: opportunity.practicalInfo,
+      status: opportunity.status,
+    });
+    setIsOpportunityComposerOpen(true);
+  };
 
-    const nextStatusFilter = opportunityForm.status === "Brouillon" ? "Brouillons" : opportunityForm.status === "Bientôt" ? "Bientôt" : "Ouvertes";
+  const handlePublishDraftOpportunity = async (opportunity: OpportunityItem) => {
+    if (!canCreateOpportunity) return;
+    if (typeof window !== "undefined" && !window.confirm("Publier cette opportunité ? Elle deviendra visible par les membres KLIQUE.")) {
+      return;
+    }
+
+    setOpportunityActionError(null);
 
     try {
       const response = await fetch("/api/hub-opportunities", {
-        method: "POST",
+        method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          opportunityId: opportunity.id,
+          title: opportunity.title,
+          type: opportunity.category,
+          organization: opportunity.organisation,
+          targetAudience: opportunity.audience,
+          sportOrDomain: opportunity.domain,
+          location: opportunity.location,
+          date: opportunity.date,
+          deadline: opportunity.deadline,
+          description: opportunity.fullDescription,
+          requirements: opportunity.prerequisites,
+          practicalInfo: opportunity.practicalInfo,
+          status: "Ouverte",
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to publish opportunity");
+
+      const payload = (await response.json()) as { opportunity?: Record<string, unknown> };
+      if (!payload.opportunity) throw new Error("Missing opportunity payload");
+
+      const updated = mapApiOpportunityToItem(payload.opportunity as Parameters<typeof mapApiOpportunityToItem>[0]);
+      setOpportunities((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setActiveOpportunityStatus("Ouvertes");
+    } catch {
+      setOpportunityActionError("L’opportunité n’a pas pu être publiée.");
+    }
+  };
+
+  const handleDeleteOpportunity = async (opportunity: OpportunityItem) => {
+    if (!canCreateOpportunity) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Supprimer définitivement « ${opportunity.title} » ? Les créneaux, demandes et intérêts associés seront également supprimés.`)
+    ) {
+      return;
+    }
+
+    setOpportunityActionError(null);
+
+    try {
+      const response = await fetch("/api/hub-opportunities", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: opportunity.id }),
+      });
+
+      if (!response.ok) throw new Error("Failed to delete opportunity");
+
+      setOpportunities((current) => current.filter((item) => item.id !== opportunity.id));
+      setSelectedOpportunityId(null);
+    } catch {
+      setOpportunityActionError("L’opportunité n’a pas pu être supprimée.");
+    }
+  };
+
+  const handleCloseOpportunityComposer = () => {
+    setIsOpportunityComposerOpen(false);
+    setOpportunityFormError(null);
+    setEditingOpportunityId(null);
+    setOpportunityForm(createEmptyOpportunityForm());
+  };
+
+  const handleSubmitOpportunity = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedTitle = opportunityForm.title.trim();
+    const trimmedFullDescription = opportunityForm.fullDescription.trim();
+
+    if (!trimmedTitle) {
+      setOpportunityFormError("Le titre est obligatoire.");
+      return;
+    }
+    if (!opportunityForm.category) {
+      setOpportunityFormError("Le type est obligatoire.");
+      return;
+    }
+    if (!trimmedFullDescription) {
+      setOpportunityFormError("La description est obligatoire.");
+      return;
+    }
+
+    setOpportunityFormError(null);
+    const nextStatusFilter = opportunityForm.status === "Brouillon" ? "Brouillons" : opportunityForm.status === "Bientôt" ? "Bientôt" : "Ouvertes";
+    const isEditing = Boolean(editingOpportunityId);
+
+    try {
+      const response = await fetch("/api/hub-opportunities", {
+        method: isEditing ? "PATCH" : "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(isEditing ? { opportunityId: editingOpportunityId } : {}),
           title: trimmedTitle,
           type: opportunityForm.category,
           organization: opportunityForm.organisation.trim() || "KLIQUE OS",
@@ -873,35 +1069,25 @@ export default function HubPage() {
       });
 
       if (!response.ok) throw new Error("Failed to save opportunity");
+
       const payload = (await response.json()) as { opportunity?: Record<string, unknown> };
-      if (payload.opportunity) {
-        const createdOpportunity = mapApiOpportunityToItem(payload.opportunity as Parameters<typeof mapApiOpportunityToItem>[0]);
-        setOpportunities((current) => [createdOpportunity, ...current]);
-        setSelectedOpportunityId(createdOpportunity.id);
-      }
-    } catch {
-      const fallbackOpportunity: OpportunityItem = {
-        id: `opp-${Date.now()}`,
-        title: trimmedTitle,
-        category: opportunityForm.category,
-        organisation: opportunityForm.organisation.trim() || "KLIQUE OS",
-        audience: opportunityForm.audience.trim() || "Audience KLIQUE",
-        domain: opportunityForm.domain.trim() || "À définir",
-        location: opportunityForm.location.trim() || "À définir",
-        date: opportunityForm.date.trim() || "À définir",
-        deadline: opportunityForm.deadline.trim() || "À définir",
-        description: trimmedFullDescription,
-        fullDescription: trimmedFullDescription,
-        prerequisites: opportunityForm.prerequisites.trim() || "Aucun prérequis spécifique n’est demandé pour cette opportunité.",
-        practicalInfo: opportunityForm.practicalInfo.trim() || "Les informations pratiques seront envoyées à la publication.",
-        status: opportunityForm.status,
-      };
-      setOpportunities((current) => [fallbackOpportunity, ...current]);
-      setSelectedOpportunityId(fallbackOpportunity.id);
-    } finally {
-      setIsOpportunityComposerOpen(false);
-      setOpportunityForm(createEmptyOpportunityForm());
+      if (!payload.opportunity) throw new Error("Missing opportunity payload");
+
+      const createdOpportunity = mapApiOpportunityToItem(payload.opportunity as Parameters<typeof mapApiOpportunityToItem>[0]);
+      setOpportunities((current) =>
+        isEditing
+          ? current.map((item) => (item.id === createdOpportunity.id ? createdOpportunity : item))
+          : [createdOpportunity, ...current.filter((item) => item.id !== createdOpportunity.id)],
+      );
+      setOpportunitiesError(null);
+      setOpportunityActionError(null);
       setActiveOpportunityStatus(nextStatusFilter);
+      setIsOpportunityComposerOpen(false);
+      setEditingOpportunityId(null);
+      setOpportunityForm(createEmptyOpportunityForm());
+      setSelectedOpportunityId(createdOpportunity.id);
+    } catch {
+      setOpportunityFormError("L’opportunité n’a pas pu être enregistrée. Veuillez réessayer.");
     }
   };
 
@@ -1380,30 +1566,28 @@ export default function HubPage() {
         </div>
       ) : activeTab === "Opportunités" ? (
         <div style={{ display: "grid", gap: "1rem" }}>
-          <Card style={{ padding: "1.15rem", display: "grid", gap: "1rem", border: "1px solid #f0e2d0", boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)" }}>
+          <Card style={{ padding: "1.15rem", display: "grid", gap: "0.9rem", border: "1px solid #f0e2d0", boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap" }}>
               <div>
                 <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>OPPORTUNITÉS</p>
-                <h2 style={{ margin: "0.3rem 0 0.35rem", fontSize: "1.35rem", color: "#111827" }}>Des occasions à suivre de près</h2>
+                <h2 style={{ margin: "0.3rem 0 0.35rem", fontSize: "1.35rem", color: "#111827" }}>Opportunités KLIQUE</h2>
                 <p style={{ margin: 0, color: "#6b7280", maxWidth: "720px", lineHeight: 1.6 }}>
-                  Découvrez des projets, shootings, événements et partenariats cohérents avec la communauté KLIQUE et ses talents.
-                </p>
-                <p style={{ margin: "0.35rem 0 0", color: "#6b7280", maxWidth: "780px", lineHeight: 1.6, fontSize: "0.95rem" }}>
-                  Les opportunités sont des propositions accessibles aux membres KLIQUE. Manifester votre intérêt ne garantit pas une sélection ni une participation. Chaque opportunité peut être soumise à des critères, disponibilités ou validation de l’organisateur.
+                  Créez et pilotez les projets, shootings, événements et partenariats proposés à la communauté KLIQUE.
                 </p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
                 {canCreateOpportunity ? (
-                  <Button type="button" onClick={handleCreateOpportunity} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827" }}>
-                    Créer une opportunité
+                  <Button type="button" onClick={handleCreateOpportunity} style={{ borderRadius: "999px", padding: "0.7rem 1.05rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                    Nouvelle opportunité
                   </Button>
-                ) : null}
-                <Badge style={{ background: "#fef3c7", color: "#92400e", padding: "0.35rem 0.7rem" }}>Lecture seule</Badge>
+                ) : (
+                  <Badge style={{ background: "#fef3c7", color: "#92400e", padding: "0.35rem 0.7rem" }}>Lecture seule</Badge>
+                )}
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: "0.75rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <div style={{ display: "grid", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
                 {opportunityCategoryFilters.map((category) => {
                   const isActive = category === activeOpportunityCategory;
                   return (
@@ -1416,9 +1600,10 @@ export default function HubPage() {
                         background: isActive ? "#fff7ed" : "white",
                         color: isActive ? "#92400e" : "#374151",
                         borderRadius: "999px",
-                        padding: "0.58rem 0.8rem",
+                        padding: "0.35rem 0.7rem",
                         cursor: "pointer",
-                        fontWeight: 700,
+                        fontWeight: 600,
+                        fontSize: "0.85rem",
                       }}
                     >
                       {category}
@@ -1427,7 +1612,7 @@ export default function HubPage() {
                 })}
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
                 {opportunityStatusFilters.map((status) => {
                   const isActive = status === activeOpportunityStatus;
                   return (
@@ -1436,13 +1621,14 @@ export default function HubPage() {
                       type="button"
                       onClick={() => setActiveOpportunityStatus(status)}
                       style={{
-                        border: isActive ? "1px solid #f59e0b" : "1px solid #e5e7eb",
-                        background: isActive ? "#fff7ed" : "white",
-                        color: isActive ? "#92400e" : "#374151",
+                        border: isActive ? "1px solid #111827" : "1px solid #e5e7eb",
+                        background: isActive ? "#111827" : "white",
+                        color: isActive ? "#ffffff" : "#374151",
                         borderRadius: "999px",
-                        padding: "0.58rem 0.8rem",
+                        padding: "0.35rem 0.7rem",
                         cursor: "pointer",
-                        fontWeight: 700,
+                        fontWeight: 600,
+                        fontSize: "0.85rem",
                       }}
                     >
                       {status}
@@ -1454,66 +1640,184 @@ export default function HubPage() {
           </Card>
 
           {canCreateOpportunity && isOpportunityComposerOpen ? (
-            <Card style={{ padding: "1rem", display: "grid", gap: "0.9rem", border: "1px solid #f0e2d0", boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: "1.06rem", color: "#111827" }}>Créer une opportunité</h3>
-                  <p style={{ margin: "0.2rem 0 0", color: "#6b7280" }}>Préparez une nouvelle opportunité localement pour la communauté KLIQUE.</p>
+            <>
+              <div
+                aria-hidden
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(17, 24, 39, 0.55)",
+                  backdropFilter: "blur(2px)",
+                  WebkitBackdropFilter: "blur(2px)",
+                  zIndex: 60,
+                }}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Créer une opportunité"
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  padding: "1rem",
+                  zIndex: 61,
+                  pointerEvents: "none",
+                }}
+              >
+                <div
+                  style={{
+                    pointerEvents: "auto",
+                    padding: "1.15rem",
+                    display: "grid",
+                    gap: "1rem",
+                    width: "min(960px, 100%)",
+                    maxHeight: "calc(100vh - 2rem)",
+                    overflowY: "auto",
+                    background: "#ffffff",
+                    borderRadius: "20px",
+                    border: "1px solid #e5e7eb",
+                    boxShadow: "0 30px 70px rgba(17, 24, 39, 0.35)",
+                  }}
+                >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.8rem", flexWrap: "wrap" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "1.1rem", color: "#111827" }}>{editingOpportunityId ? "Modifier l’opportunité" : "Nouvelle opportunité"}</h3>
+                    <p style={{ margin: "0.2rem 0 0", color: "#6b7280" }}>Renseignez les informations proposées à la communauté KLIQUE.</p>
+                  </div>
+                  <Button type="button" onClick={handleCloseOpportunityComposer} style={{ borderRadius: "999px", padding: "0.6rem 0.9rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}>
+                    Fermer
+                  </Button>
                 </div>
-                <Button type="button" onClick={() => setIsOpportunityComposerOpen(false)} style={{ borderRadius: "999px", padding: "0.65rem 0.9rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}>
-                  Fermer
-                </Button>
-              </div>
 
-              <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-                <Input placeholder="Titre" value={opportunityForm.title} onChange={(event) => setOpportunityForm((current) => ({ ...current, title: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Select value={opportunityForm.category} onChange={(event) => setOpportunityForm((current) => ({ ...current, category: event.target.value as OpportunityCategory }))} style={{ width: "100%", borderRadius: "14px" }}>
-                  {(["Collaboration", "Shooting", "Événement", "Média", "Casting", "Partenariat", "Sport", "Autre"] as OpportunityCategory[]).map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </Select>
-                <Input placeholder="Organisation / auteur" value={opportunityForm.organisation} onChange={(event) => setOpportunityForm((current) => ({ ...current, organisation: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Input placeholder="Public concerné" value={opportunityForm.audience} onChange={(event) => setOpportunityForm((current) => ({ ...current, audience: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Input placeholder="Sport / domaine" value={opportunityForm.domain} onChange={(event) => setOpportunityForm((current) => ({ ...current, domain: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Input placeholder="Lieu" value={opportunityForm.location} onChange={(event) => setOpportunityForm((current) => ({ ...current, location: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Input placeholder="Date" value={opportunityForm.date} onChange={(event) => setOpportunityForm((current) => ({ ...current, date: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Input placeholder="Deadline" value={opportunityForm.deadline} onChange={(event) => setOpportunityForm((current) => ({ ...current, deadline: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
-                <Select value={opportunityForm.status} onChange={(event) => setOpportunityForm((current) => ({ ...current, status: event.target.value as OpportunityStatus }))} style={{ width: "100%", borderRadius: "14px" }}>
-                  {(["Brouillon", "Ouverte", "Bientôt", "Fermée"] as OpportunityStatus[]).map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+                <form onSubmit={handleSubmitOpportunity} style={{ display: "grid", gap: "1.1rem" }} noValidate>
+                  <section style={{ display: "grid", gap: "0.7rem" }}>
+                    <h4 style={{ margin: 0, fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#6b7280" }}>Informations principales</h4>
+                    <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Titre *</span>
+                        <Input value={opportunityForm.title} onChange={(event) => setOpportunityForm((current) => ({ ...current, title: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Type *</span>
+                        <Select value={opportunityForm.category} onChange={(event) => setOpportunityForm((current) => ({ ...current, category: event.target.value as OpportunityCategory }))} style={{ width: "100%", borderRadius: "14px" }}>
+                          {(["Collaboration", "Shooting", "Événement", "Média", "Casting", "Partenariat", "Sport", "Autre"] as OpportunityCategory[]).map((category) => (
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Organisation / auteur</span>
+                        <Input value={opportunityForm.organisation} onChange={(event) => setOpportunityForm((current) => ({ ...current, organisation: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Statut</span>
+                        <Select value={opportunityForm.status} onChange={(event) => setOpportunityForm((current) => ({ ...current, status: event.target.value as OpportunityStatus }))} style={{ width: "100%", borderRadius: "14px" }}>
+                          {(["Brouillon", "Ouverte", "Bientôt", "Fermée"] as OpportunityStatus[]).map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                    </div>
+                  </section>
 
-              <Textarea placeholder="Description complète" value={opportunityForm.fullDescription} onChange={(event) => setOpportunityForm((current) => ({ ...current, fullDescription: event.target.value }))} style={{ minHeight: "90px", width: "100%", borderRadius: "14px" }} />
-              <Textarea placeholder="Description courte" value={opportunityForm.description} onChange={(event) => setOpportunityForm((current) => ({ ...current, description: event.target.value }))} style={{ minHeight: "82px", width: "100%", borderRadius: "14px" }} />
-              <Textarea placeholder="Conditions / prérequis" value={opportunityForm.prerequisites} onChange={(event) => setOpportunityForm((current) => ({ ...current, prerequisites: event.target.value }))} style={{ minHeight: "82px", width: "100%", borderRadius: "14px" }} />
-              <Textarea placeholder="Informations pratiques" value={opportunityForm.practicalInfo} onChange={(event) => setOpportunityForm((current) => ({ ...current, practicalInfo: event.target.value }))} style={{ minHeight: "82px", width: "100%", borderRadius: "14px" }} />
+                  <section style={{ display: "grid", gap: "0.7rem" }}>
+                    <h4 style={{ margin: 0, fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#6b7280" }}>Dates et public</h4>
+                    <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Date</span>
+                        <Input value={opportunityForm.date} onChange={(event) => setOpportunityForm((current) => ({ ...current, date: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Deadline</span>
+                        <Input value={opportunityForm.deadline} onChange={(event) => setOpportunityForm((current) => ({ ...current, deadline: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Lieu</span>
+                        <Input value={opportunityForm.location} onChange={(event) => setOpportunityForm((current) => ({ ...current, location: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Public concerné</span>
+                        <Input value={opportunityForm.audience} onChange={(event) => setOpportunityForm((current) => ({ ...current, audience: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                        <span>Sport / domaine</span>
+                        <Input value={opportunityForm.domain} onChange={(event) => setOpportunityForm((current) => ({ ...current, domain: event.target.value }))} style={{ width: "100%", borderRadius: "14px" }} />
+                      </label>
+                    </div>
+                  </section>
 
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button type="button" onClick={handlePublishOpportunity} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "linear-gradient(135deg, #f59e0b 0%, #fb923c 100%)", color: "#fff", border: "1px solid #f59e0b" }}>
-                  Publier l’opportunité
-                </Button>
+                  <section style={{ display: "grid", gap: "0.7rem" }}>
+                    <h4 style={{ margin: 0, fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.08em", color: "#6b7280" }}>Détails</h4>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                      <span>Description *</span>
+                      <Textarea value={opportunityForm.fullDescription} onChange={(event) => setOpportunityForm((current) => ({ ...current, fullDescription: event.target.value }))} style={{ minHeight: "110px", width: "100%", borderRadius: "14px" }} />
+                    </label>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                      <span>Conditions / prérequis</span>
+                      <Textarea value={opportunityForm.prerequisites} onChange={(event) => setOpportunityForm((current) => ({ ...current, prerequisites: event.target.value }))} style={{ minHeight: "82px", width: "100%", borderRadius: "14px" }} />
+                    </label>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem", fontWeight: 600 }}>
+                      <span>Informations pratiques</span>
+                      <Textarea value={opportunityForm.practicalInfo} onChange={(event) => setOpportunityForm((current) => ({ ...current, practicalInfo: event.target.value }))} style={{ minHeight: "82px", width: "100%", borderRadius: "14px" }} />
+                    </label>
+                  </section>
+
+                  {opportunityFormError ? (
+                    <p role="alert" style={{ margin: 0, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
+                      {opportunityFormError}
+                    </p>
+                  ) : null}
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" }}>
+                    <Button type="button" onClick={handleCloseOpportunityComposer} style={{ borderRadius: "999px", padding: "0.7rem 1.05rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}>
+                      Annuler
+                    </Button>
+                    <Button type="submit" style={{ borderRadius: "999px", padding: "0.7rem 1.05rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                      {editingOpportunityId
+                        ? "Enregistrer les modifications"
+                        : opportunityForm.status === "Brouillon"
+                          ? "Enregistrer le brouillon"
+                          : "Publier l’opportunité"}
+                    </Button>
+                  </div>
+                </form>
+                </div>
               </div>
-            </Card>
+            </>
           ) : null}
 
           {selectedOpportunity ? (
             <Card style={{ padding: "1rem", display: "grid", gap: "1rem", border: "1px solid #f0e2d0", boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.8rem", flexWrap: "wrap" }}>
                 <div>
-                  <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>DÉTAIL DE L’OPPORTUNITÉ</p>
+                  <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>GESTION DE L’OPPORTUNITÉ</p>
                   <h3 style={{ margin: "0.3rem 0 0", fontSize: "1.2rem", color: "#111827" }}>{selectedOpportunity.title}</h3>
                 </div>
                 <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
                   <Button type="button" onClick={() => setSelectedOpportunityId(null)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem" }}>
                     ← Retour aux opportunités
                   </Button>
-                  {interestedOpportunities[selectedOpportunity.id] ? (
+                  {canCreateOpportunity ? (
+                    <>
+                      <Button type="button" onClick={() => handleEditOpportunity(selectedOpportunity)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}>
+                        Modifier
+                      </Button>
+                      {selectedOpportunity.status === "Brouillon" ? (
+                        <Button type="button" onClick={() => handlePublishDraftOpportunity(selectedOpportunity)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                          Publier
+                        </Button>
+                      ) : null}
+                      <Button type="button" onClick={() => handleDeleteOpportunity(selectedOpportunity)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
+                        Supprimer
+                      </Button>
+                    </>
+                  ) : interestedOpportunities[selectedOpportunity.id] ? (
                     <Button type="button" onClick={() => handleToggleInterest(selectedOpportunity.id)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", background: "#fff7ed", color: "#92400e", border: "1px solid #f5d6b0" }}>
                       Annuler l’intérêt
                     </Button>
@@ -1524,6 +1828,12 @@ export default function HubPage() {
                   )}
                 </div>
               </div>
+
+              {opportunityActionError ? (
+                <p role="alert" style={{ margin: 0, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
+                  {opportunityActionError}
+                </p>
+              ) : null}
 
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
                 <Badge style={{ background: "#fef3c7", color: "#92400e", padding: "0.3rem 0.6rem" }}>{selectedOpportunity.category}</Badge>
@@ -1567,6 +1877,139 @@ export default function HubPage() {
                   <p style={{ margin: 0 }}>{selectedOpportunity.practicalInfo}</p>
                 </div>
               </div>
+
+              {isShootingDetail ? (
+                <div style={{ display: "grid", gap: "0.9rem", borderTop: "1px solid #f0e2d0", paddingTop: "1rem" }}>
+                  <div>
+                    <h4 style={{ margin: "0 0 0.2rem", color: "#111827" }}>Créneaux de shooting</h4>
+                    <p style={{ margin: 0, color: "#6b7280" }}>Gérez les créneaux et les demandes des athlètes pour cette opportunité.</p>
+                  </div>
+
+                  {slotsError ? (
+                    <div role="alert" style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
+                      {slotsError}
+                    </div>
+                  ) : null}
+
+                  <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end" }}>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem" }}>
+                      <span>Début</span>
+                      <Input
+                        type="datetime-local"
+                        value={slotForm.startsAt}
+                        onChange={(event) => setSlotForm((current) => ({ ...current, startsAt: event.target.value }))}
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem" }}>
+                      <span>Fin</span>
+                      <Input
+                        type="datetime-local"
+                        value={slotForm.endsAt}
+                        onChange={(event) => setSlotForm((current) => ({ ...current, endsAt: event.target.value }))}
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: "0.3rem", color: "#374151", fontSize: "0.9rem" }}>
+                      <span>Capacité</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={slotForm.capacity}
+                        onChange={(event) => setSlotForm((current) => ({ ...current, capacity: event.target.value }))}
+                      />
+                    </label>
+                    <Button type="button" onClick={handleAddSlot} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem" }}>
+                      Ajouter un créneau
+                    </Button>
+                  </div>
+
+                  {slotsLoading ? (
+                    <p style={{ margin: 0, color: "#6b7280" }} aria-live="polite">Chargement des créneaux...</p>
+                  ) : slots.length === 0 ? (
+                    <EmptyState style={{ border: "1px dashed #d1d5db", padding: "1rem", textAlign: "center" }}>
+                      <h3 style={{ margin: "0 0 0.25rem", color: "#111827" }}>Aucun créneau</h3>
+                      <p style={{ margin: 0, color: "#6b7280" }}>Ajoutez un premier créneau pour permettre aux athlètes d’en demander un.</p>
+                    </EmptyState>
+                  ) : (
+                    <div style={{ display: "grid", gap: "0.8rem" }}>
+                      {slots.map((slot) => {
+                        const requestsForSlot = slotRequests.filter((slotRequest) => slotRequest.slotId === slot.id);
+                        const confirmedCount = requestsForSlot.filter((slotRequest) => slotRequest.status === "confirmed").length;
+
+                        return (
+                          <Card key={slot.id} style={{ padding: "0.9rem", display: "grid", gap: "0.7rem", border: "1px solid #f0e2d0" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+                              <div style={{ color: "#4b5563" }}>
+                                <strong style={{ color: "#111827" }}>{formatSlotDate(slot.startsAt)}</strong>
+                                <span> • {formatSlotTime(slot.startsAt)} – {formatSlotTime(slot.endsAt)}</span>
+                              </div>
+                              <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                                <Badge style={{ background: "#f3f4f6", color: "#374151", padding: "0.3rem 0.6rem" }}>
+                                  {confirmedCount} / {slot.capacity} confirmé(s)
+                                </Badge>
+                                <Badge style={{ background: slot.status === "open" ? "#ecfdf5" : slot.status === "closed" ? "#f3f4f6" : "#fef2f2", color: slot.status === "open" ? "#047857" : slot.status === "closed" ? "#6b7280" : "#b91c1c", padding: "0.3rem 0.6rem" }}>
+                                  {slotStatusLabels[slot.status]}
+                                </Badge>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                              {slot.status !== "open" ? (
+                                <Button type="button" onClick={() => handleSlotStatusChange(slot.id, "open")} style={{ borderRadius: "999px", padding: "0.5rem 0.85rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                                  Ouvrir
+                                </Button>
+                              ) : (
+                                <Button type="button" onClick={() => handleSlotStatusChange(slot.id, "closed")} style={{ borderRadius: "999px", padding: "0.5rem 0.85rem", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                                  Fermer
+                                </Button>
+                              )}
+
+                              <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                                {slot.status !== "open" && slot.status !== "closed" ? (
+                                  <Button type="button" onClick={() => handleSlotStatusChange(slot.id, "closed")} style={{ borderRadius: "999px", padding: "0.5rem 0.8rem", background: "#f3f4f6", color: "#374151", border: "1px solid #e5e7eb" }}>
+                                    Fermer
+                                  </Button>
+                                ) : null}
+                                {slot.status !== "cancelled" ? (
+                                  <Button type="button" onClick={() => handleSlotStatusChange(slot.id, "cancelled")} style={{ borderRadius: "999px", padding: "0.5rem 0.8rem", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
+                                    Annuler
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {requestsForSlot.length === 0 ? (
+                              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>Aucune demande pour ce créneau.</p>
+                            ) : (
+                              <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: "0.5rem" }}>
+                                {requestsForSlot.map((slotRequest) => (
+                                  <li key={slotRequest.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", borderTop: "1px solid #f3f4f6", paddingTop: "0.5rem" }}>
+                                    <div style={{ color: "#374151" }}>
+                                      <strong style={{ color: "#111827" }}>{athleteNames[slotRequest.athleteId] || slotRequest.athleteId}</strong>
+                                      <span> • {slotRequestStatusLabels[slotRequest.status]}</span>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "confirmed")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                        Confirmer
+                                      </Button>
+                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "declined")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                        Refuser
+                                      </Button>
+                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "cancelled")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                        Annuler
+                                      </Button>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </Card>
           ) : (
             <>
@@ -1593,28 +2036,41 @@ export default function HubPage() {
                         <p style={{ margin: "0.35rem 0 0", color: "#6b7280", lineHeight: 1.6 }}>{opportunity.description}</p>
                       </div>
 
-                      <div style={{ display: "grid", gap: "0.45rem", color: "#4b5563", fontSize: "0.95rem" }}>
-                        <div><strong style={{ color: "#111827" }}>Organisation :</strong> {opportunity.organisation}</div>
-                        <div><strong style={{ color: "#111827" }}>Public concerné :</strong> {opportunity.audience}</div>
-                        <div><strong style={{ color: "#111827" }}>Sport / domaine :</strong> {opportunity.domain}</div>
+                      <div style={{ display: "grid", gap: "0.35rem", color: "#4b5563", fontSize: "0.92rem" }}>
+                        <div><strong style={{ color: "#111827" }}>Date :</strong> {opportunity.date}</div>
                         <div><strong style={{ color: "#111827" }}>Lieu :</strong> {opportunity.location}</div>
-                        <div><strong style={{ color: "#111827" }}>Date / deadline :</strong> {opportunity.date} • {opportunity.deadline}</div>
+                        <div><strong style={{ color: "#111827" }}>Deadline :</strong> {opportunity.deadline}</div>
                       </div>
 
-                      <Button type="button" onClick={() => setSelectedOpportunityId(opportunity.id)} style={{ borderRadius: "999px", padding: "0.7rem 0.95rem", alignSelf: "flex-start" }}>
-                        Voir l’opportunité
+                      <Button type="button" onClick={() => setSelectedOpportunityId(opportunity.id)} style={{ borderRadius: "999px", padding: "0.65rem 1rem", alignSelf: "flex-start", background: "linear-gradient(135deg, #111827 0%, #374151 100%)", color: "#fff", border: "1px solid #111827", fontWeight: 700 }}>
+                        Gérer l’opportunité
                       </Button>
                     </Card>
                   );
                 })}
               </div>
 
-              {visibleOpportunities.length === 0 ? (
-                <Card style={{ padding: "1rem" }}>
-                  <EmptyState style={{ border: "1px dashed #d1d5db", padding: "1rem", textAlign: "center" }}>
-                    <h3 style={{ margin: "0 0 0.25rem", color: "#111827" }}>Aucune opportunité pour ce filtre</h3>
-                    <p style={{ margin: 0, color: "#6b7280" }}>Essayez un autre type ou un autre statut pour découvrir d’autres projets.</p>
+              {visibleOpportunities.length === 0 && !opportunitiesLoading && !opportunitiesError ? (
+                <Card style={{ padding: "0.9rem" }}>
+                  <EmptyState style={{ border: "1px dashed #d1d5db", padding: "0.85rem", textAlign: "center" }}>
+                    <h3 style={{ margin: "0 0 0.2rem", color: "#111827", fontSize: "1rem" }}>Aucune opportunité pour ce filtre</h3>
+                    <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>Changez de type ou de statut, ou créez une nouvelle opportunité.</p>
                   </EmptyState>
+                </Card>
+              ) : null}
+
+              {opportunitiesLoading ? (
+                <Card style={{ padding: "1rem" }}>
+                  <p style={{ margin: 0, color: "#6b7280" }} aria-live="polite">Chargement des opportunités...</p>
+                </Card>
+              ) : null}
+
+              {opportunitiesError ? (
+                <Card style={{ padding: "1rem" }}>
+                  <div role="alert" style={{ display: "grid", gap: "0.35rem" }}>
+                    <h3 style={{ margin: 0, color: "#b91c1c" }}>Impossible de charger les opportunités</h3>
+                    <p style={{ margin: 0, color: "#6b7280" }}>{opportunitiesError}</p>
+                  </div>
                 </Card>
               ) : null}
             </>

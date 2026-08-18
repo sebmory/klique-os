@@ -10,9 +10,10 @@ type HeaderProps = {
   pathname: string;
   onOpenMobileSidebar: () => void;
   isAdmin?: boolean;
+  isAthlete?: boolean;
 };
 
-export function Header({ pathname, onOpenMobileSidebar, isAdmin = false }: HeaderProps) {
+export function Header({ pathname, onOpenMobileSidebar, isAdmin = false, isAthlete = false }: HeaderProps) {
   return (
     <header className="klique-header">
       <div className="header-left">
@@ -35,7 +36,7 @@ export function Header({ pathname, onOpenMobileSidebar, isAdmin = false }: Heade
         <div className="desktop-hidden">
           <GlobalSearch compact />
         </div>
-        <NotificationsMenu isAdmin={isAdmin} />
+        <NotificationsMenu isAdmin={isAdmin} isAthlete={isAthlete} />
         <UserMenu />
       </div>
     </header>
