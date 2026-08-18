@@ -22,13 +22,6 @@ export type SearchEntry = {
   href: string;
 };
 
-export type NotificationItem = {
-  id: string;
-  text: string;
-  unread: boolean;
-  dateLabel: string;
-};
-
 export const workspaces: Workspace[] = [
   { id: "klique-os", name: "KLIQUE OS", description: "Workspace principal", monogram: "KO" },
   { id: "klique-agency", name: "KLIQUE Agency", description: "Agence", monogram: "KA" },
@@ -69,31 +62,4 @@ export const commandEntries: SearchEntry[] = [
   { id: "media-1", label: "Portraits Premium Avril", category: "Medias", href: "/media" },
   { id: "action-1", label: "Creer une personne", category: "Actions rapides", href: "/crm" },
   { id: "action-2", label: "Creer un projet", category: "Actions rapides", href: "/projects" },
-];
-
-export const notificationsSeed: NotificationItem[] = [
-  {
-    id: "notif-1",
-    text: "Nouveau media ajoute au projet Shooting portraits KLIQUE.",
-    unread: true,
-    dateLabel: "il y a 4 min",
-  },
-  {
-    id: "notif-2",
-    text: "Elfic Fribourg a ete lie a une nouvelle personne.",
-    unread: true,
-    dateLabel: "il y a 22 min",
-  },
-  {
-    id: "notif-3",
-    text: "Un evenement commence demain a 11 h.",
-    unread: false,
-    dateLabel: "aujourd'hui",
-  },
-  {
-    id: "notif-4",
-    text: "Une nouvelle activite a ete enregistree dans le CRM.",
-    unread: false,
-    dateLabel: "hier",
-  },
 ];

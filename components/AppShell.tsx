@@ -155,6 +155,7 @@ export function AppShell({ children }: AppShellProps) {
         <Header
           pathname={pathname}
           onOpenMobileSidebar={() => setMobileOpen(true)}
+          isAdmin={userAccess.role === "admin"}
         />
         <main className="klique-main-content">{children}</main>
       </div>
