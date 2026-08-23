@@ -570,7 +570,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               <span>Sujet: {reelDocument.sidebar.subject}</span>
               <span>Cree le: {formatDateTime(reelDocument.createdAt)}</span>
               <span>Derniere modification: {formatDateTime(reelDocument.updatedAt)}</span>
-              <span>{hasUnsavedChanges ? "Modifications non enregistrees" : "Enregistre"}</span>
+              <span>{isCloudSaved && !hasUnsavedChanges ? "Enregistre" : "Modifications non enregistrees"}</span>
             </div>
           </div>
 
@@ -580,9 +580,16 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer"}
               </button>
             ) : (
-              <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
-                <PenLine size={15} aria-hidden /> Modifier
-              </button>
+              <>
+                {!isCloudSaved || hasUnsavedChanges ? (
+                  <button type="button" className="crm-primary-action" onClick={saveDraft} disabled={saveState.saving}>
+                    <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer le brouillon"}
+                  </button>
+                ) : null}
+                <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
+                  <PenLine size={15} aria-hidden /> Modifier
+                </button>
+              </>
             )}
 
             <button
@@ -910,7 +917,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               <span>Sujet: {publicationDocument.sidebar.subject}</span>
               <span>Cree le: {formatDateTime(publicationDocument.createdAt)}</span>
               <span>Derniere modification: {formatDateTime(publicationDocument.updatedAt)}</span>
-              <span>{hasUnsavedChanges ? "Modifications non enregistrees" : "Enregistre"}</span>
+              <span>{isCloudSaved && !hasUnsavedChanges ? "Enregistre" : "Modifications non enregistrees"}</span>
             </div>
           </div>
 
@@ -920,9 +927,16 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer"}
               </button>
             ) : (
-              <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
-                <PenLine size={15} aria-hidden /> Modifier
-              </button>
+              <>
+                {!isCloudSaved || hasUnsavedChanges ? (
+                  <button type="button" className="crm-primary-action" onClick={saveDraft} disabled={saveState.saving}>
+                    <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer le brouillon"}
+                  </button>
+                ) : null}
+                <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
+                  <PenLine size={15} aria-hidden /> Modifier
+                </button>
+              </>
             )}
 
             <button
@@ -1161,7 +1175,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
             <span>Sujet: {interviewDocument.sidebar.subject}</span>
             <span>Cree le: {formatDateTime(interviewDocument.createdAt)}</span>
             <span>Derniere modification: {formatDateTime(interviewDocument.updatedAt)}</span>
-            <span>{hasUnsavedChanges ? "Modifications non enregistrees" : "Enregistre"}</span>
+            <span>{isCloudSaved && !hasUnsavedChanges ? "Enregistre" : "Modifications non enregistrees"}</span>
           </div>
         </div>
 
@@ -1171,9 +1185,16 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer"}
             </button>
           ) : (
-            <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
-              <PenLine size={15} aria-hidden /> Modifier
-            </button>
+            <>
+              {!isCloudSaved || hasUnsavedChanges ? (
+                <button type="button" className="crm-primary-action" onClick={saveDraft} disabled={saveState.saving}>
+                  <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer le brouillon"}
+                </button>
+              ) : null}
+              <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
+                <PenLine size={15} aria-hidden /> Modifier
+              </button>
+            </>
           )}
 
           <button

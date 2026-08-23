@@ -163,7 +163,10 @@ const validatePublicationSections = (value: unknown): void => {
   requireString(sections.editorialAngle, "sections.editorialAngle");
   requireString(sections.hook, "sections.hook");
   requireString(sections.text, "sections.text");
-  requireString(sections.cta, "sections.cta");
+  // Un CTA vide est valide pour une publication : seul le type est contraint.
+  if (typeof sections.cta !== "string") {
+    throw new ContentStorageValidationError("sections.cta doit etre une chaine.");
+  }
   requireStringArray(sections.hashtags, "sections.hashtags");
   requireString(sections.visualSuggestion, "sections.visualSuggestion");
   requireString(sections.editorialNote, "sections.editorialNote");

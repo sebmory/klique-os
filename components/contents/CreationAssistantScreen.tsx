@@ -92,9 +92,9 @@ const interviewSteps: Array<{ id: StepId; label: string }> = [
 const publicationSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
   { id: "objective", label: "Etape 2" },
-  { id: "angle", label: "Etape 3" },
-  { id: "parameters", label: "Etape 4" },
-  { id: "context", label: "Etape 5" },
+  { id: "parameters", label: "Etape 3" },
+  { id: "context", label: "Etape 4" },
+  { id: "angle", label: "Etape 5" },
   { id: "summary", label: "Etape 6" },
 ];
 
@@ -1891,6 +1891,37 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               />
             </label>
           </section>
+
+          <section className="creation-panel">
+            <header>
+              <h3>Contexte intelligent</h3>
+              <p>Utiliser les donnees du workspace et, si active, des sources externes verifiables pour mieux contextualiser le contenu.</p>
+            </header>
+
+            <label className="creation-disabled-check">
+              <input
+                type="checkbox"
+                checked={draft.parameters.useContextIntelligence}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: {
+                      ...current.parameters,
+                      useContextIntelligence: event.target.checked,
+                    },
+                  }))
+                }
+              />
+              <span>Enrichir avec le contexte intelligent</span>
+            </label>
+            <ul className="creation-context-list">
+              <li><strong>CRM</strong><small>Donnees internes du workspace</small></li>
+              <li><strong>Productions</strong><small>Contenus et activites deja produits</small></li>
+              <li><strong>Contexte manuel</strong><small>Elements saisis dans l assistant</small></li>
+              <li><strong>Actualite externe</strong><small>Sources verifiables optionnelles</small></li>
+            </ul>
+            <p className="creation-muted">La recherche est lancee uniquement a l etape Contexte intelligent.</p>
+          </section>
         </section>
       );
     }
@@ -2092,7 +2123,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderContextStep = () => {
-    const title = isPublicationFlow ? "Verification" : "Preparation du contexte";
+    const title = isPublicationFlow ? "Contexte intelligent" : "Preparation du contexte";
 
     if (!draft.parameters.useContextIntelligence) {
       return (
@@ -2100,7 +2131,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <header className="creation-step-head">
             <h2 id="creation-context-title">{title}</h2>
           </header>
-          <p className="creation-muted">Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu.</p>
+          <p className="creation-muted">{isPublicationFlow ? "Le contexte intelligent est desactive. Activez l option \"Enrichir avec le contexte intelligent\" a l etape precedente pour utiliser les donnees du workspace." : "Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu."}</p>
         </section>
       );
     }

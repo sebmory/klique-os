@@ -24,6 +24,19 @@ vi.mock("@/lib/content-storage/repository", () => ({
   ContentStorageRepository: repo,
 }));
 
+vi.mock("@/lib/content-storage/access", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/content-storage/access")>();
+  return {
+    ...actual,
+    requireContentAccess: vi.fn().mockResolvedValue({
+      clerkUserId: "user-1",
+      workspaceId: "klique-os",
+      role: "admin",
+      isAdmin: true,
+    }),
+  };
+});
+
 const makeJsonRequest = (body: unknown): Request => {
   return new Request("http://localhost", {
     method: "POST",
@@ -192,7 +205,7 @@ describe("content storage API routes", () => {
 
     const getResponse = await getDraft(new Request("http://localhost") as Request, { params: Promise.resolve({ id: "document-1" }) });
     expect(getResponse.status).toBe(200);
-    expect(repo.getDraft).toHaveBeenCalledWith("document-1");
+    expect(repo.getDraft).toHaveBeenCalledWith("document-1", expect.objectContaining({ workspaceId: "klique-os" }));
   });
 
   it("rejects draft update when the version is stale", async () => {
@@ -228,5 +241,29 @@ describe("content storage API routes", () => {
   it("rejects invalid payloads", async () => {
     const response = await postDraft(makeJsonRequest({ document: { id: "" } }));
     expect(response.status).toBe(400);
+  });
+
+  it("accepts an empty publication cta but rejects a non-string cta", () => {
+    const publicationDocument = {
+      ...validDocument,
+      type: "publication",
+      sections: {
+        title: "Titre",
+        editorialAngle: "Angle",
+        hook: "Accroche",
+        text: "Texte",
+        cta: "",
+        hashtags: [],
+        visualSuggestion: "Visuel",
+        editorialNote: "Note",
+      },
+    };
+
+    expect(() => validateContentDocumentWriteBody({ document: publicationDocument })).not.toThrow();
+    expect(() =>
+      validateContentDocumentWriteBody({
+        document: { ...publicationDocument, sections: { ...publicationDocument.sections, cta: 42 } },
+      }),
+    ).toThrow(/sections\.cta/);
   });
 });
