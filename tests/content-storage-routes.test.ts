@@ -266,4 +266,42 @@ describe("content storage API routes", () => {
       }),
     ).toThrow(/sections\.cta/);
   });
+
+  it("accepts an empty reel scene voiceOver but rejects a non-string voiceOver", () => {
+    const scene = {
+      id: "scene-1",
+      order: 1,
+      durationSeconds: 5,
+      role: "hook",
+      shotPlan: "Plan large",
+      action: "Action",
+      onScreenText: "Texte",
+      voiceOver: "",
+      bRoll: "B-roll",
+      transition: "Cut",
+      ambianceMusic: "Ambiance",
+    };
+    const reelDocument = {
+      ...validDocument,
+      type: "reel",
+      sections: {
+        title: "Titre",
+        editorialAngle: "Angle",
+        hook: "Accroche",
+        concept: "Concept",
+        scenes: [scene],
+        cta: "CTA",
+        caption: "Legende",
+        hashtags: [],
+        coverIdea: "Cover",
+      },
+    };
+
+    expect(() => validateContentDocumentWriteBody({ document: reelDocument })).not.toThrow();
+    expect(() =>
+      validateContentDocumentWriteBody({
+        document: { ...reelDocument, sections: { ...reelDocument.sections, scenes: [{ ...scene, voiceOver: 42 }] } },
+      }),
+    ).toThrow(/sections\.scenes\[0\]\.voiceOver/);
+  });
 });

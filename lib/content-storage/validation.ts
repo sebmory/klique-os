@@ -190,7 +190,10 @@ const validateReelSections = (value: unknown): void => {
     requireString(item.shotPlan, `sections.scenes[${index}].shotPlan`);
     requireString(item.action, `sections.scenes[${index}].action`);
     requireString(item.onScreenText, `sections.scenes[${index}].onScreenText`);
-    requireString(item.voiceOver, `sections.scenes[${index}].voiceOver`);
+    // Une scene peut ne comporter aucune voix off : seul le type est contraint.
+    if (typeof item.voiceOver !== "string") {
+      throw new ContentStorageValidationError(`sections.scenes[${index}].voiceOver doit etre une chaine.`);
+    }
     requireString(item.bRoll, `sections.scenes[${index}].bRoll`);
     requireString(item.transition, `sections.scenes[${index}].transition`);
     requireString(item.ambianceMusic, `sections.scenes[${index}].ambianceMusic`);
