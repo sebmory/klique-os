@@ -18,6 +18,7 @@ import type {
   ReelGenerationRequest,
   ReelGenerationResult,
 } from "@/types/content-generation";
+import type { AiUsageGenerationContext } from "@/types/ai-usage";
 
 const resolveProvider = (): ContentGenerationProvider => {
   if (contentIntelligenceConfig.defaultProvider === "openai") {
@@ -40,7 +41,9 @@ const attemptGenerate = async (
   provider: ContentGenerationProvider,
   request: AnyContentGenerationRequest,
   missingInformation: string[],
-  correctionFeedback?: string
+  correctionFeedback: string | undefined,
+  usageContext: AiUsageGenerationContext | undefined,
+  retryNumber: number
 ) => {
   const template = resolveTemplate(request.template.key);
   if (!template) {
@@ -53,7 +56,12 @@ const attemptGenerate = async (
     promptVersion: contentIntelligenceConfig.promptVersion,
   });
 
-  const result = await provider.generateJson({ request, prompt, correctionFeedback });
+  const result = await provider.generateJson({
+    request,
+    prompt,
+    correctionFeedback,
+    usageContext: usageContext ? { ...usageContext, retryNumber } : undefined,
+  });
   return mergeMissingInformation(result, missingInformation);
 };
 
@@ -72,23 +80,23 @@ const buildCorrectionFeedback = (error: ContentGenerationError, questionCount: n
   ].join(" ");
 };
 
-export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "interview" } }): Promise<{
+export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "interview" } }, usageContext?: AiUsageGenerationContext): Promise<{
   request: InterviewGenerationRequest;
   result: InterviewGenerationResult;
 }>;
-export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "publication" } }): Promise<{
+export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "publication" } }, usageContext?: AiUsageGenerationContext): Promise<{
   request: PublicationGenerationRequest;
   result: PublicationGenerationResult;
 }>;
-export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "reel" } }): Promise<{
+export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "reel" } }, usageContext?: AiUsageGenerationContext): Promise<{
   request: ReelGenerationRequest;
   result: ReelGenerationResult;
 }>;
-export function runContentIntelligenceEngine(payload: CreationPreparationPayload): Promise<{
+export function runContentIntelligenceEngine(payload: CreationPreparationPayload, usageContext?: AiUsageGenerationContext): Promise<{
   request: AnyContentGenerationRequest;
   result: AnyContentGenerationResult;
 }>;
-export async function runContentIntelligenceEngine(payload: CreationPreparationPayload): Promise<{
+export async function runContentIntelligenceEngine(payload: CreationPreparationPayload, usageContext?: AiUsageGenerationContext): Promise<{
   request: AnyContentGenerationRequest;
   result: AnyContentGenerationResult;
 }> {
@@ -100,7 +108,7 @@ export async function runContentIntelligenceEngine(payload: CreationPreparationP
     let correctionFeedback: string | undefined;
     for (let attempt = 0; attempt <= contentIntelligenceConfig.maxInvalidJsonRetries; attempt += 1) {
       try {
-        const result = await attemptGenerate(provider, request, missingInformation, correctionFeedback);
+        const result = await attemptGenerate(provider, request, missingInformation, correctionFeedback, usageContext, attempt);
         return { request, result };
       } catch (error) {
         lastError = error;
@@ -120,7 +128,10 @@ export async function runContentIntelligenceEngine(payload: CreationPreparationP
   }
 }
 
-export const runPublicationAngleSuggestionsEngine = async (request: PublicationGenerationRequest): Promise<PublicationAngleSuggestion[]> => {
+export const runPublicationAngleSuggestionsEngine = async (
+  request: PublicationGenerationRequest,
+  usageContext?: AiUsageGenerationContext
+): Promise<PublicationAngleSuggestion[]> => {
   try {
     const provider = resolveProvider();
     const angleContext = {
@@ -147,35 +158,49 @@ export const runPublicationAngleSuggestionsEngine = async (request: PublicationG
     };
 
     const prompt = [
-      "Mission: proposer 3 a 5 angles editoriaux contextualises.",
+      "Mission: proposer exactement 3 angles editoriaux contextualises, mutuellement distincts, chacun avec une promesse editoriale propre.",
       "Contraintes:",
       "- Utiliser uniquement le sujet, sport/secteur, objectif et faits disponibles.",
       "- Eviter toute invention de faits.",
-      "- Chaque angle doit etre concret, actionnable et distinct.",
+      "- Produire exactement 3 angles, jamais plus, jamais moins.",
+      "- Angle 1: promesse factuelle / directe (l information ou l actualite la plus utile, traitee de facon nette).",
+      "- Angle 2: promesse humaine / storytelling (parcours, contraste, moment marquant).",
+      "- Angle 3: promesse communautaire / conversationnelle (engagement, echange, point de vue partage avec l audience).",
+      "- Les 3 angles doivent etre mutuellement exclusifs: interdiction stricte de proposer 3 reformulations de la meme idee sous des titres differents.",
+      "- Chaque angle doit etre concret, actionnable et immediatement reconnaissable comme distinct des deux autres.",
       "- Eviter les angles vagues, creux ou interchangeables.",
       "- Eviter les formulations de type introduction d interview.",
       "- Prioriser les faits reels disponibles et l enjeu editorial du moment.",
       "- Adapter les angles a la plateforme cible, au ton et au public vise.",
-      "- Varier les traitements: informationnel, storytelling humain, social engageant.",
       "- Repondre strictement au schema JSON impose.",
       "Contexte:",
       JSON.stringify(angleContext, null, 2),
     ].join("\n\n");
 
-    return await provider.generatePublicationAngles({ request, prompt });
+    return await provider.generatePublicationAngles({
+      request,
+      prompt,
+      usageContext: usageContext ? { ...usageContext, retryNumber: 0 } : undefined,
+    });
   } catch (error) {
     throw toContentGenerationError(error);
   }
 };
 
-export const runPublicationRegenerateOneEngine = async (args: {
-  request: PublicationGenerationRequest;
-  result: PublicationGenerationResult;
-  proposalId: string;
-}): Promise<PublicationRegenerateOneResult> => {
+export const runPublicationRegenerateOneEngine = async (
+  args: {
+    request: PublicationGenerationRequest;
+    result: PublicationGenerationResult;
+    proposalId: string;
+  },
+  usageContext?: AiUsageGenerationContext
+): Promise<PublicationRegenerateOneResult> => {
   try {
     const provider = resolveProvider();
-    return await provider.regeneratePublicationProposal(args);
+    return await provider.regeneratePublicationProposal({
+      ...args,
+      usageContext: usageContext ? { ...usageContext, retryNumber: 0 } : undefined,
+    });
   } catch (error) {
     throw toContentGenerationError(error);
   }

@@ -108,6 +108,11 @@ export const buildContentPrompt = (args: {
       "- La suggestion visuelle doit etre concrete et coherente avec les faits et le texte de la proposition.",
       "- Respecter strictement les elements a inclure et a eviter.",
       "- Si une information manque, rester prudent et factuel sans inventer ni remplir avec du texte vague.",
+      "- Chaque proposition doit correspondre strictement a son angle/traitement assigne (1: factuel/direct, 2: humain/storytelling, 3: communautaire/conversationnel), sans deriver vers un autre traitement.",
+      "- Chaque proposition doit se distinguer nettement des deux autres sur: l accroche, la structure, le vocabulaire, le rythme des phrases, la conclusion/CTA et la suggestion visuelle.",
+      "- Prioriser strictement les elements de contexte selectionnes comme source d information principale.",
+      "- Si le contexte selectionne est pauvre ou insuffisant, rester sobre et factuel plutot que d inventer un fait, un chiffre, une citation ou un detail absent.",
+      "- Eviter les titres ou accroches generiques, les repetitions d une proposition a l autre et toute formulation interchangeable entre les 3 propositions.",
       "- La forme de sortie est imposee par un schema JSON strict externe.",
     ].join("\n");
 

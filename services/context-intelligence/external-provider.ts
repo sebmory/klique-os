@@ -15,15 +15,67 @@ import type {
   WebResearchResult,
   WebResearchSource,
 } from "@/types/context-intelligence";
+import type { AiUsageGenerationContext } from "@/types/ai-usage";
 import { contextIntelligenceConfig } from "@/services/context-intelligence/config";
 import { ContextCollectionError } from "@/services/context-intelligence/errors";
 import { isSafeHttpUrl, normalize, normalizePublishedAt } from "@/services/context-intelligence/utils";
+import { recordAiUsageEvent } from "@/lib/ai-usage/repository";
+
+type OpenAIResponseUsageShape = {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number };
+};
 
 type OpenAIResponseShape = {
   id?: string;
   output_text?: string;
   output?: unknown[];
   incomplete_details?: unknown | null;
+  usage?: OpenAIResponseUsageShape;
+};
+
+// Journalise une phase de collecte externe sans jamais interrompre la recherche ou la normalisation.
+const recordExternalUsage = async (args: {
+  usageContext?: AiUsageGenerationContext;
+  operation: "external_web_search" | "external_normalization";
+  contentType: string;
+  model: string;
+  response?: OpenAIResponseShape;
+  toolCalls: number;
+  retryNumber: number;
+}): Promise<void> => {
+  if (!args.usageContext) return;
+
+  try {
+    await recordAiUsageEvent({
+      requestGroupId: args.usageContext.requestGroupId,
+      workspaceId: args.usageContext.workspaceId,
+      clerkUserId: args.usageContext.clerkUserId,
+      role: args.usageContext.role,
+      feature: "context_intelligence",
+      operation: args.operation,
+      contentType: args.contentType,
+      provider: "openai",
+      model: args.model,
+      providerResponseId: args.response?.id ?? null,
+      inputTokens: args.response?.usage?.input_tokens ?? 0,
+      cachedInputTokens: args.response?.usage?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: args.response?.usage?.output_tokens ?? 0,
+      totalTokens: args.response?.usage?.total_tokens ?? 0,
+      toolCalls: args.toolCalls,
+      retryNumber: args.retryNumber,
+      status: "succeeded",
+      usageJson: args.response?.usage ? (args.response.usage as unknown as Record<string, unknown>) : null,
+      estimatedCostMicroUsd: null,
+      pricingVersion: null,
+    });
+  } catch (error) {
+    console.error("[ai_usage] Failed to record external context usage event", {
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+  }
 };
 
 type OpenAIErrorLike = {
@@ -91,7 +143,7 @@ const createDiagnostics = (): ExternalSearchDiagnostics => ({
 
 export interface ExternalContextProvider {
   isAvailable(): Promise<boolean>;
-  search(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ExternalNewsSearchResult>;
+  search(request: ContextCollectionRequest, signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ExternalNewsSearchResult>;
 }
 
 const normalizationResponseSchema = {
@@ -682,7 +734,8 @@ const normalizeWithPhaseB = async (
   request: ContextCollectionRequest,
   webResearch: WebResearchResult,
   diagnostics: ExternalSearchDiagnostics,
-  parentSignal?: AbortSignal
+  parentSignal?: AbortSignal,
+  usageContext?: AiUsageGenerationContext
 ): Promise<ExternalNewsSearchItem[]> => {
   diagnostics.normalizationWasCalled = true;
 
@@ -727,6 +780,16 @@ const normalizeWithPhaseB = async (
   );
 
   await writeNormalizationResponseDebugFile(normalizationResponse);
+
+  await recordExternalUsage({
+    usageContext,
+    operation: "external_normalization",
+    contentType: request.contentType,
+    model,
+    response: normalizationResponse,
+    toolCalls: 0,
+    retryNumber: 0,
+  });
 
   const normalizationExtraction = extractResponseTextDetails(normalizationResponse);
   diagnostics.normalizationOutputItemCount = normalizationExtraction.outputItemCount;
@@ -810,7 +873,7 @@ class OpenAIExternalContextProvider implements ExternalContextProvider {
     return Boolean(this.getClient());
   }
 
-  async search(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ExternalNewsSearchResult> {
+  async search(request: ContextCollectionRequest, signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ExternalNewsSearchResult> {
     const client = this.getClient();
     if (!client) {
       throw new ContextCollectionError("EXTERNAL_SEARCH_NOT_CONFIGURED", "Provider externe non configure.");
@@ -866,8 +929,18 @@ class OpenAIExternalContextProvider implements ExternalContextProvider {
       diagnostics.sourceCount = collectWebResearchSources(phaseAResponse).length;
       diagnostics.outputTextLength = collectResponseText(phaseAResponse).length;
 
+      await recordExternalUsage({
+        usageContext,
+        operation: "external_web_search",
+        contentType: request.contentType,
+        model,
+        response: phaseAResponse,
+        toolCalls: diagnostics.webSearchCallCount,
+        retryNumber: 0,
+      });
+
       const webResearch = extractWebResearchResult(phaseAResponse, request);
-      const items = await normalizeWithPhaseB(client, request, webResearch, diagnostics, signal);
+      const items = await normalizeWithPhaseB(client, request, webResearch, diagnostics, signal, usageContext);
 
       if (process.env.NODE_ENV !== "production") {
         console.info(

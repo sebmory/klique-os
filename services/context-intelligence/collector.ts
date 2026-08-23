@@ -12,6 +12,8 @@ import { contextIntelligenceConfig } from "@/services/context-intelligence/confi
 import { resolveConnector } from "@/services/context-intelligence/connectors";
 import { ContextCollectionError } from "@/services/context-intelligence/errors";
 import { dedupeContextItems, normalize, shouldPreselect } from "@/services/context-intelligence/utils";
+import { consumeAiCredit, refundAiCredit } from "@/lib/ai-usage/credit-repository";
+import type { AiUsageGenerationContext } from "@/types/ai-usage";
 
 type CacheRecord = {
   expiresAt: number;
@@ -84,7 +86,11 @@ const enforceLimits = (items: ContextItem[]): ContextItem[] => {
   return selected;
 };
 
-const collectSingleConnector = async (request: ContextCollectionRequest, connectorId: ContextConnectorId): Promise<ContextConnectorResult> => {
+const collectSingleConnector = async (
+  request: ContextCollectionRequest,
+  connectorId: ContextConnectorId,
+  usageContext?: AiUsageGenerationContext
+): Promise<ContextConnectorResult> => {
   const connector = resolveConnector(connectorId);
   if (!connector) {
     return {
@@ -107,12 +113,15 @@ const collectSingleConnector = async (request: ContextCollectionRequest, connect
   }
 
   return withAbortTimeout(
-    (signal) => connector.collect(request, signal),
+    (signal) => connector.collect(request, signal, usageContext),
     contextIntelligenceConfig.limits.searchTimeoutMs
   );
 };
 
-export const collectContextIntelligence = async (request: ContextCollectionRequest): Promise<ContextCollectionResponse> => {
+export const collectContextIntelligence = async (
+  request: ContextCollectionRequest,
+  usageContext?: AiUsageGenerationContext
+): Promise<ContextCollectionResponse> => {
   if (!request.subject || !normalize(request.subject.displayName)) {
     return {
       ok: false,
@@ -136,10 +145,31 @@ export const collectContextIntelligence = async (request: ContextCollectionReque
     }
   }
 
+  const externalContextCreditIdempotencyKey = usageContext ? `context:${usageContext.requestGroupId}` : "";
+  let externalCreditConsumed = false;
+
+  if (hasExternal && usageContext?.role === "media") {
+    const creditResult = await consumeAiCredit({
+      workspaceId: usageContext.workspaceId,
+      clerkUserId: usageContext.clerkUserId,
+      requestGroupId: usageContext.requestGroupId,
+      operation: "external_context_search",
+      idempotencyKey: externalContextCreditIdempotencyKey,
+    });
+
+    if (creditResult.status === "insufficient_credits") {
+      throw new ContextCollectionError("AI_CREDIT_INSUFFICIENT", "Credits IA insuffisants pour cette recherche externe.");
+    }
+    if (creditResult.status === "no_active_period") {
+      throw new ContextCollectionError("AI_CREDIT_NO_ACTIVE_PERIOD", "Aucune periode de credits IA active.");
+    }
+    externalCreditConsumed = creditResult.status === "consumed";
+  }
+
   const settled = await Promise.all(
     selectedConnectorIds.map(async (connectorId) => {
       try {
-        return await collectSingleConnector(request, connectorId);
+        return await collectSingleConnector(request, connectorId, usageContext);
       } catch (error) {
         if (error instanceof ContextCollectionError) {
           return {
@@ -161,6 +191,28 @@ export const collectContextIntelligence = async (request: ContextCollectionReque
       }
     })
   );
+
+  if (externalCreditConsumed && usageContext) {
+    const externalResult = settled.find((result) => result.connectorId === "external_news");
+    const externalUsable = Boolean(externalResult && externalResult.status === "completed" && externalResult.items.length > 0);
+
+    if (!externalUsable) {
+      try {
+        await refundAiCredit({
+          workspaceId: usageContext.workspaceId,
+          clerkUserId: usageContext.clerkUserId,
+          requestGroupId: usageContext.requestGroupId,
+          operation: "external_context_search",
+          originalIdempotencyKey: externalContextCreditIdempotencyKey,
+        });
+      } catch (refundError) {
+        console.error("[ai_credits] Failed to refund AI credit after external context collection failure", {
+          message: refundError instanceof Error ? refundError.message : "unknown error",
+        });
+      }
+    }
+  }
+
 
   const deduped = dedupeContextItems(settled.flatMap((result) => result.items));
   const limited = enforceLimits(deduped);

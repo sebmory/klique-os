@@ -67,7 +67,7 @@ export function InterviewResultPageClient() {
 
   if (!parsed) {
     if (restoredDraft) {
-      return <ContentDocumentEditor initialDocument={restoredDraft} onSaveDraft={saveDraft} />;
+      return <ContentDocumentEditor initialDocument={restoredDraft} onSaveDraft={saveDraft} isPersistedInCloud />;
     }
 
     return (

@@ -340,6 +340,7 @@ export function InterviewResultScreen({
       initialDocument={document}
       onSaveDraft={saveDraft}
       onRegenerateDocument={regenerateDocument}
+      isPersistedInCloud={false}
     />
   );
 }

@@ -196,7 +196,9 @@ export type ContextCollectionErrorCode =
   | "NO_EXTERNAL_CONTEXT_FOUND"
   | "NO_CONTEXT_FOUND"
   | "SOURCE_VALIDATION_FAILED"
-  | "CONTEXT_LIMIT_EXCEEDED";
+  | "CONTEXT_LIMIT_EXCEEDED"
+  | "AI_CREDIT_INSUFFICIENT"
+  | "AI_CREDIT_NO_ACTIVE_PERIOD";
 
 export type ContextCollectionSummary = {
   totalItemsFound: number;

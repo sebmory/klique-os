@@ -474,79 +474,96 @@ const linkAthleteAccessFromInvitation = async (
   userId: string,
   clerkUser: LinkableClerkUser,
 ): Promise<ClerkUserAccessRecord | null> => {
+  await createAthleteInvitationsTable();
+  await createUserAccessTable();
+  const sql = getSql();
+
+  // Récupérer les e-mails vérifiés du compte Clerk.
+  const verifiedEmails = (clerkUser.emailAddresses ?? [])
+    .filter((entry) => entry.verification?.status === "verified")
+    .map((entry) => entry.emailAddress.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!verifiedEmails.length) {
+    return null;
+  }
+
+  // Si publicMetadata contient des valeurs, vérifier qu'elles correspondent.
   const metadata = clerkUser.publicMetadata ?? {};
   const metadataRole = typeof metadata.role === "string" ? metadata.role : null;
   const metadataAthleteId = typeof metadata.athleteId === "string" ? metadata.athleteId.trim() : "";
 
-  if (metadataRole !== "athlete" || !metadataAthleteId) {
+  if (metadataRole && metadataRole !== "athlete") {
     return null;
   }
 
-  await createAthleteInvitationsTable();
-  const sql = getSql();
-
-  const invitationRows = await sql`
-    SELECT athlete_id, email, clerk_invitation_id, status
-    FROM athlete_invitations
-    WHERE athlete_id = ${metadataAthleteId} AND status = 'invited'
-  `;
-  const invitation = invitationRows[0] as Record<string, unknown> | undefined;
-  if (!invitation) {
-    return null;
-  }
-
-  const invitedEmail = String(invitation.email ?? "").trim().toLowerCase();
-  if (!invitedEmail) {
-    return null;
-  }
-
-  const verifiedEmail = (clerkUser.emailAddresses ?? []).find(
-    (entry) => entry.emailAddress.trim().toLowerCase() === invitedEmail && entry.verification?.status === "verified",
-  );
-
-  if (!verifiedEmail) {
-    return null;
-  }
-
-  const workspaceId = getDefaultWorkspaceId();
-
-  const upsertRows = await sql`
-    INSERT INTO user_access (
-      clerk_user_id,
-      email,
-      role,
-      workspace_id,
-      athlete_id,
-      partner_id,
-      media_id,
-      status,
-      created_at,
-      updated_at
+  // Instruction unique donc transaction implicite : reservation, creation d acces et acceptation reussissent ou echouent ensemble.
+  const rows = await sql`
+    WITH claimed AS (
+      SELECT athlete_id, btrim(email) AS email, workspace_id
+      FROM athlete_invitations
+      WHERE status = 'invited' AND lower(btrim(email)) = ANY(${verifiedEmails})
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    ),
+    validated AS (
+      SELECT athlete_id, email, workspace_id
+      FROM claimed
+      WHERE CASE WHEN ${metadataAthleteId} = ''
+            THEN true
+            ELSE athlete_id = ${metadataAthleteId}
+      END
+    ),
+    checked_access AS (
+      SELECT 1
+      FROM validated
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_access WHERE clerk_user_id = ${userId}
+      )
+    ),
+    upserted AS (
+      INSERT INTO user_access (
+        clerk_user_id,
+        email,
+        role,
+        workspace_id,
+        athlete_id,
+        partner_id,
+        media_id,
+        status,
+        created_at,
+        updated_at
+      )
+      SELECT
+        ${userId},
+        validated.email,
+        'athlete',
+        validated.workspace_id,
+        validated.athlete_id,
+        NULL,
+        NULL,
+        'active',
+        NOW(),
+        NOW()
+      FROM validated, checked_access
+      ON CONFLICT (clerk_user_id) DO NOTHING
+      RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    ),
+    accepted AS (
+      UPDATE athlete_invitations a
+      SET status = 'accepted', updated_at = NOW()
+      FROM claimed
+      WHERE a.athlete_id = claimed.athlete_id
+        AND a.status = 'invited'
+        AND EXISTS (SELECT 1 FROM upserted)
+      RETURNING a.athlete_id
     )
-    VALUES (
-      ${userId},
-      ${verifiedEmail.emailAddress},
-      'athlete',
-      ${workspaceId},
-      ${metadataAthleteId},
-      NULL,
-      NULL,
-      'active',
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT (clerk_user_id) DO UPDATE SET
-      email = EXCLUDED.email,
-      role = 'athlete',
-      athlete_id = EXCLUDED.athlete_id,
-      status = 'active',
-      updated_at = NOW()
-    RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    SELECT clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    FROM upserted
   `;
 
-  await sql`UPDATE athlete_invitations SET status = 'accepted', updated_at = NOW() WHERE athlete_id = ${metadataAthleteId}`;
-
-  return upsertRows[0] ? mapRow(upsertRows[0] as Record<string, unknown>) : null;
+  return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
 
 // L acces est accorde par media_invitations, jamais sur la seule foi des publicMetadata Clerk.

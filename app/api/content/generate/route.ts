@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { GenerateContentApiError, GenerateContentApiRequest, GenerateContentApiSuccess } from "@/types/content-generation";
@@ -11,6 +12,7 @@ import {
 } from "@/services/content-intelligence/engine";
 import { validateCreationPayload } from "@/services/content-generation/validation";
 import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
+import { consumeAiCredit, refundAiCredit } from "@/lib/ai-usage/credit-repository";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { runContentVariationEngine } from "@/services/content-intelligence/variation-engine";
 import { validateVariationRequest } from "@/services/content-variants/request-validation";
@@ -124,9 +126,60 @@ const resolvePublicationDiagnostics = (error: ContentGenerationError): Publicati
 };
 
 export async function POST(request: Request) {
+  let creditRefundContext: { workspaceId: string; clerkUserId: string; requestGroupId: string; operation: string } | null = null;
+
   try {
-    await requireContentAccess(request);
+    const accessContext = await requireContentAccess(request);
     const body = (await request.json()) as GenerateContentApiRequest;
+    const usageContext = {
+      workspaceId: accessContext.workspaceId,
+      clerkUserId: accessContext.clerkUserId,
+      role: accessContext.role,
+      requestGroupId: randomUUID(),
+    };
+
+    const contentCreditOperation =
+      body?.operation === "publication_angles"
+        ? "publication_angles"
+        : body?.operation === "publication_regenerate_one"
+          ? "publication_regenerate_one"
+          : body?.operation === "variation"
+            ? "variation"
+            : "generate_content";
+    const contentCreditIdempotencyKey = `content:${usageContext.requestGroupId}`;
+
+    if (accessContext.role === "media") {
+      const creditResult = await consumeAiCredit({
+        workspaceId: accessContext.workspaceId,
+        clerkUserId: accessContext.clerkUserId,
+        requestGroupId: usageContext.requestGroupId,
+        operation: contentCreditOperation,
+        idempotencyKey: contentCreditIdempotencyKey,
+      });
+
+      if (creditResult.status === "insufficient_credits" || creditResult.status === "no_active_period") {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: creditResult.status === "insufficient_credits" ? "AI_CREDIT_INSUFFICIENT" : "AI_CREDIT_NO_ACTIVE_PERIOD",
+            message:
+              creditResult.status === "insufficient_credits"
+                ? "Credits IA insuffisants pour cette periode."
+                : "Aucune periode de credits IA active.",
+          },
+          { status: 402 }
+        );
+      }
+
+      if (creditResult.status === "consumed") {
+        creditRefundContext = {
+          workspaceId: accessContext.workspaceId,
+          clerkUserId: accessContext.clerkUserId,
+          requestGroupId: usageContext.requestGroupId,
+          operation: contentCreditOperation,
+        };
+      }
+    }
 
     if (body?.operation === "publication_angles") {
       const payload = validateCreationPayload(body?.payload);
@@ -135,7 +188,7 @@ export async function POST(request: Request) {
         throw new ContentGenerationError("INVALID_REQUEST", "Operation reservee aux publications");
       }
 
-      const suggestions = await runPublicationAngleSuggestionsEngine(generationRequest as PublicationGenerationRequest);
+      const suggestions = await runPublicationAngleSuggestionsEngine(generationRequest as PublicationGenerationRequest, usageContext);
       return NextResponse.json({
         ok: true,
         operation: "publication_angles",
@@ -158,11 +211,14 @@ export async function POST(request: Request) {
         throw new ContentGenerationError("INVALID_REQUEST", "Proposition cible manquante");
       }
 
-      const regenerated = await runPublicationRegenerateOneEngine({
-        request: publicationRequest as PublicationGenerationRequest,
-        result: publicationResult as PublicationGenerationResult,
-        proposalId,
-      });
+      const regenerated = await runPublicationRegenerateOneEngine(
+        {
+          request: publicationRequest as PublicationGenerationRequest,
+          result: publicationResult as PublicationGenerationResult,
+          proposalId,
+        },
+        usageContext
+      );
 
       return NextResponse.json({
         ok: true,
@@ -184,7 +240,7 @@ export async function POST(request: Request) {
 
     const payload = validateCreationPayload(body?.payload);
 
-    const output = await runContentIntelligenceEngine(payload);
+    const output = await runContentIntelligenceEngine(payload, usageContext);
 
     const response: GenerateContentApiSuccess = {
       ok: true,
@@ -196,6 +252,22 @@ export async function POST(request: Request) {
   } catch (error) {
     const accessResponse = contentAccessErrorResponse(error);
     if (accessResponse) return accessResponse;
+
+    if (creditRefundContext) {
+      try {
+        await refundAiCredit({
+          workspaceId: creditRefundContext.workspaceId,
+          clerkUserId: creditRefundContext.clerkUserId,
+          requestGroupId: creditRefundContext.requestGroupId,
+          operation: creditRefundContext.operation,
+          originalIdempotencyKey: `content:${creditRefundContext.requestGroupId}`,
+        });
+      } catch (refundError) {
+        console.error("[ai_credits] Failed to refund AI credit after generation failure", {
+          message: refundError instanceof Error ? refundError.message : "unknown error",
+        });
+      }
+    }
 
     const normalized =
       error instanceof ContentGenerationError

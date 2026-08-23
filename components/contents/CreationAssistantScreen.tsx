@@ -290,6 +290,55 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   });
   const generationAbortRef = useRef<AbortController | null>(null);
 
+  // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
+  const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
+  const [creditBalance, setCreditBalance] = useState<{ hasActivePeriod: boolean; balance: number } | null>(null);
+  const [creditModal, setCreditModal] = useState<null | { kind: "external_search" | "publication_angles" | "generation"; cost: number }>(null);
+  const [creditModalBusy, setCreditModalBusy] = useState(false);
+
+  const loadCreditBalance = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ai-credits/balance", { method: "GET" });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok: boolean; balance?: number; period?: { id: string } | null }
+        | null;
+
+      if (!response.ok || !payload || !payload.ok) {
+        setMediaCreditRole("other");
+        setCreditBalance(null);
+        return;
+      }
+
+      setMediaCreditRole("media");
+      setCreditBalance({
+        hasActivePeriod: Boolean(payload.period),
+        balance: typeof payload.balance === "number" ? payload.balance : 0,
+      });
+    } catch {
+      setMediaCreditRole("other");
+      setCreditBalance(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCreditBalance();
+  }, [loadCreditBalance]);
+
+  const getGenerationCreditCost = (): number => {
+    return 1;
+  };
+
+  const formatCreditCount = (count: number): string => (count === 1 ? "1 crédit" : `${count} crédits`);
+
+  const isCreditCostBlocked = (cost: number): boolean => {
+    if (mediaCreditRole !== "media" || creditBalance === null) return false;
+    return !creditBalance.hasActivePeriod || creditBalance.balance < cost;
+  };
+
+  const isExternalSearchBlocked = isCreditCostBlocked(1);
+  const isGenerationBlocked = isCreditCostBlocked(getGenerationCreditCost());
+  const isPublicationAnglesBlocked = isCreditCostBlocked(1);
+
   const effectiveStepIndex = Math.min(stepIndex, steps.length - 1);
   const step = steps[effectiveStepIndex];
   const objectiveParameters = useMemo(
@@ -749,6 +798,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
     } finally {
       generationAbortRef.current = null;
+      void loadCreditBalance();
     }
   };
 
@@ -831,8 +881,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         errorMessage: "Impossible de collecter le contexte.",
         hasCollected: true,
       }));
+    } finally {
+      void loadCreditBalance();
     }
-  }, [draft]);
+  }, [draft, loadCreditBalance]);
 
   const generatePublicationAngles = useCallback(async () => {
     if (!preparedPayload || draft.objective.objective !== "publication") return;
@@ -865,8 +917,56 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         loading: false,
         errorMessage: "Impossible de proposer des angles editoriaux.",
       }));
+    } finally {
+      void loadCreditBalance();
     }
-  }, [draft.objective.objective, preparedPayload]);
+  }, [draft.objective.objective, preparedPayload, loadCreditBalance]);
+
+  const requestContextSearch = () => {
+    if (mediaCreditRole === "media" && draft.parameters.contextEnableExternalNews) {
+      setCreditModal({ kind: "external_search", cost: 1 });
+      return;
+    }
+    void collectContext();
+  };
+
+  const requestPublicationAngles = () => {
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "publication_angles", cost: 1 });
+      return;
+    }
+    void generatePublicationAngles();
+  };
+
+  const requestFinalGeneration = () => {
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "generation", cost: getGenerationCreditCost() });
+      return;
+    }
+    void runInterviewGeneration();
+  };
+
+  const closeCreditModal = () => {
+    if (creditModalBusy) return;
+    setCreditModal(null);
+  };
+
+  const confirmCreditModal = async () => {
+    if (!creditModal || creditModalBusy) return;
+    setCreditModalBusy(true);
+    try {
+      if (creditModal.kind === "external_search") {
+        await collectContext();
+      } else if (creditModal.kind === "publication_angles") {
+        await generatePublicationAngles();
+      } else {
+        await runInterviewGeneration();
+      }
+    } finally {
+      setCreditModalBusy(false);
+      setCreditModal(null);
+    }
+  };
 
   const toggleContextItem = useCallback((itemId: string, isSelected: boolean) => {
     setContextState((previous) => ({
@@ -1329,11 +1429,19 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         <header className="creation-step-head">
           <h2 id="creation-angle-title">Angle editorial</h2>
           <p>Proposez 3 a 5 angles contextualises avec le CIE ou redigez votre angle personnalise.</p>
+          {mediaCreditRole === "media" ? (
+            <p className="creation-muted">{`Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}</p>
+          ) : null}
         </header>
 
         <section className="creation-panel">
           <div className="creation-footer-actions">
-            <button type="button" className="crm-primary-action" onClick={generatePublicationAngles} disabled={publicationAnglesState.loading || !preparedPayload}>
+            <button
+              type="button"
+              className="crm-primary-action"
+              onClick={requestPublicationAngles}
+              disabled={publicationAnglesState.loading || !preparedPayload || isPublicationAnglesBlocked}
+            >
               {publicationAnglesState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {publicationAnglesState.loading ? "Generation des angles" : "Proposer des angles"}
             </button>
@@ -2077,6 +2185,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             </label>
           </div>
 
+          {draft.parameters.contextEnableExternalNews ? (
+            <p className="creation-muted" data-role="external-news-credit-note">
+              {`Une recherche d'actualité externe consomme ${formatCreditCount(1)} maximum (le cache peut la rendre gratuite).`}
+            </p>
+          ) : null}
+
           <div className="creation-fields-grid">
             <label>
               <span>Periode</span>
@@ -2181,7 +2295,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
         <section className="creation-panel">
           <div className="creation-footer-actions">
-            <button type="button" className="crm-primary-action" onClick={collectContext} disabled={contextState.loading}>
+            <button
+              type="button"
+              className="crm-primary-action"
+              onClick={requestContextSearch}
+              disabled={contextState.loading || (mediaCreditRole === "media" && draft.parameters.contextEnableExternalNews && isExternalSearchBlocked)}
+            >
               {contextState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {contextState.loading ? "Recherche en cours" : contextState.hasCollected ? "Relancer la recherche du contexte" : "Rechercher le contexte"}
             </button>
@@ -2219,7 +2338,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     {report.message ? ` | ${getConnectorStatusMessage(report)}` : ` | ${getConnectorStatusMessage(report)}`}
                   </small>
                   {report.connectorId === "external_news" && (report.status === "error" || report.status === "unavailable") ? (
-                    <button type="button" className="contents-ghost-button" onClick={collectContext} disabled={contextState.loading}>
+                    <button type="button" className="contents-ghost-button" onClick={requestContextSearch} disabled={contextState.loading}>
                       Reessayer
                     </button>
                   ) : null}
@@ -2303,6 +2422,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         <section className="creation-step-block" aria-labelledby="creation-summary-title">
           <header className="creation-step-head">
             <h2 id="creation-summary-title">Verification</h2>
+            {mediaCreditRole === "media" ? (
+              <p className="creation-muted">{`Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}</p>
+            ) : null}
           </header>
 
           <dl className="creation-summary-grid">
@@ -2334,8 +2456,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             <button
               type="button"
               className="crm-primary-action"
-              onClick={runInterviewGeneration}
-              disabled={!preparedPayload || generateState.loading}
+              onClick={requestFinalGeneration}
+              disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : "Generer 3 propositions"}
@@ -2388,8 +2510,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             <button
               type="button"
               className="crm-primary-action"
-              onClick={runInterviewGeneration}
-              disabled={!preparedPayload || generateState.loading}
+              onClick={requestFinalGeneration}
+              disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : "Generer 3 concepts Reel"}
@@ -2463,8 +2585,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <button
             type="button"
             className="crm-primary-action"
-            onClick={runInterviewGeneration}
-            disabled={!preparedPayload || generateState.loading}
+            onClick={requestFinalGeneration}
+            disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
           >
             {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
             {generateState.loading ? "Creation en cours" : params?.finalActionLabel ?? "Creer le contenu"}
@@ -2502,6 +2624,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <h1>Assistant de creation</h1>
           <p>Configurez votre contenu en {steps.length} etapes.</p>
         </div>
+        {mediaCreditRole === "media" && creditBalance ? (
+          <p className="creation-muted" data-role="ai-credit-indicator">
+            {creditBalance.hasActivePeriod
+              ? `${formatCreditCount(creditBalance.balance)} disponible${creditBalance.balance === 1 ? "" : "s"}`
+              : "Aucune période de crédits active"}
+          </p>
+        ) : null}
         <Link href="/contents" className="crm-secondary-action-link">Quitter</Link>
       </header>
 
@@ -2543,6 +2672,65 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           </button>
         </div>
       </footer>
+
+      {creditModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-credit-modal-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div className="creation-panel" style={{ maxWidth: 420, width: "100%", background: "#ffffff" }}>
+            <header>
+              <h3 id="ai-credit-modal-title">
+                {creditModal.kind === "external_search"
+                  ? "Confirmer la recherche externe"
+                  : creditModal.kind === "publication_angles"
+                    ? "Générer 3 angles éditoriaux"
+                    : "Confirmer la génération"}
+              </h3>
+            </header>
+            <dl className="creation-summary-grid">
+              <div>
+                <dt>Coût</dt>
+                <dd>{creditModal.kind === "external_search" ? `${formatCreditCount(creditModal.cost)} maximum` : formatCreditCount(creditModal.cost)}</dd>
+              </div>
+              <div><dt>Solde actuel</dt><dd>{formatCreditCount(creditBalance ? creditBalance.balance : 0)}</dd></div>
+              <div>
+                <dt>Solde estimé après action</dt>
+                <dd>{formatCreditCount(Math.max((creditBalance ? creditBalance.balance : 0) - creditModal.cost, 0))}</dd>
+              </div>
+            </dl>
+            {isCreditCostBlocked(creditModal.cost) ? (
+              <p className="creation-error" role="alert">
+                {`Crédits insuffisants : ${formatCreditCount(creditModal.cost)} requis, ${formatCreditCount(creditBalance ? creditBalance.balance : 0)} disponible${(creditBalance ? creditBalance.balance : 0) === 1 ? "" : "s"}.`}
+              </p>
+            ) : null}
+            <div className="creation-footer-actions">
+              <button type="button" className="contents-ghost-button" onClick={closeCreditModal} disabled={creditModalBusy}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="crm-primary-action"
+                onClick={confirmCreditModal}
+                disabled={creditModalBusy || isCreditCostBlocked(creditModal.cost)}
+              >
+                {creditModalBusy ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+                {creditModal.kind === "external_search" ? "Valider et lancer la recherche" : `Valider et utiliser ${formatCreditCount(creditModal.cost)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

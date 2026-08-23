@@ -8,6 +8,7 @@ import {
 } from "@/services/content-intelligence/publication-schema";
 import { buildReelGenerationJsonSchema } from "@/services/content-intelligence/reel-schema";
 import type { ContentGenerationProvider, ProviderGenerateArgs } from "@/services/content-intelligence/provider";
+import { recordAiUsageEvent } from "@/lib/ai-usage/repository";
 import { validateContentGenerationJson } from "@/services/content-intelligence/json-validator";
 import {
   validatePublicationAnglesJson,
@@ -56,6 +57,52 @@ const systemInstructions = [
 ].join(" ");
 
 const isDevelopment = process.env.NODE_ENV !== "production";
+
+// Journalise chaque tentative de generation principale sans jamais faire echouer la generation elle-meme.
+const recordGenerationUsage = async (args: {
+  usageContext?: ProviderGenerateArgs["usageContext"];
+  operation: string;
+  contentType: string;
+  provider: string;
+  model: string;
+  status: "succeeded" | "failed";
+  response?: Response;
+  durationMs: number;
+  errorCode?: string | null;
+}): Promise<void> => {
+  if (!args.usageContext) return;
+
+  try {
+    await recordAiUsageEvent({
+      requestGroupId: args.usageContext.requestGroupId,
+      workspaceId: args.usageContext.workspaceId,
+      clerkUserId: args.usageContext.clerkUserId,
+      role: args.usageContext.role,
+      feature: "content_generation",
+      operation: args.operation,
+      contentType: args.contentType,
+      provider: args.provider,
+      model: args.model,
+      providerResponseId: args.response?.id ?? null,
+      inputTokens: args.response?.usage?.input_tokens ?? 0,
+      cachedInputTokens: args.response?.usage?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: args.response?.usage?.output_tokens ?? 0,
+      totalTokens: args.response?.usage?.total_tokens ?? 0,
+      toolCalls: 0,
+      retryNumber: args.usageContext.retryNumber,
+      status: args.status,
+      errorCode: args.errorCode ?? null,
+      durationMs: args.durationMs,
+      usageJson: args.response?.usage ? (args.response.usage as unknown as Record<string, unknown>) : null,
+      estimatedCostMicroUsd: null,
+      pricingVersion: null,
+    });
+  } catch (error) {
+    console.error("[ai_usage] Failed to record generation usage event", {
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+};
 
 const extractRefusal = (response: Response): string | null => {
   for (const item of response.output) {
@@ -267,6 +314,17 @@ export class OpenAIProvider implements ContentGenerationProvider {
         },
       });
 
+      await recordGenerationUsage({
+        usageContext: args.usageContext,
+        operation: `generate_${args.request.requestType}`,
+        contentType: args.request.requestType,
+        provider: this.id,
+        model: this.model,
+        status: "succeeded",
+        response,
+        durationMs: Date.now() - requestStartedAt,
+      });
+
       const outputText = typeof response.output_text === "string" ? response.output_text.trim() : "";
       const diagnostics = buildDiagnostics(response, outputText);
 
@@ -420,6 +478,17 @@ export class OpenAIProvider implements ContentGenerationProvider {
         name?: string;
       };
 
+      await recordGenerationUsage({
+        usageContext: args.usageContext,
+        operation: `generate_${args.request.requestType}`,
+        contentType: args.request.requestType,
+        provider: this.id,
+        model: this.model,
+        status: "failed",
+        durationMs: Date.now() - requestStartedAt,
+        errorCode: maybeError?.code ?? (maybeError?.status ? String(maybeError.status) : null),
+      });
+
       if (maybeError?.name === "AbortError") {
         throw new ContentGenerationError("GENERATION_FAILED", "Le delai de generation est depasse");
       }
@@ -440,7 +509,12 @@ export class OpenAIProvider implements ContentGenerationProvider {
     }
   }
 
-  async generatePublicationAngles(args: { request: PublicationGenerationRequest; prompt: string }): Promise<PublicationAngleSuggestion[]> {
+  async generatePublicationAngles(args: {
+    request: PublicationGenerationRequest;
+    prompt: string;
+    usageContext?: ProviderGenerateArgs["usageContext"];
+  }): Promise<PublicationAngleSuggestion[]> {
+    const requestStartedAt = Date.now();
     const response = await this.client.responses.create({
       model: this.model,
       instructions: systemInstructions,
@@ -455,6 +529,17 @@ export class OpenAIProvider implements ContentGenerationProvider {
       },
     });
 
+    await recordGenerationUsage({
+      usageContext: args.usageContext,
+      operation: "publication_angles",
+      contentType: "publication",
+      provider: this.id,
+      model: this.model,
+      status: "succeeded",
+      response,
+      durationMs: Date.now() - requestStartedAt,
+    });
+
     const outputText = typeof response.output_text === "string" ? response.output_text.trim() : "";
     if (!outputText) {
       throw new ContentGenerationError("EMPTY_PROVIDER_RESPONSE", "Sortie texte vide du fournisseur");
@@ -467,7 +552,9 @@ export class OpenAIProvider implements ContentGenerationProvider {
     request: PublicationGenerationRequest;
     result: PublicationGenerationResult;
     proposalId: string;
+    usageContext?: ProviderGenerateArgs["usageContext"];
   }): Promise<PublicationRegenerateOneResult> {
+    const requestStartedAt = Date.now();
     const target = args.result.proposals.find((proposal) => proposal.id === args.proposalId);
     if (!target) {
       throw new ContentGenerationError("INVALID_REQUEST", "Proposition introuvable");
@@ -520,6 +607,17 @@ export class OpenAIProvider implements ContentGenerationProvider {
           schema: buildPublicationSingleProposalJsonSchema(),
         },
       },
+    });
+
+    await recordGenerationUsage({
+      usageContext: args.usageContext,
+      operation: "publication_regenerate_one",
+      contentType: "publication",
+      provider: this.id,
+      model: this.model,
+      status: "succeeded",
+      response,
+      durationMs: Date.now() - requestStartedAt,
     });
 
     const outputText = typeof response.output_text === "string" ? response.output_text.trim() : "";

@@ -22,11 +22,12 @@ import {
   normalizePublishedAt,
 } from "@/services/context-intelligence/utils";
 import { ExternalContextProviderFactory } from "@/services/context-intelligence/external-provider";
+import type { AiUsageGenerationContext } from "@/types/ai-usage";
 
 export interface ContextConnector {
   id: ContextConnectorId;
   isAvailable(): Promise<boolean>;
-  collect(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ContextConnectorResult>;
+  collect(request: ContextCollectionRequest, signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ContextConnectorResult>;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -280,7 +281,7 @@ class ExternalNewsContextConnector implements ContextConnector {
     return ExternalContextProviderFactory.get().isAvailable();
   }
 
-  async collect(request: ContextCollectionRequest, signal?: AbortSignal): Promise<ContextConnectorResult> {
+  async collect(request: ContextCollectionRequest, signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ContextConnectorResult> {
     const provider = ExternalContextProviderFactory.get();
     if (!(await provider.isAvailable())) {
       return {
@@ -293,7 +294,7 @@ class ExternalNewsContextConnector implements ContextConnector {
     }
 
     try {
-      const result = await provider.search(request, signal);
+      const result = await provider.search(request, signal, usageContext);
       const items = result.items
         .filter((row) => row.sourceUrl && isSafeHttpUrl(row.sourceUrl))
         .map((row, index) => {

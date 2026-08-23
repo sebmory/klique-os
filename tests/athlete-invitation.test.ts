@@ -207,7 +207,9 @@ describe("athlete invitation authorization", () => {
     expect(createInvitationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         emailAddress: "target@example.com",
-        redirectUrl: "/athlete",
+        redirectUrl: "/sign-up",
+        notify: true,
+        ignoreExisting: true,
         publicMetadata: { athleteId: "athlete-42", role: "athlete" },
       }),
     );
@@ -248,7 +250,9 @@ describe("athlete invitation authorization", () => {
     expect(createInvitationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         emailAddress: "target@example.com",
-        redirectUrl: "/athlete",
+        redirectUrl: "/sign-up",
+        notify: true,
+        ignoreExisting: false,
         publicMetadata: { athleteId: "athlete-42", role: "athlete" },
       }),
     );

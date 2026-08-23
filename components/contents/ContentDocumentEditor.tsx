@@ -19,6 +19,7 @@ type ContentDocumentEditorProps = {
   initialDocument: ContentDocument;
   onSaveDraft: (document: ContentDocument) => Promise<ContentDocumentDraftSaveResult>;
   onRegenerateDocument?: () => Promise<ContentDocument>;
+  isPersistedInCloud?: boolean;
 };
 
 type SaveState = {
@@ -207,11 +208,13 @@ const withUpdatedTimestamp = <T extends ContentDocument>(document: T): T => {
   };
 };
 
-export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenerateDocument }: ContentDocumentEditorProps) {
+export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenerateDocument, isPersistedInCloud = false }: ContentDocumentEditorProps) {
   const [document, setDocument] = useState<ContentDocument>(initialDocument);
   const [isEditing, setIsEditing] = useState(false);
   const [baselineSnapshot, setBaselineSnapshot] = useState(stableSerialize(initialDocument));
   const [saveState, setSaveState] = useState<SaveState>({ saving: false, savedAt: null, error: null });
+  // Un document n est marque "Enregistre" que s il a ete confirme par le cloud, jamais par sa seule absence de modification locale.
+  const [isCloudSaved, setIsCloudSaved] = useState(isPersistedInCloud);
   const [copyState, setCopyState] = useState<CopyState | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   const [openedNotes, setOpenedNotes] = useState<Record<string, boolean>>({});
@@ -226,11 +229,9 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const reelDocument = document.type === "reel" ? document : null;
 
   const hasUnsavedChanges = stableSerialize(document) !== baselineSnapshot;
-  const selectedContextItems = interviewDocument?.contextUsage.selectedItems ?? [];
+  const selectedContextItems = document.contextUsage.selectedItems ?? [];
   const verifiedSources = (() => {
-    if (!interviewDocument) return [];
-
-    const usedIds = new Set(interviewDocument.contextUsage.usedContextItemIds ?? []);
+    const usedIds = new Set(document.contextUsage.usedContextItemIds ?? []);
     const seenUrls = new Set<string>();
 
     return selectedContextItems
@@ -492,6 +493,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       // Le document n est considere comme enregistre que si le cloud a confirme l ecriture.
       if (cloudSynced) {
         setBaselineSnapshot(stableSerialize(document));
+        setIsCloudSaved(true);
       }
 
       setSaveState({
@@ -512,6 +514,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       const next = await onRegenerateDocument();
       setDocument(next);
       setBaselineSnapshot(stableSerialize(next));
+      setIsCloudSaved(false);
     } catch {
       setSaveState((state) => ({ ...state, error: "Impossible de regenerer le document." }));
     } finally {
@@ -798,6 +801,27 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 <p>{reelDocument.sections.coverIdea || "Aucune idee de cover"}</p>
               )}
             </section>
+
+            {verifiedSources.length > 0 ? (
+              <section className="document-section" aria-labelledby="document-sources-title-reel">
+                <h2 id="document-sources-title-reel">Sources vérifiées</h2>
+                <p className="document-note-hint">
+                  Ces sources ont servi à contextualiser le Reel.
+                </p>
+                <ul className="document-context-list">
+                  {verifiedSources.map((source) => (
+                    <li key={source.id}>
+                      <strong>{source.title}</strong>
+                      {source.sourceName ? <span>{source.sourceName}</span> : null}
+                      {source.publishedAt ? <small>{formatPublishedDate(source.publishedAt)}</small> : null}
+                      <a href={source.href} target="_blank" rel="noreferrer noopener">
+                        Consulter la source
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </main>
 
           <aside className="document-sidebar" aria-label="Informations et contexte">
@@ -849,7 +873,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                   </button>
                 ))}
               </div>
-              {hasUnsavedChanges ? <p className="document-unsaved">Modifications non enregistrees</p> : <p className="document-saved">Enregistre</p>}
+              {isCloudSaved && !hasUnsavedChanges ? <p className="document-saved">Enregistre</p> : <p className="document-unsaved">Modifications non enregistrees</p>}
               {saveState.savedAt ? <p className="document-saved-at">Dernier enregistrement: {formatDateTime(saveState.savedAt)}</p> : null}
               {saveState.error ? <p className="document-save-error" role="alert">{saveState.error}</p> : null}
             </section>
@@ -1018,6 +1042,27 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               )}
             </section>
 
+            {verifiedSources.length > 0 ? (
+              <section className="document-section" aria-labelledby="document-sources-title-publication">
+                <h2 id="document-sources-title-publication">Sources vérifiées</h2>
+                <p className="document-note-hint">
+                  Ces sources ont servi à contextualiser la publication.
+                </p>
+                <ul className="document-context-list">
+                  {verifiedSources.map((source) => (
+                    <li key={source.id}>
+                      <strong>{source.title}</strong>
+                      {source.sourceName ? <span>{source.sourceName}</span> : null}
+                      {source.publishedAt ? <small>{formatPublishedDate(source.publishedAt)}</small> : null}
+                      <a href={source.href} target="_blank" rel="noreferrer noopener">
+                        Consulter la source
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             {isEditing ? (
               <section className="document-section document-prose-section" hidden aria-hidden="true">
                 <h2>Note editoriale</h2>
@@ -1074,7 +1119,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                   </button>
                 ))}
               </div>
-              {hasUnsavedChanges ? <p className="document-unsaved">Modifications non enregistrees</p> : <p className="document-saved">Enregistre</p>}
+              {isCloudSaved && !hasUnsavedChanges ? <p className="document-saved">Enregistre</p> : <p className="document-unsaved">Modifications non enregistrees</p>}
               {saveState.savedAt ? <p className="document-saved-at">Dernier enregistrement: {formatDateTime(saveState.savedAt)}</p> : null}
               {saveState.error ? <p className="document-save-error" role="alert">{saveState.error}</p> : null}
             </section>
@@ -1655,7 +1700,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 </button>
               ))}
             </div>
-            {hasUnsavedChanges ? <p className="document-unsaved">Modifications non enregistrees</p> : <p className="document-saved">Enregistre</p>}
+            {isCloudSaved && !hasUnsavedChanges ? <p className="document-saved">Enregistre</p> : <p className="document-unsaved">Modifications non enregistrees</p>}
             {saveState.savedAt ? <p className="document-saved-at">Dernier enregistrement: {formatDateTime(saveState.savedAt)}</p> : null}
             <p className="document-note-hint">Les notes privees restent locales et ne sont jamais envoyees au moteur IA automatiquement.</p>
             {saveState.error ? <p className="document-save-error" role="alert">{saveState.error}</p> : null}
