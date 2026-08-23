@@ -124,3 +124,18 @@ export type AiCreditRefundResult =
   | { status: "refunded"; transactionId: string; periodId: string; remainingBalance: number }
   | { status: "already_refunded"; transactionId: string }
   | { status: "no_consumption" };
+
+export type AiCreditAdjustmentInput = {
+  workspaceId: string;
+  clerkUserId: string;
+  creditDelta: number;
+  idempotencyKey: string;
+  operation?: string | null;
+  at?: string;
+};
+
+export type AiCreditAdjustmentResult =
+  | { status: "adjusted"; transactionId: string; periodId: string; remainingBalance: number }
+  | { status: "already_adjusted"; transactionId: string }
+  | { status: "insufficient_credits"; periodId: string; currentBalance: number }
+  | { status: "no_active_period" };

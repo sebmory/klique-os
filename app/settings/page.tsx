@@ -1,3 +1,4 @@
+import { MediaCreditsSection } from "@/components/settings/MediaCreditsSection";
 import { MediaInviteSection } from "@/components/settings/MediaInviteSection";
 
 export default function SettingsPage() {
@@ -14,6 +15,7 @@ export default function SettingsPage() {
       </header>
 
       <MediaInviteSection />
+      <MediaCreditsSection />
     </section>
   );
 }

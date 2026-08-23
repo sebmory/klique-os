@@ -33,6 +33,7 @@ import type {
   ContextItem,
 } from "@/types/context-intelligence";
 import { EntitySelector } from "@/components/ui/EntitySelector";
+import { getMediaSubscriptionPlan } from "@/lib/media-subscriptions/plans";
 import {
   CREATION_MAX_QUESTION_COUNT,
   CREATION_MIN_QUESTION_COUNT,
@@ -295,6 +296,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const [creditBalance, setCreditBalance] = useState<{ hasActivePeriod: boolean; balance: number } | null>(null);
   const [creditModal, setCreditModal] = useState<null | { kind: "external_search" | "publication_angles" | "generation"; cost: number }>(null);
   const [creditModalBusy, setCreditModalBusy] = useState(false);
+  const [mediaSubscription, setMediaSubscription] = useState<
+    | { planCode: string; status: string; currentPeriodEnd: string }
+    | null
+  >(null);
+  const [mediaSubscriptionLoaded, setMediaSubscriptionLoaded] = useState(false);
 
   const loadCreditBalance = useCallback(async () => {
     try {
@@ -324,11 +330,63 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     void loadCreditBalance();
   }, [loadCreditBalance]);
 
+  useEffect(() => {
+    if (mediaCreditRole !== "media") return;
+
+    let active = true;
+
+    // Information secondaire: un echec ne doit jamais bloquer l assistant ni masquer les erreurs de credits.
+    const loadMediaSubscription = async () => {
+      try {
+        const response = await fetch("/api/media-subscriptions", { method: "GET", cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; subscription?: { planCode: string; status: string; currentPeriodEnd: string } | null }
+          | null;
+
+        if (!active) return;
+
+        if (!response.ok || !payload?.ok) {
+          setMediaSubscription(null);
+          setMediaSubscriptionLoaded(false);
+          return;
+        }
+
+        setMediaSubscription(payload.subscription ?? null);
+        setMediaSubscriptionLoaded(true);
+      } catch {
+        if (!active) return;
+        setMediaSubscription(null);
+        setMediaSubscriptionLoaded(false);
+      }
+    };
+
+    void loadMediaSubscription();
+
+    return () => {
+      active = false;
+    };
+  }, [mediaCreditRole]);
+
   const getGenerationCreditCost = (): number => {
     return 1;
   };
 
   const formatCreditCount = (count: number): string => (count === 1 ? "1 crédit" : `${count} crédits`);
+
+  const formatSubscriptionStatus = (status: string): string =>
+    ({
+      trialing: "Essai",
+      active: "Active",
+      past_due: "Paiement en retard",
+      canceled: "Annulée",
+      expired: "Expirée",
+    })[status] ?? status;
+
+  const formatSubscriptionDate = (value: string): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleDateString("fr-CH", { day: "2-digit", month: "2-digit", year: "numeric" });
+  };
 
   const isCreditCostBlocked = (cost: number): boolean => {
     if (mediaCreditRole !== "media" || creditBalance === null) return false;
@@ -2660,6 +2718,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             {creditBalance.hasActivePeriod
               ? `${formatCreditCount(creditBalance.balance)} disponible${creditBalance.balance === 1 ? "" : "s"}`
               : "Aucune période de crédits active"}
+            {mediaSubscriptionLoaded ? (
+              mediaSubscription ? (
+                <>
+                  {" · "}
+                  {getMediaSubscriptionPlan(mediaSubscription.planCode)?.label ?? mediaSubscription.planCode}
+                  {` · ${formatSubscriptionStatus(mediaSubscription.status)} jusqu au ${formatSubscriptionDate(mediaSubscription.currentPeriodEnd)}`}
+                </>
+              ) : (
+                " · Aucune offre active"
+              )
+            ) : null}
           </p>
         ) : null}
         <Link href="/contents" className="crm-secondary-action-link">Quitter</Link>

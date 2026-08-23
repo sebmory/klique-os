@@ -39,8 +39,8 @@ export async function GET(request: Request) {
 
     const summary = await getAiUsageSummary({
       workspaceId: accessContext.workspaceId,
-      from,
-      to,
+      from: new Date(from).toISOString(),
+      to: new Date(to).toISOString(),
       clerkUserId,
     });
 
@@ -49,9 +49,8 @@ export async function GET(request: Request) {
     const accessResponse = contentAccessErrorResponse(error);
     if (accessResponse) return accessResponse;
 
-    console.error("[ai_usage] Failed to build usage summary", {
-      message: error instanceof Error ? error.message : "unknown error",
-    });
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`[ai_usage] Failed to build usage summary: ${reason}`);
     return NextResponse.json({ ok: false, message: "Impossible de calculer la synthese d usage IA." }, { status: 500 });
   }
 }

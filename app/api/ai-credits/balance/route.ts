@@ -53,8 +53,8 @@ export async function GET(request: Request) {
       ok: true,
       period: {
         id: balance.periodId,
-        periodStart: balance.periodStart,
-        periodEnd: balance.periodEnd,
+        periodStart: new Date(balance.periodStart as string).toISOString(),
+        periodEnd: new Date(balance.periodEnd as string).toISOString(),
         creditsGranted: balance.creditsGranted,
       },
       balance: balance.currentBalance,

@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import type {
+  AiCreditAdjustmentInput,
+  AiCreditAdjustmentResult,
   AiCreditBalance,
   AiCreditConsumeInput,
   AiCreditConsumeResult,
@@ -316,4 +318,114 @@ export const refundAiCredit = async (input: AiCreditRefundInput): Promise<AiCred
   }
 
   throw new Error("Etat inattendu lors du remboursement de credit IA.");
+};
+
+export const addAiCreditAdjustment = async (input: AiCreditAdjustmentInput): Promise<AiCreditAdjustmentResult> => {
+  ensureNodeRuntime();
+
+  const workspaceId = normalize(input.workspaceId);
+  const clerkUserId = normalize(input.clerkUserId);
+  const idempotencyKey = normalize(input.idempotencyKey);
+  if (!workspaceId || !clerkUserId || !idempotencyKey) {
+    throw new Error("workspaceId, clerkUserId et idempotencyKey sont requis.");
+  }
+
+  const creditDelta = Number(input.creditDelta);
+  if (!Number.isInteger(creditDelta) || creditDelta === 0) {
+    throw new Error("creditDelta doit etre un entier non nul.");
+  }
+
+  const operation = normalizeNullable(input.operation);
+  const at = normalizeNullable(input.at);
+  const transactionId = randomUUID();
+
+  const sql = createContentStorageClient();
+
+  // Statement unique: le verrou FOR UPDATE sur la periode serialise les ajustements concurrents avant l insertion.
+  const rows = (await sql`
+    WITH locked_period AS (
+      SELECT id, credits_granted
+      FROM ai_credit_periods
+      WHERE workspace_id = ${workspaceId}
+        AND clerk_user_id = ${clerkUserId}
+        AND status = 'active'
+        AND period_start <= COALESCE(${at}::timestamptz, NOW())
+        AND period_end > COALESCE(${at}::timestamptz, NOW())
+      ORDER BY period_start DESC
+      LIMIT 1
+      FOR UPDATE
+    ),
+    existing AS (
+      SELECT id
+      FROM ai_credit_transactions
+      WHERE workspace_id = ${workspaceId}
+        AND clerk_user_id = ${clerkUserId}
+        AND idempotency_key = ${idempotencyKey}
+    ),
+    balance AS (
+      SELECT lp.id AS period_id, lp.credits_granted + COALESCE(SUM(t.credit_delta), 0) AS current_balance
+      FROM locked_period lp
+      LEFT JOIN ai_credit_transactions t ON t.period_id = lp.id
+      GROUP BY lp.id, lp.credits_granted
+    ),
+    inserted AS (
+      INSERT INTO ai_credit_transactions (
+        id, period_id, workspace_id, clerk_user_id, kind, credit_delta, request_group_id, operation, idempotency_key
+      )
+      SELECT ${transactionId}, b.period_id, ${workspaceId}, ${clerkUserId}, 'adjustment', ${creditDelta}, NULL, ${operation}, ${idempotencyKey}
+      FROM balance b
+      WHERE NOT EXISTS (SELECT 1 FROM existing)
+        AND b.current_balance + ${creditDelta} >= 0
+      ON CONFLICT (workspace_id, clerk_user_id, idempotency_key) DO NOTHING
+      RETURNING id
+    )
+    SELECT
+      (SELECT id FROM existing) AS existing_id,
+      (SELECT period_id FROM balance) AS period_id,
+      (SELECT current_balance FROM balance) AS current_balance,
+      (SELECT id FROM inserted) AS inserted_id
+  `) as Record<string, unknown>[];
+
+  const row = rows[0] ?? {};
+  const existingId = row.existing_id ? String(row.existing_id) : null;
+  const periodId = row.period_id ? String(row.period_id) : null;
+  const insertedId = row.inserted_id ? String(row.inserted_id) : null;
+  const currentBalance =
+    row.current_balance === null || row.current_balance === undefined ? null : Number(row.current_balance);
+
+  if (existingId) {
+    return { status: "already_adjusted", transactionId: existingId };
+  }
+
+  if (!periodId) {
+    return { status: "no_active_period" };
+  }
+
+  if (insertedId) {
+    return {
+      status: "adjusted",
+      transactionId: insertedId,
+      periodId,
+      remainingBalance: (currentBalance ?? 0) + creditDelta,
+    };
+  }
+
+  if (currentBalance !== null && currentBalance + creditDelta < 0) {
+    return { status: "insufficient_credits", periodId, currentBalance };
+  }
+
+  // Repli: conflit idempotency_key concurrent non couvert par le verrou ci-dessus.
+  const fallbackRows = (await sql`
+    SELECT id FROM ai_credit_transactions
+    WHERE workspace_id = ${workspaceId}
+      AND clerk_user_id = ${clerkUserId}
+      AND idempotency_key = ${idempotencyKey}
+  `) as Record<string, unknown>[];
+
+  const fallbackId = fallbackRows[0]?.id ? String(fallbackRows[0].id) : null;
+  if (fallbackId) {
+    return { status: "already_adjusted", transactionId: fallbackId };
+  }
+
+  throw new Error("Etat inattendu lors de l ajustement de credit IA.");
 };
