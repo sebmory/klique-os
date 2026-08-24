@@ -117,12 +117,27 @@ const storySteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 6" },
 ];
 
-const getStepsForObjective = (objective: CreationObjectiveType | null): Array<{ id: StepId; label: string }> => {
-  if (objective === "publication") return publicationSteps;
-  if (objective === "reel") return reelSteps;
-  if (objective === "story") return storySteps;
-  return interviewSteps;
+const getStepsForObjective = (
+  objective: CreationObjectiveType | null,
+  hasPreselectedObjective = false
+): Array<{ id: StepId; label: string }> => {
+  const baseSteps = objective === "publication"
+    ? publicationSteps
+    : objective === "reel"
+      ? reelSteps
+      : objective === "story"
+        ? storySteps
+        : interviewSteps;
+
+  // Reel et Story: l objective preselectionne rend l etape entierement redondante.
+  // Publication et Interview: l etape reste necessaire (choix dedie), elle n est jamais retiree.
+  const skipObjectiveStep = hasPreselectedObjective && (objective === "reel" || objective === "story");
+  const effectiveSteps = skipObjectiveStep ? baseSteps.filter((item) => item.id !== "objective") : baseSteps;
+
+  return effectiveSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
 };
+
+const preselectableObjectives: CreationObjectiveType[] = ["interview", "publication", "reel", "story"];
 
 const publicationObjectiveOptions: Array<{ id: string; label: string; description: string }> = [
   { id: "announce", label: "Annoncer", description: "Annoncer une information importante." },
@@ -275,12 +290,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   useEffect(() => {
     void runContentsBackfill();
   }, []);
-  const initialSteps = getStepsForObjective((context.objective as CreationObjectiveType | undefined) ?? "interview");
+  // Un objective valide fourni par l URL rend l etape "objective" redondante et la retire du parcours.
+  const hasPreselectedObjective = preselectableObjectives.includes(context.objective as CreationObjectiveType);
+  const initialSteps = getStepsForObjective((context.objective as CreationObjectiveType | undefined) ?? "interview", hasPreselectedObjective);
   const initialStepCount = initialSteps.length;
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
   const [draft, setDraft] = useState<CreationAssistantDraft>(() => createInitialAssistantDraft(context));
   const isPublicationFlow = draft.objective.objective === "publication";
-  const steps = useMemo(() => getStepsForObjective(draft.objective.objective), [draft.objective.objective]);
+  const steps = useMemo(
+    () => getStepsForObjective(draft.objective.objective, hasPreselectedObjective),
+    [draft.objective.objective, hasPreselectedObjective]
+  );
   const [stepIndex, setStepIndex] = useState(summaryStepRequested ? initialStepCount - 1 : 0);
   const [people, setPeople] = useState<Athlete[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
@@ -1379,36 +1399,48 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderObjectiveStep = () => {
+    // Objective preselectionnee via l URL: Publication/Interview conservent l etape mais masquent les cartes de formats.
+    const isRestrictedToSubselection =
+      hasPreselectedObjective && (draft.objective.objective === "publication" || draft.objective.objective === "interview");
+
+    const title = isRestrictedToSubselection
+      ? draft.objective.objective === "publication"
+        ? "Objectif de la publication"
+        : objectiveParameters?.subtypeLabel ?? "Type d interview"
+      : "Quel contenu souhaitez-vous creer ?";
+
     return (
       <section className="creation-step-block" aria-labelledby="creation-objective-title">
         <header className="creation-step-head">
-          <h2 id="creation-objective-title">Quel contenu souhaitez-vous creer ?</h2>
+          <h2 id="creation-objective-title">{title}</h2>
         </header>
 
-        <div className="creation-objective-grid">
-          {template.objectives.map((objective) => {
-            const Icon = objectiveIconById[objective.id];
-            const selected = draft.objective.objective === objective.id;
-            return (
-              <button
-                key={objective.id}
-                type="button"
-                className={selected ? "creation-objective-card is-active" : "creation-objective-card"}
-                onClick={() => selectObjective(objective.id)}
-                disabled={!objective.enabled}
-              >
-                <span className="creation-choice-icon" aria-hidden>
-                  <Icon size={17} />
-                </span>
-                <div>
-                  <strong>{objective.title}</strong>
-                  <p>{objective.description}</p>
-                </div>
-                <small>{objective.availabilityLabel}</small>
-              </button>
-            );
-          })}
-        </div>
+        {!isRestrictedToSubselection ? (
+          <div className="creation-objective-grid">
+            {template.objectives.map((objective) => {
+              const Icon = objectiveIconById[objective.id];
+              const selected = draft.objective.objective === objective.id;
+              return (
+                <button
+                  key={objective.id}
+                  type="button"
+                  className={selected ? "creation-objective-card is-active" : "creation-objective-card"}
+                  onClick={() => selectObjective(objective.id)}
+                  disabled={!objective.enabled}
+                >
+                  <span className="creation-choice-icon" aria-hidden>
+                    <Icon size={17} />
+                  </span>
+                  <div>
+                    <strong>{objective.title}</strong>
+                    <p>{objective.description}</p>
+                  </div>
+                  <small>{objective.availabilityLabel}</small>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         {draft.objective.objective === "publication" ? (
           <section className="creation-panel">
