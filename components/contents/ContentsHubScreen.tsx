@@ -281,18 +281,37 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
 
           {filteredTemplates.map((template) => {
             const Icon = templateIconById[template.id];
-            return (
-              <article key={template.id} className="contents-template-card">
+            const cardContent = (
+              <>
                 <span className="contents-template-icon" aria-hidden>
                   <Icon size={16} />
                 </span>
                 <div className="contents-template-body">
                   <div className="contents-template-heading">
                     <h3>{template.title}</h3>
-                    <span className="contents-template-badge">Bientôt disponible</span>
+                    <span className="contents-template-badge">{template.isAvailable ? "Disponible" : "Bientôt disponible"}</span>
                   </div>
                   <p>{template.description}</p>
                 </div>
+              </>
+            );
+
+            if (template.isAvailable && template.entryRoute) {
+              return (
+                <Link
+                  key={template.id}
+                  href={buildEntryRoute(template.entryRoute)}
+                  className="contents-template-card"
+                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
+                >
+                  {cardContent}
+                </Link>
+              );
+            }
+
+            return (
+              <article key={template.id} className="contents-template-card">
+                {cardContent}
               </article>
             );
           })}

@@ -1,4 +1,4 @@
-import type { ContentCreationContext } from "@/services/contents-hub";
+import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS } from "@/services/content-shared-options";
 import type {
   ContentSubject,
@@ -130,10 +130,21 @@ export type CreationParametersDraft = {
   storyPlatform: StoryPlatformId;
 };
 
+export type AfterMatchPresetDraft = {
+  opponent: string;
+  result: string;
+  competition: string;
+  matchDate: string;
+  keyFacts: string;
+  nextFixture: string;
+};
+
 export type CreationAssistantDraft = {
   subject: CreationSubjectDraft;
   objective: CreationObjectiveDraft;
   parameters: CreationParametersDraft;
+  presetId?: ContentPresetId;
+  afterMatch?: AfterMatchPresetDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -301,6 +312,56 @@ const parseTopics = (value: string): string[] => {
     .slice(0, 12);
 };
 
+// Bloc clairement identifie, ajoute uniquement pour le preset Apres-match; aucun champ vide n y figure.
+const buildAfterMatchContextBlock = (
+  afterMatch: AfterMatchPresetDraft,
+  subjectName: string,
+  subjectType: CreationSubjectType | null
+): string => {
+  const focusLines = subjectName
+    ? [
+        `Sujet central: ${subjectName} est le point de vue central de cette publication.`,
+        `Chacune des 3 propositions doit mentionner le nom complet de ${subjectName} dans le hook ou la premiere phrase.`,
+        `Chacune des 3 propositions doit rester centree sur ${subjectName} dans tout le corps du texte.`,
+        `Ne jamais transformer le contenu en communication generique du club plutot qu en publication centree sur ${subjectName}.`,
+        `Utiliser les faits du match pour raconter ${subjectName}, jamais pour le remplacer comme sujet.`,
+        subjectType === "person"
+          ? `Ne jamais inventer la performance, les statistiques, le temps de jeu ou les declarations de ${subjectName}.`
+          : "",
+      ].filter(Boolean)
+    : [];
+
+  const lines = [
+    afterMatch.opponent ? `Adversaire: ${normalize(afterMatch.opponent)}` : "",
+    afterMatch.result ? `Resultat: ${normalize(afterMatch.result)}` : "",
+    afterMatch.competition ? `Competition: ${normalize(afterMatch.competition)}` : "",
+    afterMatch.matchDate ? `Date du match: ${normalize(afterMatch.matchDate)}` : "",
+    afterMatch.keyFacts ? `Faits marquants: ${normalize(afterMatch.keyFacts)}` : "",
+    afterMatch.nextFixture ? `Prochain rendez-vous: ${normalize(afterMatch.nextFixture)}` : "",
+  ].filter(Boolean);
+
+  const allLines = [...focusLines, ...lines];
+  if (!allLines.length) return "";
+
+  return ["[MATCH APRES-MATCH]", ...allLines].join("\n");
+};
+
+// Seuls les faits structures pertinents en tant que sujets obligatoires; les faits marquants restent en texte libre.
+const buildAfterMatchTopics = (afterMatch: AfterMatchPresetDraft, subjectName: string): string[] => {
+  return [
+    subjectName ? `Sujet: ${subjectName}` : "",
+    afterMatch.opponent ? `Adversaire: ${normalize(afterMatch.opponent)}` : "",
+    afterMatch.result ? `Resultat: ${normalize(afterMatch.result)}` : "",
+    afterMatch.competition ? `Competition: ${normalize(afterMatch.competition)}` : "",
+    afterMatch.matchDate ? `Date du match: ${normalize(afterMatch.matchDate)}` : "",
+    afterMatch.nextFixture ? `Prochain rendez-vous: ${normalize(afterMatch.nextFixture)}` : "",
+  ].filter(Boolean);
+};
+
+const mergeTopics = (existing: string[], additions: string[]): string[] => {
+  return [...existing, ...additions].filter(Boolean).slice(0, 12);
+};
+
 const mapContextTypeToSubjectType = (value?: string): CreationSubjectType => {
   if (value === "athlete") return "person";
   if (value === "partner") return "partner";
@@ -316,6 +377,8 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isPublication = initialObjective === "publication";
   const isReel = initialObjective === "reel";
   const isStory = initialObjective === "story";
+  // Le preset n a de sens que pour l objectif Publication, seul flux qui le consommera.
+  const initialPresetId = isPublication ? context.presetId : undefined;
 
   return {
     subject: {
@@ -372,6 +435,18 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       storyFrameCount: "5",
       storyPlatform: "instagram",
     },
+    presetId: initialPresetId,
+    afterMatch:
+      initialPresetId === "after-match"
+        ? {
+            opponent: "",
+            result: "",
+            competition: "",
+            matchDate: "",
+            keyFacts: "",
+            nextFixture: "",
+          }
+        : undefined,
   };
 };
 
@@ -402,6 +477,7 @@ export const ContentCreationAssistantService = {
     const isPublication = objectiveId === "publication";
     const isReel = objectiveId === "reel";
     const isStory = objectiveId === "story";
+    const isAfterMatch = isPublication && args.draft.presetId === "after-match";
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -473,8 +549,20 @@ export const ContentCreationAssistantService = {
               ? args.draft.parameters.storyPlatform
               : args.draft.parameters.formatId,
         audienceId: resolveFreeOptionValue(args.draft.parameters.audienceId, args.draft.parameters.customAudience),
-        additionalContext: normalize(args.draft.parameters.additionalContext),
-        requiredTopics: parseTopics(args.draft.parameters.requiredTopics),
+        additionalContext: isAfterMatch && args.draft.afterMatch
+          ? [
+              normalize(args.draft.parameters.additionalContext),
+              buildAfterMatchContextBlock(args.draft.afterMatch, normalize(args.draft.subject.displayName), subjectType),
+            ]
+              .filter(Boolean)
+              .join("\n\n")
+          : normalize(args.draft.parameters.additionalContext),
+        requiredTopics: isAfterMatch && args.draft.afterMatch
+          ? mergeTopics(
+              parseTopics(args.draft.parameters.requiredTopics),
+              buildAfterMatchTopics(args.draft.afterMatch, normalize(args.draft.subject.displayName))
+            )
+          : parseTopics(args.draft.parameters.requiredTopics),
         avoidedTopics: parseTopics(args.draft.parameters.avoidedTopics),
         contextIntelligence: {
           enabled: args.draft.parameters.useContextIntelligence,
@@ -493,7 +581,7 @@ export const ContentCreationAssistantService = {
         },
         publication: isPublication
           ? {
-              objectiveId: args.draft.parameters.publicationObjectiveId,
+              objectiveId: isAfterMatch ? "narrate" : args.draft.parameters.publicationObjectiveId,
               customObjective: normalize(args.draft.parameters.publicationCustomObjective),
               selectedAngle: normalize(args.draft.parameters.publicationSelectedAngle),
               platform: args.draft.parameters.publicationPlatform,

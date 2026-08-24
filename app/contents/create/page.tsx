@@ -7,6 +7,7 @@ type CreateContentPageProps = {
     subjectId?: string;
     contextType?: string;
     objective?: string;
+    preset?: string;
   }>;
 };
 

@@ -1,11 +1,14 @@
 export type ContentContextType = "athlete" | "club" | "partner" | "organization" | "other";
 
+export type ContentPresetId = "after-match";
+
 export type ContentCreationContext = {
   mode: "free" | "contextual";
   subjectName?: string;
   subjectId?: string;
   subjectType?: ContentContextType;
   objective?: ContentGeneratorId;
+  presetId?: ContentPresetId;
 };
 
 export type ContentGeneratorId =
@@ -40,6 +43,8 @@ export type ContentTemplate = {
   id: ContentTemplateId;
   title: string;
   description: string;
+  isAvailable?: boolean;
+  entryRoute?: string;
 };
 
 const generators: ContentGenerator[] = [
@@ -116,6 +121,8 @@ const templates: ContentTemplate[] = [
     id: "after-match",
     title: "Apres-match",
     description: "Capitaliser sur les emotions et les enseignements a chaud.",
+    isAvailable: true,
+    entryRoute: "/contents/create?objective=publication&preset=after-match",
   },
   {
     id: "new-contract",
@@ -158,15 +165,20 @@ export const ContentsHubService = {
     subjectId?: string;
     contextType?: string;
     objective?: string;
+    preset?: string;
   }): ContentCreationContext {
     const objectiveCandidate = String(params.objective ?? "").trim().toLowerCase();
     const objective = generators.some((item) => item.id === objectiveCandidate)
       ? (objectiveCandidate as ContentGeneratorId)
       : undefined;
 
+    // Le preset n est retenu que pour l objectif Publication, seul flux qui le consomme.
+    const presetCandidate = String(params.preset ?? "").trim().toLowerCase();
+    const presetId = objective === "publication" && presetCandidate === "after-match" ? (presetCandidate as ContentPresetId) : undefined;
+
     const subjectName = String(params.subject ?? "").trim();
     if (!subjectName) {
-      return { mode: "free", objective };
+      return { mode: "free", objective, presetId };
     }
 
     const allowedTypes: ContentContextType[] = ["athlete", "club", "partner", "organization", "other"];
@@ -181,6 +193,7 @@ export const ContentsHubService = {
       subjectId: String(params.subjectId ?? "").trim() || undefined,
       subjectType,
       objective,
+      presetId,
     };
   },
 };

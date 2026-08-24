@@ -39,6 +39,7 @@ import {
   CREATION_MIN_QUESTION_COUNT,
   ContentCreationAssistantService,
   createInitialAssistantDraft,
+  type AfterMatchPresetDraft,
   type CreationAssistantDraft,
   type CreationObjectiveType,
   type CreationOption,
@@ -46,7 +47,7 @@ import {
 } from "@/services/content-creation-assistant";
 import { buildResultUrl, saveInterviewResultSession } from "@/services/content-result-sessions";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
-import type { ContentCreationContext } from "@/services/contents-hub";
+import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
 import { runContentsBackfill } from "@/services/content-backfill";
 
@@ -80,7 +81,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "angle" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -117,10 +118,25 @@ const storySteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 6" },
 ];
 
+const afterMatchSteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "match", label: "Etape 2" },
+  { id: "angle", label: "Etape 3" },
+  { id: "parameters", label: "Etape 4" },
+  { id: "context", label: "Etape 5" },
+  { id: "summary", label: "Etape 6" },
+];
+
 const getStepsForObjective = (
   objective: CreationObjectiveType | null,
-  hasPreselectedObjective = false
+  hasPreselectedObjective = false,
+  presetId?: ContentPresetId
 ): Array<{ id: StepId; label: string }> => {
+  // Le preset Apres-match remplace entierement l etape objective par une etape match dediee.
+  if (objective === "publication" && presetId === "after-match") {
+    return afterMatchSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
+  }
+
   const baseSteps = objective === "publication"
     ? publicationSteps
     : objective === "reel"
@@ -292,14 +308,18 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   }, []);
   // Un objective valide fourni par l URL rend l etape "objective" redondante et la retire du parcours.
   const hasPreselectedObjective = preselectableObjectives.includes(context.objective as CreationObjectiveType);
-  const initialSteps = getStepsForObjective((context.objective as CreationObjectiveType | undefined) ?? "interview", hasPreselectedObjective);
+  const initialSteps = getStepsForObjective(
+    (context.objective as CreationObjectiveType | undefined) ?? "interview",
+    hasPreselectedObjective,
+    context.presetId
+  );
   const initialStepCount = initialSteps.length;
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
   const [draft, setDraft] = useState<CreationAssistantDraft>(() => createInitialAssistantDraft(context));
   const isPublicationFlow = draft.objective.objective === "publication";
   const steps = useMemo(
-    () => getStepsForObjective(draft.objective.objective, hasPreselectedObjective),
-    [draft.objective.objective, hasPreselectedObjective]
+    () => getStepsForObjective(draft.objective.objective, hasPreselectedObjective, draft.presetId),
+    [draft.objective.objective, hasPreselectedObjective, draft.presetId]
   );
   const [stepIndex, setStepIndex] = useState(summaryStepRequested ? initialStepCount - 1 : 0);
   const [people, setPeople] = useState<Athlete[]>([]);
@@ -548,6 +568,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
       if (!draft.objective.subtypeId) {
         return { ok: false, message: "Selectionnez un type d interview.", focusSelector: "[data-param-group='subtype'] .creation-option-card" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "match") {
+      if (!normalize(draft.afterMatch?.opponent)) {
+        return { ok: false, message: "Renseignez l adversaire.", focusSelector: "[data-match-opponent='true']" };
+      }
+      if (!normalize(draft.afterMatch?.result)) {
+        return { ok: false, message: "Renseignez le resultat.", focusSelector: "[data-match-result='true']" };
+      }
+      if (!normalize(draft.afterMatch?.competition)) {
+        return { ok: false, message: "Renseignez la competition.", focusSelector: "[data-match-competition='true']" };
+      }
+      if (!normalize(draft.afterMatch?.matchDate)) {
+        return { ok: false, message: "Renseignez la date du match.", focusSelector: "[data-match-date='true']" };
       }
       return { ok: true };
     }
@@ -1509,6 +1545,99 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               },
             })),
         }) : null}
+      </section>
+    );
+  };
+
+  const setAfterMatchField = (field: keyof AfterMatchPresetDraft, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      afterMatch: {
+        opponent: current.afterMatch?.opponent ?? "",
+        result: current.afterMatch?.result ?? "",
+        competition: current.afterMatch?.competition ?? "",
+        matchDate: current.afterMatch?.matchDate ?? "",
+        keyFacts: current.afterMatch?.keyFacts ?? "",
+        nextFixture: current.afterMatch?.nextFixture ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const renderMatchStep = () => {
+    return (
+      <section className="creation-step-block" aria-labelledby="creation-match-title">
+        <header className="creation-step-head">
+          <h2 id="creation-match-title">Informations du match</h2>
+          <p>Renseignez les elements factuels de la rencontre. Aucun appel IA n est lance a cette etape.</p>
+        </header>
+
+        <section className="creation-panel">
+          <div className="creation-fields-grid">
+            <label>
+              <span>Adversaire</span>
+              <input
+                type="text"
+                data-match-opponent="true"
+                value={draft.afterMatch?.opponent ?? ""}
+                onChange={(event) => setAfterMatchField("opponent", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Resultat</span>
+              <input
+                type="text"
+                data-match-result="true"
+                placeholder="Ex: Victoire 2-1"
+                value={draft.afterMatch?.result ?? ""}
+                onChange={(event) => setAfterMatchField("result", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Competition</span>
+              <input
+                type="text"
+                data-match-competition="true"
+                value={draft.afterMatch?.competition ?? ""}
+                onChange={(event) => setAfterMatchField("competition", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Date du match</span>
+              <input
+                type="date"
+                data-match-date="true"
+                value={draft.afterMatch?.matchDate ?? ""}
+                onChange={(event) => setAfterMatchField("matchDate", event.target.value)}
+              />
+            </label>
+          </div>
+
+          <label className="creation-inline-field">
+            <span>Faits marquants (optionnel)</span>
+            <textarea
+              className="creation-textarea"
+              data-match-key-facts="true"
+              placeholder="Ex: but decisif a la 88e, exclusion adverse en 2e periode."
+              value={draft.afterMatch?.keyFacts ?? ""}
+              onChange={(event) => setAfterMatchField("keyFacts", event.target.value)}
+            />
+          </label>
+
+          <label className="creation-inline-field">
+            <span>Prochain rendez-vous (optionnel)</span>
+            <textarea
+              className="creation-textarea"
+              data-match-next-fixture="true"
+              placeholder="Ex: deplacement samedi prochain pour la journee suivante."
+              value={draft.afterMatch?.nextFixture ?? ""}
+              onChange={(event) => setAfterMatchField("nextFixture", event.target.value)}
+            />
+          </label>
+        </section>
       </section>
     );
   };
@@ -2775,7 +2904,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <dl className="creation-summary-grid">
             <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
             <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
-            <div><dt>Objectif</dt><dd>{draft.parameters.publicationObjectiveId}</dd></div>
+            <div><dt>Objectif</dt><dd>{draft.presetId === "after-match" ? "Après-match" : draft.parameters.publicationObjectiveId}</dd></div>
+            {draft.presetId === "after-match" ? (
+              <>
+                <div><dt>Adversaire</dt><dd>{draft.afterMatch?.opponent || "Non defini"}</dd></div>
+                <div><dt>Resultat</dt><dd>{draft.afterMatch?.result || "Non defini"}</dd></div>
+                <div><dt>Competition</dt><dd>{draft.afterMatch?.competition || "Non definie"}</dd></div>
+                <div><dt>Date du match</dt><dd>{draft.afterMatch?.matchDate || "Non definie"}</dd></div>
+                <div><dt>Faits marquants</dt><dd>{draft.afterMatch?.keyFacts || "Aucun"}</dd></div>
+                <div><dt>Prochain rendez-vous</dt><dd>{draft.afterMatch?.nextFixture || "Aucun"}</dd></div>
+              </>
+            ) : null}
             <div><dt>Angle</dt><dd>{draft.parameters.publicationSelectedAngle || "Non defini"}</dd></div>
             <div><dt>Plateforme</dt><dd>{draft.parameters.publicationPlatform}</dd></div>
             <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
@@ -3061,6 +3200,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
       {step.id === "subject" ? renderSubjectStep() : null}
       {step.id === "objective" ? renderObjectiveStep() : null}
+      {step.id === "match" ? renderMatchStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}
       {step.id === "context" ? renderContextStep() : null}
