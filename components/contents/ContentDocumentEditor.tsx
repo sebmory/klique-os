@@ -8,8 +8,9 @@ import type {
   InterviewDocumentQuestion,
   PublicationDocument,
   ReelDocument,
+  StoryDocument,
 } from "@/types/content-document";
-import type { ContentVariant } from "@/types/content-variant";
+import type { ContentVariant, StoryCardType } from "@/types/content-variant";
 import { ContentVariationComposer } from "@/components/contents/ContentVariationComposer";
 import { ContentVariantEditor } from "@/components/contents/ContentVariantEditor";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
@@ -201,6 +202,51 @@ const copyReelText = (document: ReelDocument): string => {
   return lines.join("\n");
 };
 
+const storyCardTypeLabels: Record<StoryCardType, string> = {
+  introduction: "Introduction",
+  contexte: "Contexte",
+  citation: "Citation",
+  sondage: "Sondage",
+  quiz: "Quiz",
+  question: "Question",
+  teaser: "Teaser",
+  appel_a_action: "Appel a l action",
+};
+
+const copyStoryText = (document: StoryDocument): string => {
+  const frameLines = document.sections.frames.flatMap((frame) => [
+    `Frame ${frame.order} (${storyCardTypeLabels[frame.type]})`,
+    `- Contenu: ${frame.content}`,
+    `- Interaction: ${frame.interaction || "-"}`,
+    "",
+  ]);
+
+  const lines = [
+    `Titre: ${document.sections.title}`,
+    "",
+    "Angle editorial:",
+    document.sections.editorialAngle,
+    "",
+    "Hook:",
+    document.sections.hook,
+    "",
+    "Frames:",
+    ...frameLines,
+  ];
+
+  if (document.sections.cta.trim()) {
+    lines.push("", "CTA:", document.sections.cta);
+  }
+
+  lines.push("", "Legende:", document.sections.caption);
+
+  if (document.sections.hashtags.length > 0) {
+    lines.push("", "Hashtags:", document.sections.hashtags.join(" "));
+  }
+
+  return lines.join("\n");
+};
+
 const withUpdatedTimestamp = <T extends ContentDocument>(document: T): T => {
   return {
     ...document,
@@ -227,6 +273,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const interviewDocument = document.type === "interview" ? document : null;
   const publicationDocument = document.type === "publication" ? document : null;
   const reelDocument = document.type === "reel" ? document : null;
+  const storyDocument = document.type === "story" ? document : null;
 
   const hasUnsavedChanges = stableSerialize(document) !== baselineSnapshot;
   const selectedContextItems = document.contextUsage.selectedItems ?? [];
@@ -311,6 +358,13 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
     });
   };
 
+  const setStoryDocument = (updater: (current: StoryDocument) => StoryDocument) => {
+    setDocument((current) => {
+      if (current.type !== "story") return current;
+      return withUpdatedTimestamp(updater(current));
+    });
+  };
+
   const updateStatus = (status: ContentDocument["status"]) => {
     setDocument((current) => {
       if (current.type === "interview") {
@@ -326,6 +380,12 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
         });
       }
       if (current.type === "reel") {
+        return withUpdatedTimestamp({
+          ...current,
+          status,
+        });
+      }
+      if (current.type === "story") {
         return withUpdatedTimestamp({
           ...current,
           status,
@@ -399,6 +459,52 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
           return {
             ...scene,
             [field]: value,
+          };
+        }),
+      },
+    }));
+  };
+
+  const updateStoryField = (
+    field: "title" | "editorialAngle" | "hook" | "cta" | "caption",
+    value: string
+  ) => {
+    setStoryDocument((current) => ({
+      ...current,
+      sections: {
+        ...current.sections,
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateStoryFrameField = (
+    frameId: string,
+    field: "type" | "content" | "interaction",
+    value: string
+  ) => {
+    setStoryDocument((current) => ({
+      ...current,
+      sections: {
+        ...current.sections,
+        frames: current.sections.frames.map((frame) => {
+          if (frame.id !== frameId) return frame;
+          if (field === "type") {
+            return {
+              ...frame,
+              type: value as StoryCardType,
+            };
+          }
+          if (field === "interaction") {
+            const next = value.trim();
+            return {
+              ...frame,
+              interaction: next || undefined,
+            };
+          }
+          return {
+            ...frame,
+            content: value,
           };
         }),
       },
@@ -539,7 +645,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
     setShowVariationComposer(false);
   };
 
-  if (!interviewDocument && !publicationDocument && !reelDocument) {
+  if (!interviewDocument && !publicationDocument && !reelDocument && !storyDocument) {
     return null;
   }
 
@@ -873,6 +979,269 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                     key={option.value}
                     type="button"
                     className={reelDocument.status === option.value ? "document-status-option is-active" : "document-status-option"}
+                    onClick={() => updateStatus(option.value)}
+                    disabled={!isEditing}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {isCloudSaved && !hasUnsavedChanges ? <p className="document-saved">Enregistre</p> : <p className="document-unsaved">Modifications non enregistrees</p>}
+              {saveState.savedAt ? <p className="document-saved-at">Dernier enregistrement: {formatDateTime(saveState.savedAt)}</p> : null}
+              {saveState.error ? <p className="document-save-error" role="alert">{saveState.error}</p> : null}
+            </section>
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  if (storyDocument) {
+    return (
+      <section className="document-editor" aria-label="Editeur de document">
+        <header className="document-editor-hero">
+          <div className="document-hero-main">
+            <div className="document-editor-kicker-row">
+              <p className="document-editor-kicker">STORY</p>
+              <span className={`document-status-chip ${statusToneClass(storyDocument.status)}`}>{statusLabel(storyDocument.status)}</span>
+              <span className="document-mode-chip">Mode: {isEditing ? "Edition" : "Lecture"}</span>
+            </div>
+            <div className="document-title-wrap">
+              {isEditing ? (
+                <input
+                  id="document-title"
+                  className="document-title-input"
+                  value={storyDocument.sections.title}
+                  onChange={(event) => updateStoryField("title", event.target.value)}
+                  aria-label="Titre du document"
+                />
+              ) : (
+                <h1>{storyDocument.sections.title || "Sans titre"}</h1>
+              )}
+            </div>
+            <div className="document-editor-meta-row">
+              <span>Sujet: {storyDocument.sidebar.subject}</span>
+              <span>Cree le: {formatDateTime(storyDocument.createdAt)}</span>
+              <span>Derniere modification: {formatDateTime(storyDocument.updatedAt)}</span>
+              <span>{isCloudSaved && !hasUnsavedChanges ? "Enregistre" : "Modifications non enregistrees"}</span>
+            </div>
+          </div>
+
+          <div className="document-editor-actions-bar" aria-label="Actions principales du document">
+            {isEditing ? (
+              <button type="button" className="crm-primary-action" onClick={saveDraft} disabled={saveState.saving}>
+                <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer"}
+              </button>
+            ) : (
+              <>
+                {!isCloudSaved || hasUnsavedChanges ? (
+                  <button type="button" className="crm-primary-action" onClick={saveDraft} disabled={saveState.saving}>
+                    <Save size={15} aria-hidden /> {saveState.saving ? "Enregistrement..." : "Enregistrer le brouillon"}
+                  </button>
+                ) : null}
+                <button type="button" className="crm-primary-action" onClick={() => setIsEditing(true)}>
+                  <PenLine size={15} aria-hidden /> Modifier
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              className="contents-secondary-button"
+              onClick={() => copyToClipboard("copy-story", copyStoryText(storyDocument), "Story copiee")}
+            >
+              <Copy size={15} aria-hidden /> Copier
+            </button>
+
+            {saveState.error ? (
+              <p className="document-save-error" role="alert">
+                Sauvegardé localement uniquement — {saveState.error}
+              </p>
+            ) : null}
+
+            {isEditing ? (
+              <button type="button" className="contents-ghost-button" onClick={() => setIsEditing(false)}>
+                Terminer l edition
+              </button>
+            ) : null}
+          </div>
+        </header>
+
+        {copyState ? (
+          <p className="interview-feedback" role="status">
+            <Check size={14} aria-hidden /> {copyState.message}
+          </p>
+        ) : null}
+
+        <div className="document-editor-layout">
+          <main className="document-main" aria-label="Document editorial">
+            <section className="document-section document-prose-section">
+              <h2>Angle editorial</h2>
+              {isEditing ? (
+                <textarea className="document-prose-editor" rows={3} value={storyDocument.sections.editorialAngle} onChange={(event) => updateStoryField("editorialAngle", event.target.value)} />
+              ) : (
+                <p>{storyDocument.sections.editorialAngle || "Aucun angle editorial"}</p>
+              )}
+            </section>
+
+            <section className="document-section document-prose-section">
+              <h2>Hook</h2>
+              {isEditing ? (
+                <textarea className="document-prose-editor" rows={3} value={storyDocument.sections.hook} onChange={(event) => updateStoryField("hook", event.target.value)} />
+              ) : (
+                <p>{storyDocument.sections.hook || "Aucun hook"}</p>
+              )}
+            </section>
+
+            <section className="document-section document-prose-section">
+              <h2>Frames ordonnees</h2>
+              <div>
+                {storyDocument.sections.frames.map((frame) => (
+                  <article key={frame.id} className="document-section document-prose-section">
+                    <h3>{`Frame ${frame.order}`}</h3>
+                    <label className="creation-inline-field">
+                      <span>Type</span>
+                      {isEditing ? (
+                        <select value={frame.type} onChange={(event) => updateStoryFrameField(frame.id, "type", event.target.value)}>
+                          {(Object.keys(storyCardTypeLabels) as StoryCardType[]).map((type) => (
+                            <option key={type} value={type}>
+                              {storyCardTypeLabels[type]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p>{storyCardTypeLabels[frame.type]}</p>
+                      )}
+                    </label>
+
+                    <label className="creation-inline-field">
+                      <span>Contenu</span>
+                      {isEditing ? (
+                        <textarea className="document-prose-editor" rows={2} value={frame.content} onChange={(event) => updateStoryFrameField(frame.id, "content", event.target.value)} />
+                      ) : (
+                        <p>{frame.content || "-"}</p>
+                      )}
+                    </label>
+
+                    <label className="creation-inline-field">
+                      <span>Interaction (optionnel)</span>
+                      {isEditing ? (
+                        <textarea className="document-prose-editor" rows={2} value={frame.interaction || ""} onChange={(event) => updateStoryFrameField(frame.id, "interaction", event.target.value)} />
+                      ) : (
+                        <p>{frame.interaction || "-"}</p>
+                      )}
+                    </label>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="document-section document-prose-section">
+              <h2>Legende</h2>
+              {isEditing ? (
+                <textarea className="document-prose-editor" rows={4} value={storyDocument.sections.caption} onChange={(event) => updateStoryField("caption", event.target.value)} />
+              ) : (
+                <p>{storyDocument.sections.caption || "Aucune legende"}</p>
+              )}
+            </section>
+
+            {isEditing || storyDocument.sections.cta.trim() ? (
+              <section className="document-section document-prose-section">
+                <h2>CTA</h2>
+                {isEditing ? (
+                  <textarea className="document-prose-editor" rows={3} value={storyDocument.sections.cta} onChange={(event) => updateStoryField("cta", event.target.value)} />
+                ) : (
+                  <p>{storyDocument.sections.cta}</p>
+                )}
+              </section>
+            ) : null}
+
+            {isEditing || storyDocument.sections.hashtags.length > 0 ? (
+              <section className="document-section document-prose-section">
+                <h2>Hashtags</h2>
+                {isEditing ? (
+                  <textarea
+                    className="document-prose-editor"
+                    rows={2}
+                    value={storyDocument.sections.hashtags.join(" ")}
+                    onChange={(event) =>
+                      setStoryDocument((current) => ({
+                        ...current,
+                        sections: {
+                          ...current.sections,
+                          hashtags: event.target.value.split(/\s+/).map((item) => item.trim()).filter(Boolean),
+                        },
+                      }))
+                    }
+                  />
+                ) : (
+                  <p>{storyDocument.sections.hashtags.join(" ")}</p>
+                )}
+              </section>
+            ) : null}
+
+            {verifiedSources.length > 0 ? (
+              <section className="document-section" aria-labelledby="document-sources-title-story">
+                <h2 id="document-sources-title-story">Sources vérifiées</h2>
+                <p className="document-note-hint">
+                  Ces sources ont servi à contextualiser la Story.
+                </p>
+                <ul className="document-context-list">
+                  {verifiedSources.map((source) => (
+                    <li key={source.id}>
+                      <strong>{source.title}</strong>
+                      {source.sourceName ? <span>{source.sourceName}</span> : null}
+                      {source.publishedAt ? <small>{formatPublishedDate(source.publishedAt)}</small> : null}
+                      <a href={source.href} target="_blank" rel="noreferrer noopener">
+                        Consulter la source
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </main>
+
+          <aside className="document-sidebar" aria-label="Informations et contexte">
+            <section className="document-sidebar-group">
+              <h3>Sujet</h3>
+              <div className="document-sidebar-subject-row">
+                <span className="document-sidebar-avatar">{(storyDocument.sidebar.subject || "--").slice(0, 2).toUpperCase()}</span>
+                <div>
+                  <strong>{storyDocument.sidebar.subject}</strong>
+                  <p>{sourceLabel(storyDocument.sidebar.source)}</p>
+                </div>
+              </div>
+            </section>
+
+            <section className="document-sidebar-group">
+              <h3>Parametres editoriaux</h3>
+              <dl className="document-sidebar-rows">
+                <div><dt>Objectif</dt><dd>{storyDocument.sidebar.objective}</dd></div>
+                <div><dt>Ton</dt><dd>{storyDocument.sidebar.tone}</dd></div>
+                <div><dt>Audience</dt><dd>{storyDocument.sidebar.audience}</dd></div>
+                <div><dt>Plateforme</dt><dd>{storyDocument.sidebar.platform || "instagram"}</dd></div>
+              </dl>
+            </section>
+
+            <section className="document-sidebar-group">
+              <h3>Generation</h3>
+              <dl className="document-sidebar-rows">
+                <div><dt>Provider</dt><dd>{storyDocument.sidebar.provider}</dd></div>
+                <div><dt>Modele</dt><dd>{storyDocument.sidebar.model}</dd></div>
+                <div><dt>Date</dt><dd>{formatDateTime(storyDocument.sidebar.generatedAt)}</dd></div>
+                <div><dt>Version</dt><dd>{storyDocument.metadata.templateVersion}</dd></div>
+              </dl>
+            </section>
+
+            <section className="document-sidebar-group">
+              <h3>Etat du document</h3>
+              <div className="document-status-picker" role="group" aria-label="Statut du document">
+                {STATUS_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={storyDocument.status === option.value ? "document-status-option is-active" : "document-status-option"}
                     onClick={() => updateStatus(option.value)}
                     disabled={!isEditing}
                   >

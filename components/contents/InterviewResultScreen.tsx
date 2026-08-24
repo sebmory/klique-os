@@ -9,17 +9,24 @@ import type {
   InterviewGenerationResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type { ContentDocument } from "@/types/content-document";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import { ContentDocumentEditor } from "@/components/contents/ContentDocumentEditor";
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
-import { mapInterviewGenerationToDocument, mapPublicationGenerationToDocument, mapReelGenerationToDocument } from "@/services/content-documents/document-mapper";
+import {
+  mapInterviewGenerationToDocument,
+  mapPublicationGenerationToDocument,
+  mapReelGenerationToDocument,
+  mapStoryGenerationToDocument,
+} from "@/services/content-documents/document-mapper";
 
 type InterviewResultScreenProps = {
   initialPayload: CreationPreparationPayload;
-  initialRequest: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
-  initialResult: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
+  initialRequest: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
+  initialResult: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   initialCreatedAt?: string;
 };
 
@@ -31,6 +38,7 @@ export function InterviewResultScreen({
 }: InterviewResultScreenProps) {
   const isPublicationFlow = initialRequest.requestType === "publication";
   const isReelFlow = initialRequest.requestType === "reel";
+  const isStoryFlow = initialRequest.requestType === "story";
 
   const payloadForGeneration = useMemo(() => {
     return {
@@ -42,11 +50,12 @@ export function InterviewResultScreen({
     };
   }, [initialPayload]);
 
-  const [request, setRequest] = useState<InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest>(initialRequest);
-  const [result, setResult] = useState<InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult>(initialResult);
+  const [request, setRequest] = useState<InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest>(initialRequest);
+  const [result, setResult] = useState<InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult>(initialResult);
   const [documentId] = useState(() => `document-${initialCreatedAt || initialResult.metadata.generatedAt}`);
   const [selectedPublicationProposalId, setSelectedPublicationProposalId] = useState<string | null>(null);
   const [selectedReelConceptId, setSelectedReelConceptId] = useState<string | null>(null);
+  const [selectedStorySequenceId, setSelectedStorySequenceId] = useState<string | null>(null);
 
   const document = useMemo(() => {
     if (request.requestType === "interview") {
@@ -82,8 +91,20 @@ export function InterviewResultScreen({
       });
     }
 
+    if (request.requestType === "story") {
+      const storyResult = result as StoryGenerationResult;
+      const selectedId = selectedStorySequenceId || storyResult.sequences[0]?.id || "sequence-1";
+      return mapStoryGenerationToDocument({
+        request,
+        result: storyResult,
+        selectedSequenceId: selectedId,
+        createdAt: initialCreatedAt,
+        documentId,
+      });
+    }
+
     return null;
-  }, [documentId, initialCreatedAt, request, result, selectedPublicationProposalId, selectedReelConceptId]);
+  }, [documentId, initialCreatedAt, request, result, selectedPublicationProposalId, selectedReelConceptId, selectedStorySequenceId]);
 
   const saveDraft = async (contentDocument: ContentDocument) => {
     return ContentDocumentDraftService.saveDraft(contentDocument);
@@ -143,6 +164,21 @@ export function InterviewResultScreen({
         request: payload.request,
         result: reelResult,
         selectedConceptId: selectedId,
+        createdAt: initialCreatedAt,
+        documentId,
+      });
+    }
+
+    if (payload.request.requestType === "story") {
+      setRequest(payload.request);
+      setResult(payload.result as StoryGenerationResult);
+      const storyResult = payload.result as StoryGenerationResult;
+      const selectedId = storyResult.sequences[0]?.id || "sequence-1";
+      setSelectedStorySequenceId(selectedId);
+      return mapStoryGenerationToDocument({
+        request: payload.request,
+        result: storyResult,
+        selectedSequenceId: selectedId,
         createdAt: initialCreatedAt,
         documentId,
       });
@@ -329,6 +365,70 @@ export function InterviewResultScreen({
             <span className="interview-chip">Audience: {reelRequest.brief.audience}</span>
             <span className="interview-chip">Duree: {reelRequest.brief.duration}</span>
             <span className="interview-chip">Format: {reelRequest.brief.format}</span>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  if (isStoryFlow && request.requestType === "story" && !selectedStorySequenceId) {
+    const storyResult = result as StoryGenerationResult;
+    const storyRequest = request;
+
+    return (
+      <section className="interview-result-screen" aria-label="Resultat story">
+        <header className="interview-result-hero">
+          <div className="interview-result-title-stack">
+            <p className="interview-result-kicker">STORY</p>
+            <h1>{storyResult.title}</h1>
+            <p>{storyResult.selectedAngle}</p>
+          </div>
+        </header>
+
+        <section className="interview-section" aria-labelledby="story-sequences-title">
+          <h2 id="story-sequences-title">3 sequences Story</h2>
+          <p>Choisissez une sequence pour ouvrir le Document Editor.</p>
+          <div className="interview-ideas-grid">
+            {storyResult.sequences.map((sequence) => (
+              <article key={sequence.id} className="interview-idea-card">
+                <header>
+                  <span className="interview-idea-type">Sequence</span>
+                  <strong>{sequence.hook}</strong>
+                </header>
+                <p>{sequence.caption}</p>
+                <small>{`Frames: ${sequence.frames.length}`}</small>
+                {sequence.cta.trim() ? <small>{`CTA: ${sequence.cta}`}</small> : null}
+                {sequence.hashtags.length > 0 ? <small>{`Hashtags: ${sequence.hashtags.join(" ")}`}</small> : null}
+                <div className="interview-result-actions">
+                  <button type="button" className="crm-primary-action" onClick={() => setSelectedStorySequenceId(sequence.id)}>
+                    Choisir
+                  </button>
+                  <button
+                    type="button"
+                    className="contents-secondary-button"
+                    onClick={() => {
+                      const frameLines = sequence.frames.map((frame) => `- ${frame.type}: ${frame.content}`);
+                      const lines = [sequence.hook, "", ...frameLines, "", sequence.caption];
+                      if (sequence.cta.trim()) {
+                        lines.push("", sequence.cta);
+                      }
+                      if (sequence.hashtags.length > 0) {
+                        lines.push("", sequence.hashtags.join(" "));
+                      }
+                      void navigator.clipboard.writeText(lines.join("\n"));
+                    }}
+                  >
+                    Copier
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="interview-chip-row">
+            <span className="interview-chip">Plateforme: {storyRequest.brief.platform}</span>
+            <span className="interview-chip">Ton: {storyRequest.brief.tone}</span>
+            <span className="interview-chip">Audience: {storyRequest.brief.audience}</span>
+            <span className="interview-chip">Frames: {storyRequest.brief.frameCount}</span>
           </div>
         </section>
       </section>

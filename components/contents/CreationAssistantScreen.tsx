@@ -108,9 +108,19 @@ const reelSteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 6" },
 ];
 
+const storySteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "objective", label: "Etape 2" },
+  { id: "angle", label: "Etape 3" },
+  { id: "parameters", label: "Etape 4" },
+  { id: "context", label: "Etape 5" },
+  { id: "summary", label: "Etape 6" },
+];
+
 const getStepsForObjective = (objective: CreationObjectiveType | null): Array<{ id: StepId; label: string }> => {
   if (objective === "publication") return publicationSteps;
   if (objective === "reel") return reelSteps;
+  if (objective === "story") return storySteps;
   return interviewSteps;
 };
 
@@ -509,6 +519,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         return { ok: true };
       }
 
+      if (draft.objective.objective === "story") {
+        return { ok: true };
+      }
+
       if (!objectiveParameters) {
         return { ok: false, message: "Objectif indisponible pour la configuration actuelle." };
       }
@@ -524,6 +538,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
       if (draft.objective.objective === "reel" && !normalize(draft.parameters.reelSelectedAngle)) {
         return { ok: false, message: "Renseignez un angle editorial Reel.", focusSelector: "[data-reel-custom-angle='true']" };
+      }
+      if (draft.objective.objective === "story" && !normalize(draft.parameters.storySelectedAngle)) {
+        return { ok: false, message: "Renseignez un angle editorial Story.", focusSelector: "[data-story-custom-angle='true']" };
       }
       return { ok: true };
     }
@@ -569,6 +586,29 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           }
           if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
             return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-reel-audience-free='true']" };
+          }
+          return { ok: true };
+        }
+
+        if (draft.objective.objective === "story") {
+          if (!draft.parameters.storyPlatform) {
+            return { ok: false, message: "Selectionnez une plateforme Story.", focusSelector: "[data-story-platform='true']" };
+          }
+          const frameCount = Number(draft.parameters.storyFrameCount);
+          if (!Number.isFinite(frameCount) || frameCount <= 0) {
+            return { ok: false, message: "Renseignez un nombre de frames valide.", focusSelector: "[data-story-frame-count='true']" };
+          }
+          if (!draft.parameters.toneId) {
+            return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-story-tone='true']" };
+          }
+          if (!draft.parameters.audienceId) {
+            return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-story-audience='true']" };
+          }
+          if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
+            return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-story-tone-free='true']" };
+          }
+          if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
+            return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-story-audience-free='true']" };
           }
           return { ok: true };
         }
@@ -1474,6 +1514,38 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       );
     }
 
+    if (draft.objective.objective === "story") {
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-angle-title">
+          <header className="creation-step-head">
+            <h2 id="creation-angle-title">Angle editorial</h2>
+            <p>Definissez l angle central de la Story. Aucun appel IA n est lance a cette etape.</p>
+          </header>
+
+          <section className="creation-panel">
+            <label className="creation-inline-field">
+              <span>Angle Story</span>
+              <textarea
+                className="creation-textarea"
+                data-story-custom-angle="true"
+                placeholder="Ex: Montrer les coulisses de la preparation avant match en 5 frames rythmees."
+                value={draft.parameters.storySelectedAngle}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: {
+                      ...current.parameters,
+                      storySelectedAngle: event.target.value,
+                    },
+                  }))
+                }
+              />
+            </label>
+          </section>
+        </section>
+      );
+    }
+
     if (draft.objective.objective !== "publication") {
       return (
         <section className="creation-step-block">
@@ -1691,6 +1763,158 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <input
                   type="text"
                   data-reel-audience-free="true"
+                  value={draft.parameters.customAudience}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, customAudience: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            <label className="creation-inline-field">
+              <span>Contexte supplementaire</span>
+              <textarea
+                className="creation-textarea"
+                value={draft.parameters.additionalContext}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: { ...current.parameters, additionalContext: event.target.value },
+                  }))
+                }
+              />
+            </label>
+
+            <label className="creation-disabled-check">
+              <input
+                type="checkbox"
+                checked={draft.parameters.useContextIntelligence}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: {
+                      ...current.parameters,
+                      useContextIntelligence: event.target.checked,
+                    },
+                  }))
+                }
+              />
+              <span>Enrichir avec le contexte intelligent</span>
+            </label>
+          </section>
+        </section>
+      );
+    }
+
+    if (draft.objective.objective === "story") {
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-params-title">
+          <header className="creation-step-head">
+            <h2 id="creation-params-title">Parametres Story</h2>
+          </header>
+
+          <section className="creation-panel">
+            <div className="creation-fields-grid">
+              <label>
+                <span>Plateforme</span>
+                <select
+                  data-story-platform="true"
+                  value={draft.parameters.storyPlatform}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        storyPlatform: event.target.value as CreationAssistantDraft["parameters"]["storyPlatform"],
+                      },
+                    }))
+                  }
+                >
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="tiktok">TikTok</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Nombre de frames</span>
+                <input
+                  type="number"
+                  min={1}
+                  data-story-frame-count="true"
+                  value={draft.parameters.storyFrameCount}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, storyFrameCount: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                <span>Ton</span>
+                <select
+                  data-story-tone="true"
+                  value={draft.parameters.toneId}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, toneId: event.target.value },
+                    }))
+                  }
+                >
+                  {CONTENT_TONE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>Audience</span>
+                <select
+                  data-story-audience="true"
+                  value={draft.parameters.audienceId}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, audienceId: event.target.value },
+                    }))
+                  }
+                >
+                  {CONTENT_AUDIENCE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {draft.parameters.toneId === "free" ? (
+              <label className="creation-inline-field">
+                <span>Ton libre</span>
+                <input
+                  type="text"
+                  data-story-tone-free="true"
+                  value={draft.parameters.customTone}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, customTone: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+
+            {draft.parameters.audienceId === "free" ? (
+              <label className="creation-inline-field">
+                <span>Public libre</span>
+                <input
+                  type="text"
+                  data-story-audience-free="true"
                   value={draft.parameters.customAudience}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -2604,6 +2828,59 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : "Generer 3 concepts Reel"}
+            </button>
+            {generateState.errorMessage ? (
+              <p className="creation-error" role="alert">{generateState.errorMessage}</p>
+            ) : null}
+          </div>
+        </section>
+      );
+    }
+
+    if (draft.objective.objective === "story") {
+      const selectedContextItems = contextState.items.filter((item) => item.isSelected);
+      const selectedExternalCount = selectedContextItems.filter((item) => item.connectorId === "external_news").length;
+      const researchPeriodLabel = contextState.dateRange
+        ? formatDateRangeLabel(contextState.dateRange)
+        : draft.parameters.contextDateRangePreset === "custom"
+          ? `${draft.parameters.contextCustomFrom || "-"} -> ${draft.parameters.contextCustomTo || "-"}`
+          : formatDateRangePresetLabel(draft.parameters.contextDateRangePreset);
+
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-summary-title">
+          <header className="creation-step-head">
+            <h2 id="creation-summary-title">Recapitulatif Story</h2>
+          </header>
+
+          <dl className="creation-summary-grid">
+            <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
+            <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
+            <div><dt>Objectif</dt><dd>Story</dd></div>
+            <div><dt>Angle editorial</dt><dd>{draft.parameters.storySelectedAngle || "Non defini"}</dd></div>
+            <div><dt>Plateforme</dt><dd>{draft.parameters.storyPlatform}</dd></div>
+            <div><dt>Nombre de frames</dt><dd>{draft.parameters.storyFrameCount}</dd></div>
+            <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
+            <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
+            <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun contexte supplementaire"}</dd></div>
+            <div><dt>Contexte intelligent</dt><dd>{draft.parameters.useContextIntelligence ? "Active" : "Desactive"}</dd></div>
+            {draft.parameters.useContextIntelligence ? (
+              <>
+                <div><dt>Elements selectionnes</dt><dd>{selectedContextItems.length}</dd></div>
+                <div><dt>Sources externes</dt><dd>{draft.parameters.contextEnableExternalNews ? String(selectedExternalCount) : "0"}</dd></div>
+                <div><dt>Periode de recherche</dt><dd>{researchPeriodLabel}</dd></div>
+              </>
+            ) : null}
+          </dl>
+
+          <div className="creation-finish-panel">
+            <button
+              type="button"
+              className="crm-primary-action"
+              onClick={requestFinalGeneration}
+              disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
+            >
+              {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+              {generateState.loading ? "Generation en cours" : "Generer 3 sequences Story"}
             </button>
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>

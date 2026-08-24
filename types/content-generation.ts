@@ -3,6 +3,7 @@ import type { ContextItem, ContextUsage } from "@/types/context-intelligence";
 import type {
   ContentVariationRequest,
   ContentVariationResult,
+  StoryCardType,
 } from "@/types/content-variant";
 
 export type ContentGenerationErrorCode =
@@ -112,6 +113,8 @@ export type ReelFormatId =
 
 export type ReelPlatformId = "instagram" | "tiktok" | "youtube_shorts";
 
+export type StoryPlatformId = "instagram" | "facebook" | "tiktok";
+
 export type ContentConstraints = {
   requiredTopics: string[];
   avoidedTopics: string[];
@@ -186,6 +189,16 @@ export type ReelBrief = {
   additionalContext: string;
 };
 
+export type StoryBrief = {
+  objective: "story";
+  selectedAngle: string;
+  frameCount: number;
+  platform: StoryPlatformId;
+  tone: string;
+  audience: string;
+  additionalContext: string;
+};
+
 export type ContentRequestTemplateRef = {
   key: ContentTemplateKey;
   family: ContentTemplateFamily;
@@ -221,8 +234,17 @@ export type ReelGenerationRequest = ContentGenerationRequestBase & {
   brief: ReelBrief;
 };
 
+export type StoryGenerationRequest = ContentGenerationRequestBase & {
+  requestType: "story";
+  brief: StoryBrief;
+};
+
 export type ContentGenerationRequest = InterviewGenerationRequest;
-export type AnyContentGenerationRequest = InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
+export type AnyContentGenerationRequest =
+  | InterviewGenerationRequest
+  | PublicationGenerationRequest
+  | ReelGenerationRequest
+  | StoryGenerationRequest;
 
 export type PublicationAngleSuggestion = {
   id: string;
@@ -282,7 +304,7 @@ export type PublicationIdea = {
 export type ContentGenerationMetadata = {
   provider: string;
   model: string;
-  templateId: "interview" | "publication" | "reel";
+  templateId: "interview" | "publication" | "reel" | "story";
   templateKey: ContentTemplateKey;
   templateVersion: string;
   promptVersion: string;
@@ -353,8 +375,37 @@ export type ReelConcept = {
   coverIdea: string;
 };
 
+export type StorySequenceFrame = {
+  id: string;
+  order: number;
+  type: StoryCardType;
+  content: string;
+  interaction?: string;
+};
+
+export type StorySequence = {
+  id: string;
+  hook: string;
+  frames: StorySequenceFrame[];
+  cta: string;
+  caption: string;
+  hashtags: string[];
+};
+
+export type StoryGenerationResult = {
+  title: string;
+  selectedAngle: string;
+  sequences: StorySequence[];
+  contextUsage: ContextUsage;
+  metadata: ContentGenerationMetadata;
+};
+
 export type ContentGenerationResult = InterviewGenerationResult;
-export type AnyContentGenerationResult = InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
+export type AnyContentGenerationResult =
+  | InterviewGenerationResult
+  | PublicationGenerationResult
+  | ReelGenerationResult
+  | StoryGenerationResult;
 
 export type PublicationAngleSuggestionsResult = {
   suggestions: PublicationAngleSuggestion[];

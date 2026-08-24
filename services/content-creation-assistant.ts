@@ -15,6 +15,7 @@ import type {
   ReelDurationId,
   ReelFormatId,
   ReelPlatformId,
+  StoryPlatformId,
 } from "@/types/content-generation";
 import { buildDateRange } from "@/services/context-intelligence/utils";
 
@@ -124,6 +125,9 @@ export type CreationParametersDraft = {
   reelDuration: ReelDurationId;
   reelFormat: ReelFormatId;
   reelPlatform: ReelPlatformId;
+  storySelectedAngle: string;
+  storyFrameCount: string;
+  storyPlatform: StoryPlatformId;
 };
 
 export type CreationAssistantDraft = {
@@ -177,6 +181,11 @@ export type CreationPreparationPayload = {
       format: ReelFormatId;
       platform: ReelPlatformId;
     };
+    story?: {
+      selectedAngle: string;
+      frameCount: number;
+      platform: StoryPlatformId;
+    };
   };
 };
 
@@ -209,8 +218,8 @@ const objectiveDefinitions: CreationObjectiveDefinition[] = [
     id: "story",
     title: "Story",
     description: "Definissez une sequence Story en plusieurs frames impactantes.",
-    enabled: false,
-    availabilityLabel: "Bientot disponible",
+    enabled: true,
+    availabilityLabel: "Disponible",
   },
   {
     id: "podcast",
@@ -306,6 +315,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const initialObjective = context.objective ?? "interview";
   const isPublication = initialObjective === "publication";
   const isReel = initialObjective === "reel";
+  const isStory = initialObjective === "story";
 
   return {
     subject: {
@@ -323,12 +333,12 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: isPublication || isReel ? "authentic" : "",
+      toneId: isPublication || isReel || isStory ? "authentic" : "",
       customTone: "",
       questionCountId: "",
       customQuestionCount: "",
       formatId: "",
-      audienceId: isPublication || isReel ? "general" : "",
+      audienceId: isPublication || isReel || isStory ? "general" : "",
       customAudience: "",
       additionalContext: "",
       requiredTopics: "",
@@ -358,6 +368,9 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       reelDuration: "30s",
       reelFormat: "face_camera",
       reelPlatform: "instagram",
+      storySelectedAngle: "",
+      storyFrameCount: "5",
+      storyPlatform: "instagram",
     },
   };
 };
@@ -388,8 +401,10 @@ export const ContentCreationAssistantService = {
     const isInterview = objectiveId === "interview";
     const isPublication = objectiveId === "publication";
     const isReel = objectiveId === "reel";
+    const isStory = objectiveId === "story";
 
     let questionCount = 0;
+    let storyFrameCount = 0;
     if (isInterview) {
       if (!params) return null;
 
@@ -404,9 +419,16 @@ export const ContentCreationAssistantService = {
       if (!questionCount) return null;
       if (questionCount < CREATION_MIN_QUESTION_COUNT || questionCount > CREATION_MAX_QUESTION_COUNT) return null;
       if (!args.draft.parameters.toneId || !args.draft.parameters.formatId || !args.draft.parameters.audienceId) return null;
-    } else if (isPublication || isReel) {
+    } else if (isPublication || isReel || isStory) {
       if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
+      if (isStory) {
+        if (!normalize(args.draft.parameters.storySelectedAngle)) return null;
+
+        const customFrameCount = Number(args.draft.parameters.storyFrameCount);
+        storyFrameCount = Number.isFinite(customFrameCount) && customFrameCount > 0 ? Math.floor(customFrameCount) : 0;
+        if (!storyFrameCount) return null;
+      }
     } else {
       return null;
     }
@@ -447,7 +469,9 @@ export const ContentCreationAssistantService = {
           ? args.draft.parameters.publicationPlatform
           : isReel
             ? args.draft.parameters.reelFormat
-            : args.draft.parameters.formatId,
+            : isStory
+              ? args.draft.parameters.storyPlatform
+              : args.draft.parameters.formatId,
         audienceId: resolveFreeOptionValue(args.draft.parameters.audienceId, args.draft.parameters.customAudience),
         additionalContext: normalize(args.draft.parameters.additionalContext),
         requiredTopics: parseTopics(args.draft.parameters.requiredTopics),
@@ -488,6 +512,13 @@ export const ContentCreationAssistantService = {
               duration: args.draft.parameters.reelDuration,
               format: args.draft.parameters.reelFormat,
               platform: args.draft.parameters.reelPlatform,
+            }
+          : undefined,
+        story: isStory
+          ? {
+              selectedAngle: normalize(args.draft.parameters.storySelectedAngle),
+              frameCount: storyFrameCount,
+              platform: args.draft.parameters.storyPlatform,
             }
           : undefined,
       },

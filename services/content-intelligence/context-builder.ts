@@ -9,6 +9,7 @@ import type {
   InterviewGenerationRequest,
   PublicationGenerationRequest,
   ReelGenerationRequest,
+  StoryGenerationRequest,
 } from "@/types/content-generation";
 import type { ContextItem } from "@/types/context-intelligence";
 
@@ -21,6 +22,7 @@ const compact = (items: Array<string | undefined>): string[] => {
 const resolveTemplateKeyForObjective = (objectiveId: CreationPreparationPayload["objective"]["id"]) => {
   if (objectiveId === "publication") return activeTemplateByFamily.publication;
   if (objectiveId === "reel") return activeTemplateByFamily.reel;
+  if (objectiveId === "story") return activeTemplateByFamily.story;
   return activeTemplateByFamily.interview;
 };
 
@@ -251,6 +253,49 @@ export const buildContentGenerationRequest = async (payload: CreationPreparation
         duration: reel.duration,
         format: reel.format,
         platform: reel.platform,
+        tone: payload.parameters.toneId,
+        audience: payload.parameters.audienceId,
+        additionalContext: payload.parameters.additionalContext,
+      },
+      selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
+      contextSelection: {
+        researchedAt: payload.parameters.contextIntelligence.researchedAt,
+        dateRange: payload.parameters.contextIntelligence.dateRange,
+      },
+      rulesVersion: "editorial-rules-v1",
+      externalContext: null,
+    };
+
+    return {
+      request,
+      missingInformation,
+    };
+  }
+
+  if (payload.objective.id === "story") {
+    const story = payload.parameters.story;
+    if (!story) {
+      throw new ContentGenerationError("INVALID_REQUEST", "Configuration story manquante");
+    }
+
+    const request: StoryGenerationRequest = {
+      requestType: "story",
+      language: payload.parameters.language,
+      template: {
+        key: activeTemplateByFamily.story,
+        family: "story",
+        name: "Story",
+        version: "v1",
+      },
+      context: {
+        ...context,
+        templateKey: activeTemplateByFamily.story,
+      },
+      brief: {
+        objective: "story",
+        selectedAngle: story.selectedAngle,
+        frameCount: story.frameCount,
+        platform: story.platform,
         tone: payload.parameters.toneId,
         audience: payload.parameters.audienceId,
         additionalContext: payload.parameters.additionalContext,

@@ -1,4 +1,5 @@
 import { buildEditorialRulesBlock, editorialRulesVersion } from "@/services/content-intelligence/editorial-rules";
+import { buildStoryPrompt } from "@/services/content-intelligence/story-prompt-builder";
 import type { AnyContentGenerationRequest, ContentTemplateDefinition } from "@/types/content-generation";
 
 export const buildContentPrompt = (args: {
@@ -184,6 +185,10 @@ export const buildContentPrompt = (args: {
       "Contexte et demande:",
       templatePayload,
     ].join("\n\n");
+  }
+
+  if (args.request.requestType === "story") {
+    return buildStoryPrompt(args.request);
   }
 
   return [

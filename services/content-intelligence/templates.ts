@@ -1,4 +1,5 @@
 import type { AnyContentGenerationRequest, ContentTemplateDefinition } from "@/types/content-generation";
+import { buildStoryPrompt } from "@/services/content-intelligence/story-prompt-builder";
 
 export const interviewTemplateV1: ContentTemplateDefinition = {
   key: "interview:v1",
@@ -39,10 +40,8 @@ export const storyTemplateV1: ContentTemplateDefinition = {
   family: "story",
   name: "Story",
   version: "v1",
-  description: "Template reserve pour les stories.",
-  buildPrompt: () => {
-    throw new Error("Template story:v1 non implemente");
-  },
+  description: "Generation de sequences Story editoriales structurees.",
+  buildPrompt: buildStoryPrompt,
 };
 
 export const reelTemplateV1: ContentTemplateDefinition = {

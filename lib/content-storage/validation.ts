@@ -8,13 +8,15 @@ import type {
   PublicationGenerationResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 
 export type StoredInterviewResult = {
   payload: CreationPreparationPayload;
-  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
-  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
+  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
+  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   createdAt: string;
 };
 
@@ -205,8 +207,37 @@ const validateReelSections = (value: unknown): void => {
   requireString(sections.coverIdea, "sections.coverIdea");
 };
 
+const storyCardTypes = ["introduction", "contexte", "citation", "sondage", "quiz", "question", "teaser", "appel_a_action"] as const;
+
+const validateStorySections = (value: unknown): void => {
+  const sections = requireObject(value, "sections");
+  requireString(sections.title, "sections.title");
+  requireString(sections.editorialAngle, "sections.editorialAngle");
+  requireString(sections.hook, "sections.hook");
+  if (!Array.isArray(sections.frames)) {
+    throw new ContentStorageValidationError("sections.frames doit etre un tableau.");
+  }
+  sections.frames.forEach((frame, index) => {
+    const item = requireObject(frame, `sections.frames[${index}]`);
+    requireString(item.id, `sections.frames[${index}].id`);
+    requireNumber(item.order, `sections.frames[${index}].order`);
+    assertAllowed(item.type, `sections.frames[${index}].type`, storyCardTypes);
+    requireString(item.content, `sections.frames[${index}].content`);
+    // Une interaction est facultative : seul le type est contraint quand elle est presente.
+    if (item.interaction !== undefined && item.interaction !== null) {
+      requireString(item.interaction, `sections.frames[${index}].interaction`);
+    }
+  });
+  // Un CTA vide est valide pour une story : seul le type est contraint.
+  if (typeof sections.cta !== "string") {
+    throw new ContentStorageValidationError("sections.cta doit etre une chaine.");
+  }
+  requireString(sections.caption, "sections.caption");
+  requireStringArray(sections.hashtags, "sections.hashtags");
+};
+
 const validateContentDocumentType = (value: unknown): ContentDocument["type"] => {
-  return assertAllowed(value, "type", ["interview", "publication", "reel"] as const);
+  return assertAllowed(value, "type", ["interview", "publication", "reel", "story"] as const);
 };
 
 const validateContentDocument = (value: unknown): ContentDocument => {
@@ -235,8 +266,10 @@ const validateContentDocument = (value: unknown): ContentDocument => {
     validateInterviewSections(document.sections);
   } else if (type === "publication") {
     validatePublicationSections(document.sections);
-  } else {
+  } else if (type === "reel") {
     validateReelSections(document.sections);
+  } else {
+    validateStorySections(document.sections);
   }
 
   return document as ContentDocument;

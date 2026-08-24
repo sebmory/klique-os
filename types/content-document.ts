@@ -1,4 +1,5 @@
 import type { ContentGenerationMetadata } from "@/types/content-generation";
+import type { StoryCardType } from "@/types/content-variant";
 import type { ContextUsage } from "@/types/context-intelligence";
 
 export type ContentDocumentType =
@@ -121,4 +122,25 @@ export type ReelDocument = ContentDocumentBase & {
   sections: ReelDocumentSections;
 };
 
-export type ContentDocument = InterviewDocument | PublicationDocument | ReelDocument;
+export type StoryDocumentSections = {
+  title: string;
+  editorialAngle: string;
+  hook: string;
+  frames: Array<{
+    id: string;
+    order: number;
+    type: StoryCardType;
+    content: string;
+    interaction?: string;
+  }>;
+  cta: string;
+  caption: string;
+  hashtags: string[];
+};
+
+export type StoryDocument = ContentDocumentBase & {
+  type: "story";
+  sections: StoryDocumentSections;
+};
+
+export type ContentDocument = InterviewDocument | PublicationDocument | ReelDocument | StoryDocument;

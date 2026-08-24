@@ -7,6 +7,7 @@ import {
   buildPublicationSingleProposalJsonSchema,
 } from "@/services/content-intelligence/publication-schema";
 import { buildReelGenerationJsonSchema } from "@/services/content-intelligence/reel-schema";
+import { buildStoryGenerationJsonSchema } from "@/services/content-intelligence/story-schema";
 import type { ContentGenerationProvider, ProviderGenerateArgs } from "@/services/content-intelligence/provider";
 import { recordAiUsageEvent } from "@/lib/ai-usage/repository";
 import { validateContentGenerationJson } from "@/services/content-intelligence/json-validator";
@@ -16,6 +17,7 @@ import {
   validatePublicationSingleProposalJson,
 } from "@/services/content-intelligence/publication-validator";
 import { validateReelGenerationJson } from "@/services/content-intelligence/reel-validator";
+import { validateStoryGenerationJson } from "@/services/content-intelligence/story-validator";
 import type {
   AnyContentGenerationResult,
   PublicationAngleSuggestion,
@@ -303,11 +305,14 @@ export class OpenAIProvider implements ContentGenerationProvider {
                 ? "publication_generation_result"
                 : args.request.requestType === "reel"
                   ? "reel_generation_result"
-                  : "interview_generation_result",
+                  : args.request.requestType === "story"
+                    ? "story_generation_result"
+                    : "interview_generation_result",
             strict: true,
             schema: (() => {
               if (args.request.requestType === "publication") return buildPublicationGenerationJsonSchema();
               if (args.request.requestType === "reel") return buildReelGenerationJsonSchema();
+              if (args.request.requestType === "story") return buildStoryGenerationJsonSchema();
               return buildInterviewGenerationJsonSchema(args.request.brief.questionCount);
             })(),
           },
@@ -412,6 +417,24 @@ export class OpenAIProvider implements ContentGenerationProvider {
             brief: {
               duration: args.request.brief.duration,
               format: args.request.brief.format,
+            },
+            selectedContextItems: args.request.selectedContextItems,
+            contextResearchedAt: args.request.contextSelection.researchedAt,
+            contextDateRange: args.request.contextSelection.dateRange,
+          });
+        }
+
+        if (args.request.requestType === "story") {
+          return validateStoryGenerationJson({
+            parsedContent: parsed,
+            requestStartedAt,
+            provider: this.id,
+            model: this.model,
+            templateKey: "story:v1",
+            templateVersion: "v1",
+            promptVersion: contentIntelligenceConfig.promptVersion,
+            brief: {
+              frameCount: args.request.brief.frameCount,
             },
             selectedContextItems: args.request.selectedContextItems,
             contextResearchedAt: args.request.contextSelection.researchedAt,

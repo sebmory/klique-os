@@ -5,6 +5,8 @@ import type {
   InterviewGenerationResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type {
   ContentDocument,
@@ -12,6 +14,7 @@ import type {
   InterviewDocumentQuestion,
   PublicationDocument,
   ReelDocument,
+  StoryDocument,
 } from "@/types/content-document";
 
 const buildQuestion = (
@@ -187,6 +190,60 @@ export const mapReelGenerationToDocument = (args: {
       caption: concept?.caption ?? "",
       hashtags: concept?.hashtags ?? [],
       coverIdea: concept?.coverIdea ?? "",
+    },
+  };
+};
+
+export const mapStoryGenerationToDocument = (args: {
+  request: StoryGenerationRequest;
+  result: StoryGenerationResult;
+  selectedSequenceId: string;
+  createdAt?: string;
+  documentId?: string;
+}): StoryDocument => {
+  const createdAt = args.createdAt || args.result.metadata.generatedAt || new Date().toISOString();
+  const versionId = "version-1";
+  const documentId = args.documentId || `document-${createdAt}`;
+  const sequence = args.result.sequences.find((item) => item.id === args.selectedSequenceId) || args.result.sequences[0];
+
+  return {
+    id: documentId,
+    type: "story",
+    status: "draft",
+    createdAt,
+    updatedAt: createdAt,
+    versions: [
+      {
+        id: versionId,
+        createdAt,
+        label: "Version initiale",
+        source: "generation",
+      },
+    ],
+    activeVersionId: versionId,
+    sidebar: {
+      subject: args.request.context.displayName,
+      source: args.request.context.source,
+      objective: args.request.brief.objective,
+      platform: args.request.brief.platform,
+      tone: args.request.brief.tone,
+      audience: args.request.brief.audience,
+      format: args.request.brief.platform,
+      templateVersion: args.result.metadata.templateVersion,
+      provider: args.result.metadata.provider,
+      model: args.result.metadata.model,
+      generatedAt: args.result.metadata.generatedAt,
+    },
+    metadata: args.result.metadata,
+    contextUsage: args.result.contextUsage,
+    sections: {
+      title: args.result.title,
+      editorialAngle: args.result.selectedAngle,
+      hook: sequence?.hook ?? "",
+      frames: sequence?.frames ?? [],
+      cta: sequence?.cta ?? "",
+      caption: sequence?.caption ?? "",
+      hashtags: sequence?.hashtags ?? [],
     },
   };
 };

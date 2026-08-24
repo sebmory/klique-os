@@ -71,9 +71,9 @@ const generators: ContentGenerator[] = [
     id: "story",
     title: "Story",
     description: "Cadrez une sequence Story concise avec hook et call to action.",
-    isAvailable: false,
-    statusLabel: "Bientot disponible",
-    entryRoute: "/contents/create",
+    isAvailable: true,
+    statusLabel: "Disponible",
+    entryRoute: "/contents/create?objective=story",
   },
   {
     id: "podcast",

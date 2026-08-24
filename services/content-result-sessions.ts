@@ -7,13 +7,15 @@ import type {
   PublicationGenerationResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type { ContentDocument } from "@/types/content-document";
 
 export type StoredInterviewResult = {
   payload: CreationPreparationPayload;
-  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
-  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
+  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
+  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   createdAt: string;
   sessionId?: string;
 };
