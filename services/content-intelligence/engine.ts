@@ -134,6 +134,8 @@ export const runPublicationAngleSuggestionsEngine = async (
 ): Promise<PublicationAngleSuggestion[]> => {
   try {
     const provider = resolveProvider();
+    // Ne propage manualContext/requiredTopics aux angles que pour le preset Apres-match; les Publications normales restent inchangees.
+    const isAfterMatchContext = request.context.manualContext?.startsWith("[MATCH APRES-MATCH]") ?? false;
     const angleContext = {
       contentType: "publication",
       subject: {
@@ -154,6 +156,8 @@ export const runPublicationAngleSuggestionsEngine = async (
         userProvidedContextItems: request.context.userProvidedContextItems,
         editorialLeads: request.context.editorialLeads,
         selectedContextItems: request.selectedContextItems,
+        manualContext: isAfterMatchContext ? request.context.manualContext : undefined,
+        requiredTopics: isAfterMatchContext ? request.context.constraints.requiredTopics : undefined,
       },
     };
 

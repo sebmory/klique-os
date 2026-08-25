@@ -124,6 +124,7 @@ const createAthleteInvitationsTable = async () => {
     CREATE TABLE IF NOT EXISTS athlete_invitations (
       athlete_id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
       clerk_invitation_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('invited', 'accepted', 'revoked')),
       invited_by_clerk_user_id TEXT,
@@ -919,6 +920,11 @@ export const inviteAthleteToKlique = async (
   await createAthleteInvitationsTable();
   const sql = getSql();
 
+  // Workspace de l invitation : celui de l admin qui invite, le workspace par defaut n est qu un repli.
+  const inviterAccessRows = await sql`SELECT workspace_id FROM user_access WHERE clerk_user_id = ${authResult.userId}`;
+  const workspaceId =
+    (inviterAccessRows[0] as { workspace_id?: string } | undefined)?.workspace_id?.trim() || getDefaultWorkspaceId();
+
   const activeRows = await sql`
     SELECT clerk_user_id FROM user_access WHERE athlete_id = ${trimmedAthleteId} AND role = 'athlete' AND status = 'active'
   `;
@@ -991,6 +997,7 @@ export const inviteAthleteToKlique = async (
     INSERT INTO athlete_invitations (
       athlete_id,
       email,
+      workspace_id,
       clerk_invitation_id,
       status,
       invited_by_clerk_user_id,
@@ -1000,6 +1007,7 @@ export const inviteAthleteToKlique = async (
     VALUES (
       ${trimmedAthleteId},
       ${email},
+      ${workspaceId},
       ${invitationId},
       'invited',
       ${authResult.userId},
@@ -1008,6 +1016,7 @@ export const inviteAthleteToKlique = async (
     )
     ON CONFLICT (athlete_id) DO UPDATE SET
       email = EXCLUDED.email,
+      workspace_id = EXCLUDED.workspace_id,
       clerk_invitation_id = EXCLUDED.clerk_invitation_id,
       status = 'invited',
       invited_by_clerk_user_id = EXCLUDED.invited_by_clerk_user_id,

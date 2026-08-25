@@ -142,6 +142,14 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
 
   const availableGenerators = useMemo(() => filteredGenerators.filter((generator) => generator.isAvailable), [filteredGenerators]);
   const upcomingGenerators = useMemo(() => filteredGenerators.filter((generator) => !generator.isAvailable), [filteredGenerators]);
+  const availableTemplates = useMemo(
+    () => filteredTemplates.filter((template) => template.isAvailable && template.entryRoute),
+    [filteredTemplates]
+  );
+  const upcomingTemplates = useMemo(
+    () => filteredTemplates.filter((template) => !(template.isAvailable && template.entryRoute)),
+    [filteredTemplates]
+  );
 
   const buildEntryRoute = (baseRoute: string): string => {
     if (context.mode !== "contextual" || !context.subjectName) return baseRoute;
@@ -184,8 +192,8 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
 
       <section className="contents-section" aria-labelledby="contents-generators-title">
         <div className="contents-section-head">
-          <h2 id="contents-generators-title">Generateurs disponibles</h2>
-          <p>Demarrez un format editorial en quelques secondes.</p>
+          <h2 id="contents-generators-title">Générateurs — création libre</h2>
+          <p>Choisissez un format et configurez librement votre contenu.</p>
         </div>
 
         <div className="contents-generators-grid">
@@ -209,6 +217,40 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
           })}
         </div>
       </section>
+
+      {availableTemplates.length > 0 ? (
+        <section className="contents-section" aria-labelledby="contents-available-templates-title">
+          <div className="contents-section-head">
+            <h2 id="contents-available-templates-title">Modèles rapides — parcours guidés</h2>
+            <p>Partez d’un besoin précis avec des questions et paramètres déjà adaptés.</p>
+          </div>
+
+          <div className="contents-templates-grid">
+            {availableTemplates.map((template) => {
+              const Icon = templateIconById[template.id];
+              return (
+                <Link
+                  key={template.id}
+                  href={buildEntryRoute(template.entryRoute as string)}
+                  className="contents-template-card"
+                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
+                >
+                  <span className="contents-template-icon" aria-hidden>
+                    <Icon size={16} />
+                  </span>
+                  <div className="contents-template-body">
+                    <div className="contents-template-heading">
+                      <h3>{template.title}</h3>
+                      <span className="contents-template-badge">Disponible</span>
+                    </div>
+                    <p>{template.description}</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="contents-section" aria-labelledby="contents-resume-title">
         <div className="contents-section-head">
@@ -254,69 +296,52 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
         )}
       </section>
 
-      <section className="contents-section" aria-labelledby="contents-templates-title">
-        <div className="contents-section-head">
-          <h2 id="contents-templates-title">Prochains generateurs</h2>
-          <p>Points d entree reutilisables vers les futurs generateurs.</p>
-        </div>
+      {upcomingGenerators.length > 0 || upcomingTemplates.length > 0 ? (
+        <section className="contents-section" aria-labelledby="contents-templates-title">
+          <div className="contents-section-head">
+            <h2 id="contents-templates-title">Prochains formats</h2>
+            <p>Points d entree reutilisables vers les futurs generateurs.</p>
+          </div>
 
-        <div className="contents-templates-grid">
-          {upcomingGenerators.map((generator) => {
-            const Icon = generatorIconById[generator.id];
-            return (
-              <article key={`generator-${generator.id}`} className="contents-template-card">
-                <span className="contents-template-icon" aria-hidden>
-                  <Icon size={16} />
-                </span>
-                <div className="contents-template-body">
-                  <div className="contents-template-heading">
-                    <h3>{generator.title}</h3>
-                    <span className="contents-template-badge">Bientôt disponible</span>
-                  </div>
-                  <p>{generator.description}</p>
-                </div>
-              </article>
-            );
-          })}
-
-          {filteredTemplates.map((template) => {
-            const Icon = templateIconById[template.id];
-            const cardContent = (
-              <>
-                <span className="contents-template-icon" aria-hidden>
-                  <Icon size={16} />
-                </span>
-                <div className="contents-template-body">
-                  <div className="contents-template-heading">
-                    <h3>{template.title}</h3>
-                    <span className="contents-template-badge">{template.isAvailable ? "Disponible" : "Bientôt disponible"}</span>
-                  </div>
-                  <p>{template.description}</p>
-                </div>
-              </>
-            );
-
-            if (template.isAvailable && template.entryRoute) {
+          <div className="contents-templates-grid">
+            {upcomingGenerators.map((generator) => {
+              const Icon = generatorIconById[generator.id];
               return (
-                <Link
-                  key={template.id}
-                  href={buildEntryRoute(template.entryRoute)}
-                  className="contents-template-card"
-                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
-                >
-                  {cardContent}
-                </Link>
+                <article key={`generator-${generator.id}`} className="contents-template-card">
+                  <span className="contents-template-icon" aria-hidden>
+                    <Icon size={16} />
+                  </span>
+                  <div className="contents-template-body">
+                    <div className="contents-template-heading">
+                      <h3>{generator.title}</h3>
+                      <span className="contents-template-badge">Bientôt disponible</span>
+                    </div>
+                    <p>{generator.description}</p>
+                  </div>
+                </article>
               );
-            }
+            })}
 
-            return (
-              <article key={template.id} className="contents-template-card">
-                {cardContent}
-              </article>
-            );
-          })}
-        </div>
-      </section>
+            {upcomingTemplates.map((template) => {
+              const Icon = templateIconById[template.id];
+              return (
+                <article key={template.id} className="contents-template-card">
+                  <span className="contents-template-icon" aria-hidden>
+                    <Icon size={16} />
+                  </span>
+                  <div className="contents-template-body">
+                    <div className="contents-template-heading">
+                      <h3>{template.title}</h3>
+                      <span className="contents-template-badge">Bientôt disponible</span>
+                    </div>
+                    <p>{template.description}</p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="contents-section" aria-labelledby="contents-library-title">
         <div className="contents-section-head">

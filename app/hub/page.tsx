@@ -135,6 +135,13 @@ const slotRequestStatusLabels: Record<SlotRequestStatus, string> = {
 const slotDateFormatter = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 const slotTimeFormatter = new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
+const normalizeSwissPhone = (rawPhone: string): string => {
+  let digits = rawPhone.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = `41${digits.slice(1)}`;
+  return digits;
+};
+
 const formatSlotDate = (value: string): string => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "Date inconnue" : slotDateFormatter.format(parsed);
@@ -519,7 +526,7 @@ export default function HubPage() {
   const [opportunitiesError, setOpportunitiesError] = useState<string | null>(null);
   const [slots, setSlots] = useState<SlotItem[]>([]);
   const [slotRequests, setSlotRequests] = useState<SlotRequestItem[]>([]);
-  const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
+  const [athleteContacts, setAthleteContacts] = useState<Record<string, { name: string; email: string; phone: string }>>({});
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [slotForm, setSlotForm] = useState({ startsAt: "", endsAt: "", capacity: "1" });
@@ -751,12 +758,23 @@ export default function HubPage() {
       setSlotRequests(Array.isArray(payload.requests) ? payload.requests : []);
 
       if (athletesResponse.ok) {
-        const athletesPayload = (await athletesResponse.json()) as { athletes?: { key?: string; name?: string }[] };
-        setAthleteNames(
-          (athletesPayload.athletes ?? []).reduce<Record<string, string>>((accumulator, athlete) => {
-            if (athlete.key && athlete.name) accumulator[athlete.key] = athlete.name;
-            return accumulator;
-          }, {}),
+        const athletesPayload = (await athletesResponse.json()) as {
+          athletes?: { key?: string; name?: string; email?: string; phone?: string }[];
+        };
+        setAthleteContacts(
+          (athletesPayload.athletes ?? []).reduce<Record<string, { name: string; email: string; phone: string }>>(
+            (accumulator, athlete) => {
+              if (athlete.key && athlete.name) {
+                accumulator[athlete.key] = {
+                  name: athlete.name,
+                  email: athlete.email ?? "",
+                  phone: athlete.phone ?? "",
+                };
+              }
+              return accumulator;
+            },
+            {},
+          ),
         );
       }
     } catch {
@@ -1971,14 +1989,14 @@ export default function HubPage() {
 
                   {slotsLoading ? (
                     <p style={{ margin: 0, color: "#6b7280" }} aria-live="polite">Chargement des créneaux...</p>
-                  ) : slots.length === 0 ? (
+                  ) : slots.filter((slot) => slot.status !== "cancelled").length === 0 ? (
                     <EmptyState style={{ border: "1px dashed #d1d5db", padding: "1rem", textAlign: "center" }}>
                       <h3 style={{ margin: "0 0 0.25rem", color: "#111827" }}>Aucun créneau</h3>
                       <p style={{ margin: 0, color: "#6b7280" }}>Ajoutez un premier créneau pour permettre aux athlètes d’en demander un.</p>
                     </EmptyState>
                   ) : (
                     <div style={{ display: "grid", gap: "0.8rem" }}>
-                      {slots.map((slot) => {
+                      {slots.filter((slot) => slot.status !== "cancelled").map((slot) => {
                         const requestsForSlot = slotRequests.filter((slotRequest) => slotRequest.slotId === slot.id);
                         const confirmedCount = requestsForSlot.filter((slotRequest) => slotRequest.status === "confirmed").length;
 
@@ -2028,25 +2046,58 @@ export default function HubPage() {
                               <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>Aucune demande pour ce créneau.</p>
                             ) : (
                               <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: "0.5rem" }}>
-                                {requestsForSlot.map((slotRequest) => (
-                                  <li key={slotRequest.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", borderTop: "1px solid #f3f4f6", paddingTop: "0.5rem" }}>
-                                    <div style={{ color: "#374151" }}>
-                                      <strong style={{ color: "#111827" }}>{athleteNames[slotRequest.athleteId] || slotRequest.athleteId}</strong>
-                                      <span> • {slotRequestStatusLabels[slotRequest.status]}</span>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "confirmed")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
-                                        Confirmer
-                                      </Button>
-                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "declined")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
-                                        Refuser
-                                      </Button>
-                                      <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "cancelled")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
-                                        Annuler
-                                      </Button>
-                                    </div>
-                                  </li>
-                                ))}
+                                {requestsForSlot.map((slotRequest) => {
+                                  const contact = athleteContacts[slotRequest.athleteId];
+                                  const contactMessage = `Bonjour, au sujet de « ${selectedOpportunity.title} » – créneau confirmé le ${formatSlotDate(slot.startsAt)} à ${formatSlotTime(slot.startsAt)}.`;
+                                  const normalizedPhone = contact?.phone ? normalizeSwissPhone(contact.phone) : "";
+
+                                  return (
+                                    <li key={slotRequest.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", flexWrap: "wrap", alignItems: "center", borderTop: "1px solid #f3f4f6", paddingTop: "0.5rem" }}>
+                                      <div style={{ color: "#374151" }}>
+                                        <strong style={{ color: "#111827" }}>{contact?.name || slotRequest.athleteId}</strong>
+                                        <span> • {slotRequestStatusLabels[slotRequest.status]}</span>
+                                      </div>
+                                      {slotRequest.status === "requested" ? (
+                                        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                                          <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "confirmed")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                            Confirmer
+                                          </Button>
+                                          <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "declined")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                            Refuser
+                                          </Button>
+                                          <Button type="button" onClick={() => handleSlotRequestStatusChange(slotRequest.id, "cancelled")} style={{ borderRadius: "999px", padding: "0.45rem 0.75rem" }}>
+                                            Annuler
+                                          </Button>
+                                        </div>
+                                      ) : null}
+                                      {slotRequest.status === "confirmed" ? (
+                                        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                                          {contact?.email ? (
+                                            <a
+                                              href={`mailto:${contact.email}?subject=${encodeURIComponent(selectedOpportunity.title)}&body=${encodeURIComponent(contactMessage)}`}
+                                              style={{ borderRadius: "999px", padding: "0.45rem 0.75rem", background: "#111827", color: "#fff", textDecoration: "none", fontWeight: 600 }}
+                                            >
+                                              E-mail
+                                            </a>
+                                          ) : null}
+                                          {normalizedPhone ? (
+                                            <a
+                                              href={`https://wa.me/${normalizedPhone}?text=${encodeURIComponent(contactMessage)}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              style={{ borderRadius: "999px", padding: "0.45rem 0.75rem", background: "#111827", color: "#fff", textDecoration: "none", fontWeight: 600 }}
+                                            >
+                                              WhatsApp
+                                            </a>
+                                          ) : null}
+                                          {!contact?.email && !normalizedPhone ? (
+                                            <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>Aucune coordonnée disponible</span>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+                                    </li>
+                                  );
+                                })}
                               </ul>
                             )}
                           </Card>
