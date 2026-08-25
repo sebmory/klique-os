@@ -40,6 +40,7 @@ import {
   ContentCreationAssistantService,
   createInitialAssistantDraft,
   type AfterMatchPresetDraft,
+  type BeforeMatchPresetDraft,
   type CreationAssistantDraft,
   type CreationObjectiveType,
   type CreationOption,
@@ -132,8 +133,8 @@ const getStepsForObjective = (
   hasPreselectedObjective = false,
   presetId?: ContentPresetId
 ): Array<{ id: StepId; label: string }> => {
-  // Le preset Apres-match remplace entierement l etape objective par une etape match dediee.
-  if (objective === "publication" && presetId === "after-match") {
+  // Les presets match remplacent entierement l etape objective par une etape match dediee.
+  if (objective === "publication" && (presetId === "after-match" || presetId === "before-match")) {
     return afterMatchSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
@@ -573,16 +574,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     if (stepId === "match") {
-      if (!normalize(draft.afterMatch?.opponent)) {
+      const matchDraft = draft.presetId === "before-match" ? draft.beforeMatch : draft.afterMatch;
+      if (!normalize(matchDraft?.opponent)) {
         return { ok: false, message: "Renseignez l adversaire.", focusSelector: "[data-match-opponent='true']" };
       }
-      if (!normalize(draft.afterMatch?.result)) {
+      if (draft.presetId !== "before-match" && !normalize(draft.afterMatch?.result)) {
         return { ok: false, message: "Renseignez le resultat.", focusSelector: "[data-match-result='true']" };
       }
-      if (!normalize(draft.afterMatch?.competition)) {
+      if (!normalize(matchDraft?.competition)) {
         return { ok: false, message: "Renseignez la competition.", focusSelector: "[data-match-competition='true']" };
       }
-      if (!normalize(draft.afterMatch?.matchDate)) {
+      if (!normalize(matchDraft?.matchDate)) {
         return { ok: false, message: "Renseignez la date du match.", focusSelector: "[data-match-date='true']" };
       }
       return { ok: true };
@@ -1564,11 +1566,37 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }));
   };
 
+  const setBeforeMatchField = (field: keyof BeforeMatchPresetDraft, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      beforeMatch: {
+        opponent: current.beforeMatch?.opponent ?? "",
+        competition: current.beforeMatch?.competition ?? "",
+        matchDate: current.beforeMatch?.matchDate ?? "",
+        location: current.beforeMatch?.location ?? "",
+        stakes: current.beforeMatch?.stakes ?? "",
+        recentForm: current.beforeMatch?.recentForm ?? "",
+        keyInformation: current.beforeMatch?.keyInformation ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
   const renderMatchStep = () => {
+    const isBeforeMatch = draft.presetId === "before-match";
+    const matchDraft = isBeforeMatch ? draft.beforeMatch : draft.afterMatch;
+    const updateCommonMatchField = (field: "opponent" | "competition" | "matchDate", value: string) => {
+      if (isBeforeMatch) {
+        setBeforeMatchField(field, value);
+        return;
+      }
+      setAfterMatchField(field, value);
+    };
+
     return (
       <section className="creation-step-block" aria-labelledby="creation-match-title">
         <header className="creation-step-head">
-          <h2 id="creation-match-title">Informations du match</h2>
+          <h2 id="creation-match-title">{isBeforeMatch ? "Informations avant-match" : "Informations après-match"}</h2>
           <p>Renseignez les elements factuels de la rencontre. Aucun appel IA n est lance a cette etape.</p>
         </header>
 
@@ -1579,29 +1607,40 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               <input
                 type="text"
                 data-match-opponent="true"
-                value={draft.afterMatch?.opponent ?? ""}
-                onChange={(event) => setAfterMatchField("opponent", event.target.value)}
+                value={matchDraft?.opponent ?? ""}
+                onChange={(event) => updateCommonMatchField("opponent", event.target.value)}
               />
             </label>
 
-            <label>
-              <span>Resultat</span>
-              <input
-                type="text"
-                data-match-result="true"
-                placeholder="Ex: Victoire 2-1"
-                value={draft.afterMatch?.result ?? ""}
-                onChange={(event) => setAfterMatchField("result", event.target.value)}
-              />
-            </label>
+            {isBeforeMatch ? (
+              <label>
+                <span>Lieu (optionnel)</span>
+                <input
+                  type="text"
+                  value={draft.beforeMatch?.location ?? ""}
+                  onChange={(event) => setBeforeMatchField("location", event.target.value)}
+                />
+              </label>
+            ) : (
+              <label>
+                <span>Resultat</span>
+                <input
+                  type="text"
+                  data-match-result="true"
+                  placeholder="Ex: Victoire 2-1"
+                  value={draft.afterMatch?.result ?? ""}
+                  onChange={(event) => setAfterMatchField("result", event.target.value)}
+                />
+              </label>
+            )}
 
             <label>
               <span>Competition</span>
               <input
                 type="text"
                 data-match-competition="true"
-                value={draft.afterMatch?.competition ?? ""}
-                onChange={(event) => setAfterMatchField("competition", event.target.value)}
+                value={matchDraft?.competition ?? ""}
+                onChange={(event) => updateCommonMatchField("competition", event.target.value)}
               />
             </label>
 
@@ -1610,33 +1649,39 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               <input
                 type="date"
                 data-match-date="true"
-                value={draft.afterMatch?.matchDate ?? ""}
-                onChange={(event) => setAfterMatchField("matchDate", event.target.value)}
+                value={matchDraft?.matchDate ?? ""}
+                onChange={(event) => updateCommonMatchField("matchDate", event.target.value)}
               />
             </label>
           </div>
 
-          <label className="creation-inline-field">
-            <span>Faits marquants (optionnel)</span>
-            <textarea
-              className="creation-textarea"
-              data-match-key-facts="true"
-              placeholder="Ex: but decisif a la 88e, exclusion adverse en 2e periode."
-              value={draft.afterMatch?.keyFacts ?? ""}
-              onChange={(event) => setAfterMatchField("keyFacts", event.target.value)}
-            />
-          </label>
-
-          <label className="creation-inline-field">
-            <span>Prochain rendez-vous (optionnel)</span>
-            <textarea
-              className="creation-textarea"
-              data-match-next-fixture="true"
-              placeholder="Ex: deplacement samedi prochain pour la journee suivante."
-              value={draft.afterMatch?.nextFixture ?? ""}
-              onChange={(event) => setAfterMatchField("nextFixture", event.target.value)}
-            />
-          </label>
+          {isBeforeMatch ? (
+            <>
+              <label className="creation-inline-field">
+                <span>Enjeu (optionnel)</span>
+                <textarea className="creation-textarea" value={draft.beforeMatch?.stakes ?? ""} onChange={(event) => setBeforeMatchField("stakes", event.target.value)} />
+              </label>
+              <label className="creation-inline-field">
+                <span>Dynamique récente (optionnel)</span>
+                <textarea className="creation-textarea" value={draft.beforeMatch?.recentForm ?? ""} onChange={(event) => setBeforeMatchField("recentForm", event.target.value)} />
+              </label>
+              <label className="creation-inline-field">
+                <span>Informations importantes (optionnel)</span>
+                <textarea className="creation-textarea" value={draft.beforeMatch?.keyInformation ?? ""} onChange={(event) => setBeforeMatchField("keyInformation", event.target.value)} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="creation-inline-field">
+                <span>Faits marquants (optionnel)</span>
+                <textarea className="creation-textarea" data-match-key-facts="true" placeholder="Ex: but decisif a la 88e, exclusion adverse en 2e periode." value={draft.afterMatch?.keyFacts ?? ""} onChange={(event) => setAfterMatchField("keyFacts", event.target.value)} />
+              </label>
+              <label className="creation-inline-field">
+                <span>Prochain rendez-vous (optionnel)</span>
+                <textarea className="creation-textarea" data-match-next-fixture="true" placeholder="Ex: deplacement samedi prochain pour la journee suivante." value={draft.afterMatch?.nextFixture ?? ""} onChange={(event) => setAfterMatchField("nextFixture", event.target.value)} />
+              </label>
+            </>
+          )}
         </section>
       </section>
     );
@@ -1721,7 +1766,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <h2 id="creation-angle-title">Angle editorial</h2>
           <p>Proposez 3 a 5 angles contextualises avec le CIE ou redigez votre angle personnalise.</p>
           {mediaCreditRole === "media" ? (
-            <p className="creation-muted">{`Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}</p>
+            <p className="creation-muted">
+              {draft.presetId === "before-match"
+                ? `Les angles coûtent ${formatCreditCount(1)}. La génération finale coûtera ensuite ${formatCreditCount(1)}.`
+                : `Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}
+            </p>
           ) : null}
         </header>
 
@@ -2904,7 +2953,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <dl className="creation-summary-grid">
             <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
             <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
-            <div><dt>Objectif</dt><dd>{draft.presetId === "after-match" ? "Après-match" : draft.parameters.publicationObjectiveId}</dd></div>
+            <div><dt>Objectif</dt><dd>{draft.presetId === "after-match" ? "Après-match" : draft.presetId === "before-match" ? "Avant-match" : draft.parameters.publicationObjectiveId}</dd></div>
             {draft.presetId === "after-match" ? (
               <>
                 <div><dt>Adversaire</dt><dd>{draft.afterMatch?.opponent || "Non defini"}</dd></div>
@@ -2913,6 +2962,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <div><dt>Date du match</dt><dd>{draft.afterMatch?.matchDate || "Non definie"}</dd></div>
                 <div><dt>Faits marquants</dt><dd>{draft.afterMatch?.keyFacts || "Aucun"}</dd></div>
                 <div><dt>Prochain rendez-vous</dt><dd>{draft.afterMatch?.nextFixture || "Aucun"}</dd></div>
+              </>
+            ) : null}
+            {draft.presetId === "before-match" ? (
+              <>
+                <div><dt>Adversaire</dt><dd>{draft.beforeMatch?.opponent || "Non defini"}</dd></div>
+                <div><dt>Competition</dt><dd>{draft.beforeMatch?.competition || "Non definie"}</dd></div>
+                <div><dt>Date du match</dt><dd>{draft.beforeMatch?.matchDate || "Non definie"}</dd></div>
+                <div><dt>Lieu</dt><dd>{draft.beforeMatch?.location || "Non defini"}</dd></div>
+                <div><dt>Enjeu</dt><dd>{draft.beforeMatch?.stakes || "Aucun"}</dd></div>
+                <div><dt>Dynamique recente</dt><dd>{draft.beforeMatch?.recentForm || "Aucune"}</dd></div>
+                <div><dt>Informations importantes</dt><dd>{draft.beforeMatch?.keyInformation || "Aucune"}</dd></div>
               </>
             ) : null}
             <div><dt>Angle</dt><dd>{draft.parameters.publicationSelectedAngle || "Non defini"}</dd></div>
@@ -2937,6 +2997,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           </dl>
 
           <div className="creation-finish-panel">
+            {mediaCreditRole === "media" && draft.presetId === "before-match" ? (
+              <p className="creation-muted">{`Cette génération coûte ${formatCreditCount(1)}. L angle a déjà été facturé.`}</p>
+            ) : null}
             <button
               type="button"
               className="crm-primary-action"
