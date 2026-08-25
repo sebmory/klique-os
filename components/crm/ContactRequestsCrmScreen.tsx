@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Inbox } from "lucide-react";
+import { Check, Inbox, Pencil, X } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
+import type { Partner, PartnerResponse } from "@/types/partner";
 
 type ContactRequestStatus = "open" | "in_progress" | "resolved";
 
@@ -22,6 +23,18 @@ type ContactRequestsResponse = {
 };
 
 type StatusFilter = "all" | ContactRequestStatus;
+type RequestView = "athletes" | "partners";
+
+type PartnerApplication = Partner & {
+  sourceRow?: number;
+  moderationStatus?: string;
+  moderation_status?: string;
+};
+
+type PartnerForm = Pick<
+  Partner,
+  "name" | "relationType" | "category" | "contact" | "email" | "phone" | "website" | "instagram" | "description" | "benefits"
+>;
 
 const categoryLabels: Record<string, string> = {
   content_photo: "Photo et contenu",
@@ -72,15 +85,40 @@ const parseDateRank = (value: string): number => {
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 };
 
+const createPartnerForm = (partner: PartnerApplication): PartnerForm => ({
+  name: partner.name ?? "",
+  relationType: partner.relationType ?? partner.type ?? "Partenaire",
+  category: partner.category ?? "",
+  contact: partner.contact ?? partner.contactName ?? "",
+  email: partner.email ?? "",
+  phone: partner.phone ?? "",
+  website: partner.website ?? "",
+  instagram: partner.instagram ?? "",
+  description: partner.description ?? "",
+  benefits: partner.benefits ?? partner.benefitDetails ?? partner.memberOffer ?? "",
+});
+
 export function ContactRequestsCrmScreen() {
   const [requests, setRequests] = useState<ContactRequest[]>([]);
+  const [partnerApplications, setPartnerApplications] = useState<PartnerApplication[]>([]);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [activeView, setActiveView] = useState<RequestView>("athletes");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [reviewingPartner, setReviewingPartner] = useState<PartnerApplication | null>(null);
+  const [partnerForm, setPartnerForm] = useState<PartnerForm | null>(null);
+  const [submittingPartner, setSubmittingPartner] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "partners") {
+      setActiveView("partners");
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -91,9 +129,10 @@ export function ContactRequestsCrmScreen() {
       setUpdateError(null);
 
       try {
-        const [requestsResponse, athletesResponse] = await Promise.all([
+        const [requestsResponse, athletesResponse, partnersResponse] = await Promise.all([
           fetch("/api/contact-requests", { credentials: "include", cache: "no-store" }),
           fetch("/api/athletes", { credentials: "include", cache: "no-store" }),
+          fetch("/api/partners", { credentials: "include", cache: "no-store" }),
         ]);
 
         const requestsPayload = (await requestsResponse.json().catch(() => null)) as ContactRequestsResponse | null;
@@ -103,6 +142,7 @@ export function ContactRequestsCrmScreen() {
         }
 
         let names: Record<string, string> = {};
+        let pendingPartners: PartnerApplication[] = [];
         if (athletesResponse.ok) {
           const athletesPayload = (await athletesResponse.json().catch(() => null)) as AthletesResponse | null;
           const athletes: Athlete[] = athletesPayload?.athletes ?? [];
@@ -114,10 +154,20 @@ export function ContactRequestsCrmScreen() {
           }, {});
         }
 
+        if (partnersResponse.ok) {
+          const partnersPayload = (await partnersResponse.json().catch(() => null)) as PartnerResponse | null;
+          pendingPartners = (partnersPayload?.partners ?? []).filter((partner) => {
+            const application = partner as PartnerApplication;
+            const moderationStatus = application.moderationStatus ?? application.moderation_status ?? application.status;
+            return moderationStatus?.toLowerCase() === "pending" && Number(application.sourceRow) >= 2;
+          });
+        }
+
         if (!active) return;
 
         setRequests(requestsPayload?.contactRequests ?? []);
         setAthleteNames(names);
+        setPartnerApplications(pendingPartners);
       } catch (error) {
         if (!active) return;
         setErrorMessage(error instanceof Error ? error.message : "Impossible de charger les demandes.");
@@ -180,18 +230,96 @@ export function ContactRequestsCrmScreen() {
     }
   };
 
-  const isEmpty = !loading && !errorMessage && visibleRequests.length === 0;
+  const openPartnerReview = (partner: PartnerApplication) => {
+    setUpdateError(null);
+    setUpdateSuccess(null);
+    setReviewingPartner(partner);
+    setPartnerForm(createPartnerForm(partner));
+  };
+
+  const closePartnerReview = () => {
+    if (submittingPartner) return;
+    setReviewingPartner(null);
+    setPartnerForm(null);
+  };
+
+  const updatePartnerForm = <Key extends keyof PartnerForm>(field: Key, value: PartnerForm[Key]) => {
+    setPartnerForm((current) => (current ? { ...current, [field]: value } : current));
+  };
+
+  const submitPartnerModeration = async (action: "approve_application" | "reject_application") => {
+    if (!reviewingPartner?.sourceRow || !partnerForm) return;
+    if (action === "reject_application" && !window.confirm("Refuser définitivement cette demande partenaire ?")) return;
+
+    setSubmittingPartner(true);
+    setUpdateError(null);
+    setUpdateSuccess(null);
+
+    try {
+      const response = await fetch("/api/partners", {
+        method: "PATCH",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          sourceRow: reviewingPartner.sourceRow,
+          ...(action === "approve_application" ? { editedData: partnerForm } : {}),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "La demande partenaire n’a pas pu être mise à jour.");
+      }
+
+      setPartnerApplications((current) =>
+        current.filter((partner) => partner.sourceRow !== reviewingPartner.sourceRow),
+      );
+      setUpdateSuccess(action === "approve_application" ? "Partenaire validé." : "Demande partenaire refusée.");
+      setReviewingPartner(null);
+      setPartnerForm(null);
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : "La demande partenaire n’a pas pu être mise à jour.");
+    } finally {
+      setSubmittingPartner(false);
+    }
+  };
+
+  const isEmpty = !loading && !errorMessage && activeView === "athletes" && visibleRequests.length === 0;
+  const isPartnerQueueEmpty = !loading && !errorMessage && activeView === "partners" && partnerApplications.length === 0;
 
   return (
     <section className="crm-people-screen">
       <header className="crm-people-header">
         <div style={{ textAlign: "center", width: "100%" }}>
           <h1>Demandes KLIQUE</h1>
-          <p>Suivez les demandes envoyées par les athlètes et mettez à jour leur statut.</p>
+          <p>Suivez les demandes envoyées par les athlètes et les partenaires.</p>
         </div>
       </header>
 
-      <section className="crm-actions-bar" aria-label="Filtres des demandes">
+      <section className="crm-actions-bar" aria-label="Vues et filtres des demandes">
+        <div className="crm-view-toggle" role="tablist" aria-label="Type de demandes">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "athletes"}
+            className={activeView === "athletes" ? "is-active" : undefined}
+            onClick={() => setActiveView("athletes")}
+          >
+            Demandes athlètes
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "partners"}
+            className={activeView === "partners" ? "is-active" : undefined}
+            onClick={() => setActiveView("partners")}
+          >
+            Partenaires <span className="crm-partner-count">{partnerApplications.length}</span>
+          </button>
+        </div>
+
+        {activeView === "athletes" ? (
         <div className="crm-filter-scroller" role="group" aria-label="Filtrer par statut">
           {filters.map((filter) => (
             <button
@@ -205,6 +333,7 @@ export function ContactRequestsCrmScreen() {
             </button>
           ))}
         </div>
+        ) : null}
       </section>
 
       {updateError ? (
@@ -212,6 +341,8 @@ export function ContactRequestsCrmScreen() {
           {updateError}
         </p>
       ) : null}
+
+      {updateSuccess ? <p className="crm-requests-inline-success" role="status">{updateSuccess}</p> : null}
 
       {loading ? (
         <section className="crm-skeleton-shell" aria-live="polite" aria-busy="true">
@@ -242,7 +373,17 @@ export function ContactRequestsCrmScreen() {
         </section>
       ) : null}
 
-      {!loading && !errorMessage && visibleRequests.length > 0 ? (
+      {isPartnerQueueEmpty ? (
+        <section className="crm-empty-state" aria-live="polite">
+          <div className="crm-empty-icon" aria-hidden>
+            <Inbox size={20} />
+          </div>
+          <h2>Aucun partenaire à valider</h2>
+          <p>Les nouvelles demandes partenaires apparaitront ici.</p>
+        </section>
+      ) : null}
+
+      {!loading && !errorMessage && activeView === "athletes" && visibleRequests.length > 0 ? (
         <>
           <section className="crm-list-shell">
             <div className="crm-requests-head" role="row">
@@ -351,6 +492,63 @@ export function ContactRequestsCrmScreen() {
         </>
       ) : null}
 
+      {!loading && !errorMessage && activeView === "partners" && partnerApplications.length > 0 ? (
+        <section className="crm-list-shell">
+          <div className="crm-partners-head" role="row">
+            <span>Structure</span>
+            <span>Contact</span>
+            <span>Coordonnées</span>
+            <span>Avantage</span>
+            <span>Action</span>
+          </div>
+          <ul className="crm-list-body">
+            {partnerApplications.map((partner) => (
+              <li key={partner.sourceRow}>
+                <div className="crm-partners-row">
+                  <span><strong>{partner.name}</strong><small>{partner.relationType ?? partner.type ?? "Partenaire"}</small></span>
+                  <span>{partner.contact || "Non renseigné"}</span>
+                  <span className="crm-partner-details"><small>{partner.email}</small><small>{partner.phone}</small></span>
+                  <span>{partner.benefits || partner.benefitDetails || "Non renseigné"}</span>
+                  <span>
+                    <button type="button" className="crm-secondary-action-link" onClick={() => openPartnerReview(partner)}>
+                      <Pencil size={15} aria-hidden /> Examiner
+                    </button>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {reviewingPartner && partnerForm ? (
+        <section className="crm-partner-review" role="dialog" aria-modal="true" aria-labelledby="partner-review-title">
+          <header>
+            <div>
+              <p>Demande partenaire</p>
+              <h2 id="partner-review-title">Examiner {reviewingPartner.name}</h2>
+            </div>
+            <button type="button" className="crm-partner-close" onClick={closePartnerReview} aria-label="Fermer"><X size={18} /></button>
+          </header>
+          <div className="crm-partner-form-grid">
+            <label>Nom<input value={partnerForm.name} onChange={(event) => updatePartnerForm("name", event.target.value)} /></label>
+            <label>Type de relation<input value={partnerForm.relationType ?? ""} onChange={(event) => updatePartnerForm("relationType", event.target.value)} /></label>
+            <label>Catégorie<input value={partnerForm.category} onChange={(event) => updatePartnerForm("category", event.target.value)} /></label>
+            <label>Contact<input value={partnerForm.contact} onChange={(event) => updatePartnerForm("contact", event.target.value)} /></label>
+            <label>Email<input type="email" value={partnerForm.email} onChange={(event) => updatePartnerForm("email", event.target.value)} /></label>
+            <label>Téléphone<input type="tel" value={partnerForm.phone} onChange={(event) => updatePartnerForm("phone", event.target.value)} /></label>
+            <label>Site<input type="url" value={partnerForm.website} onChange={(event) => updatePartnerForm("website", event.target.value)} /></label>
+            <label>Instagram<input value={partnerForm.instagram} onChange={(event) => updatePartnerForm("instagram", event.target.value)} /></label>
+            <label className="is-wide">Description<textarea value={partnerForm.description} onChange={(event) => updatePartnerForm("description", event.target.value)} /></label>
+            <label className="is-wide">Avantage<textarea value={partnerForm.benefits} onChange={(event) => updatePartnerForm("benefits", event.target.value)} /></label>
+          </div>
+          <footer>
+            <button type="button" className="crm-partner-reject" disabled={submittingPartner} onClick={() => submitPartnerModeration("reject_application")}>Refuser</button>
+            <button type="button" className="crm-partner-approve" disabled={submittingPartner} onClick={() => submitPartnerModeration("approve_application")}><Check size={16} aria-hidden /> {submittingPartner ? "Mise à jour..." : "Valider"}</button>
+          </footer>
+        </section>
+      ) : null}
+
       <style>{`
         .crm-requests-head,
         .crm-requests-row {
@@ -421,6 +619,97 @@ export function ContactRequestsCrmScreen() {
           color: #a12727;
           padding: 12px 14px;
           font-size: 0.86rem;
+        }
+
+        .crm-requests-inline-success {
+          margin: 0;
+          border: 1px solid #b7ddc4;
+          border-radius: 14px;
+          background: #edf8f0;
+          color: #27643a;
+          padding: 12px 14px;
+          font-size: 0.86rem;
+        }
+
+        .crm-partner-count {
+          display: inline-grid;
+          min-width: 20px;
+          height: 20px;
+          place-items: center;
+          border-radius: 10px;
+          background: #1d1d1d;
+          color: #fff;
+          font-size: 0.7rem;
+        }
+
+        .crm-partners-head,
+        .crm-partners-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr) 120px;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .crm-partners-head {
+          height: 52px;
+          padding: 0 18px;
+          border-bottom: 1px solid #f1f1f1;
+          color: #818181;
+          font-size: 0.75rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .crm-partners-row {
+          min-height: 74px;
+          padding: 12px 10px;
+          border-radius: 14px;
+          background: #fff;
+          font-size: 0.86rem;
+        }
+
+        .crm-partners-row > span:first-child,
+        .crm-partner-details {
+          display: grid;
+          gap: 4px;
+        }
+
+        .crm-partners-row small { color: #7b7b7b; }
+
+        .crm-secondary-action-link,
+        .crm-partner-approve,
+        .crm-partner-reject,
+        .crm-partner-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          border: 0;
+          cursor: pointer;
+          font: inherit;
+        }
+
+        .crm-secondary-action-link { background: transparent; color: #222; text-decoration: underline; }
+        .crm-partner-review { margin-top: 18px; border: 1px solid #e4e4e4; border-radius: 8px; background: #fff; padding: 20px; }
+        .crm-partner-review header, .crm-partner-review footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .crm-partner-review header p { margin: 0 0 4px; color: #777; font-size: 0.8rem; }
+        .crm-partner-review h2 { margin: 0; font-size: 1.1rem; }
+        .crm-partner-close { width: 34px; height: 34px; background: #f4f4f4; border-radius: 4px; }
+        .crm-partner-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 20px 0; }
+        .crm-partner-form-grid label { display: grid; gap: 6px; color: #4b4b4b; font-size: 0.8rem; }
+        .crm-partner-form-grid input, .crm-partner-form-grid textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9d9d9; border-radius: 4px; padding: 9px 10px; color: #1d1d1d; font: inherit; }
+        .crm-partner-form-grid textarea { min-height: 84px; resize: vertical; }
+        .crm-partner-form-grid .is-wide { grid-column: 1 / -1; }
+        .crm-partner-review footer { justify-content: flex-end; }
+        .crm-partner-approve, .crm-partner-reject { padding: 9px 14px; border-radius: 4px; }
+        .crm-partner-approve { background: #1d1d1d; color: #fff; }
+        .crm-partner-reject { background: #fdecec; color: #a12727; }
+        .crm-partner-approve:disabled, .crm-partner-reject:disabled { cursor: not-allowed; opacity: 0.6; }
+
+        @media (max-width: 760px) {
+          .crm-partners-head { display: none; }
+          .crm-partners-row { grid-template-columns: 1fr; gap: 8px; }
+          .crm-partner-form-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </section>

@@ -106,9 +106,20 @@ type PartnerFormEntry = {
   logoUrl: string;
   relationType: string;
   expertKlique: boolean;
+  sourceRow: number;
+  moderationStatus: "pending" | "approved" | "rejected";
+  approvedPartnerRow: number | null;
+  moderatedAt: string;
+  moderatedBy: string;
+  moderationNotes: string;
 };
 
-const partnerFormEntryToPartner = (entry: PartnerFormEntry): Partner => ({
+type PartnerFormEntryCore = Omit<
+  PartnerFormEntry,
+  "sourceRow" | "moderationStatus" | "approvedPartnerRow" | "moderatedAt" | "moderatedBy" | "moderationNotes"
+>;
+
+const partnerFormEntryToPartner = (entry: PartnerFormEntryCore): Partner => ({
   row: 0,
   id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
   name: entry.name,
@@ -201,7 +212,10 @@ const pickRicherText = (current: string, incoming: string): string => {
   return incomingText.length > currentText.length ? incomingText : currentText;
 };
 
-const mergePartnerFormEntries = (current: PartnerFormEntry, incoming: PartnerFormEntry): PartnerFormEntry => {
+const mergePartnerFormEntries = (
+  current: PartnerFormEntryCore,
+  incoming: PartnerFormEntryCore,
+): PartnerFormEntryCore => {
   const currentRelationType = current.relationType.trim();
   const incomingRelationType = incoming.relationType.trim();
   const keepIncomingRelation =
@@ -226,11 +240,144 @@ const mergePartnerFormEntries = (current: PartnerFormEntry, incoming: PartnerFor
   };
 };
 
+const partnerModerationHeaderNames = {
+  moderationStatus: "moderation_status",
+  moderatedAt: "moderated_at",
+  moderatedBy: "moderated_by",
+  moderationNotes: "moderation_notes",
+  approvedPartnerRow: "approved_partner_row",
+} as const;
+
+const resolvePartnerModerationMap = (headers: string[]) => {
+  const normalizedHeaders = headers.map((value) => String(value ?? "").trim());
+
+  const findIndex = (candidate: string): number =>
+    normalizedHeaders.findIndex((header) => normalize(header) === normalize(candidate));
+
+  return {
+    moderationStatus: findIndex(partnerModerationHeaderNames.moderationStatus),
+    moderatedAt: findIndex(partnerModerationHeaderNames.moderatedAt),
+    moderatedBy: findIndex(partnerModerationHeaderNames.moderatedBy),
+    moderationNotes: findIndex(partnerModerationHeaderNames.moderationNotes),
+    approvedPartnerRow: findIndex(partnerModerationHeaderNames.approvedPartnerRow),
+  };
+};
+
+const ensurePartnerModerationColumns = async (
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+): Promise<{ columnMap: ReturnType<typeof resolvePartnerModerationMap> }> => {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Forms_Partenaires_Responses'!A1:Z1",
+  });
+
+  const headers = ((response.data.values ?? [])[0] ?? []).map((value) => String(value ?? ""));
+  const missingHeaders = Object.values(partnerModerationHeaderNames).filter(
+    (header) => !headers.some((entry) => normalize(entry) === normalize(header)),
+  );
+
+  if (missingHeaders.length === 0) {
+    return { columnMap: resolvePartnerModerationMap(headers) };
+  }
+
+  const nextHeaders = [...headers, ...missingHeaders];
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "'Forms_Partenaires_Responses'!A1:Z1",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [nextHeaders] },
+  });
+
+  return { columnMap: resolvePartnerModerationMap(nextHeaders) };
+};
+
+const toLetters = (columnNumber: number): string => {
+  let result = "";
+  let current = columnNumber;
+
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    current = Math.floor((current - 1) / 26);
+  }
+
+  return result;
+};
+
+export async function getPartnerVisibilityBuckets(): Promise<{
+  approved: Partner[];
+  pending: Partner[];
+  rejected: Partner[];
+  hidden: Partner[];
+}> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+
+  const approved = await getEcosystemPartnersFrom06Partenaires();
+  const formEntries = await buildPartnerFormEntries(sheets, spreadsheetId);
+
+  const approvedKeys = new Set<string>();
+  for (const partner of approved) {
+    const emailKey = normalize(partner.email);
+    if (emailKey) approvedKeys.add(`email:${emailKey}`);
+    const identityKey = normalizeNameKey([partner.name, partner.contact].filter(Boolean).join(" "));
+    if (identityKey) approvedKeys.add(`identity:${identityKey}`);
+  }
+
+  const pending: Partner[] = [];
+  for (const entry of formEntries) {
+    const emailKey = normalize(entry.email);
+    const identityKey = normalizeNameKey([entry.name, entry.contact].filter(Boolean).join(" "));
+    const duplicateByEmail = emailKey && approvedKeys.has(`email:${emailKey}`);
+    const duplicateByIdentity = identityKey && approvedKeys.has(`identity:${identityKey}`);
+
+    if (duplicateByEmail || duplicateByIdentity) {
+      continue;
+    }
+
+    pending.push({
+      row: 0,
+      id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
+      name: entry.name,
+      relationType: entry.relationType,
+      type: entry.relationType,
+      category: "Non renseigne",
+      expertKlique: entry.expertKlique,
+      contact: entry.contact,
+      contactRole: "",
+      email: entry.email,
+      phone: entry.phone,
+      website: entry.website,
+      instagram: entry.instagram,
+      description: entry.description,
+      benefitType: entry.benefitType || undefined,
+      benefits: entry.benefits,
+      benefitDetails: entry.benefits || undefined,
+      collaboration: entry.collaboration || undefined,
+      communicationConsent: entry.communicationConsent || undefined,
+      logoUrl: entry.logoUrl || undefined,
+      notes: "",
+      status: "À valider",
+      athletes: "",
+      sourceRow: entry.sourceRow,
+      moderationStatus: entry.moderationStatus || "pending",
+    } as Partner & { sourceRow: number; moderationStatus: string });
+  }
+
+  return {
+    approved,
+    pending,
+    rejected: [],
+    hidden: [],
+  };
+}
+
 async function buildPartnerFormEntries(
   sheets: ReturnType<typeof google.sheets>,
   spreadsheetId: string
 ): Promise<PartnerFormEntry[]> {
-  const byKey = new Map<string, PartnerFormEntry>();
+  const byKey = new Map<string, PartnerFormEntryCore>();
 
   const exactHeader = (headers: string[], candidates: string[]): number => {
     const normalizedHeaders = headers.map(normalize);
@@ -245,13 +392,14 @@ async function buildPartnerFormEntries(
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Forms_Partenaires_Responses'!A1:N500",
+      range: "'Forms_Partenaires_Responses'!A1:Z500",
     });
 
     const rows = (res.data.values ?? []) as string[][];
     if (rows.length < 2) return [];
 
     const headers = rows[0].map(String);
+    const moderationColumns = resolvePartnerModerationMap(headers);
     const col = {
       structureName: exactHeader(headers, ["Nom de l'entreprise"]),
       contactName: exactHeader(headers, ["Personne de contact"]),
@@ -273,7 +421,7 @@ async function buildPartnerFormEntries(
 
     const rowValue = (row: unknown[], index: number): string => String(row[index] ?? "").trim();
 
-    for (const row of rows.slice(1)) {
+    for (const [index, row] of rows.slice(1).entries()) {
       const structureName = rowValue(row, col.structureName);
       const contactName = rowValue(row, col.contactName);
       const rawEmail = rowValue(row, col.email);
@@ -283,7 +431,11 @@ async function buildPartnerFormEntries(
       const key = normalizedEmail || normalizedIdentity;
       if (!key) continue;
 
-      const candidate: PartnerFormEntry = {
+      const sourceRow = index + 2;
+      const rawModerationStatus = rowValue(row, moderationColumns.moderationStatus);
+      const moderationStatus = rawModerationStatus || "pending";
+      const normalizedApprovedPartnerRow = rowValue(row, moderationColumns.approvedPartnerRow);
+      const candidate = {
         name: structureName || contactName || rawEmail || "Nouvelle structure",
         contact: contactName,
         email: rawEmail,
@@ -298,13 +450,24 @@ async function buildPartnerFormEntries(
         logoUrl: rowValue(row, col.logoUrl),
         relationType: "Partenaire",
         expertKlique: false,
-      };
+        moderationStatus,
+        sourceRow,
+        approvedPartnerRow: normalizedApprovedPartnerRow ? Number(normalizedApprovedPartnerRow) || null : null,
+        moderatedAt: rowValue(row, moderationColumns.moderatedAt),
+        moderatedBy: rowValue(row, moderationColumns.moderatedBy),
+        moderationNotes: rowValue(row, moderationColumns.moderationNotes),
+      } as PartnerFormEntry & { moderationStatus: string; sourceRow: number; approvedPartnerRow?: number | null; moderatedAt?: string; moderatedBy?: string; moderationNotes?: string };
 
       const existing = byKey.get(key);
       byKey.set(key, existing ? mergePartnerFormEntries(existing, candidate) : candidate);
     }
 
-    return Array.from(byKey.values());
+    const mergedEntries = Array.from(byKey.values()) as Array<PartnerFormEntry & { moderationStatus: string; sourceRow: number; approvedPartnerRow?: number | null; moderatedAt?: string; moderatedBy?: string; moderationNotes?: string }>;
+    return mergedEntries.map((entry) => ({
+      ...entry,
+      moderationStatus: entry.moderationStatus || "pending",
+      sourceRow: entry.sourceRow,
+    }));
   } catch (error) {
     console.error("Erreur lecture formulaires partenaires :", error);
     return [];
@@ -1977,38 +2140,46 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       continue;
     }
 
-    partners.push({
-      row: 0,
-      id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
-      name: entry.name,
-      relationType: entry.relationType,
-      type: entry.relationType,
-      category: "Non renseigne",
-      expertKlique: entry.expertKlique,
-      contact: entry.contact,
-      contactRole: "",
-      email: entry.email,
-      phone: entry.phone,
-      website: entry.website,
-      instagram: entry.instagram,
-      description: entry.description,
-      benefitType: entry.benefitType || undefined,
-      benefits: entry.benefits,
-      benefitDetails: entry.benefits || undefined,
-      collaboration: entry.collaboration || undefined,
-      communicationConsent: entry.communicationConsent || undefined,
-      logoUrl: entry.logoUrl || undefined,
-      notes: "",
-      status: "À valider",
-      athletes: "",
-    });
+      const pendingPartner = {
+        row: 0,
+        id: stableKey(`${entry.name}-${entry.contact || entry.email || "partner"}`),
+        name: entry.name,
+        relationType: entry.relationType,
+        type: entry.relationType,
+        category: "Non renseigne",
+        expertKlique: entry.expertKlique,
+        contact: entry.contact,
+        contactRole: "",
+        email: entry.email,
+        phone: entry.phone,
+        website: entry.website,
+        instagram: entry.instagram,
+        description: entry.description,
+        benefitType: entry.benefitType || undefined,
+        benefits: entry.benefits,
+        benefitDetails: entry.benefits || undefined,
+        collaboration: entry.collaboration || undefined,
+        communicationConsent: entry.communicationConsent || undefined,
+        logoUrl: entry.logoUrl || undefined,
+        notes: "",
+        status: entry.moderationStatus === "approved" ? "Actif" : "À valider",
+        athletes: "",
+        sourceRow: entry.sourceRow,
+        moderationStatus: entry.moderationStatus || "pending",
+        approvedPartnerRow: entry.approvedPartnerRow ?? null,
+        moderatedAt: entry.moderatedAt,
+        moderatedBy: entry.moderatedBy,
+        moderationNotes: entry.moderationNotes,
+      } as Partner & {
+        sourceRow: number;
+        moderationStatus: string;
+        approvedPartnerRow?: number | null;
+        moderatedAt?: string;
+        moderatedBy?: string;
+        moderationNotes?: string;
+      };
 
-    if (normalizedEmail) {
-      existingKeys.add(`email:${normalizedEmail}`);
-    }
-    if (normalizedIdentity) {
-      existingKeys.add(`identity:${normalizedIdentity}`);
-    }
+      partners.push(pendingPartner);
   }
 
   return partners;
@@ -2077,6 +2248,301 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
 
 export async function getAthleteEcosystemPartnersFromGoogleSheets(): Promise<Partner[]> {
   return getEcosystemPartnersFrom06Partenaires();
+}
+
+export async function getPartnerApplicationBySourceRow(sourceRow: number): Promise<{
+  row: number;
+  values: string[];
+  headers: string[];
+  moderation: Record<string, number>;
+}> {
+  if (!sourceRow || sourceRow < 2) {
+    throw new Error("sourceRow invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'Forms_Partenaires_Responses'!A1:Z500",
+  });
+
+  const rows = (response.data.values ?? []) as string[][];
+  if (rows.length < sourceRow) {
+    throw new Error("Demande partenaire introuvable.");
+  }
+
+  const headers = (rows[0] ?? []).map((value) => String(value ?? ""));
+  const row = rows[sourceRow - 1] ?? [];
+  const moderation = resolvePartnerModerationMap(headers);
+
+  return {
+    row: sourceRow,
+    values: row,
+    headers,
+    moderation,
+  };
+}
+
+async function updatePartnerApplicationModeration(
+  sourceRow: number,
+  values: Partial<Record<keyof typeof partnerModerationHeaderNames, string | number | null>>
+): Promise<void> {
+  if (!sourceRow || sourceRow < 2) {
+    throw new Error("sourceRow invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+  const { columnMap } = await ensurePartnerModerationColumns(sheets, spreadsheetId);
+
+  const headerFields = [
+    partnerModerationHeaderNames.moderationStatus,
+    partnerModerationHeaderNames.moderatedAt,
+    partnerModerationHeaderNames.moderatedBy,
+    partnerModerationHeaderNames.moderationNotes,
+    partnerModerationHeaderNames.approvedPartnerRow,
+  ] as const;
+
+  const writeValues = headerFields.map((fieldName) => {
+    const index = columnMap[fieldName === "moderation_status" ? "moderationStatus" : fieldName === "moderated_at" ? "moderatedAt" : fieldName === "moderated_by" ? "moderatedBy" : fieldName === "moderation_notes" ? "moderationNotes" : "approvedPartnerRow"];
+    const raw = values[fieldName as keyof typeof values];
+    return index >= 0 ? String(raw ?? "") : "";
+  });
+
+  const startColumn = Math.min(...Object.values(columnMap).filter((index) => index >= 0));
+  const endColumn = Math.max(...Object.values(columnMap).filter((index) => index >= 0));
+  const startLetter = toLetters(startColumn + 1);
+  const endLetter = toLetters(endColumn + 1);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'Forms_Partenaires_Responses'!${startLetter}${sourceRow}:${endLetter}${sourceRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [writeValues],
+    },
+  });
+}
+
+export async function approvePartnerApplication({
+  sourceRow,
+  editedData,
+  adminName,
+  moderationNotes,
+}: {
+  sourceRow: number;
+  editedData: Partial<{
+    name: string;
+    contact: string;
+    email: string;
+    phone: string;
+    website: string;
+    instagram: string;
+    description: string;
+    benefits: string;
+    benefitType: string;
+    collaboration: string;
+    communicationConsent: string;
+    logoUrl: string;
+    relationType: string;
+    expertKlique: boolean;
+  }>;
+  adminName?: string;
+  moderationNotes?: string;
+}): Promise<{ sourceRow: number; status: "approved"; approvedPartnerRow: number | null; }> {
+  if (!sourceRow || sourceRow < 2) {
+    throw new Error("sourceRow invalide.");
+  }
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+  const { values: sourceValues } = await getPartnerApplicationBySourceRow(sourceRow);
+
+  const mergedName = String(editedData.name ?? sourceValues[0] ?? "").trim();
+  const mergedContact = String(editedData.contact ?? sourceValues[1] ?? "").trim();
+  const mergedEmail = String(editedData.email ?? sourceValues[2] ?? "").trim();
+  const mergedPhone = String(editedData.phone ?? sourceValues[3] ?? "").trim();
+  const mergedWebsite = String(editedData.website ?? sourceValues[4] ?? "").trim();
+  const mergedInstagram = String(editedData.instagram ?? sourceValues[5] ?? "").trim();
+  const mergedDescription = String(editedData.description ?? sourceValues[6] ?? "").trim();
+  const mergedBenefits = String(editedData.benefits ?? sourceValues[7] ?? "").trim();
+  const mergedRelationType = String(editedData.relationType ?? "Partenaire").trim() || "Partenaire";
+
+  const approvedRow = await findOrCreateApprovedPartnerRow({
+    name: mergedName,
+    contact: mergedContact,
+    email: mergedEmail,
+    phone: mergedPhone,
+    website: mergedWebsite,
+    instagram: mergedInstagram,
+    description: mergedDescription,
+    benefits: mergedBenefits,
+    relationType: mergedRelationType,
+    expertKlique: Boolean(editedData.expertKlique),
+    category: "Non renseigne",
+  });
+
+  const timestamp = new Date().toISOString();
+  await updatePartnerApplicationModeration(sourceRow, {
+    moderationStatus: "approved",
+    moderatedAt: timestamp,
+    moderatedBy: adminName || "admin",
+    moderationNotes: moderationNotes ?? "",
+    approvedPartnerRow: String(approvedRow),
+  });
+
+  return {
+    sourceRow,
+    status: "approved",
+    approvedPartnerRow: approvedRow,
+  };
+}
+
+async function findOrCreateApprovedPartnerRow(partner: {
+  name: string;
+  contact: string;
+  email: string;
+  phone: string;
+  website: string;
+  instagram: string;
+  description: string;
+  benefits: string;
+  relationType: string;
+  expertKlique: boolean;
+  category: string;
+}): Promise<number> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: "'06_Partenaires'!A1:Z300",
+  });
+
+  const rows = (response.data.values ?? []) as string[][];
+  if (rows.length < 2) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "'06_Partenaires'!A:Z",
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: {
+        values: [[
+          partner.name,
+          partner.relationType,
+          partner.category,
+          partner.contact,
+          "",
+          partner.email,
+          partner.phone,
+          partner.website,
+          partner.instagram,
+          partner.description,
+          "Actif",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          partner.benefits,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+        ]],
+      },
+    });
+    return 4;
+  }
+
+  const identityKey = normalizeNameKey([partner.name, partner.contact].filter(Boolean).join(" "));
+  const emailKey = normalize(partner.email);
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = rows[i] ?? [];
+    const candidateName = String(row[0] ?? "").trim();
+    const candidateContact = String(row[3] ?? "").trim();
+    const candidateEmail = String(row[5] ?? "").trim();
+    const candidateIdentity = normalizeNameKey([candidateName, candidateContact].filter(Boolean).join(" "));
+    const candidateEmailKey = normalize(candidateEmail);
+
+    if ((emailKey && candidateEmailKey && emailKey === candidateEmailKey) || (identityKey && candidateIdentity && identityKey === candidateIdentity)) {
+      return i + 1;
+    }
+  }
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "'06_Partenaires'!A:Z",
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [[
+        partner.name,
+        partner.relationType,
+        partner.category,
+        partner.contact,
+        "",
+        partner.email,
+        partner.phone,
+        partner.website,
+        partner.instagram,
+        partner.description,
+        "Actif",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        partner.benefits,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+      ]],
+    },
+  });
+
+  return rows.length + 3;
+}
+
+export async function rejectPartnerApplication({
+  sourceRow,
+  adminName,
+  moderationNotes,
+}: {
+  sourceRow: number;
+  adminName?: string;
+  moderationNotes?: string;
+}): Promise<{ sourceRow: number; status: "rejected"; }> {
+  if (!sourceRow || sourceRow < 2) {
+    throw new Error("sourceRow invalide.");
+  }
+
+  const timestamp = new Date().toISOString();
+  await updatePartnerApplicationModeration(sourceRow, {
+    moderationStatus: "rejected",
+    moderatedAt: timestamp,
+    moderatedBy: adminName || "admin",
+    moderationNotes: moderationNotes ?? "",
+    approvedPartnerRow: "",
+  });
+
+  return {
+    sourceRow,
+    status: "rejected",
+  };
 }
 
 export async function addPartnerToGoogleSheets(

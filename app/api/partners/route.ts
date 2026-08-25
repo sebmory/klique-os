@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { evaluateBusinessAccess, getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
+import { clerkClient } from "@clerk/nextjs/server";
+import { evaluateBusinessAccess, getCurrentUserAccessProfile, getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import * as googleSheets from "@/lib/google-sheets";
 import { getEcosystemPartnersFrom06Partenaires } from "@/lib/google-sheets";
 import type {
@@ -89,6 +90,28 @@ const toAthleteEcosystemPartner = (partner: PartnerResponse["partners"][number])
   kliqueArrivalDate: normalize(partner.kliqueArrivalDate),
 });
 
+const resolveModeratedByFromClerk = async (request: NextRequest): Promise<string> => {
+  const profile = await getCurrentUserAccessProfile(request);
+  const clerkUserId = profile?.clerkUser?.id?.trim() ?? "";
+  const fallbackEmail = profile?.clerkUser?.email?.trim() ?? "";
+
+  if (!clerkUserId) {
+    return fallbackEmail || "unknown-admin";
+  }
+
+  try {
+    const clerkUser = await (await clerkClient()).users.getUser(clerkUserId);
+    const fullName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ").trim();
+    const verifiedEmail = clerkUser.emailAddresses
+      ?.find((entry) => entry.verification?.status === "verified")
+      ?.emailAddress?.trim();
+
+    return fullName || verifiedEmail || fallbackEmail || clerkUserId;
+  } catch {
+    return fallbackEmail || clerkUserId || "unknown-admin";
+  }
+};
+
 export async function GET(request: NextRequest) {
   try {
     const permissionContext = await getCurrentUserPermissionContext(request);
@@ -99,16 +122,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ partners: [], source: "google-sheets" }, { status: 403 });
     }
 
-    const partners = canReadAsAthlete
-      ? await getEcosystemPartnersFrom06Partenaires()
-      : await googleSheets.getPartnersFromGoogleSheets();
-
     if (canReadAsAthlete) {
+      const visiblePartners = await getEcosystemPartnersFrom06Partenaires();
       return NextResponse.json({
-        partners: partners.map(toAthleteEcosystemPartner),
+        partners: visiblePartners.map(toAthleteEcosystemPartner),
         source: "google-sheets",
       });
     }
+
+    const visibility = await googleSheets.getPartnerVisibilityBuckets();
+    const partners = [...visibility.approved, ...visibility.pending];
 
     const response: PartnerResponse = {
       partners,
@@ -166,7 +189,45 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
-    const body = (await request.json()) as PartnerUpdate;
+    const body = (await request.json()) as PartnerUpdate & {
+      action?: "approve_application" | "reject_application";
+      sourceRow?: number;
+      editedData?: Record<string, unknown>;
+      moderationNotes?: string;
+    };
+
+    if (body.action === "approve_application") {
+      const sourceRow = Number(body.sourceRow ?? "");
+      if (!sourceRow || sourceRow < 2) {
+        return NextResponse.json({ error: "sourceRow obligatoire." }, { status: 400 });
+      }
+
+      const moderatedBy = await resolveModeratedByFromClerk(request);
+      const response = await googleSheets.approvePartnerApplication({
+        sourceRow,
+        editedData: (body.editedData ?? {}) as Record<string, unknown>,
+        adminName: moderatedBy,
+        moderationNotes: body.moderationNotes,
+      });
+
+      return NextResponse.json({ success: true, ...response });
+    }
+
+    if (body.action === "reject_application") {
+      const sourceRow = Number(body.sourceRow ?? "");
+      if (!sourceRow || sourceRow < 2) {
+        return NextResponse.json({ error: "sourceRow obligatoire." }, { status: 400 });
+      }
+
+      const moderatedBy = await resolveModeratedByFromClerk(request);
+      const response = await googleSheets.rejectPartnerApplication({
+        sourceRow,
+        adminName: moderatedBy,
+        moderationNotes: body.moderationNotes,
+      });
+
+      return NextResponse.json({ success: true, ...response });
+    }
 
     if (!body.row) {
       return NextResponse.json(

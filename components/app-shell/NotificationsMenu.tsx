@@ -12,6 +12,12 @@ type ContactRequest = {
   createdAt: string;
 };
 
+type PartnerApplication = {
+  sourceRow?: number;
+  moderationStatus?: string;
+  moderation_status?: string;
+};
+
 type NotificationsMenuProps = {
   isAdmin?: boolean;
   isAthlete?: boolean;
@@ -66,6 +72,7 @@ const formatDate = (value: string): string => {
 export function NotificationsMenu({ isAdmin = false, isAthlete = false }: NotificationsMenuProps) {
   const [open, setOpen] = useState(false);
   const [openRequests, setOpenRequests] = useState<ContactRequest[]>([]);
+  const [pendingPartnerCount, setPendingPartnerCount] = useState(0);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [slotDecisions, setSlotDecisions] = useState<SlotDecision[]>([]);
@@ -98,6 +105,7 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
     if (!isAdmin) {
       setOpenRequests([]);
       setAthleteNames({});
+      setPendingPartnerCount(0);
       return;
     }
 
@@ -106,7 +114,10 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
     const loadOpenRequests = async () => {
       setRequestsLoading(true);
       try {
-        const response = await fetch("/api/contact-requests", { credentials: "include", cache: "no-store" });
+        const [response, partnersResponse] = await Promise.all([
+          fetch("/api/contact-requests", { credentials: "include", cache: "no-store" }),
+          fetch("/api/partners", { credentials: "include", cache: "no-store" }),
+        ]);
         if (!response.ok) {
           throw new Error("unavailable");
         }
@@ -114,8 +125,20 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
         const payload = (await response.json()) as { contactRequests?: ContactRequest[] };
         const requests = (payload?.contactRequests ?? []).filter((request) => request.status === "open");
 
+        let pendingPartners = 0;
+        if (partnersResponse.ok) {
+          const partnersPayload = (await partnersResponse.json().catch(() => null)) as {
+            partners?: PartnerApplication[];
+          } | null;
+          pendingPartners = (partnersPayload?.partners ?? []).filter((partner) => {
+            const status = partner.moderationStatus ?? partner.moderation_status;
+            return status?.toLowerCase() === "pending" && Number(partner.sourceRow) >= 2;
+          }).length;
+        }
+
         if (!active) return;
         setOpenRequests(requests);
+        setPendingPartnerCount(pendingPartners);
 
         if (requests.length === 0) {
           setAthleteNames({});
@@ -140,6 +163,7 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
         if (active) {
           setOpenRequests([]);
           setAthleteNames({});
+          setPendingPartnerCount(0);
         }
       } finally {
         if (active) setRequestsLoading(false);
@@ -164,6 +188,7 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
   );
 
   const openRequestsCount = openRequests.length;
+  const adminNotificationsCount = openRequestsCount + pendingPartnerCount;
 
   const loadSlotDecisions = useCallback(async () => {
     setSlotDecisionsLoading(true);
@@ -366,9 +391,9 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
         onClick={() => setOpen((value) => !value)}
       >
         <Bell className="app-icon" />
-        {openRequestsCount > 0 ? (
+        {adminNotificationsCount > 0 ? (
           <span className="notification-count-badge" aria-hidden>
-            {openRequestsCount > 9 ? "9+" : openRequestsCount}
+            {adminNotificationsCount > 9 ? "9+" : adminNotificationsCount}
           </span>
         ) : null}
       </button>
@@ -378,16 +403,23 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
           <header className="notification-requests-header">
             <strong>Demandes KLIQUE</strong>
             <small>
-              {openRequestsCount > 0 ? `${openRequestsCount} nouvelle(s) demande(s)` : "Aucune nouvelle demande"}
+              {adminNotificationsCount > 0 ? `${adminNotificationsCount} nouvelle(s) demande(s)` : "Aucune nouvelle demande"}
             </small>
           </header>
 
-          {requestsLoading && recentOpenRequests.length === 0 ? (
+          {requestsLoading && recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
             <p className="menu-empty">Chargement des demandes...</p>
-          ) : recentOpenRequests.length === 0 ? (
+          ) : recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
             <p className="menu-empty">Aucune nouvelle demande</p>
           ) : (
             <ul className="notification-requests-list">
+              {pendingPartnerCount > 0 ? (
+                <li className="is-unread">
+                  <Link href="/crm/demandes?tab=partners" onClick={() => setOpen(false)}>
+                    <strong>{pendingPartnerCount} partenaire{pendingPartnerCount > 1 ? "s" : ""} à valider</strong>
+                  </Link>
+                </li>
+              ) : null}
               {recentOpenRequests.map((request) => (
                 <li key={request.id} className="is-unread">
                   <Link href="/crm/demandes" onClick={() => setOpen(false)}>
