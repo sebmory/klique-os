@@ -39,8 +39,11 @@ import {
   CREATION_MIN_QUESTION_COUNT,
   ContentCreationAssistantService,
   createInitialAssistantDraft,
+  NEW_CONTRACT_TYPE_OPTIONS,
+  resolveNewContractTypeLabel,
   type AfterMatchPresetDraft,
   type BeforeMatchPresetDraft,
+  type NewContractPresetDraft,
   type CreationAssistantDraft,
   type CreationObjectiveType,
   type CreationOption,
@@ -82,7 +85,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "match" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "contract" | "angle" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -128,6 +131,14 @@ const afterMatchSteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 6" },
 ];
 
+const newContractSteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "contract", label: "Etape 2" },
+  { id: "parameters", label: "Etape 3" },
+  { id: "context", label: "Etape 4" },
+  { id: "summary", label: "Etape 5" },
+];
+
 const getStepsForObjective = (
   objective: CreationObjectiveType | null,
   hasPreselectedObjective = false,
@@ -136,6 +147,11 @@ const getStepsForObjective = (
   // Les presets match remplacent entierement l etape objective par une etape match dediee.
   if (objective === "publication" && (presetId === "after-match" || presetId === "before-match")) {
     return afterMatchSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
+  }
+
+  // Le preset Nouveau contrat remplace entierement l etape objective par une etape contrat dediee.
+  if (objective === "publication" && presetId === "new-contract") {
+    return newContractSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
   const baseSteps = objective === "publication"
@@ -323,6 +339,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     [draft.objective.objective, hasPreselectedObjective, draft.presetId]
   );
   const [stepIndex, setStepIndex] = useState(summaryStepRequested ? initialStepCount - 1 : 0);
+
+  useEffect(() => {
+    if (draft.presetId !== "new-contract" || draft.subject.type === "person") return;
+    setDraft((current) => ({
+      ...current,
+      subject: { ...current.subject, type: "person", source: "crm" },
+    }));
+  }, [draft.presetId, draft.subject.type]);
   const [people, setPeople] = useState<Athlete[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
@@ -586,6 +610,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
       if (!normalize(matchDraft?.matchDate)) {
         return { ok: false, message: "Renseignez la date du match.", focusSelector: "[data-match-date='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "contract") {
+      if (!normalize(draft.newContract?.organization)) {
+        return { ok: false, message: "Renseignez l organisation ou le club.", focusSelector: "[data-contract-organization='true']" };
+      }
+      if (!normalize(draft.newContract?.contractType)) {
+        return { ok: false, message: "Selectionnez la nature de l annonce.", focusSelector: "[data-contract-type='true']" };
+      }
+      if (draft.newContract?.contractType === "other" && !normalize(draft.newContract?.customContractType)) {
+        return { ok: false, message: "Precisez la nature de l annonce.", focusSelector: "[data-contract-custom-type='true']" };
+      }
+      if (!normalize(draft.newContract?.role)) {
+        return { ok: false, message: "Renseignez le role.", focusSelector: "[data-contract-role='true']" };
       }
       return { ok: true };
     }
@@ -1227,28 +1267,30 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <h2 id="creation-subject-title">Sur quel sujet souhaitez-vous creer un contenu ?</h2>
         </header>
 
-        <div className="creation-choice-grid">
-          {subjectOptions.map((option) => {
-            const Icon = option.icon;
-            const isActive = draft.subject.type === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className={isActive ? "creation-choice-card is-active" : "creation-choice-card"}
-                onClick={() => selectSubjectType(option.id)}
-              >
-                <span className="creation-choice-icon" aria-hidden>
-                  <Icon size={16} />
-                </span>
-                <div>
-                  <strong>{option.title}</strong>
-                  <p>{option.description}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        {draft.presetId === "new-contract" ? null : (
+          <div className="creation-choice-grid">
+            {subjectOptions.map((option) => {
+              const Icon = option.icon;
+              const isActive = draft.subject.type === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={isActive ? "creation-choice-card is-active" : "creation-choice-card"}
+                  onClick={() => selectSubjectType(option.id)}
+                >
+                  <span className="creation-choice-icon" aria-hidden>
+                    <Icon size={16} />
+                  </span>
+                  <div>
+                    <strong>{option.title}</strong>
+                    <p>{option.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {draft.subject.type === "person" ? (
           <section className="creation-panel">
@@ -1682,6 +1724,133 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               </label>
             </>
           )}
+        </section>
+      </section>
+    );
+  };
+
+  const setNewContractField = (field: keyof NewContractPresetDraft, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      newContract: {
+        organization: current.newContract?.organization ?? "",
+        contractType: current.newContract?.contractType ?? "",
+        customContractType: current.newContract?.customContractType ?? "",
+        role: current.newContract?.role ?? "",
+        startDate: current.newContract?.startDate ?? "",
+        duration: current.newContract?.duration ?? "",
+        keyTerms: current.newContract?.keyTerms ?? "",
+        quote: current.newContract?.quote ?? "",
+        objectives: current.newContract?.objectives ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const renderContractStep = () => {
+    return (
+      <section className="creation-step-block" aria-labelledby="creation-contract-title">
+        <header className="creation-step-head">
+          <h2 id="creation-contract-title">Informations du nouveau contrat</h2>
+          <p>Renseignez les elements factuels de l engagement. Aucun appel IA n est lance a cette etape.</p>
+        </header>
+
+        <section className="creation-panel">
+          <div className="creation-fields-grid">
+            <label>
+              <span>Organisation / Club</span>
+              <input
+                type="text"
+                data-contract-organization="true"
+                value={draft.newContract?.organization ?? ""}
+                onChange={(event) => setNewContractField("organization", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Nature de l annonce</span>
+              <select
+                data-contract-type="true"
+                value={draft.newContract?.contractType ?? ""}
+                onChange={(event) => setNewContractField("contractType", event.target.value)}
+              >
+                <option value="">Selectionner</option>
+                {NEW_CONTRACT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {draft.newContract?.contractType === "other" ? (
+              <label>
+                <span>Precisez la nature de l annonce</span>
+                <input
+                  type="text"
+                  data-contract-custom-type="true"
+                  value={draft.newContract?.customContractType ?? ""}
+                  onChange={(event) => setNewContractField("customContractType", event.target.value)}
+                />
+              </label>
+            ) : null}
+
+            <label>
+              <span>Role</span>
+              <input
+                type="text"
+                data-contract-role="true"
+                value={draft.newContract?.role ?? ""}
+                onChange={(event) => setNewContractField("role", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Date de debut (optionnel)</span>
+              <input
+                type="date"
+                value={draft.newContract?.startDate ?? ""}
+                onChange={(event) => setNewContractField("startDate", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Duree (optionnel, ex: 2 ans)</span>
+              <input
+                type="text"
+                placeholder="Ex: 2 ans"
+                value={draft.newContract?.duration ?? ""}
+                onChange={(event) => setNewContractField("duration", event.target.value)}
+              />
+            </label>
+          </div>
+
+          <label className="creation-inline-field">
+            <span>Elements cles (optionnel)</span>
+            <textarea
+              className="creation-textarea"
+              value={draft.newContract?.keyTerms ?? ""}
+              onChange={(event) => setNewContractField("keyTerms", event.target.value)}
+            />
+          </label>
+
+          <label className="creation-inline-field">
+            <span>Citation (optionnel)</span>
+            <textarea
+              className="creation-textarea"
+              value={draft.newContract?.quote ?? ""}
+              onChange={(event) => setNewContractField("quote", event.target.value)}
+            />
+          </label>
+
+          <label className="creation-inline-field">
+            <span>Objectifs (optionnel)</span>
+            <textarea
+              className="creation-textarea"
+              value={draft.newContract?.objectives ?? ""}
+              onChange={(event) => setNewContractField("objectives", event.target.value)}
+            />
+          </label>
         </section>
       </section>
     );
@@ -2946,14 +3115,18 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <header className="creation-step-head">
             <h2 id="creation-summary-title">Verification</h2>
             {mediaCreditRole === "media" ? (
-              <p className="creation-muted">{`Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}</p>
+              <p className="creation-muted">
+                {draft.presetId === "new-contract"
+                  ? `Nouveau contrat : ${formatCreditCount(1)} pour générer 3 propositions.`
+                  : `Publication complète : ${formatCreditCount(2)} (1 crédit pour les angles + 1 crédit pour les propositions).`}
+              </p>
             ) : null}
           </header>
 
           <dl className="creation-summary-grid">
             <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
             <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
-            <div><dt>Objectif</dt><dd>{draft.presetId === "after-match" ? "Après-match" : draft.presetId === "before-match" ? "Avant-match" : draft.parameters.publicationObjectiveId}</dd></div>
+            <div><dt>Objectif</dt><dd>{draft.presetId === "after-match" ? "Après-match" : draft.presetId === "before-match" ? "Avant-match" : draft.presetId === "new-contract" ? "Nouveau contrat" : draft.parameters.publicationObjectiveId}</dd></div>
             {draft.presetId === "after-match" ? (
               <>
                 <div><dt>Adversaire</dt><dd>{draft.afterMatch?.opponent || "Non defini"}</dd></div>
@@ -2975,7 +3148,21 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <div><dt>Informations importantes</dt><dd>{draft.beforeMatch?.keyInformation || "Aucune"}</dd></div>
               </>
             ) : null}
-            <div><dt>Angle</dt><dd>{draft.parameters.publicationSelectedAngle || "Non defini"}</dd></div>
+            {draft.presetId === "new-contract" ? (
+              <>
+                <div><dt>Organisation</dt><dd>{draft.newContract?.organization || "Non definie"}</dd></div>
+                <div><dt>Nature de l annonce</dt><dd>{resolveNewContractTypeLabel(draft.newContract?.contractType ?? "", draft.newContract?.customContractType ?? "") || "Non definie"}</dd></div>
+                <div><dt>Role</dt><dd>{draft.newContract?.role || "Non defini"}</dd></div>
+                <div><dt>Date de debut</dt><dd>{draft.newContract?.startDate || "Non definie"}</dd></div>
+                <div><dt>Duree</dt><dd>{draft.newContract?.duration || "Non definie"}</dd></div>
+                <div><dt>Elements cles</dt><dd>{draft.newContract?.keyTerms || "Aucun"}</dd></div>
+                <div><dt>Citation</dt><dd>{draft.newContract?.quote || "Aucune"}</dd></div>
+                <div><dt>Objectifs</dt><dd>{draft.newContract?.objectives || "Aucun"}</dd></div>
+              </>
+            ) : null}
+            {draft.presetId === "new-contract" ? null : (
+              <div><dt>Angle</dt><dd>{draft.parameters.publicationSelectedAngle || "Non defini"}</dd></div>
+            )}
             <div><dt>Plateforme</dt><dd>{draft.parameters.publicationPlatform}</dd></div>
             <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
             <div><dt>Longueur</dt><dd>{draft.parameters.publicationLength}</dd></div>
@@ -3264,6 +3451,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       {step.id === "subject" ? renderSubjectStep() : null}
       {step.id === "objective" ? renderObjectiveStep() : null}
       {step.id === "match" ? renderMatchStep() : null}
+      {step.id === "contract" ? renderContractStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}
       {step.id === "context" ? renderContextStep() : null}

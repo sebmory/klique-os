@@ -1,6 +1,6 @@
 export type ContentContextType = "athlete" | "club" | "partner" | "organization" | "other";
 
-export type ContentPresetId = "after-match" | "before-match";
+export type ContentPresetId = "after-match" | "before-match" | "new-contract";
 
 export type ContentCreationContext = {
   mode: "free" | "contextual";
@@ -130,6 +130,8 @@ const templates: ContentTemplate[] = [
     id: "new-contract",
     title: "Nouveau contrat",
     description: "Annoncer un partenariat ou un engagement strategique.",
+    isAvailable: true,
+    entryRoute: "/contents/create?objective=publication&preset=new-contract",
   },
   {
     id: "behind-the-scenes",
@@ -177,7 +179,8 @@ export const ContentsHubService = {
     // Le preset n est retenu que pour l objectif Publication, seul flux qui le consomme.
     const presetCandidate = String(params.preset ?? "").trim().toLowerCase();
     const presetId =
-      objective === "publication" && (presetCandidate === "after-match" || presetCandidate === "before-match")
+      objective === "publication" &&
+      (presetCandidate === "after-match" || presetCandidate === "before-match" || presetCandidate === "new-contract")
         ? (presetCandidate as ContentPresetId)
         : undefined;
 

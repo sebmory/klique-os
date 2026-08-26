@@ -149,6 +149,41 @@ export type BeforeMatchPresetDraft = {
   keyInformation: string;
 };
 
+export type NewContractPresetDraft = {
+  organization: string;
+  contractType: string;
+  customContractType: string;
+  role: string;
+  startDate: string;
+  duration: string;
+  keyTerms: string;
+  quote: string;
+  objectives: string;
+};
+
+export type NewContractTypeId =
+  | "arrival"
+  | "renewal"
+  | "first-professional"
+  | "new-role"
+  | "sponsorship"
+  | "other";
+
+export const NEW_CONTRACT_TYPE_OPTIONS: Array<{ id: NewContractTypeId; label: string }> = [
+  { id: "arrival", label: "Arrivée / signature dans une nouvelle organisation" },
+  { id: "renewal", label: "Prolongation / renouvellement" },
+  { id: "first-professional", label: "Premier contrat professionnel" },
+  { id: "new-role", label: "Nouveau rôle / changement de fonction" },
+  { id: "sponsorship", label: "Partenariat / sponsoring" },
+  { id: "other", label: "Autre situation" },
+];
+
+// Le libelle humain seul alimente le contexte IA et le resume; jamais l identifiant technique.
+export const resolveNewContractTypeLabel = (contractType: string, customContractType: string): string => {
+  if (contractType === "other") return customContractType.trim();
+  return NEW_CONTRACT_TYPE_OPTIONS.find((option) => option.id === contractType)?.label ?? "";
+};
+
 export type CreationAssistantDraft = {
   subject: CreationSubjectDraft;
   objective: CreationObjectiveDraft;
@@ -156,6 +191,7 @@ export type CreationAssistantDraft = {
   presetId?: ContentPresetId;
   afterMatch?: AfterMatchPresetDraft;
   beforeMatch?: BeforeMatchPresetDraft;
+  newContract?: NewContractPresetDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -433,6 +469,99 @@ const mergeTopics = (existing: string[], additions: string[]): string[] => {
   return [...existing, ...additions].filter(Boolean).slice(0, 12);
 };
 
+// Regles de formulation strictement liees a la nature d annonce resolue; jamais les faits contractuels.
+const buildNewContractNatureRules = (contractType: string, resolvedLabel: string): string[] => {
+  if (!resolvedLabel) return [];
+
+  const natureLine = `Nature de l annonce a respecter exactement: ${resolvedLabel}.`;
+
+  if (contractType === "arrival") {
+    return [natureLine, "Autoriser des formulations comme 'rejoint', 'signe' ou un message de bienvenue, coherents avec une arrivee."];
+  }
+  if (contractType === "renewal") {
+    return [natureLine, "Autoriser uniquement 'prolonge', 'renouvelle' ou 'poursuit'; interdire strictement 'rejoint' et toute formulation de bienvenue."];
+  }
+  if (contractType === "first-professional") {
+    return [natureLine, "Mentionner explicitement qu il s agit d un premier contrat professionnel, sans inventer de statut supplementaire non fourni."];
+  }
+  if (contractType === "new-role") {
+    return [natureLine, "Rester centre sur le nouveau role ou changement de fonction, sans le traiter comme une arrivee sportive classique."];
+  }
+  if (contractType === "sponsorship") {
+    return [natureLine, "Traiter cette annonce comme un partenariat ou un sponsoring, jamais comme une arrivee sportive."];
+  }
+  if (contractType === "other") {
+    return [natureLine, "Respecter uniquement cette formulation personnalisee pour la nature de l annonce, sans lui substituer une autre nature."];
+  }
+  return [natureLine];
+};
+
+const buildNewContractContextBlock = (
+  newContract: NewContractPresetDraft,
+  subjectName: string,
+  subjectType: CreationSubjectType | null
+): string => {
+  const focusLines = subjectName
+    ? [
+        `Sujet central: ${subjectName} est le point de vue central de cette publication.`,
+        `Chacune des 3 propositions doit mentionner le nom complet de ${subjectName} dans le hook ou la premiere phrase.`,
+        `Chacune des 3 propositions doit rester centree sur ${subjectName} dans tout le corps du texte.`,
+        `Les 3 propositions doivent etre reellement distinctes, sans repeter la meme approche.`,
+        "Varier la structure et le ton des 3 propositions, jamais les faits contractuels.",
+        "Ne jamais presenter une division, une promotion sportive ou un niveau de competition comme un palmares.",
+        ...buildNewContractNatureRules(newContract.contractType, resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)),
+        subjectType === "person"
+          ? `Ne jamais inventer de montant, salaire, indemnite, duree, date, role ou conditions non fournis pour ${subjectName}.`
+          : "Ne jamais inventer de montant, salaire, indemnite, duree, date, role ou conditions non fournis.",
+        newContract.quote ? "" : "Aucune citation fournie: ne jamais inventer ou attribuer de citation.",
+      ].filter(Boolean)
+    : [];
+
+  const lines = [
+    newContract.organization ? `Organisation: ${normalize(newContract.organization)}` : "",
+    resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)
+      ? `Type de contrat: ${resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)}`
+      : "",
+    newContract.role ? `Role: ${normalize(newContract.role)}` : "",
+    newContract.startDate ? `Date de debut: ${normalize(newContract.startDate)}` : "",
+    newContract.duration ? `Duree: ${normalize(newContract.duration)}` : "",
+    newContract.keyTerms ? `Elements cles: ${normalize(newContract.keyTerms)}` : "",
+    newContract.quote ? `Citation: ${normalize(newContract.quote)}` : "",
+    newContract.objectives ? `Objectifs: ${normalize(newContract.objectives)}` : "",
+  ].filter(Boolean);
+
+  const allLines = [...focusLines, ...lines];
+  if (!allLines.length) return "";
+
+  return ["[NOUVEAU CONTRAT]", ...allLines].join("\n");
+};
+
+const buildNewContractTopics = (newContract: NewContractPresetDraft, subjectName: string): string[] => {
+  return [
+    subjectName ? `Sujet: ${subjectName}` : "",
+    newContract.organization ? `Organisation: ${normalize(newContract.organization)}` : "",
+    resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)
+      ? `Type de contrat: ${resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)}`
+      : "",
+    newContract.role ? `Role: ${normalize(newContract.role)}` : "",
+    newContract.startDate ? `Date de debut: ${normalize(newContract.startDate)}` : "",
+    newContract.duration ? `Duree: ${normalize(newContract.duration)}` : "",
+  ].filter(Boolean);
+};
+
+// Le preset Nouveau contrat n a pas d etape Angle dediee; l angle est deduit des faits fournis.
+const buildNewContractSelectedAngle = (subjectName: string, newContract: NewContractPresetDraft): string => {
+  const organization = normalize(newContract.organization);
+  const role = normalize(newContract.role);
+
+  if (!subjectName && !organization && !role) return "";
+
+  const withOrganization = organization ? ` avec ${organization}` : "";
+  const withRole = role ? `, pour le role de ${role}` : "";
+
+  return `Annoncer factuellement et de maniere valorisante le nouveau contrat de ${subjectName || "ce sujet"}${withOrganization}${withRole}.`;
+};
+
 const mapContextTypeToSubjectType = (value?: string): CreationSubjectType => {
   if (value === "athlete") return "person";
   if (value === "partner") return "partner";
@@ -530,6 +659,20 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
             keyInformation: "",
           }
         : undefined,
+    newContract:
+      initialPresetId === "new-contract"
+        ? {
+            organization: "",
+            contractType: "",
+            customContractType: "",
+            role: "",
+            startDate: "",
+            duration: "",
+            keyTerms: "",
+            quote: "",
+            objectives: "",
+          }
+        : undefined,
   };
 };
 
@@ -562,6 +705,7 @@ export const ContentCreationAssistantService = {
     const isStory = objectiveId === "story";
     const isAfterMatch = isPublication && args.draft.presetId === "after-match";
     const isBeforeMatch = isPublication && args.draft.presetId === "before-match";
+    const isNewContract = isPublication && args.draft.presetId === "new-contract";
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -647,6 +791,13 @@ export const ContentCreationAssistantService = {
               ]
                 .filter(Boolean)
                 .join("\n\n")
+          : isNewContract && args.draft.newContract
+            ? [
+                normalize(args.draft.parameters.additionalContext),
+                buildNewContractContextBlock(args.draft.newContract, normalize(args.draft.subject.displayName), subjectType),
+              ]
+                .filter(Boolean)
+                .join("\n\n")
           : normalize(args.draft.parameters.additionalContext),
         requiredTopics: isAfterMatch && args.draft.afterMatch
           ? mergeTopics(
@@ -657,6 +808,11 @@ export const ContentCreationAssistantService = {
             ? mergeTopics(
                 parseTopics(args.draft.parameters.requiredTopics),
                 buildBeforeMatchTopics(args.draft.beforeMatch, normalize(args.draft.subject.displayName))
+              )
+          : isNewContract && args.draft.newContract
+            ? mergeTopics(
+                parseTopics(args.draft.parameters.requiredTopics),
+                buildNewContractTopics(args.draft.newContract, normalize(args.draft.subject.displayName))
               )
           : parseTopics(args.draft.parameters.requiredTopics),
         avoidedTopics: parseTopics(args.draft.parameters.avoidedTopics),
@@ -677,9 +833,11 @@ export const ContentCreationAssistantService = {
         },
         publication: isPublication
           ? {
-              objectiveId: isAfterMatch ? "narrate" : isBeforeMatch ? "inform" : args.draft.parameters.publicationObjectiveId,
+              objectiveId: isAfterMatch ? "narrate" : isBeforeMatch ? "inform" : isNewContract ? "inform" : args.draft.parameters.publicationObjectiveId,
               customObjective: normalize(args.draft.parameters.publicationCustomObjective),
-              selectedAngle: normalize(args.draft.parameters.publicationSelectedAngle),
+              selectedAngle: isNewContract && args.draft.newContract
+                ? buildNewContractSelectedAngle(normalize(args.draft.subject.displayName), args.draft.newContract)
+                : normalize(args.draft.parameters.publicationSelectedAngle),
               platform: args.draft.parameters.publicationPlatform,
               length: args.draft.parameters.publicationLength,
               cta: normalize(args.draft.parameters.publicationCta),
