@@ -161,6 +161,17 @@ export type NewContractPresetDraft = {
   objectives: string;
 };
 
+export type MatchDayStoryPresetDraft = {
+  opponent: string;
+  competition: string;
+  matchDate: string;
+  matchTime: string;
+  venue: string;
+  homeAway: "" | "home" | "away";
+  stakes: string;
+  callToAction: string;
+};
+
 export type NewContractTypeId =
   | "arrival"
   | "renewal"
@@ -192,6 +203,7 @@ export type CreationAssistantDraft = {
   afterMatch?: AfterMatchPresetDraft;
   beforeMatch?: BeforeMatchPresetDraft;
   newContract?: NewContractPresetDraft;
+  matchDayStory?: MatchDayStoryPresetDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -562,6 +574,58 @@ const buildNewContractSelectedAngle = (subjectName: string, newContract: NewCont
   return `Annoncer factuellement et de maniere valorisante le nouveau contrat de ${subjectName || "ce sujet"}${withOrganization}${withRole}.`;
 };
 
+const resolveMatchDayHomeAwayLabel = (homeAway: MatchDayStoryPresetDraft["homeAway"]): string => {
+  if (homeAway === "home") return "A domicile";
+  if (homeAway === "away") return "A l exterieur";
+  return "";
+};
+
+const buildMatchDayStoryContextBlock = (matchDayStory: MatchDayStoryPresetDraft, subjectName: string): string => {
+  const homeAwayLabel = resolveMatchDayHomeAwayLabel(matchDayStory.homeAway);
+  const focusLines = subjectName
+    ? [
+        `Sujet central: ${subjectName} est le point de vue central de cette Story.`,
+        `Rester centre sur ${subjectName} et le match renseigne.`,
+        "Ne jamais inventer de competition, date, heure, lieu, enjeu ou appel a l action absent.",
+        "Respecter exactement la localisation domicile ou exterieur fournie.",
+        "Ne jamais annoncer un resultat puisque le match n a pas encore eu lieu.",
+        "Chaque sequence doit apporter une information ou une fonction differente.",
+        matchDayStory.callToAction ? "La derniere sequence peut reprendre l appel a l action fourni." : "La derniere sequence ne doit pas inventer d appel a l action.",
+      ]
+    : [];
+  const lines = [
+    matchDayStory.opponent ? `Adversaire: ${normalize(matchDayStory.opponent)}` : "",
+    matchDayStory.competition ? `Competition: ${normalize(matchDayStory.competition)}` : "",
+    matchDayStory.matchDate ? `Date du match: ${normalize(matchDayStory.matchDate)}` : "",
+    matchDayStory.matchTime ? `Heure: ${normalize(matchDayStory.matchTime)}` : "",
+    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
+    matchDayStory.venue ? `Lieu: ${normalize(matchDayStory.venue)}` : "",
+    matchDayStory.stakes ? `Enjeu / contexte: ${normalize(matchDayStory.stakes)}` : "",
+    matchDayStory.callToAction ? `Appel a l action: ${normalize(matchDayStory.callToAction)}` : "",
+  ].filter(Boolean);
+
+  const allLines = [...focusLines, ...lines];
+  if (!allLines.length) return "";
+
+  return ["[STORY JOUR DE MATCH]", ...allLines].join("\n");
+};
+
+const buildMatchDayStoryTopics = (matchDayStory: MatchDayStoryPresetDraft, subjectName: string): string[] => {
+  const homeAwayLabel = resolveMatchDayHomeAwayLabel(matchDayStory.homeAway);
+  return [
+    subjectName ? `Sujet: ${subjectName}` : "",
+    matchDayStory.opponent ? `Adversaire: ${normalize(matchDayStory.opponent)}` : "",
+    matchDayStory.competition ? `Competition: ${normalize(matchDayStory.competition)}` : "",
+    matchDayStory.matchDate ? `Date du match: ${normalize(matchDayStory.matchDate)}` : "",
+    matchDayStory.matchTime ? `Heure: ${normalize(matchDayStory.matchTime)}` : "",
+    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
+  ].filter(Boolean);
+};
+
+const buildMatchDayStorySelectedAngle = (subjectName: string, matchDayStory: MatchDayStoryPresetDraft): string => {
+  return `Annoncer clairement le match a venir de ${subjectName || "ce sujet"} contre ${normalize(matchDayStory.opponent) || "son adversaire"}, avec une progression dynamique adaptee a une Story.`;
+};
+
 const mapContextTypeToSubjectType = (value?: string): CreationSubjectType => {
   if (value === "athlete") return "person";
   if (value === "partner") return "partner";
@@ -577,8 +641,11 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isPublication = initialObjective === "publication";
   const isReel = initialObjective === "reel";
   const isStory = initialObjective === "story";
-  // Le preset n a de sens que pour l objectif Publication, seul flux qui le consommera.
-  const initialPresetId = isPublication ? context.presetId : undefined;
+  // Le preset n a de sens que pour l objectif qui le consomme.
+  const initialPresetId =
+    (isPublication && context.presetId !== "match-day-story") || (isStory && context.presetId === "match-day-story")
+      ? context.presetId
+      : undefined;
 
   return {
     subject: {
@@ -673,6 +740,19 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
             objectives: "",
           }
         : undefined,
+    matchDayStory:
+      initialPresetId === "match-day-story"
+        ? {
+            opponent: "",
+            competition: "",
+            matchDate: "",
+            matchTime: "",
+            venue: "",
+            homeAway: "",
+            stakes: "",
+            callToAction: "",
+          }
+        : undefined,
   };
 };
 
@@ -706,6 +786,7 @@ export const ContentCreationAssistantService = {
     const isAfterMatch = isPublication && args.draft.presetId === "after-match";
     const isBeforeMatch = isPublication && args.draft.presetId === "before-match";
     const isNewContract = isPublication && args.draft.presetId === "new-contract";
+    const isMatchDayStory = isStory && args.draft.presetId === "match-day-story";
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -727,7 +808,7 @@ export const ContentCreationAssistantService = {
       if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
       if (isStory) {
-        if (!normalize(args.draft.parameters.storySelectedAngle)) return null;
+        if (!isMatchDayStory && !normalize(args.draft.parameters.storySelectedAngle)) return null;
 
         const customFrameCount = Number(args.draft.parameters.storyFrameCount);
         storyFrameCount = Number.isFinite(customFrameCount) && customFrameCount > 0 ? Math.floor(customFrameCount) : 0;
@@ -798,6 +879,13 @@ export const ContentCreationAssistantService = {
               ]
                 .filter(Boolean)
                 .join("\n\n")
+          : isMatchDayStory && args.draft.matchDayStory
+            ? [
+                normalize(args.draft.parameters.additionalContext),
+                buildMatchDayStoryContextBlock(args.draft.matchDayStory, normalize(args.draft.subject.displayName)),
+              ]
+                .filter(Boolean)
+                .join("\n\n")
           : normalize(args.draft.parameters.additionalContext),
         requiredTopics: isAfterMatch && args.draft.afterMatch
           ? mergeTopics(
@@ -813,6 +901,11 @@ export const ContentCreationAssistantService = {
             ? mergeTopics(
                 parseTopics(args.draft.parameters.requiredTopics),
                 buildNewContractTopics(args.draft.newContract, normalize(args.draft.subject.displayName))
+              )
+          : isMatchDayStory && args.draft.matchDayStory
+            ? mergeTopics(
+                parseTopics(args.draft.parameters.requiredTopics),
+                buildMatchDayStoryTopics(args.draft.matchDayStory, normalize(args.draft.subject.displayName))
               )
           : parseTopics(args.draft.parameters.requiredTopics),
         avoidedTopics: parseTopics(args.draft.parameters.avoidedTopics),
@@ -858,7 +951,9 @@ export const ContentCreationAssistantService = {
           : undefined,
         story: isStory
           ? {
-              selectedAngle: normalize(args.draft.parameters.storySelectedAngle),
+              selectedAngle: isMatchDayStory && args.draft.matchDayStory
+                ? buildMatchDayStorySelectedAngle(normalize(args.draft.subject.displayName), args.draft.matchDayStory)
+                : normalize(args.draft.parameters.storySelectedAngle),
               frameCount: storyFrameCount,
               platform: args.draft.parameters.storyPlatform,
             }

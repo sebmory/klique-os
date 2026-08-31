@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type BreadcrumbItem = {
@@ -32,6 +33,23 @@ const titleCase = (value: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
+const contentResultLabelByType: Record<string, string> = {
+  interview: "Interview",
+  publication: "Publication",
+  reel: "Reel",
+  story: "Story",
+};
+
+const resolveContentResultLabel = (): string => {
+  try {
+    const raw = window.sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1");
+    const requestType = raw ? (JSON.parse(raw) as { request?: { requestType?: string } }).request?.requestType : undefined;
+    return contentResultLabelByType[requestType ?? ""] ?? "Interview";
+  } catch {
+    return "Interview";
+  }
+};
+
 export function buildBreadcrumb(pathname: string): BreadcrumbItem[] {
   const cleaned = pathname.split("?")[0] ?? pathname;
   const segments = cleaned.split("/").filter(Boolean);
@@ -58,7 +76,18 @@ export function buildBreadcrumb(pathname: string): BreadcrumbItem[] {
 }
 
 export function Breadcrumb({ pathname }: { pathname: string }) {
-  const items = buildBreadcrumb(pathname);
+  const isContentResult = pathname.split("?")[0] === "/contents/create/result";
+  const [contentResultLabel, setContentResultLabel] = useState("Interview");
+
+  useEffect(() => {
+    if (isContentResult) {
+      setContentResultLabel(resolveContentResultLabel());
+    }
+  }, [isContentResult]);
+
+  const items = buildBreadcrumb(pathname).map((item, index, breadcrumbs) =>
+    isContentResult && index === breadcrumbs.length - 1 ? { ...item, label: contentResultLabel } : item,
+  );
 
   return (
     <nav className="klique-breadcrumb" aria-label="Fil d'Ariane">

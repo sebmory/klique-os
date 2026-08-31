@@ -43,6 +43,7 @@ import {
   resolveNewContractTypeLabel,
   type AfterMatchPresetDraft,
   type BeforeMatchPresetDraft,
+  type MatchDayStoryPresetDraft,
   type NewContractPresetDraft,
   type CreationAssistantDraft,
   type CreationObjectiveType,
@@ -85,7 +86,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "match" | "contract" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "match-day" | "contract" | "angle" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -139,6 +140,14 @@ const newContractSteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 5" },
 ];
 
+const matchDayStorySteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "match-day", label: "Etape 2" },
+  { id: "parameters", label: "Etape 3" },
+  { id: "context", label: "Etape 4" },
+  { id: "summary", label: "Etape 5" },
+];
+
 const getStepsForObjective = (
   objective: CreationObjectiveType | null,
   hasPreselectedObjective = false,
@@ -152,6 +161,10 @@ const getStepsForObjective = (
   // Le preset Nouveau contrat remplace entierement l etape objective par une etape contrat dediee.
   if (objective === "publication" && presetId === "new-contract") {
     return newContractSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
+  }
+
+  if (objective === "story" && presetId === "match-day-story") {
+    return matchDayStorySteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
   const baseSteps = objective === "publication"
@@ -215,6 +228,18 @@ const objectiveIconById: Record<CreationObjectiveType, ComponentType<{ size?: nu
 };
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
+
+const matchDateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+const formatMatchDate = (value: string): string => {
+  if (!value) return "Non definie";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? "Non definie" : matchDateFormatter.format(date);
+};
 
 const resolveSelectedToneLabel = (toneId: string, customTone: string): string => {
   if (toneId === "free") return normalize(customTone) || "Libre";
@@ -626,6 +651,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
       if (!normalize(draft.newContract?.role)) {
         return { ok: false, message: "Renseignez le role.", focusSelector: "[data-contract-role='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "match-day") {
+      if (!normalize(draft.matchDayStory?.opponent)) {
+        return { ok: false, message: "Renseignez l adversaire.", focusSelector: "[data-match-day-opponent='true']" };
+      }
+      if (!normalize(draft.matchDayStory?.matchDate)) {
+        return { ok: false, message: "Renseignez la date du match.", focusSelector: "[data-match-day-date='true']" };
+      }
+      if (!normalize(draft.matchDayStory?.matchTime)) {
+        return { ok: false, message: "Renseignez l heure du match.", focusSelector: "[data-match-day-time='true']" };
+      }
+      if (!draft.matchDayStory?.homeAway) {
+        return { ok: false, message: "Selectionnez domicile ou exterieur.", focusSelector: "[data-match-day-home-away='true']" };
       }
       return { ok: true };
     }
@@ -1724,6 +1765,75 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               </label>
             </>
           )}
+        </section>
+      </section>
+    );
+  };
+
+  const setMatchDayStoryField = (field: keyof MatchDayStoryPresetDraft, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      matchDayStory: {
+        opponent: current.matchDayStory?.opponent ?? "",
+        competition: current.matchDayStory?.competition ?? "",
+        matchDate: current.matchDayStory?.matchDate ?? "",
+        matchTime: current.matchDayStory?.matchTime ?? "",
+        venue: current.matchDayStory?.venue ?? "",
+        homeAway: current.matchDayStory?.homeAway ?? "",
+        stakes: current.matchDayStory?.stakes ?? "",
+        callToAction: current.matchDayStory?.callToAction ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const renderMatchDayStoryStep = () => {
+    return (
+      <section className="creation-step-block" aria-labelledby="creation-match-day-title">
+        <header className="creation-step-head">
+          <h2 id="creation-match-day-title">Informations du match</h2>
+          <p>Renseignez les elements factuels de la rencontre. Aucun appel IA n est lance a cette etape.</p>
+        </header>
+
+        <section className="creation-panel">
+          <div className="creation-fields-grid">
+            <label>
+              <span>Adversaire</span>
+              <input type="text" data-match-day-opponent="true" value={draft.matchDayStory?.opponent ?? ""} onChange={(event) => setMatchDayStoryField("opponent", event.target.value)} />
+            </label>
+            <label>
+              <span>Competition (optionnel)</span>
+              <input type="text" value={draft.matchDayStory?.competition ?? ""} onChange={(event) => setMatchDayStoryField("competition", event.target.value)} />
+            </label>
+            <label>
+              <span>Date du match</span>
+              <input type="date" data-match-day-date="true" value={draft.matchDayStory?.matchDate ?? ""} onChange={(event) => setMatchDayStoryField("matchDate", event.target.value)} />
+            </label>
+            <label>
+              <span>Heure</span>
+              <input type="time" data-match-day-time="true" value={draft.matchDayStory?.matchTime ?? ""} onChange={(event) => setMatchDayStoryField("matchTime", event.target.value)} />
+            </label>
+            <label>
+              <span>Domicile / exterieur</span>
+              <select data-match-day-home-away="true" value={draft.matchDayStory?.homeAway ?? ""} onChange={(event) => setMatchDayStoryField("homeAway", event.target.value)}>
+                <option value="">Selectionner</option>
+                <option value="home">À domicile</option>
+                <option value="away">À l extérieur</option>
+              </select>
+            </label>
+            <label>
+              <span>Lieu (optionnel)</span>
+              <input type="text" value={draft.matchDayStory?.venue ?? ""} onChange={(event) => setMatchDayStoryField("venue", event.target.value)} />
+            </label>
+          </div>
+          <label className="creation-inline-field">
+            <span>Enjeu / contexte (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.matchDayStory?.stakes ?? ""} onChange={(event) => setMatchDayStoryField("stakes", event.target.value)} />
+          </label>
+          <label className="creation-inline-field">
+            <span>Appel a l action (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.matchDayStory?.callToAction ?? ""} onChange={(event) => setMatchDayStoryField("callToAction", event.target.value)} />
+          </label>
         </section>
       </section>
     );
@@ -3276,10 +3386,23 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <dl className="creation-summary-grid">
             <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
             <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
-            <div><dt>Objectif</dt><dd>Story</dd></div>
-            <div><dt>Angle editorial</dt><dd>{draft.parameters.storySelectedAngle || "Non defini"}</dd></div>
+            <div><dt>Objectif</dt><dd>{draft.presetId === "match-day-story" ? "Jour de match" : "Story"}</dd></div>
+            {draft.presetId === "match-day-story" ? (
+              <>
+                <div><dt>Adversaire</dt><dd>{draft.matchDayStory?.opponent || "Non defini"}</dd></div>
+                <div><dt>Competition</dt><dd>{draft.matchDayStory?.competition || "Non definie"}</dd></div>
+                <div><dt>Date du match</dt><dd>{formatMatchDate(draft.matchDayStory?.matchDate ?? "")}</dd></div>
+                <div><dt>Heure</dt><dd>{draft.matchDayStory?.matchTime || "Non definie"}</dd></div>
+                <div><dt>Lieu</dt><dd>{draft.matchDayStory?.venue || "Non defini"}</dd></div>
+                <div><dt>Domicile / extérieur</dt><dd>{draft.matchDayStory?.homeAway === "home" ? "À domicile" : draft.matchDayStory?.homeAway === "away" ? "À l extérieur" : "Non definie"}</dd></div>
+                <div><dt>Enjeu / contexte</dt><dd>{draft.matchDayStory?.stakes || "Aucun"}</dd></div>
+                <div><dt>Appel a l action</dt><dd>{draft.matchDayStory?.callToAction || "Aucun"}</dd></div>
+              </>
+            ) : (
+              <div><dt>Angle editorial</dt><dd>{draft.parameters.storySelectedAngle || "Non defini"}</dd></div>
+            )}
             <div><dt>Plateforme</dt><dd>{draft.parameters.storyPlatform}</dd></div>
-            <div><dt>Nombre de frames</dt><dd>{draft.parameters.storyFrameCount}</dd></div>
+            <div><dt>Nombre de séquences</dt><dd>{draft.parameters.storyFrameCount}</dd></div>
             <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
             <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
             <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun contexte supplementaire"}</dd></div>
@@ -3294,6 +3417,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           </dl>
 
           <div className="creation-finish-panel">
+            {mediaCreditRole === "media" && draft.presetId === "match-day-story" ? (
+              <p className="creation-muted">{`Cette génération coûte ${formatCreditCount(getGenerationCreditCost())}.`}</p>
+            ) : null}
             <button
               type="button"
               className="crm-primary-action"
@@ -3301,7 +3427,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-              {generateState.loading ? "Generation en cours" : "Generer 3 sequences Story"}
+              {generateState.loading
+                ? "Generation en cours"
+                : draft.presetId === "match-day-story"
+                  ? `Générer ${draft.parameters.storyFrameCount} séquences Story`
+                  : "Generer 3 sequences Story"}
             </button>
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
@@ -3451,6 +3581,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       {step.id === "subject" ? renderSubjectStep() : null}
       {step.id === "objective" ? renderObjectiveStep() : null}
       {step.id === "match" ? renderMatchStep() : null}
+      {step.id === "match-day" ? renderMatchDayStoryStep() : null}
       {step.id === "contract" ? renderContractStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}

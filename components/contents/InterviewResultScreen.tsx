@@ -386,17 +386,17 @@ export function InterviewResultScreen({
         </header>
 
         <section className="interview-section" aria-labelledby="story-sequences-title">
-          <h2 id="story-sequences-title">3 sequences Story</h2>
-          <p>Choisissez une sequence pour ouvrir le Document Editor.</p>
+          <h2 id="story-sequences-title">3 propositions de Story</h2>
+          <p>Choisissez une proposition pour l’ouvrir dans l’éditeur.</p>
           <div className="interview-ideas-grid">
             {storyResult.sequences.map((sequence) => (
               <article key={sequence.id} className="interview-idea-card">
                 <header>
-                  <span className="interview-idea-type">Sequence</span>
+                  <span className="interview-idea-type">Proposition</span>
                   <strong>{sequence.hook}</strong>
                 </header>
                 <p>{sequence.caption}</p>
-                <small>{`Frames: ${sequence.frames.length}`}</small>
+                <small>{`${sequence.frames.length} séquences`}</small>
                 {sequence.cta.trim() ? <small>{`CTA: ${sequence.cta}`}</small> : null}
                 {sequence.hashtags.length > 0 ? <small>{`Hashtags: ${sequence.hashtags.join(" ")}`}</small> : null}
                 <div className="interview-result-actions">
@@ -428,7 +428,7 @@ export function InterviewResultScreen({
             <span className="interview-chip">Plateforme: {storyRequest.brief.platform}</span>
             <span className="interview-chip">Ton: {storyRequest.brief.tone}</span>
             <span className="interview-chip">Audience: {storyRequest.brief.audience}</span>
-            <span className="interview-chip">Frames: {storyRequest.brief.frameCount}</span>
+            <span className="interview-chip">Séquences : {storyRequest.brief.frameCount}</span>
           </div>
         </section>
       </section>

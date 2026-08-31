@@ -1,6 +1,6 @@
 export type ContentContextType = "athlete" | "club" | "partner" | "organization" | "other";
 
-export type ContentPresetId = "after-match" | "before-match" | "new-contract";
+export type ContentPresetId = "after-match" | "before-match" | "new-contract" | "match-day-story";
 
 export type ContentCreationContext = {
   mode: "free" | "contextual";
@@ -152,6 +152,8 @@ const templates: ContentTemplate[] = [
     id: "match-day-story",
     title: "Story jour de match",
     description: "Sequencer la journee en stories prêtes a publier.",
+    isAvailable: true,
+    entryRoute: "/contents/create?objective=story&preset=match-day-story",
   },
 ];
 
@@ -176,11 +178,12 @@ export const ContentsHubService = {
       ? (objectiveCandidate as ContentGeneratorId)
       : undefined;
 
-    // Le preset n est retenu que pour l objectif Publication, seul flux qui le consomme.
+    // Un preset n est retenu que pour l objectif qui le consomme.
     const presetCandidate = String(params.preset ?? "").trim().toLowerCase();
     const presetId =
-      objective === "publication" &&
-      (presetCandidate === "after-match" || presetCandidate === "before-match" || presetCandidate === "new-contract")
+      (objective === "publication" &&
+        (presetCandidate === "after-match" || presetCandidate === "before-match" || presetCandidate === "new-contract")) ||
+      (objective === "story" && presetCandidate === "match-day-story")
         ? (presetCandidate as ContentPresetId)
         : undefined;
 
