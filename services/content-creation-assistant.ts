@@ -16,6 +16,13 @@ import type {
   ReelFormatId,
   ReelPlatformId,
   StoryPlatformId,
+  ArticleLengthId,
+  ArticleAngleSuggestionsRequest,
+  ArticleGenerationRequest,
+  ArticleProvidedCitation,
+  ArticleStructureSuggestion,
+  ArticleTypeId,
+  ArticleVerifiedSource,
 } from "@/types/content-generation";
 import { buildDateRange } from "@/services/context-intelligence/utils";
 
@@ -130,6 +137,34 @@ export type CreationParametersDraft = {
   storyPlatform: StoryPlatformId;
 };
 
+export type ArticleAssistantStepId = "subject" | "format" | "sources" | "angle" | "structure" | "parameters" | "context" | "summary";
+
+export const articleAssistantSteps: readonly ArticleAssistantStepId[] = [
+  "subject",
+  "format",
+  "sources",
+  "parameters",
+  "context",
+  "angle",
+  "structure",
+  "summary",
+];
+
+export type ArticleAssistantDraft = {
+  articleType: ArticleTypeId;
+  length: ArticleLengthId;
+  verifiedSources: ArticleVerifiedSource[];
+  selectedResearchContextItemIds: string[];
+  selectedResearchSourceUrls: string[];
+  researchAddedSourceUrls: string[];
+  providedCitations: ArticleProvidedCitation[];
+  selectedAngleId: string;
+  selectedAngle: string;
+  structureSuggestions: ArticleStructureSuggestion[];
+  selectedStructureId: string;
+  selectedStructure: ArticleStructureSuggestion | null;
+};
+
 export type AfterMatchPresetDraft = {
   opponent: string;
   result: string;
@@ -218,6 +253,7 @@ export type CreationAssistantDraft = {
   newContract?: NewContractPresetDraft;
   matchDayStory?: MatchDayStoryPresetDraft;
   afterMatchStory?: AfterMatchStoryPresetDraft;
+  article?: ArticleAssistantDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -270,6 +306,124 @@ export type CreationPreparationPayload = {
       frameCount: number;
       platform: StoryPlatformId;
     };
+  };
+};
+
+const parseDraftTopics = (value: string): string[] =>
+  Array.from(
+    new Set(
+      value
+        .split(/[\n,;|]/)
+        .map((topic) => topic.trim())
+        .filter(Boolean)
+        .slice(0, 12),
+    ),
+  );
+
+const getSelectedArticleContextItems = (
+  article: ArticleAssistantDraft,
+  contextItems: ContextItem[],
+): ContextItem[] => {
+  const selectedItemIds = new Set(article.selectedResearchContextItemIds ?? []);
+  const selectedSourceUrls = new Set(article.selectedResearchSourceUrls ?? []);
+
+  return contextItems.filter((item) => {
+    if (!selectedItemIds.has(item.id)) return false;
+    if (item.connectorId === "external_news") {
+      return Boolean(item.sourceUrl) && selectedSourceUrls.has(item.sourceUrl);
+    }
+    return item.connectorId === "crm" || item.connectorId === "productions";
+  });
+};
+
+export const prepareArticleAngleSuggestionsRequest = (
+  draft: CreationAssistantDraft,
+  selectedContextItems: ContextItem[] = [],
+): ArticleAngleSuggestionsRequest | null => {
+  if (getArticleAnglePreparationErrors(draft).length > 0 || !draft.article || !draft.subject.type) return null;
+
+  const requiredTopics = Array.from(new Set([`Sujet: ${normalize(draft.subject.displayName)}`, ...parseDraftTopics(draft.parameters.requiredTopics)])).slice(0, 12);
+  const selectedArticleContextItems = getSelectedArticleContextItems(draft.article, selectedContextItems);
+  const selectedResearchItems = selectedArticleContextItems.filter((item) => item.connectorId === "external_news");
+  const selectedInternalItems = selectedArticleContextItems.filter((item) => item.connectorId === "crm" || item.connectorId === "productions");
+  const selectedResearchFacts = selectedResearchItems
+    .map((item) => normalize(item.factualStatement || item.editedSummary || item.summary))
+    .filter(Boolean);
+  const selectedInternalFacts = selectedInternalItems
+    .map((item) => normalize(item.factualStatement || item.editedSummary || item.summary))
+    .filter(Boolean);
+  const additionalContext = [
+    normalize(draft.parameters.additionalContext),
+    ...selectedArticleContextItems.map((item) => `${item.title}: ${normalize(item.editedSummary || item.summary)}`).filter((item) => !item.endsWith(": ")),
+  ].filter(Boolean).join("\n\n");
+  return {
+    requestType: "article",
+    language: "fr-CH",
+    template: { key: "article:v1", family: "article", name: "Article", version: "v1" },
+    context: {
+      subjectId: draft.subject.id,
+      source: draft.subject.source,
+      subjectType: draft.subject.type,
+      displayName: normalize(draft.subject.displayName),
+      sport: normalize(draft.subject.sport) || undefined,
+      clubOrOrganization: normalize(draft.subject.clubOrOrganization) || undefined,
+      knownFacts: [],
+      manualContext: additionalContext || undefined,
+      objective: "article",
+      audience: normalize(draft.parameters.audienceId),
+      templateKey: "article:v1",
+      contentType: "article",
+      format: draft.article.articleType,
+      tone: normalize(draft.parameters.toneId),
+      internalFacts: selectedInternalFacts,
+      externalVerifiedFacts: selectedResearchFacts,
+      userProvidedContextItems: [],
+      editorialLeads: [],
+      excludedContext: [],
+      constraints: { requiredTopics, avoidedTopics: [], questionCount: 0 },
+    },
+    selectedContextItems: selectedArticleContextItems,
+    contextSelection: {},
+    rulesVersion: "cie-article-v1",
+    externalContext: null,
+    brief: {
+      objective: "article",
+      articleType: draft.article.articleType,
+      length: draft.article.length,
+      tone: normalize(draft.parameters.toneId),
+      audience: normalize(draft.parameters.audienceId),
+      additionalContext,
+      requiredTopics,
+      externalVerifiedSources: draft.article.verifiedSources,
+      providedCitations: draft.article.providedCitations,
+    },
+  };
+};
+
+export const getArticleAnglePreparationErrors = (draft: CreationAssistantDraft): string[] => {
+  const errors: string[] = [];
+  if (draft.objective.objective !== "article" || !draft.subject.type || !normalize(draft.subject.displayName)) errors.push("sujet");
+  if (!CONTENT_TONE_OPTIONS.some((option) => option.id === draft.parameters.toneId)) errors.push("ton");
+  if (!CONTENT_AUDIENCE_OPTIONS.some((option) => option.id === draft.parameters.audienceId)) errors.push("audience");
+  if (draft.article?.verifiedSources.some((source) => !normalize(source.title) || !/^https?:\/\/[^\s]+$/i.test(normalize(source.url)))) errors.push("source incomplète");
+  if (draft.article?.providedCitations.some((citation) => !normalize(citation.text) || !normalize(citation.author) || !normalize(citation.source))) errors.push("citation incomplète");
+  return errors;
+};
+
+export const prepareArticleGenerationRequest = (
+  draft: CreationAssistantDraft,
+  selectedContextItems: ContextItem[] = [],
+): ArticleGenerationRequest | null => {
+  const angleRequest = prepareArticleAngleSuggestionsRequest(draft, selectedContextItems);
+  const selectedAngle = draft.article?.selectedAngle.trim() ?? "";
+  if (!angleRequest || !draft.article?.selectedAngleId || !selectedAngle) return null;
+
+  return {
+    ...angleRequest,
+    brief: {
+      ...angleRequest.brief,
+      selectedAngle,
+    },
   };
 };
 
@@ -735,12 +889,12 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: isPublication || isReel || isStory ? "authentic" : "",
+      toneId: initialObjective === "article" ? "institutional" : isPublication || isReel || isStory ? "authentic" : "",
       customTone: "",
       questionCountId: "",
       customQuestionCount: "",
       formatId: "",
-      audienceId: isPublication || isReel || isStory ? "general" : "",
+      audienceId: initialObjective === "article" ? "supporters" : isPublication || isReel || isStory ? "general" : "",
       customAudience: "",
       additionalContext: "",
       requiredTopics: "",
@@ -838,6 +992,23 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
             performance: "",
             reaction: "",
             callToAction: "",
+          }
+        : undefined,
+    article:
+      initialObjective === "article"
+        ? {
+            articleType: "actualite",
+            length: "moyen",
+            verifiedSources: [],
+            selectedResearchContextItemIds: [],
+            selectedResearchSourceUrls: [],
+            researchAddedSourceUrls: [],
+            providedCitations: [],
+            selectedAngleId: "",
+            selectedAngle: "",
+            structureSuggestions: [],
+            selectedStructureId: "",
+            selectedStructure: null,
           }
         : undefined,
   };

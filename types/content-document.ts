@@ -1,4 +1,9 @@
-import type { ContentGenerationMetadata } from "@/types/content-generation";
+import type {
+  ArticleProvidedCitation,
+  ArticleStructureSuggestion,
+  ArticleVerifiedSource,
+  ContentGenerationMetadata,
+} from "@/types/content-generation";
 import type { StoryCardType } from "@/types/content-variant";
 import type { ContextUsage } from "@/types/context-intelligence";
 
@@ -143,4 +148,24 @@ export type StoryDocument = ContentDocumentBase & {
   sections: StoryDocumentSections;
 };
 
-export type ContentDocument = InterviewDocument | PublicationDocument | ReelDocument | StoryDocument;
+export type ArticleDocumentSections = {
+  title: string;
+  subtitle: string | null;
+  lead: string;
+  sections: Array<{ order: number; heading: string; paragraphs: string[] }>;
+  conclusion: string;
+  usedCitations: ArticleProvidedCitation[];
+  usedSources: ArticleVerifiedSource[];
+  estimatedWordCount: number;
+  articleType: "actualite" | "portrait" | "analyse" | "reportage";
+  articleLength: "court" | "moyen" | "long";
+  selectedAngle: { id: string; title: string };
+  selectedStructure: ArticleStructureSuggestion;
+};
+
+export type ArticleDocument = ContentDocumentBase & {
+  type: "article";
+  sections: ArticleDocumentSections;
+};
+
+export type ContentDocument = InterviewDocument | PublicationDocument | ReelDocument | StoryDocument | ArticleDocument;

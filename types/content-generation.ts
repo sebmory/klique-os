@@ -199,6 +199,34 @@ export type StoryBrief = {
   additionalContext: string;
 };
 
+export type ArticleTypeId = "actualite" | "portrait" | "analyse" | "reportage";
+
+export type ArticleLengthId = "court" | "moyen" | "long";
+
+export type ArticleProvidedCitation = {
+  text: string;
+  author: string;
+  source: string;
+};
+
+export type ArticleVerifiedSource = {
+  title: string;
+  url: string;
+};
+
+export type ArticleBrief = {
+  objective: "article";
+  selectedAngle: string;
+  articleType: ArticleTypeId;
+  length: ArticleLengthId;
+  tone: string;
+  audience: string;
+  additionalContext: string;
+  requiredTopics: string[];
+  externalVerifiedSources: ArticleVerifiedSource[];
+  providedCitations: ArticleProvidedCitation[];
+};
+
 export type ContentRequestTemplateRef = {
   key: ContentTemplateKey;
   family: ContentTemplateFamily;
@@ -237,6 +265,15 @@ export type ReelGenerationRequest = ContentGenerationRequestBase & {
 export type StoryGenerationRequest = ContentGenerationRequestBase & {
   requestType: "story";
   brief: StoryBrief;
+};
+
+export type ArticleGenerationRequest = ContentGenerationRequestBase & {
+  requestType: "article";
+  brief: ArticleBrief;
+};
+
+export type ArticleAngleSuggestionsRequest = Omit<ArticleGenerationRequest, "brief"> & {
+  brief: Omit<ArticleBrief, "selectedAngle">;
 };
 
 export type ContentGenerationRequest = InterviewGenerationRequest;
@@ -398,6 +435,48 @@ export type StoryGenerationResult = {
   sequences: StorySequence[];
   contextUsage: ContextUsage;
   metadata: ContentGenerationMetadata;
+};
+
+export type ArticleStructureSection = {
+  order: number;
+  title: string;
+  purpose: string;
+  points: string[];
+};
+
+export type ArticleStructureSuggestion = {
+  id: string;
+  title: string;
+  editorialPromise: string;
+  sections: ArticleStructureSection[];
+  estimatedWordCount: number;
+};
+
+export type ArticleStructureSuggestionsResult = {
+  suggestions: [ArticleStructureSuggestion, ArticleStructureSuggestion, ArticleStructureSuggestion];
+};
+
+export type ArticleFinalSection = {
+  order: number;
+  heading: string;
+  paragraphs: string[];
+};
+
+export type ArticleGenerationMetadata = {
+  templateId: "article";
+  templateVersion: "v1";
+};
+
+export type ArticleFinalResult = {
+  title: string;
+  subtitle?: string;
+  lead: string;
+  sections: ArticleFinalSection[];
+  conclusion: string;
+  usedCitations: ArticleProvidedCitation[];
+  usedSources: ArticleVerifiedSource[];
+  estimatedWordCount: number;
+  metadata: ArticleGenerationMetadata;
 };
 
 export type ContentGenerationResult = InterviewGenerationResult;

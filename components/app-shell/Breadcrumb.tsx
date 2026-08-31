@@ -38,11 +38,12 @@ const contentResultLabelByType: Record<string, string> = {
   publication: "Publication",
   reel: "Reel",
   story: "Story",
+  article: "Article",
 };
 
 const resolveContentResultLabel = (): string => {
   try {
-    const raw = window.sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1");
+    const raw = window.sessionStorage.getItem("klique.contents.creation-assistant.article-result.v1") ?? window.sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1");
     const requestType = raw ? (JSON.parse(raw) as { request?: { requestType?: string } }).request?.requestType : undefined;
     return contentResultLabelByType[requestType ?? ""] ?? "Interview";
   } catch {

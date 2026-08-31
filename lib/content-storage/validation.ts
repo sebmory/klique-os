@@ -1,6 +1,9 @@
 import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
 import type {
+  ArticleFinalResult,
+  ArticleGenerationRequest,
+  ArticleStructureSuggestion,
   ContentGenerationRequest,
   InterviewGenerationRequest,
   InterviewGenerationResult,
@@ -12,6 +15,7 @@ import type {
   StoryGenerationResult,
 } from "@/types/content-generation";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
+import type { StoredArticleResult, StoredContentResult } from "@/services/content-result-sessions";
 
 export type StoredInterviewResult = {
   payload: CreationPreparationPayload;
@@ -19,6 +23,8 @@ export type StoredInterviewResult = {
   result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   createdAt: string;
 };
+
+export type { StoredContentResult };
 
 export class ContentStorageValidationError extends Error {
   constructor(message: string) {
@@ -236,8 +242,51 @@ const validateStorySections = (value: unknown): void => {
   requireStringArray(sections.hashtags, "sections.hashtags");
 };
 
+const validateArticleDocumentSections = (value: unknown): void => {
+  const sections = requireObject(value, "sections");
+  requireString(sections.title, "sections.title");
+  requireOptionalString(sections.subtitle, "sections.subtitle");
+  requireString(sections.lead, "sections.lead");
+  requireString(sections.conclusion, "sections.conclusion");
+  requireNumber(sections.estimatedWordCount, "sections.estimatedWordCount");
+  assertAllowed(sections.articleType, "sections.articleType", ["actualite", "portrait", "analyse", "reportage"] as const);
+  assertAllowed(sections.articleLength, "sections.articleLength", ["court", "moyen", "long"] as const);
+  if (!Array.isArray(sections.sections) || sections.sections.length < 1) {
+    throw new ContentStorageValidationError("sections.sections doit contenir au moins une section Article.");
+  }
+  sections.sections.forEach((section, index) => {
+    const item = requireObject(section, `sections.sections[${index}]`);
+    if (!Number.isInteger(item.order) || item.order !== index + 1) {
+      throw new ContentStorageValidationError(`sections.sections[${index}].order doit etre sequentiel.`);
+    }
+    requireString(item.heading, `sections.sections[${index}].heading`);
+    const paragraphs = requireStringArray(item.paragraphs, `sections.sections[${index}].paragraphs`);
+    if (!paragraphs.length || paragraphs.some((paragraph) => !paragraph)) {
+      throw new ContentStorageValidationError(`sections.sections[${index}].paragraphs doit contenir des paragraphes non vides.`);
+    }
+  });
+  if (!Array.isArray(sections.usedCitations) || !Array.isArray(sections.usedSources)) {
+    throw new ContentStorageValidationError("sections.usedCitations et sections.usedSources doivent etre des tableaux.");
+  }
+  sections.usedCitations.forEach((citation, index) => {
+    const item = requireObject(citation, `sections.usedCitations[${index}]`);
+    requireString(item.text, `sections.usedCitations[${index}].text`);
+    requireString(item.author, `sections.usedCitations[${index}].author`);
+    requireString(item.source, `sections.usedCitations[${index}].source`);
+  });
+  sections.usedSources.forEach((source, index) => {
+    const item = requireObject(source, `sections.usedSources[${index}]`);
+    requireString(item.title, `sections.usedSources[${index}].title`);
+    requireString(item.url, `sections.usedSources[${index}].url`);
+  });
+  const selectedAngle = requireObject(sections.selectedAngle, "sections.selectedAngle");
+  requireString(selectedAngle.id, "sections.selectedAngle.id");
+  requireString(selectedAngle.title, "sections.selectedAngle.title");
+  validateArticleStructure(sections.selectedStructure);
+};
+
 const validateContentDocumentType = (value: unknown): ContentDocument["type"] => {
-  return assertAllowed(value, "type", ["interview", "publication", "reel", "story"] as const);
+  return assertAllowed(value, "type", ["interview", "publication", "reel", "story", "article"] as const);
 };
 
 const validateContentDocument = (value: unknown): ContentDocument => {
@@ -268,6 +317,8 @@ const validateContentDocument = (value: unknown): ContentDocument => {
     validatePublicationSections(document.sections);
   } else if (type === "reel") {
     validateReelSections(document.sections);
+  } else if (type === "article") {
+    validateArticleDocumentSections(document.sections);
   } else {
     validateStorySections(document.sections);
   }
@@ -318,6 +369,87 @@ const validateStoredInterviewResult = (value: unknown): StoredInterviewResult =>
   return session as StoredInterviewResult;
 };
 
+const validateArticleStructure = (value: unknown): ArticleStructureSuggestion => {
+  const structure = requireObject(value, "session.selectedStructure");
+  requireString(structure.id, "session.selectedStructure.id");
+  requireString(structure.title, "session.selectedStructure.title");
+  requireString(structure.editorialPromise, "session.selectedStructure.editorialPromise");
+  requireNumber(structure.estimatedWordCount, "session.selectedStructure.estimatedWordCount");
+  if (!Array.isArray(structure.sections) || structure.sections.length < 1) {
+    throw new ContentStorageValidationError("session.selectedStructure.sections doit contenir au moins une section.");
+  }
+  structure.sections.forEach((section, index) => {
+    const item = requireObject(section, `session.selectedStructure.sections[${index}]`);
+    requireNumber(item.order, `session.selectedStructure.sections[${index}].order`);
+    requireString(item.title, `session.selectedStructure.sections[${index}].title`);
+    requireString(item.purpose, `session.selectedStructure.sections[${index}].purpose`);
+    requireStringArray(item.points, `session.selectedStructure.sections[${index}].points`);
+  });
+  return structure as ArticleStructureSuggestion;
+};
+
+const validateStoredArticleResult = (value: unknown): StoredArticleResult => {
+  const session = requireObject(value, "session");
+  const request = requireObject(session.request, "session.request");
+  if (request.requestType !== "article") {
+    throw new ContentStorageValidationError("session.request.requestType doit etre article.");
+  }
+  const brief = requireObject(request.brief, "session.request.brief");
+  requireString(brief.selectedAngle, "session.request.brief.selectedAngle");
+  assertAllowed(brief.articleType, "session.request.brief.articleType", ["actualite", "portrait", "analyse", "reportage"] as const);
+  assertAllowed(brief.length, "session.request.brief.length", ["court", "moyen", "long"] as const);
+  requireString(brief.tone, "session.request.brief.tone");
+  requireString(brief.audience, "session.request.brief.audience");
+  requireStringArray(brief.requiredTopics, "session.request.brief.requiredTopics");
+  const context = requireObject(request.context, "session.request.context");
+  requireString(context.displayName, "session.request.context.displayName");
+  const result = requireObject(session.result, "session.result");
+  requireString(result.title, "session.result.title");
+  if (result.subtitle !== null && result.subtitle !== undefined) requireString(result.subtitle, "session.result.subtitle");
+  requireString(result.lead, "session.result.lead");
+  requireString(result.conclusion, "session.result.conclusion");
+  requireNumber(result.estimatedWordCount, "session.result.estimatedWordCount");
+  if (!Array.isArray(result.sections) || result.sections.length < 1) throw new ContentStorageValidationError("session.result.sections doit contenir au moins une section.");
+  result.sections.forEach((section, index) => {
+    const item = requireObject(section, `session.result.sections[${index}]`);
+    requireNumber(item.order, `session.result.sections[${index}].order`);
+    requireString(item.heading, `session.result.sections[${index}].heading`);
+    requireStringArray(item.paragraphs, `session.result.sections[${index}].paragraphs`);
+    if (item.paragraphs.some((paragraph) => !paragraph)) throw new ContentStorageValidationError(`session.result.sections[${index}].paragraphs ne peut pas contenir de chaine vide.`);
+  });
+  ["usedCitations", "usedSources"].forEach((field) => {
+    if (!Array.isArray(result[field])) throw new ContentStorageValidationError(`session.result.${field} doit etre un tableau.`);
+  });
+  result.usedCitations.forEach((citation: unknown, index: number) => {
+    const item = requireObject(citation, `session.result.usedCitations[${index}]`);
+    requireString(item.text, `session.result.usedCitations[${index}].text`);
+    requireString(item.author, `session.result.usedCitations[${index}].author`);
+    requireString(item.source, `session.result.usedCitations[${index}].source`);
+  });
+  result.usedSources.forEach((source: unknown, index: number) => {
+    const item = requireObject(source, `session.result.usedSources[${index}]`);
+    requireString(item.title, `session.result.usedSources[${index}].title`);
+    requireString(item.url, `session.result.usedSources[${index}].url`);
+  });
+  const selectedAngle = requireObject(session.selectedAngle, "session.selectedAngle");
+  requireString(selectedAngle.id, "session.selectedAngle.id");
+  requireString(selectedAngle.title, "session.selectedAngle.title");
+  validateArticleStructure(session.selectedStructure);
+  const generationMetadata = requireObject(session.generationMetadata, "session.generationMetadata");
+  assertAllowed(generationMetadata.provider, "session.generationMetadata.provider", ["openai"] as const);
+  requireString(generationMetadata.model, "session.generationMetadata.model");
+  validateDateString(generationMetadata.generatedAt, "session.generationMetadata.generatedAt");
+  requireNumber(generationMetadata.generationDurationMs, "session.generationMetadata.generationDurationMs");
+  validateDateString(session.createdAt, "session.createdAt");
+  return session as StoredArticleResult;
+};
+
+const validateStoredContentResult = (value: unknown): StoredContentResult => {
+  const session = requireObject(value, "session");
+  const request = requireObject(session.request, "session.request");
+  return request.requestType === "article" ? validateStoredArticleResult(session) : validateStoredInterviewResult(session);
+};
+
 const validateContentDocumentWriteBody = (value: unknown): ContentDocument => {
   const body = requireObject(value, "body");
   return validateContentDocument(body.document);
@@ -333,13 +465,15 @@ const validateContentDocumentUpdateBody = (value: unknown): { document: ContentD
   return { document, expectedVersion };
 };
 
-const validateStoredInterviewResultWriteBody = (value: unknown): { sessionId: string; session: StoredInterviewResult; expiresAt: string } => {
+const validateStoredContentResultWriteBody = (value: unknown): { sessionId: string; session: StoredContentResult; expiresAt: string } => {
   const body = requireObject(value, "body");
   const sessionId = requireString(body.sessionId, "sessionId");
-  const session = validateStoredInterviewResult(body.session);
+  const session = validateStoredContentResult(body.session);
   const expiresAt = validateDateString(body.expiresAt, "expiresAt");
   return { sessionId, session, expiresAt };
 };
+
+const validateStoredInterviewResultWriteBody = validateStoredContentResultWriteBody;
 
 const validateContentVariantWriteBody = (value: unknown): ContentVariant => {
   const body = requireObject(value, "body");
@@ -348,9 +482,13 @@ const validateContentVariantWriteBody = (value: unknown): ContentVariant => {
 
 export {
   validateContentDocument,
+  validateArticleDocumentSections,
   validateContentDocumentWriteBody,
   validateContentDocumentUpdateBody,
   validateStoredInterviewResult,
+  validateStoredArticleResult,
+  validateStoredContentResult,
+  validateStoredContentResultWriteBody,
   validateStoredInterviewResultWriteBody,
   validateContentVariant,
   validateContentVariantWriteBody,

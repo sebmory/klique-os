@@ -1,6 +1,9 @@
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import type {
+  ArticleFinalResult,
+  ArticleGenerationRequest,
+  ArticleStructureSuggestion,
   InterviewGenerationRequest,
   InterviewGenerationResult,
   PublicationGenerationRequest,
@@ -20,7 +23,41 @@ export type StoredInterviewResult = {
   sessionId?: string;
 };
 
+export type StoredArticleGenerationMetadata = {
+  provider: "openai";
+  model: string;
+  generatedAt: string;
+  generationDurationMs: number;
+};
+
+export type StoredArticleResult = {
+  request: ArticleGenerationRequest;
+  result: ArticleFinalResult;
+  selectedAngle: { id: string; title: string };
+  selectedStructure: ArticleStructureSuggestion;
+  generationMetadata: StoredArticleGenerationMetadata;
+  createdAt: string;
+  sessionId?: string;
+};
+
+export type StoredContentResult = StoredInterviewResult | StoredArticleResult;
+
+export type StoredArticlePreviewResult = {
+  request: ArticleGenerationRequest;
+  result: ArticleFinalResult;
+  createdAt: string;
+  sessionId?: string;
+};
+
 type StoredSessionRecord = StoredInterviewResult & {
+  sessionId: string;
+};
+
+type StoredArticleSessionRecord = StoredArticleResult & {
+  sessionId: string;
+};
+
+export type RestoredArticleResultSession = StoredArticleResult & {
   sessionId: string;
 };
 
@@ -39,6 +76,7 @@ type RestoreResult =
   | { source: "missing" };
 
 const RESULT_STORAGE_KEY = "klique.contents.creation-assistant.interview-result.v1";
+const ARTICLE_RESULT_STORAGE_KEY = "klique.contents.creation-assistant.article-result.v1";
 const DEFAULT_SESSION_TTL_HOURS = 24;
 
 const hasWindow = () => typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
@@ -75,6 +113,63 @@ const writeStoredSession = (record: StoredSessionRecord) => {
   if (!hasWindow()) return;
 
   window.sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(record));
+};
+
+const writeStoredArticleSession = (record: StoredArticleSessionRecord) => {
+  if (!hasWindow()) return;
+
+  window.sessionStorage.setItem(ARTICLE_RESULT_STORAGE_KEY, JSON.stringify(record));
+};
+
+const isStoredArticleResult = (value: unknown): value is StoredArticleResult => {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<StoredArticleResult>;
+  return session.request?.requestType === "article" &&
+    Boolean(session.result?.title) &&
+    Array.isArray(session.result?.sections) &&
+    Boolean(session.selectedAngle?.id) &&
+    Boolean(session.selectedAngle?.title) &&
+    Boolean(session.selectedStructure?.id) &&
+    session.generationMetadata?.provider === "openai" &&
+    Boolean(session.generationMetadata?.model) &&
+    Boolean(session.generationMetadata?.generatedAt) &&
+    typeof session.generationMetadata?.generationDurationMs === "number" &&
+    Boolean(session.createdAt);
+};
+
+const isStoredArticlePreviewResult = (value: unknown): value is StoredArticlePreviewResult => {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<StoredArticlePreviewResult>;
+  return session.request?.requestType === "article" &&
+    Boolean(session.result?.title) &&
+    Array.isArray(session.result?.sections) &&
+    Boolean(session.createdAt);
+};
+
+const readStoredArticleSession = (sessionId: string): RestoredArticleResultSession | null => {
+  if (!hasWindow()) return null;
+  const raw = window.sessionStorage.getItem(ARTICLE_RESULT_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as StoredArticleResult;
+    return isStoredArticleResult(parsed) && parsed.sessionId === sessionId ? { ...parsed, sessionId } : null;
+  } catch {
+    return null;
+  }
+};
+
+const readLegacyArticlePreviewSession = (): StoredArticlePreviewResult | null => {
+  if (!hasWindow()) return null;
+  const raw = window.sessionStorage.getItem(ARTICLE_RESULT_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as StoredArticlePreviewResult;
+    return isStoredArticlePreviewResult(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 };
 
 export const createResultSessionId = (): string => {
@@ -179,3 +274,48 @@ export const restoreInterviewResultSession = async (sessionId: string, documentI
 
   return { source: "missing" };
 };
+
+export const saveArticleResultSession = async (record: StoredArticleResult): Promise<StoredArticleSessionRecord> => {
+  const sessionId = record.sessionId || createResultSessionId();
+  const storedRecord: StoredArticleSessionRecord = { ...record, sessionId };
+  writeStoredArticleSession(storedRecord);
+
+  const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
+
+  try {
+    const response = await fetch("/api/contents/storage/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId, session: record, expiresAt }),
+    });
+    if (!response.ok) return storedRecord;
+
+    const payload = (await response.json().catch(() => null)) as { sessionId?: string } | null;
+    return payload?.sessionId && payload.sessionId !== sessionId ? storedRecord : storedRecord;
+  } catch {
+    return storedRecord;
+  }
+};
+
+export const restoreArticleResultSession = async (sessionId: string): Promise<RestoredArticleResultSession | null> => {
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) return null;
+
+  try {
+    const response = await fetch(`/api/contents/storage/sessions/${encodeURIComponent(normalizedSessionId)}`);
+    if (response.ok) {
+      const payload = (await response.json().catch(() => null)) as { sessionId?: string; session?: unknown } | null;
+      if (payload?.sessionId === normalizedSessionId && isStoredArticleResult(payload.session)) {
+        const restored = { ...payload.session, sessionId: normalizedSessionId };
+        writeStoredArticleSession(restored);
+        return restored;
+      }
+    }
+  } catch {
+    // Fall through to the matching local Article session.
+  }
+
+  return readStoredArticleSession(normalizedSessionId);
+};
+
+export const restoreLegacyArticlePreviewSession = (): StoredArticlePreviewResult | null => readLegacyArticlePreviewSession();

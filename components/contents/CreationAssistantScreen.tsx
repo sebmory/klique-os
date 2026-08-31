@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import type { GenerateContentApiResponse, PublicationAngleSuggestion } from "@/types/content-generation";
+import type { ArticleFinalResult } from "@/types/content-generation";
 import type {
   ContextCollectionResponse,
   ContextConnectorId,
@@ -39,10 +40,14 @@ import {
   CREATION_MIN_QUESTION_COUNT,
   ContentCreationAssistantService,
   createInitialAssistantDraft,
+  getArticleAnglePreparationErrors,
+  prepareArticleAngleSuggestionsRequest,
+  prepareArticleGenerationRequest,
   NEW_CONTRACT_TYPE_OPTIONS,
   resolveNewContractTypeLabel,
   type AfterMatchPresetDraft,
   type AfterMatchStoryPresetDraft,
+  type ArticleAssistantDraft,
   type BeforeMatchPresetDraft,
   type MatchDayStoryPresetDraft,
   type NewContractPresetDraft,
@@ -51,7 +56,7 @@ import {
   type CreationOption,
   type CreationSubjectType,
 } from "@/services/content-creation-assistant";
-import { buildResultUrl, saveInterviewResultSession } from "@/services/content-result-sessions";
+import { buildResultUrl, saveArticleResultSession, saveInterviewResultSession } from "@/services/content-result-sessions";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
@@ -87,7 +92,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "match" | "match-day" | "after-match-story" | "contract" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "match-day" | "after-match-story" | "contract" | "format" | "sources" | "article-angle" | "structure" | "angle" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -157,6 +162,17 @@ const afterMatchStorySteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 5" },
 ];
 
+const articleSteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "format", label: "Etape 2" },
+  { id: "sources", label: "Etape 3" },
+  { id: "parameters", label: "Etape 4" },
+  { id: "context", label: "Etape 5" },
+  { id: "article-angle", label: "Etape 6" },
+  { id: "structure", label: "Etape 7" },
+  { id: "summary", label: "Etape 8" },
+];
+
 const getStepsForObjective = (
   objective: CreationObjectiveType | null,
   hasPreselectedObjective = false,
@@ -178,6 +194,10 @@ const getStepsForObjective = (
 
   if (objective === "story" && presetId === "after-match-story") {
     return afterMatchStorySteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
+  }
+
+  if (objective === "article") {
+    return articleSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
   const baseSteps = objective === "publication"
@@ -252,6 +272,19 @@ const formatMatchDate = (value: string): string => {
   if (!value) return "Non definie";
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? "Non definie" : matchDateFormatter.format(date);
+};
+
+const articleTypeLabels: Record<string, string> = {
+  actualite: "Actualité",
+  portrait: "Portrait",
+  analyse: "Analyse",
+  reportage: "Reportage",
+};
+
+const articleLengthLabels: Record<string, string> = {
+  court: "Court — 400 à 600 mots",
+  moyen: "Moyen — 700 à 1 000 mots",
+  long: "Long — 1 200 à 1 600 mots",
 };
 
 const resolveSelectedToneLabel = (toneId: string, customTone: string): string => {
@@ -336,6 +369,8 @@ const getConnectorStatusMessage = (report: ContextConnectorReport): string => {
 
 const DRAFT_STORAGE_KEY = "klique.contents.creation-assistant.draft.v1";
 const RESULT_STORAGE_KEY = "klique.contents.creation-assistant.interview-result.v1";
+const ARTICLE_RESULT_STORAGE_KEY = "klique.contents.creation-assistant.article-result.v1";
+const ARTICLE_DRAFT_STORAGE_KEY = "klique.contents.creation-assistant.article-draft.v1";
 
 type PersonSelectorItem = {
   id: string;
@@ -402,12 +437,24 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     errorMessage: null,
     suggestions: [],
   });
+  const [articleAnglesState, setArticleAnglesState] = useState<PublicationAngleState>({
+    loading: false,
+    errorMessage: null,
+    suggestions: [],
+  });
+  const [articleStructuresState, setArticleStructuresState] = useState<{
+    loading: boolean;
+    errorMessage: string | null;
+  }>({ loading: false, errorMessage: null });
+  const [expandedArticleStructureId, setExpandedArticleStructureId] = useState<string | null>(null);
+  const articleHydratedRef = useRef(false);
+  const articleContextRestoredRef = useRef(false);
   const generationAbortRef = useRef<AbortController | null>(null);
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
   const [creditBalance, setCreditBalance] = useState<{ hasActivePeriod: boolean; balance: number } | null>(null);
-  const [creditModal, setCreditModal] = useState<null | { kind: "external_search" | "publication_angles" | "generation"; cost: number }>(null);
+  const [creditModal, setCreditModal] = useState<null | { kind: "external_search" | "publication_angles" | "article_angles" | "article_structures" | "generation"; cost: number }>(null);
   const [creditModalBusy, setCreditModalBusy] = useState(false);
   const [mediaSubscription, setMediaSubscription] = useState<
     | { planCode: string; status: string; currentPeriodEnd: string }
@@ -481,6 +528,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   }, [mediaCreditRole]);
 
   const getGenerationCreditCost = (): number => {
+    if (draft.objective.objective === "article") {
+      return draft.article?.length === "court" ? 2 : draft.article?.length === "long" ? 4 : 3;
+    }
     return 1;
   };
 
@@ -518,6 +568,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   );
 
   useEffect(() => {
+    if (context.objective === "article") return;
     const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
     if (!raw) return;
 
@@ -531,11 +582,77 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     } catch {
       window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
     }
-  }, []);
+  }, [context.objective]);
 
   useEffect(() => {
+    if (context.objective === "article") return;
     window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-  }, [draft]);
+  }, [context.objective, draft]);
+
+  useEffect(() => {
+    if (context.objective !== "article") return;
+    const raw = window.sessionStorage.getItem(ARTICLE_DRAFT_STORAGE_KEY);
+    if (!raw) {
+      articleHydratedRef.current = true;
+      return;
+    }
+
+    try {
+      const stored = JSON.parse(raw) as {
+        version?: number;
+        draft?: CreationAssistantDraft;
+        articleAngles?: PublicationAngleSuggestion[];
+        stepIndex?: number;
+        contextState?: ContextCollectState;
+      };
+      if (
+        stored.version !== 1 ||
+        stored.draft?.objective?.objective !== "article" ||
+        !stored.draft.article ||
+        !stored.draft.subject ||
+        !stored.draft.parameters ||
+        !Array.isArray(stored.articleAngles) ||
+        typeof stored.stepIndex !== "number" ||
+        !Number.isInteger(stored.stepIndex) ||
+        stored.stepIndex < 0 ||
+        stored.stepIndex >= articleSteps.length
+      ) {
+        window.sessionStorage.removeItem(ARTICLE_DRAFT_STORAGE_KEY);
+        articleHydratedRef.current = true;
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        const selectedItemIds = new Set(stored.draft?.article?.selectedResearchContextItemIds ?? []);
+        const selectedSourceUrls = new Set(stored.draft?.article?.selectedResearchSourceUrls ?? []);
+        setDraft(stored.draft as CreationAssistantDraft);
+        setArticleAnglesState({ loading: false, errorMessage: null, suggestions: stored.articleAngles ?? [] });
+        if (stored.contextState && Array.isArray(stored.contextState.items) && Array.isArray(stored.contextState.reports)) {
+          articleContextRestoredRef.current = true;
+          setContextState({
+            ...stored.contextState,
+            loading: false,
+            items: stored.contextState.items.map((item) => ({
+              ...item,
+              isSelected: selectedItemIds.has(item.id) && (item.connectorId !== "external_news" || Boolean(item.sourceUrl) && selectedSourceUrls.has(item.sourceUrl ?? "")),
+            })),
+          });
+        }
+        setStepIndex(stored.stepIndex ?? 0);
+        articleHydratedRef.current = true;
+      });
+    } catch {
+      window.sessionStorage.removeItem(ARTICLE_DRAFT_STORAGE_KEY);
+      articleHydratedRef.current = true;
+    }
+  }, [context.objective]);
+
+  useEffect(() => {
+    if (!articleHydratedRef.current || draft.objective.objective !== "article" || !draft.article) return;
+    window.sessionStorage.setItem(
+      ARTICLE_DRAFT_STORAGE_KEY,
+      JSON.stringify({ version: 1, draft, articleAngles: articleAnglesState.suggestions, stepIndex, contextState }),
+    );
+  }, [articleAnglesState.suggestions, contextState, draft, stepIndex]);
 
   const loadPeople = async () => {
     setPeopleLoading(true);
@@ -700,6 +817,43 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       return { ok: true };
     }
 
+    if (stepId === "format") {
+      if (!draft.article?.articleType || !draft.article.length) {
+        return { ok: false, message: "Selectionnez le type et la longueur de l article.", focusSelector: "[data-article-type='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "sources") {
+      const incompleteSource = draft.article?.verifiedSources.some((source) =>
+        Boolean(source.title || source.url) && (!normalize(source.title) || !/^https?:\/\/[^\s]+$/i.test(normalize(source.url))),
+      );
+      if (incompleteSource) {
+        return { ok: false, message: "Chaque source commencée requiert un titre et une URL HTTP/HTTPS.", focusSelector: "[data-article-source-title='true']" };
+      }
+      const incompleteCitation = draft.article?.providedCitations.some((citation) =>
+        Boolean(citation.text || citation.author || citation.source) && (!normalize(citation.text) || !normalize(citation.author) || !normalize(citation.source)),
+      );
+      if (incompleteCitation) {
+        return { ok: false, message: "Chaque citation commencée requiert son texte, auteur et source.", focusSelector: "[data-article-citation-text='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "article-angle") {
+      if (!draft.article?.selectedAngleId || !normalize(draft.article.selectedAngle)) {
+        return { ok: false, message: "Selectionnez un angle Article.", focusSelector: "[data-article-angle='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "structure") {
+      if (!draft.article?.selectedStructureId || !draft.article.selectedStructure) {
+        return { ok: false, message: "Selectionnez une structure Article.", focusSelector: "[data-article-structure='true']" };
+      }
+      return { ok: true };
+    }
+
     if (stepId === "angle") {
       if (draft.objective.objective === "publication" && !normalize(draft.parameters.publicationSelectedAngle)) {
         return { ok: false, message: "Selectionnez ou saisissez un angle editorial.", focusSelector: ".creation-option-card, [data-publication-custom-angle='true']" };
@@ -777,6 +931,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           }
           if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
             return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-story-audience-free='true']" };
+          }
+          return { ok: true };
+        }
+
+        if (draft.objective.objective === "article") {
+          if (!draft.parameters.toneId) {
+            return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-article-tone='true']" };
+          }
+          if (!draft.parameters.audienceId) {
+            return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-article-audience='true']" };
+          }
+          if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
+            return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-article-tone-free='true']" };
+          }
+          if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
+            return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-article-audience-free='true']" };
           }
           return { ok: true };
         }
@@ -1134,7 +1304,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       setContextState({
         loading: false,
         errorMessage: null,
-        items: payload.items,
+        items: draft.objective.objective === "article" ? payload.items.map((item) => ({ ...item, isSelected: false })) : payload.items,
         reports: payload.reports,
         researchedAt: payload.summary.researchedAt,
         dateRange: payload.summary.dateRange,
@@ -1204,12 +1374,132 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     void generatePublicationAngles();
   };
 
+  const generateArticleAngles = useCallback(async () => {
+    const articleRequest = prepareArticleAngleSuggestionsRequest(draft, contextState.items);
+    if (!articleRequest) {
+      const errors = getArticleAnglePreparationErrors(draft);
+      setArticleAnglesState((current) => ({ ...current, errorMessage: `Informations Article invalides ou manquantes : ${errors.join(", ") || "sujet"}.` }));
+      return;
+    }
+
+    setArticleAnglesState((current) => ({ ...current, loading: true, errorMessage: null }));
+    try {
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "angles", requestId: crypto.randomUUID(), request: articleRequest }),
+      });
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; result?: { suggestions?: PublicationAngleSuggestion[] }; message?: string } | null;
+      if (!response.ok || !payload?.ok || !payload.result?.suggestions || payload.result.suggestions.length !== 3) {
+        throw new Error(payload?.message || "Impossible de proposer des angles Article.");
+      }
+      setArticleAnglesState({ loading: false, errorMessage: null, suggestions: payload.result.suggestions });
+      updateArticleDraft((article) => ({ ...article, selectedAngleId: "", selectedAngle: "" }));
+    } catch (error) {
+      setArticleAnglesState((current) => ({ ...current, loading: false, errorMessage: error instanceof Error ? error.message : "Impossible de proposer des angles Article." }));
+    } finally {
+      void loadCreditBalance();
+    }
+  }, [contextState.items, draft, loadCreditBalance]);
+
+  const requestArticleAngles = () => {
+    if (articleAnglesState.suggestions.length > 0 && !window.confirm("Regenerer 3 angles Article consommera 1 crédit. Continuer ?")) return;
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "article_angles", cost: 1 });
+      return;
+    }
+    void generateArticleAngles();
+  };
+
+  const generateArticleStructures = useCallback(async () => {
+    const articleRequest = prepareArticleGenerationRequest(draft, contextState.items);
+    if (!articleRequest) {
+      setArticleStructuresState({ loading: false, errorMessage: "Selectionnez un angle et completez les informations Article requises." });
+      return;
+    }
+    setArticleStructuresState({ loading: true, errorMessage: null });
+    try {
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "structures", requestId: crypto.randomUUID(), request: articleRequest }),
+      });
+      const payload = (await response.json().catch(() => null)) as { ok?: boolean; result?: { suggestions?: ArticleAssistantDraft["structureSuggestions"] }; message?: string } | null;
+      if (!response.ok || !payload?.ok || !payload.result?.suggestions || payload.result.suggestions.length !== 3) {
+        throw new Error(payload?.message || "Impossible de proposer des structures Article.");
+      }
+      updateArticleDraft((article) => ({ ...article, structureSuggestions: payload.result?.suggestions ?? [], selectedStructureId: "", selectedStructure: null }));
+      setArticleStructuresState({ loading: false, errorMessage: null });
+    } catch (error) {
+      setArticleStructuresState({ loading: false, errorMessage: error instanceof Error ? error.message : "Impossible de proposer des structures Article." });
+    } finally {
+      void loadCreditBalance();
+    }
+  }, [contextState.items, draft, loadCreditBalance]);
+
+  const requestArticleStructures = () => {
+    if (draft.article?.structureSuggestions.length && !window.confirm("Regenerer 3 structures Article consommera 1 crédit. Continuer ?")) return;
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "article_structures", cost: 1 });
+      return;
+    }
+    void generateArticleStructures();
+  };
+
   const requestFinalGeneration = () => {
     if (mediaCreditRole === "media") {
       setCreditModal({ kind: "generation", cost: getGenerationCreditCost() });
       return;
     }
+    if (draft.objective.objective === "article") {
+      void runArticleGeneration();
+      return;
+    }
     void runInterviewGeneration();
+  };
+
+  const runArticleGeneration = async () => {
+    const articleRequest = prepareArticleGenerationRequest(draft, contextState.items);
+    const selectedStructure = draft.article?.selectedStructure;
+    if (!articleRequest || !selectedStructure || generateState.loading) {
+      setGenerateState({ loading: false, errorMessage: "Completez et selectionnez les informations Article requises." });
+      return;
+    }
+    setGenerateState({ loading: true, errorMessage: null });
+    try {
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "final", requestId: crypto.randomUUID(), request: articleRequest, selectedStructure }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        result?: {
+          article?: ArticleFinalResult;
+          metadata?: { provider: "openai"; model: string; generatedAt: string; generationDurationMs: number };
+        };
+        message?: string;
+      } | null;
+      if (!response.ok || !payload?.ok || !payload.result?.article || !payload.result.metadata) {
+        throw new Error(payload?.message || "Impossible de rediger l article.");
+      }
+      const sessionRecord = await saveArticleResultSession({
+        request: articleRequest,
+        result: payload.result.article,
+        selectedAngle: { id: draft.article?.selectedAngleId ?? "", title: draft.article?.selectedAngle ?? "" },
+        selectedStructure,
+        generationMetadata: payload.result.metadata,
+        createdAt: new Date().toISOString(),
+      });
+      window.sessionStorage.setItem(ARTICLE_RESULT_STORAGE_KEY, JSON.stringify(sessionRecord));
+      window.sessionStorage.removeItem(ARTICLE_DRAFT_STORAGE_KEY);
+      setGenerateState({ loading: false, errorMessage: null });
+      router.push(buildResultUrl(sessionRecord.sessionId, ""));
+    } catch (error) {
+      setGenerateState({ loading: false, errorMessage: error instanceof Error ? error.message : "Impossible de rediger l article." });
+    } finally {
+      void loadCreditBalance();
+    }
   };
 
   const closeCreditModal = () => {
@@ -1225,6 +1515,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         await collectContext();
       } else if (creditModal.kind === "publication_angles") {
         await generatePublicationAngles();
+      } else if (creditModal.kind === "article_angles") {
+        await generateArticleAngles();
+      } else if (creditModal.kind === "article_structures") {
+        await generateArticleStructures();
+      } else if (draft.objective.objective === "article") {
+        await runArticleGeneration();
       } else {
         await runInterviewGeneration();
       }
@@ -1240,6 +1536,47 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       items: previous.items.map((item) => (item.id === itemId ? { ...item, isSelected } : item)),
     }));
   }, []);
+
+  const toggleArticleResearchItem = useCallback((item: ContextItem, isSelected: boolean) => {
+    toggleContextItem(item.id, isSelected);
+    if (item.connectorId === "crm" || item.connectorId === "productions") {
+      updateArticleDraft((article) => ({
+        ...article,
+        selectedResearchContextItemIds: isSelected
+          ? Array.from(new Set([...(article.selectedResearchContextItemIds ?? []), item.id]))
+          : (article.selectedResearchContextItemIds ?? []).filter((id) => id !== item.id),
+      }));
+      return;
+    }
+
+    if (item.connectorId !== "external_news") return;
+    const sourceUrl = item.sourceUrl?.trim();
+    if (!sourceUrl) return;
+
+    updateArticleDraft((article) => {
+      const selectedResearchContextItemIds = isSelected
+        ? Array.from(new Set([...(article.selectedResearchContextItemIds ?? []), item.id]))
+        : (article.selectedResearchContextItemIds ?? []).filter((id) => id !== item.id);
+      const selectedResearchSourceUrls = isSelected
+        ? Array.from(new Set([...(article.selectedResearchSourceUrls ?? []), sourceUrl]))
+        : (article.selectedResearchSourceUrls ?? []).filter((url) => url !== sourceUrl);
+      const hasVerifiedSource = article.verifiedSources.some((source) => source.url === sourceUrl);
+      const researchAddedSourceUrls = isSelected
+        ? hasVerifiedSource
+          ? (article.researchAddedSourceUrls ?? [])
+          : Array.from(new Set([...(article.researchAddedSourceUrls ?? []), sourceUrl]))
+        : (article.researchAddedSourceUrls ?? []).filter((url) => url !== sourceUrl);
+      const verifiedSources = isSelected
+        ? hasVerifiedSource
+          ? article.verifiedSources
+          : [...article.verifiedSources, { title: item.sourceName || item.title, url: sourceUrl }]
+        : (article.researchAddedSourceUrls ?? []).includes(sourceUrl)
+          ? article.verifiedSources.filter((source) => source.url !== sourceUrl)
+          : article.verifiedSources;
+
+      return { ...article, selectedResearchContextItemIds, selectedResearchSourceUrls, researchAddedSourceUrls, verifiedSources };
+    });
+  }, [toggleContextItem]);
 
   const toggleContextCategory = useCallback((category: string, isSelected: boolean) => {
     setContextState((previous) => ({
@@ -1311,6 +1648,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const previousFingerprintRef = useRef(contextFingerprint);
 
   useEffect(() => {
+    if (draft.objective.objective === "article" && articleContextRestoredRef.current) {
+      articleContextRestoredRef.current = false;
+      previousFingerprintRef.current = contextFingerprint;
+      return;
+    }
+    if (draft.objective.objective === "article" && !articleHydratedRef.current) return;
     if (previousFingerprintRef.current === contextFingerprint) return;
     previousFingerprintRef.current = contextFingerprint;
 
@@ -1952,6 +2295,138 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     );
   };
 
+  const updateArticleDraft = (update: (article: ArticleAssistantDraft) => ArticleAssistantDraft) => {
+    setDraft((current) => (current.article ? { ...current, article: update(current.article) } : current));
+  };
+
+  const renderArticleFormatStep = () => (
+    <section className="creation-step-block" aria-labelledby="creation-article-format-title">
+      <header className="creation-step-head"><h2 id="creation-article-format-title">Format de l article</h2></header>
+      <section className="creation-panel"><div className="creation-fields-grid">
+        <label><span>Type d article</span><select data-article-type="true" value={draft.article?.articleType ?? "actualite"} onChange={(event) => updateArticleDraft((article) => ({ ...article, articleType: event.target.value as ArticleAssistantDraft["articleType"] }))}>
+          <option value="actualite">Actualité</option><option value="portrait">Portrait</option><option value="analyse">Analyse</option><option value="reportage">Reportage</option>
+        </select></label>
+        <label><span>Longueur</span><select data-article-length="true" value={draft.article?.length ?? "moyen"} onChange={(event) => updateArticleDraft((article) => ({ ...article, length: event.target.value as ArticleAssistantDraft["length"] }))}>
+          <option value="court">Court — 400 à 600 mots</option><option value="moyen">Moyen — 700 à 1 000 mots</option><option value="long">Long — 1 200 à 1 600 mots</option>
+        </select></label>
+      </div></section>
+    </section>
+  );
+
+  const renderArticleSourcesStep = () => (
+    <section className="creation-step-block" aria-labelledby="creation-article-sources-title">
+      <header className="creation-step-head"><h2 id="creation-article-sources-title">Sources</h2></header>
+      <section className="creation-panel">
+        <header><h3>Sources vérifiées</h3></header>
+        {draft.article?.verifiedSources.map((source, index) => (
+          <div className="creation-fields-grid" key={`source-${index}`}>
+            <label><span>Titre</span><input data-article-source-title="true" value={source.title} onChange={(event) => updateArticleDraft((article) => ({ ...article, verifiedSources: article.verifiedSources.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item) }))} /></label>
+            <label><span>URL</span><input type="url" data-article-source-url="true" value={source.url} onChange={(event) => updateArticleDraft((article) => ({ ...article, verifiedSources: article.verifiedSources.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item) }))} /></label>
+            <button type="button" className="contents-secondary-button" onClick={() => updateArticleDraft((article) => ({ ...article, verifiedSources: article.verifiedSources.filter((_, itemIndex) => itemIndex !== index) }))}>Supprimer</button>
+          </div>
+        ))}
+        <button type="button" className="contents-secondary-button" onClick={() => updateArticleDraft((article) => ({ ...article, verifiedSources: [...article.verifiedSources, { title: "", url: "" }] }))}>Ajouter une source</button>
+      </section>
+      <section className="creation-panel">
+        <header><h3>Citations fournies</h3></header>
+        {draft.article?.providedCitations.map((citation, index) => (
+          <div className="creation-fields-grid" key={`citation-${index}`}>
+            <label className="is-wide"><span>Texte</span><textarea className="creation-textarea" data-article-citation-text="true" value={citation.text} onChange={(event) => updateArticleDraft((article) => ({ ...article, providedCitations: article.providedCitations.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item) }))} /></label>
+            <label><span>Auteur</span><input data-article-citation-author="true" value={citation.author} onChange={(event) => updateArticleDraft((article) => ({ ...article, providedCitations: article.providedCitations.map((item, itemIndex) => itemIndex === index ? { ...item, author: event.target.value } : item) }))} /></label>
+            <label><span>Source</span><input data-article-citation-source="true" value={citation.source} onChange={(event) => updateArticleDraft((article) => ({ ...article, providedCitations: article.providedCitations.map((item, itemIndex) => itemIndex === index ? { ...item, source: event.target.value } : item) }))} /></label>
+            <button type="button" className="contents-secondary-button" onClick={() => updateArticleDraft((article) => ({ ...article, providedCitations: article.providedCitations.filter((_, itemIndex) => itemIndex !== index) }))}>Supprimer</button>
+          </div>
+        ))}
+        <button type="button" className="contents-secondary-button" onClick={() => updateArticleDraft((article) => ({ ...article, providedCitations: [...article.providedCitations, { text: "", author: "", source: "" }] }))}>Ajouter une citation</button>
+      </section>
+    </section>
+  );
+
+  const renderArticlePendingStep = () => (
+    <section className="creation-step-block"><section className="creation-panel"><p className="creation-muted">Cette étape sera disponible après validation des informations précédentes</p></section></section>
+  );
+
+  const renderArticleStructureStep = () => (
+    <section className="creation-step-block" aria-labelledby="creation-article-structure-title">
+      <header className="creation-step-head"><h2 id="creation-article-structure-title">Structure Article</h2></header>
+      <section className="creation-panel">
+        <button type="button" className="crm-primary-action" onClick={requestArticleStructures} disabled={articleStructuresState.loading || isPublicationAnglesBlocked}>
+          {articleStructuresState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+          {articleStructuresState.loading ? "Generation des structures" : "Proposer 3 structures — 1 crédit"}
+        </button>
+        {articleStructuresState.errorMessage ? <p className="creation-error" role="alert">{articleStructuresState.errorMessage}</p> : null}
+      </section>
+      {draft.article?.structureSuggestions.length ? (
+        <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }} aria-label="Structures Article">
+          {draft.article.structureSuggestions.map((structure) => (
+            <article
+              key={structure.id}
+              data-article-structure="true"
+              className={draft.article?.selectedStructureId === structure.id ? "creation-panel is-active" : "creation-panel"}
+              style={draft.article?.selectedStructureId === structure.id ? { border: "2px solid #1d1d1d", boxShadow: "0 0 0 3px rgba(29, 29, 29, 0.08)" } : undefined}
+            >
+              <header style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 12, alignItems: "start" }}>
+                <div>
+                  <h3>{structure.title}</h3>
+                  <p>{structure.editorialPromise}</p>
+                </div>
+                <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+                  <small className="interview-chip">{`environ ${structure.estimatedWordCount} mots`}</small>
+                  <button type="button" className={draft.article?.selectedStructureId === structure.id ? "crm-primary-action" : "contents-secondary-button"} onClick={() => updateArticleDraft((article) => ({ ...article, selectedStructureId: structure.id, selectedStructure: structure }))}>
+                    {draft.article?.selectedStructureId === structure.id ? "Structure sélectionnée" : "Sélectionner"}
+                  </button>
+                  <button type="button" className="contents-secondary-button" onClick={() => setExpandedArticleStructureId((current) => current === structure.id ? null : structure.id)} aria-expanded={expandedArticleStructureId === structure.id}>
+                    {expandedArticleStructureId === structure.id ? "Masquer le détail" : "Voir le détail"}
+                  </button>
+                </div>
+              </header>
+              {expandedArticleStructureId === structure.id ? (
+                <ol style={{ display: "grid", gap: 18, margin: "20px 0 0", padding: 0, listStyle: "none" }}>
+                  {structure.sections.map((section) => (
+                    <li key={section.order} style={{ borderTop: "1px solid #e6e6e6", paddingTop: 16 }}>
+                      <strong>{`${section.order}. ${section.title}`}</strong>
+                      <div style={{ marginTop: 10 }}><small>Objectif</small><p>{section.purpose}</p></div>
+                      <div style={{ marginTop: 10 }}><small>Points à traiter</small><ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>{section.points.map((point, pointIndex) => <li key={`${section.order}-${pointIndex}`}>{point}</li>)}</ul></div>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+    </section>
+  );
+
+  const renderArticleAngleStep = () => (
+    <section className="creation-step-block" aria-labelledby="creation-article-angle-title">
+      <header className="creation-step-head"><h2 id="creation-article-angle-title">Angle Article</h2></header>
+      <section className="creation-panel">
+        <button type="button" className="crm-primary-action" onClick={requestArticleAngles} disabled={articleAnglesState.loading || isPublicationAnglesBlocked}>
+          {articleAnglesState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+          {articleAnglesState.loading ? "Generation des angles" : "Proposer 3 angles — 1 crédit"}
+        </button>
+        {articleAnglesState.errorMessage ? <p className="creation-error" role="alert">{articleAnglesState.errorMessage}</p> : null}
+      </section>
+      {articleAnglesState.suggestions.length > 0 ? (
+        <section className="creation-option-grid" aria-label="Angles Article">
+          {articleAnglesState.suggestions.map((suggestion) => (
+            <button
+              key={suggestion.id}
+              type="button"
+              data-article-angle="true"
+              className={draft.article?.selectedAngleId === suggestion.id ? "creation-option-card is-active" : "creation-option-card"}
+              onClick={() => updateArticleDraft((article) => ({ ...article, selectedAngleId: suggestion.id, selectedAngle: suggestion.title }))}
+            >
+              <strong>{suggestion.title}</strong>
+              <p>{suggestion.rationale}</p>
+            </button>
+          ))}
+        </section>
+      ) : null}
+    </section>
+  );
+
   const setNewContractField = (field: keyof NewContractPresetDraft, value: string) => {
     setDraft((current) => ({
       ...current,
@@ -2229,6 +2704,26 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderParametersStep = () => {
+    if (draft.objective.objective === "article") {
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-params-title">
+          <header className="creation-step-head"><h2 id="creation-params-title">Parametres Article</h2></header>
+          <section className="creation-panel">
+            <div className="creation-fields-grid">
+              <label><span>Ton</span><select data-article-tone="true" value={draft.parameters.toneId} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, toneId: event.target.value } }))}>
+                {CONTENT_TONE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select></label>
+              <label><span>Audience</span><select data-article-audience="true" value={draft.parameters.audienceId} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, audienceId: event.target.value } }))}>
+                {CONTENT_AUDIENCE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select></label>
+            </div>
+            {draft.parameters.toneId === "free" ? <label className="creation-inline-field"><span>Ton libre</span><input data-article-tone-free="true" value={draft.parameters.customTone} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, customTone: event.target.value } }))} /></label> : null}
+            {draft.parameters.audienceId === "free" ? <label className="creation-inline-field"><span>Public libre</span><input data-article-audience-free="true" value={draft.parameters.customAudience} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, customAudience: event.target.value } }))} /></label> : null}
+          </section>
+        </section>
+      );
+    }
+
     if (draft.objective.objective === "reel") {
       return (
         <section className="creation-step-block" aria-labelledby="creation-params-title">
@@ -3008,6 +3503,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const renderContextStep = () => {
     const title = isPublicationFlow ? "Contexte intelligent" : "Preparation du contexte";
+    const isArticle = draft.objective.objective === "article";
 
     if (!draft.parameters.useContextIntelligence) {
       return (
@@ -3015,18 +3511,69 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <header className="creation-step-head">
             <h2 id="creation-context-title">{title}</h2>
           </header>
-          <p className="creation-muted">{isPublicationFlow ? "Le contexte intelligent est desactive. Activez l option \"Enrichir avec le contexte intelligent\" a l etape precedente pour utiliser les donnees du workspace." : "Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu."}</p>
+          {isArticle ? (
+            <>
+              <label className="creation-inline-field">
+                <span>Informations et notes à intégrer</span>
+                <small>Ajoutez ici les faits, notes, résultats, chronologie ou informations qui doivent guider l’article.</small>
+                <textarea className="creation-textarea" value={draft.parameters.additionalContext} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, additionalContext: event.target.value } }))} />
+              </label>
+              <label className="creation-disabled-check">
+                <input type="checkbox" checked={draft.parameters.useContextIntelligence} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, useContextIntelligence: event.target.checked } }))} />
+                <span>Activer la recherche intelligente</span>
+              </label>
+            </>
+          ) : null}
+          <p className="creation-muted">{isArticle ? "Le contexte intelligent est désactivé. Les sources et informations saisies seront utilisées pour proposer les angles." : isPublicationFlow ? "Le contexte intelligent est desactive. Activez l option \"Enrichir avec le contexte intelligent\" a l etape precedente pour utiliser les donnees du workspace." : "Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu."}</p>
         </section>
       );
     }
 
     const selectedCount = contextState.items.filter((item) => item.isSelected).length;
+    const manualArticleSources = isArticle
+      ? (draft.article?.verifiedSources ?? []).filter((source) => !(draft.article?.researchAddedSourceUrls ?? []).includes(source.url))
+      : [];
+    const articleInternalItems = isArticle
+      ? contextState.items.filter((item) => item.connectorId === "crm" || item.connectorId === "productions")
+      : [];
+    const articleInternalGroups = [
+      { id: "crm", title: `Profil CRM — ${draft.subject.displayName || "Sujet"}`, items: articleInternalItems.filter((item) => item.connectorId === "crm") },
+      { id: "productions", title: "Productions", items: articleInternalItems.filter((item) => item.connectorId === "productions") },
+    ].filter((group) => group.items.length > 0);
+    const articleWebItems = isArticle
+      ? contextState.items.filter((item) => item.connectorId === "external_news" && Boolean(item.sourceUrl))
+      : [];
+    const articleCategoryLabel: Record<string, string> = {
+      profile: "Profil",
+      club_or_organization: "Club ou organisation",
+      recent_news: "Actualité récente",
+      performance: "Performance",
+      result: "Résultat",
+      schedule: "Calendrier",
+      production: "Production",
+      event: "Événement",
+      other: "Autre information",
+    };
     return (
       <section className="creation-step-block" aria-labelledby="creation-context-title">
         <header className="creation-step-head">
           <h2 id="creation-context-title">{title}</h2>
           <p>Collectez, relisez et selectionnez les elements qui seront utilises pour la generation.</p>
         </header>
+
+        {isArticle ? (
+          <>
+            <label className="creation-inline-field">
+              <span>Informations et notes à intégrer</span>
+              <small>Ajoutez ici les faits, notes, résultats, chronologie ou informations qui doivent guider l’article.</small>
+              <textarea className="creation-textarea" value={draft.parameters.additionalContext} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, additionalContext: event.target.value } }))} />
+            </label>
+            <label className="creation-disabled-check">
+              <input type="checkbox" checked={draft.parameters.useContextIntelligence} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, useContextIntelligence: event.target.checked } }))} />
+              <span>Activer la recherche intelligente</span>
+            </label>
+          </>
+        ) : null}
 
         <section className="creation-panel">
           <header>
@@ -3238,35 +3785,97 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
         {contextState.reports.length > 0 ? (
           <section className="creation-panel">
-            <header>
-              <h3>Etat des connecteurs</h3>
-            </header>
-            <ul className="creation-context-list">
-              {contextState.reports.map((report) => (
-                <li key={report.connectorId} className={`creation-context-report is-${report.status}`}>
-                  <div className="creation-context-report-head">
-                    <strong>{getConnectorLabel(report.connectorId)}</strong>
-                    <span>{getConnectorStatusLabel(report.status)}</span>
+            <header><h3>{isArticle ? "État de la recherche" : "Etat des connecteurs"}</h3></header>
+            {isArticle ? (
+              <div style={{ display: "grid", gap: 8 }}>
+                {contextState.reports.map((report) => (
+                  <div key={report.connectorId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <small>{getConnectorLabel(report.connectorId)}</small>
+                    <span>{getConnectorStatusLabel(report.status)}{report.itemCount ? ` · ${report.itemCount}` : ""}</span>
+                    {report.connectorId === "external_news" && (report.status === "error" || report.status === "unavailable") ? (
+                      <button type="button" className="contents-ghost-button" onClick={requestContextSearch} disabled={contextState.loading}>Réessayer</button>
+                    ) : null}
                   </div>
-                  <small>
-                    {report.itemCount > 0 ? `${report.itemCount} element(s)` : "Aucun element"}
-                    {report.message ? ` | ${getConnectorStatusMessage(report)}` : ` | ${getConnectorStatusMessage(report)}`}
-                  </small>
-                  {report.connectorId === "external_news" && (report.status === "error" || report.status === "unavailable") ? (
-                    <button type="button" className="contents-ghost-button" onClick={requestContextSearch} disabled={contextState.loading}>
-                      Reessayer
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            ) : (
+              <ul className="creation-context-list">
+                {contextState.reports.map((report) => (
+                  <li key={report.connectorId} className={`creation-context-report is-${report.status}`}>
+                    <div className="creation-context-report-head">
+                      <strong>{getConnectorLabel(report.connectorId)}</strong>
+                      <span>{getConnectorStatusLabel(report.status)}</span>
+                    </div>
+                    <small>
+                      {report.itemCount > 0 ? `${report.itemCount} element(s)` : "Aucun element"}
+                      {report.message ? ` | ${getConnectorStatusMessage(report)}` : ` | ${getConnectorStatusMessage(report)}`}
+                    </small>
+                    {report.connectorId === "external_news" && (report.status === "error" || report.status === "unavailable") ? (
+                      <button type="button" className="contents-ghost-button" onClick={requestContextSearch} disabled={contextState.loading}>
+                        Reessayer
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         ) : null}
 
-        {contextByCategory.length > 0 ? (
+        {isArticle ? (
+          <section className="creation-panel">
+            <header><h3>Sources manuelles</h3></header>
+            {manualArticleSources.length ? (
+              <ul className="creation-context-list">
+                {manualArticleSources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer noopener">{source.title}</a></li>)}
+              </ul>
+            ) : <p className="creation-muted">Aucune source manuelle ajoutée.</p>}
+          </section>
+        ) : null}
+
+        {isArticle && articleInternalItems.length > 0 ? (
+          <section className="creation-panel">
+            <header><h3>Contexte interne</h3></header>
+            <div style={{ display: "grid", gap: 8 }}>
+              {articleInternalGroups.map((group) => (
+                <article key={group.id} style={{ border: "1px solid #e6e6e6", borderRadius: 6, padding: "10px 12px" }}>
+                  <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+                    <strong>{group.title}</strong>
+                    <small>{`${group.items.filter((item) => item.isSelected).length} sur ${group.items.length} sélectionnés`}</small>
+                  </header>
+                  <div style={{ display: "grid", gap: 3 }}>
+                    {group.items.map((item) => (
+                      <label key={item.id} style={{ display: "grid", gridTemplateColumns: "auto minmax(110px, 0.35fr) minmax(0, 1fr)", gap: 8, alignItems: "baseline", padding: "4px 0" }}>
+                        <input type="checkbox" checked={item.isSelected} onChange={(event) => toggleArticleResearchItem(item, event.target.checked)} />
+                        <strong>{item.title || articleCategoryLabel[item.category] || "Information"}</strong>
+                        <span>{item.factualStatement || item.editedSummary || item.summary}</span>
+                      </label>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {isArticle && articleWebItems.length > 0 ? (
+          <section className="creation-panel">
+            <header><h3>Sources web</h3></header>
+            <div style={{ display: "grid", gap: 10 }}>
+              {articleWebItems.map((item) => (
+                <label key={item.id} style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", gap: 10, alignItems: "start", padding: 12, border: "1px solid #e6e6e6", borderRadius: 6 }}>
+                  <input type="checkbox" checked={item.isSelected} onChange={(event) => toggleArticleResearchItem(item, event.target.checked)} />
+                  <span><strong>{item.title}</strong><small style={{ display: "block", marginTop: 4 }}>{item.editedSummary || item.summary}</small><a href={item.sourceUrl} target="_blank" rel="noreferrer noopener" style={{ display: "inline-block", marginTop: 6 }}>Ouvrir la source</a></span>
+                </label>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {!isArticle && contextByCategory.length > 0 ? (
           <section className="creation-panel">
             <header>
-              <h3>Revision et selection</h3>
+              <h3>{isArticle ? "Sources issues de la recherche" : "Revision et selection"}</h3>
             </header>
 
             {contextByCategory.map((group) => {
@@ -3276,14 +3885,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                   <div className="creation-context-category-head">
                     <h4>{group.category}</h4>
                     <p>{selectedInCategory}/{group.items.length} selectionne(s)</p>
-                    <div className="creation-toggle-row">
+                    {!isArticle ? <div className="creation-toggle-row">
                       <button type="button" className="contents-ghost-button" onClick={() => toggleContextCategory(group.category, true)}>
                         Tout selectionner
                       </button>
                       <button type="button" className="contents-ghost-button" onClick={() => toggleContextCategory(group.category, false)}>
                         Tout deselectionner
                       </button>
-                    </div>
+                    </div> : null}
                   </div>
 
                   <ul className="creation-context-list">
@@ -3293,7 +3902,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                           <input
                             type="checkbox"
                             checked={item.isSelected}
-                            onChange={(event) => toggleContextItem(item.id, event.target.checked)}
+                            onChange={(event) => isArticle ? toggleArticleResearchItem(item, event.target.checked) : toggleContextItem(item.id, event.target.checked)}
                           />
                           <span>{item.title}</span>
                         </label>
@@ -3324,6 +3933,36 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderSummaryStep = () => {
+    if (draft.objective.objective === "article") {
+      const article = draft.article;
+      const cost = getGenerationCreditCost();
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-summary-title">
+          <header className="creation-step-head"><h2 id="creation-summary-title">Recapitulatif Article</h2></header>
+          <dl className="creation-summary-grid">
+            <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
+            <div><dt>Type</dt><dd>{articleTypeLabels[article?.articleType ?? ""] || "Non defini"}</dd></div>
+            <div><dt>Longueur</dt><dd>{articleLengthLabels[article?.length ?? ""] || "Non definie"}</dd></div>
+            <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
+            <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
+            <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun"}</dd></div>
+            <div><dt>Sources</dt><dd>{article?.verifiedSources.length ? String(article.verifiedSources.length) : "Aucune"}</dd></div>
+            <div><dt>Citations</dt><dd>{article?.providedCitations.length ? String(article.providedCitations.length) : "Aucune"}</dd></div>
+            <div><dt>Angle</dt><dd>{article?.selectedAngle || "Non defini"}</dd></div>
+            <div><dt>Structure</dt><dd>{article?.selectedStructure?.title || "Non definie"}</dd></div>
+          </dl>
+          <div className="creation-finish-panel">
+            {mediaCreditRole === "media" ? <p className="creation-muted">{`Cette génération coûte ${formatCreditCount(cost)}.`}</p> : null}
+            <button type="button" className="crm-primary-action" onClick={requestFinalGeneration} disabled={!article?.selectedStructure || generateState.loading || isCreditCostBlocked(cost)}>
+              {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+              {generateState.loading ? "Redaction en cours" : `Rédiger l’article — ${formatCreditCount(cost)}`}
+            </button>
+            {generateState.errorMessage ? <p className="creation-error" role="alert">{generateState.errorMessage}</p> : null}
+          </div>
+        </section>
+      );
+    }
+
     if (draft.objective.objective === "publication") {
       const selectedContextItems = contextState.items.filter((item) => item.isSelected);
       const selectedExternalCount = selectedContextItems.filter((item) => item.connectorId === "external_news").length;
@@ -3710,6 +4349,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       {step.id === "match-day" ? renderMatchDayStoryStep() : null}
       {step.id === "after-match-story" ? renderAfterMatchStoryStep() : null}
       {step.id === "contract" ? renderContractStep() : null}
+      {step.id === "format" ? renderArticleFormatStep() : null}
+      {step.id === "sources" ? renderArticleSourcesStep() : null}
+      {step.id === "article-angle" ? renderArticleAngleStep() : null}
+      {step.id === "structure" ? renderArticleStructureStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}
       {step.id === "context" ? renderContextStep() : null}
@@ -3725,9 +4368,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         </button>
         <div className="creation-footer-right">
           <Link href="/contents" className="contents-ghost-button">Quitter</Link>
-          <button type="button" className="crm-primary-action" onClick={moveNext} disabled={effectiveStepIndex === steps.length - 1}>
-            Suivant <ArrowRight size={15} aria-hidden />
-          </button>
+          {!(draft.objective.objective === "article" && step.id === "summary") ? (
+            <button type="button" className="crm-primary-action" onClick={moveNext} disabled={effectiveStepIndex === steps.length - 1}>
+              Suivant <ArrowRight size={15} aria-hidden />
+            </button>
+          ) : null}
         </div>
       </footer>
 

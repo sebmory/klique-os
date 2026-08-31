@@ -9,6 +9,7 @@ import type {
   StoryGenerationResult,
 } from "@/types/content-generation";
 import type {
+  ArticleDocument,
   ContentDocument,
   InterviewDocument,
   InterviewDocumentQuestion,
@@ -16,6 +17,7 @@ import type {
   ReelDocument,
   StoryDocument,
 } from "@/types/content-document";
+import type { StoredArticleResult } from "@/services/content-result-sessions";
 
 const buildQuestion = (
   question: InterviewGenerationResult["questions"][number],
@@ -244,6 +246,82 @@ export const mapStoryGenerationToDocument = (args: {
       cta: sequence?.cta ?? "",
       caption: sequence?.caption ?? "",
       hashtags: sequence?.hashtags ?? [],
+    },
+  };
+};
+
+export const mapArticleGenerationToDocument = (args: {
+  storedArticleResult: StoredArticleResult;
+  documentId?: string;
+}): ArticleDocument => {
+  const { request, result, selectedAngle, selectedStructure, generationMetadata } = args.storedArticleResult;
+  const createdAt = args.storedArticleResult.createdAt || generationMetadata.generatedAt || new Date().toISOString();
+  const versionId = "version-1";
+  const documentId = args.documentId || `document-${createdAt}`;
+  const selectedContextItems = request.selectedContextItems;
+  const metadata = {
+    provider: generationMetadata.provider,
+    model: generationMetadata.model,
+    templateId: "article" as const,
+    templateKey: "article:v1" as const,
+    templateVersion: result.metadata.templateVersion,
+    promptVersion: request.rulesVersion,
+    generatedAt: generationMetadata.generatedAt,
+    generationDurationMs: generationMetadata.generationDurationMs,
+    questionCountRequested: 0,
+    questionCountGenerated: 0,
+    reliabilityNotes: [],
+    missingInformation: [],
+    externalContextUsed: selectedContextItems.some((item) => item.sourceType !== "internal"),
+  };
+
+  return {
+    id: documentId,
+    type: "article",
+    status: "draft",
+    createdAt,
+    updatedAt: createdAt,
+    versions: [{ id: versionId, createdAt, label: "Version initiale", source: "generation" }],
+    activeVersionId: versionId,
+    sidebar: {
+      subject: request.context.displayName,
+      source: request.context.source,
+      objective: request.brief.objective,
+      length: request.brief.length,
+      tone: request.brief.tone,
+      audience: request.brief.audience,
+      format: request.brief.articleType,
+      templateVersion: result.metadata.templateVersion,
+      provider: generationMetadata.provider,
+      model: generationMetadata.model,
+      generatedAt: generationMetadata.generatedAt,
+    },
+    metadata,
+    contextUsage: {
+      usedContextItemIds: selectedContextItems.map((item) => item.id),
+      usedSourceIds: selectedContextItems.map((item) => item.sourceUrl || `${item.sourceType}:${item.sourceName}`),
+      unusedSelectedContextItemIds: [],
+      researchedAt: request.contextSelection.researchedAt,
+      dateRange: request.contextSelection.dateRange,
+      externalContextUsed: selectedContextItems.some((item) => item.sourceType !== "internal"),
+      selectedItems: selectedContextItems,
+    },
+    sections: {
+      title: result.title,
+      subtitle: result.subtitle ?? null,
+      lead: result.lead,
+      sections: result.sections.map((section) => ({ ...section, paragraphs: [...section.paragraphs] })),
+      conclusion: result.conclusion,
+      usedCitations: result.usedCitations.map((citation) => ({ ...citation })),
+      usedSources: result.usedSources.map((source) => ({ ...source })),
+      estimatedWordCount: result.estimatedWordCount,
+      articleType: request.brief.articleType,
+      articleLength: request.brief.length,
+      selectedAngle: { ...selectedAngle },
+      selectedStructure: {
+        ...selectedStructure,
+        sections: selectedStructure.sections.map((section) => ({ ...section, points: [...section.points] })),
+      },
     },
   };
 };

@@ -3,7 +3,7 @@ import { ContentStorageRepository } from "@/lib/content-storage/repository";
 import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import {
   ContentStorageValidationError,
-  validateStoredInterviewResultWriteBody,
+  validateStoredContentResultWriteBody,
 } from "@/lib/content-storage/validation";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   try {
     const access = await requireContentAccess(request);
     const body = await request.json();
-    const { sessionId, session, expiresAt } = validateStoredInterviewResultWriteBody(body);
+    const { sessionId, session, expiresAt } = validateStoredContentResultWriteBody(body);
     const stored = await ContentStorageRepository.createSession(sessionId, session, expiresAt, access);
 
     return NextResponse.json({

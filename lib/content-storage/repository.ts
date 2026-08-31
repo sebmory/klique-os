@@ -2,7 +2,7 @@ import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
 import type { ContentAccessContext } from "@/lib/content-storage/access";
 import { createContentStorageClient } from "@/lib/content-storage/db";
-import type { StoredInterviewResult } from "@/lib/content-storage/validation";
+import type { StoredContentResult } from "@/lib/content-storage/validation";
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -57,9 +57,9 @@ const mapDraftRow = (row: DraftRow): { document: ContentDocument; version: numbe
   userId: row.user_id,
 });
 
-const mapSessionRow = (row: SessionRow): { sessionId: string; session: StoredInterviewResult; workspaceId: string; userId: string | null; createdAt: string; expiresAt: string } => ({
+const mapSessionRow = (row: SessionRow): { sessionId: string; session: StoredContentResult; workspaceId: string; userId: string | null; createdAt: string; expiresAt: string } => ({
   sessionId: row.session_id,
-  session: readJson<StoredInterviewResult>(row.payload_json),
+  session: readJson<StoredContentResult>(row.payload_json),
   workspaceId: row.workspace_id,
   userId: row.user_id,
   createdAt: row.created_at,
@@ -177,7 +177,7 @@ export const ContentStorageRepository = {
     return { status: "updated", draft: mapDraftRow(rows[0]) };
   },
 
-  async createSession(sessionId: string, session: StoredInterviewResult, expiresAt: string, access: ContentAccessContext) {
+  async createSession(sessionId: string, session: StoredContentResult, expiresAt: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`
       INSERT INTO content_generation_sessions (
