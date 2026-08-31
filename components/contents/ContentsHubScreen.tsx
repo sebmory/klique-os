@@ -67,6 +67,7 @@ const templateIconById: Record<ContentTemplate["id"], ComponentType<{ size?: num
   "fast-questions": MessageSquareQuote,
   "partner-interview": MessageSquareQuote,
   "match-day-story": Radio,
+  "after-match-story": Radio,
 };
 
 export function ContentsHubScreen({ context }: ContentsHubScreenProps) {

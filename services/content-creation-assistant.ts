@@ -172,6 +172,19 @@ export type MatchDayStoryPresetDraft = {
   callToAction: string;
 };
 
+export type AfterMatchStoryPresetDraft = {
+  opponent: string;
+  competition: string;
+  matchDate: string;
+  homeAway: "" | "home" | "away";
+  score: string;
+  result: "" | "win" | "draw" | "loss";
+  keyMoments: string;
+  performance: string;
+  reaction: string;
+  callToAction: string;
+};
+
 export type NewContractTypeId =
   | "arrival"
   | "renewal"
@@ -204,6 +217,7 @@ export type CreationAssistantDraft = {
   beforeMatch?: BeforeMatchPresetDraft;
   newContract?: NewContractPresetDraft;
   matchDayStory?: MatchDayStoryPresetDraft;
+  afterMatchStory?: AfterMatchStoryPresetDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -626,6 +640,63 @@ const buildMatchDayStorySelectedAngle = (subjectName: string, matchDayStory: Mat
   return `Annoncer clairement le match a venir de ${subjectName || "ce sujet"} contre ${normalize(matchDayStory.opponent) || "son adversaire"}, avec une progression dynamique adaptee a une Story.`;
 };
 
+const resolveAfterMatchStoryResultLabel = (result: AfterMatchStoryPresetDraft["result"]): string => {
+  if (result === "win") return "Victoire";
+  if (result === "draw") return "Match nul";
+  if (result === "loss") return "Defaite";
+  return "";
+};
+
+const buildAfterMatchStoryContextBlock = (afterMatchStory: AfterMatchStoryPresetDraft, subjectName: string): string => {
+  const homeAwayLabel = resolveMatchDayHomeAwayLabel(afterMatchStory.homeAway);
+  const resultLabel = resolveAfterMatchStoryResultLabel(afterMatchStory.result);
+  const focusLines = subjectName
+    ? [
+        `Sujet central: ${subjectName} est le point de vue central de cette Story.`,
+        `Rester centre sur ${subjectName} et le match renseigne.`,
+        "Respecter exactement le score et le resultat fournis; ne jamais transformer une defaite ou un nul en victoire.",
+        "Ne jamais inventer de but, point, statistique, action, classement ou performance.",
+        "Distinguer clairement les faits collectifs de la performance individuelle du sujet.",
+        afterMatchStory.reaction ? "Utiliser uniquement la reaction ou citation fournie." : "Ne jamais attribuer de reaction ou citation absente.",
+        afterMatchStory.callToAction ? "La derniere sequence peut reprendre l appel a l action fourni." : "Sans appel a l action fourni, ne generer aucun CTA, sticker, question, sondage ou invitation.",
+        "Chaque sequence doit apporter une information ou une fonction differente.",
+      ]
+    : [];
+  const lines = [
+    afterMatchStory.opponent ? `Adversaire: ${normalize(afterMatchStory.opponent)}` : "",
+    afterMatchStory.competition ? `Competition: ${normalize(afterMatchStory.competition)}` : "",
+    afterMatchStory.matchDate ? `Date du match: ${normalize(afterMatchStory.matchDate)}` : "",
+    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
+    afterMatchStory.score ? `Score: ${normalize(afterMatchStory.score)}` : "",
+    resultLabel ? `Resultat: ${resultLabel}` : "",
+    afterMatchStory.keyMoments ? `Moments cles: ${normalize(afterMatchStory.keyMoments)}` : "",
+    afterMatchStory.performance ? `Performance du sujet: ${normalize(afterMatchStory.performance)}` : "",
+    afterMatchStory.reaction ? `Reaction / citation: ${normalize(afterMatchStory.reaction)}` : "",
+    afterMatchStory.callToAction ? `Appel a l action: ${normalize(afterMatchStory.callToAction)}` : "",
+  ].filter(Boolean);
+
+  const allLines = [...focusLines, ...lines];
+  if (!allLines.length) return "";
+
+  return ["[STORY APRES-MATCH]", ...allLines].join("\n");
+};
+
+const buildAfterMatchStoryTopics = (afterMatchStory: AfterMatchStoryPresetDraft, subjectName: string): string[] => {
+  const resultLabel = resolveAfterMatchStoryResultLabel(afterMatchStory.result);
+  return [
+    subjectName ? `Sujet: ${subjectName}` : "",
+    afterMatchStory.opponent ? `Adversaire: ${normalize(afterMatchStory.opponent)}` : "",
+    afterMatchStory.competition ? `Competition: ${normalize(afterMatchStory.competition)}` : "",
+    afterMatchStory.matchDate ? `Date du match: ${normalize(afterMatchStory.matchDate)}` : "",
+    afterMatchStory.score ? `Score: ${normalize(afterMatchStory.score)}` : "",
+    resultLabel ? `Resultat: ${resultLabel}` : "",
+  ].filter(Boolean);
+};
+
+const buildAfterMatchStorySelectedAngle = (subjectName: string, afterMatchStory: AfterMatchStoryPresetDraft): string => {
+  return `Raconter le match de ${subjectName || "ce sujet"} contre ${normalize(afterMatchStory.opponent) || "son adversaire"}, en respectant exactement le score et le resultat, avec une progression adaptee a une Story.`;
+};
+
 const mapContextTypeToSubjectType = (value?: string): CreationSubjectType => {
   if (value === "athlete") return "person";
   if (value === "partner") return "partner";
@@ -643,7 +714,8 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isStory = initialObjective === "story";
   // Le preset n a de sens que pour l objectif qui le consomme.
   const initialPresetId =
-    (isPublication && context.presetId !== "match-day-story") || (isStory && context.presetId === "match-day-story")
+    (isPublication && context.presetId !== "match-day-story" && context.presetId !== "after-match-story") ||
+    (isStory && (context.presetId === "match-day-story" || context.presetId === "after-match-story"))
       ? context.presetId
       : undefined;
 
@@ -753,6 +825,21 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
             callToAction: "",
           }
         : undefined,
+    afterMatchStory:
+      initialPresetId === "after-match-story"
+        ? {
+            opponent: "",
+            competition: "",
+            matchDate: "",
+            homeAway: "",
+            score: "",
+            result: "",
+            keyMoments: "",
+            performance: "",
+            reaction: "",
+            callToAction: "",
+          }
+        : undefined,
   };
 };
 
@@ -787,6 +874,7 @@ export const ContentCreationAssistantService = {
     const isBeforeMatch = isPublication && args.draft.presetId === "before-match";
     const isNewContract = isPublication && args.draft.presetId === "new-contract";
     const isMatchDayStory = isStory && args.draft.presetId === "match-day-story";
+    const isAfterMatchStory = isStory && args.draft.presetId === "after-match-story";
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -808,7 +896,7 @@ export const ContentCreationAssistantService = {
       if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
       if (isStory) {
-        if (!isMatchDayStory && !normalize(args.draft.parameters.storySelectedAngle)) return null;
+        if (!isMatchDayStory && !isAfterMatchStory && !normalize(args.draft.parameters.storySelectedAngle)) return null;
 
         const customFrameCount = Number(args.draft.parameters.storyFrameCount);
         storyFrameCount = Number.isFinite(customFrameCount) && customFrameCount > 0 ? Math.floor(customFrameCount) : 0;
@@ -886,6 +974,13 @@ export const ContentCreationAssistantService = {
               ]
                 .filter(Boolean)
                 .join("\n\n")
+          : isAfterMatchStory && args.draft.afterMatchStory
+            ? [
+                normalize(args.draft.parameters.additionalContext),
+                buildAfterMatchStoryContextBlock(args.draft.afterMatchStory, normalize(args.draft.subject.displayName)),
+              ]
+                .filter(Boolean)
+                .join("\n\n")
           : normalize(args.draft.parameters.additionalContext),
         requiredTopics: isAfterMatch && args.draft.afterMatch
           ? mergeTopics(
@@ -906,6 +1001,11 @@ export const ContentCreationAssistantService = {
             ? mergeTopics(
                 parseTopics(args.draft.parameters.requiredTopics),
                 buildMatchDayStoryTopics(args.draft.matchDayStory, normalize(args.draft.subject.displayName))
+              )
+          : isAfterMatchStory && args.draft.afterMatchStory
+            ? mergeTopics(
+                parseTopics(args.draft.parameters.requiredTopics),
+                buildAfterMatchStoryTopics(args.draft.afterMatchStory, normalize(args.draft.subject.displayName))
               )
           : parseTopics(args.draft.parameters.requiredTopics),
         avoidedTopics: parseTopics(args.draft.parameters.avoidedTopics),
@@ -953,6 +1053,8 @@ export const ContentCreationAssistantService = {
           ? {
               selectedAngle: isMatchDayStory && args.draft.matchDayStory
                 ? buildMatchDayStorySelectedAngle(normalize(args.draft.subject.displayName), args.draft.matchDayStory)
+                : isAfterMatchStory && args.draft.afterMatchStory
+                  ? buildAfterMatchStorySelectedAngle(normalize(args.draft.subject.displayName), args.draft.afterMatchStory)
                 : normalize(args.draft.parameters.storySelectedAngle),
               frameCount: storyFrameCount,
               platform: args.draft.parameters.storyPlatform,

@@ -1,6 +1,6 @@
 export type ContentContextType = "athlete" | "club" | "partner" | "organization" | "other";
 
-export type ContentPresetId = "after-match" | "before-match" | "new-contract" | "match-day-story";
+export type ContentPresetId = "after-match" | "before-match" | "new-contract" | "match-day-story" | "after-match-story";
 
 export type ContentCreationContext = {
   mode: "free" | "contextual";
@@ -37,7 +37,8 @@ export type ContentTemplateId =
   | "behind-the-scenes"
   | "fast-questions"
   | "partner-interview"
-  | "match-day-story";
+  | "match-day-story"
+  | "after-match-story";
 
 export type ContentTemplate = {
   id: ContentTemplateId;
@@ -155,6 +156,13 @@ const templates: ContentTemplate[] = [
     isAvailable: true,
     entryRoute: "/contents/create?objective=story&preset=match-day-story",
   },
+  {
+    id: "after-match-story",
+    title: "Story après-match",
+    description: "Raconter les faits et les émotions après une rencontre.",
+    isAvailable: true,
+    entryRoute: "/contents/create?objective=story&preset=after-match-story",
+  },
 ];
 
 export const ContentsHubService = {
@@ -183,7 +191,7 @@ export const ContentsHubService = {
     const presetId =
       (objective === "publication" &&
         (presetCandidate === "after-match" || presetCandidate === "before-match" || presetCandidate === "new-contract")) ||
-      (objective === "story" && presetCandidate === "match-day-story")
+      (objective === "story" && (presetCandidate === "match-day-story" || presetCandidate === "after-match-story"))
         ? (presetCandidate as ContentPresetId)
         : undefined;
 

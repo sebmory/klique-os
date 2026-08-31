@@ -42,6 +42,7 @@ import {
   NEW_CONTRACT_TYPE_OPTIONS,
   resolveNewContractTypeLabel,
   type AfterMatchPresetDraft,
+  type AfterMatchStoryPresetDraft,
   type BeforeMatchPresetDraft,
   type MatchDayStoryPresetDraft,
   type NewContractPresetDraft,
@@ -86,7 +87,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "match" | "match-day" | "contract" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "match-day" | "after-match-story" | "contract" | "angle" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -148,6 +149,14 @@ const matchDayStorySteps: Array<{ id: StepId; label: string }> = [
   { id: "summary", label: "Etape 5" },
 ];
 
+const afterMatchStorySteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "after-match-story", label: "Etape 2" },
+  { id: "parameters", label: "Etape 3" },
+  { id: "context", label: "Etape 4" },
+  { id: "summary", label: "Etape 5" },
+];
+
 const getStepsForObjective = (
   objective: CreationObjectiveType | null,
   hasPreselectedObjective = false,
@@ -165,6 +174,10 @@ const getStepsForObjective = (
 
   if (objective === "story" && presetId === "match-day-story") {
     return matchDayStorySteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
+  }
+
+  if (objective === "story" && presetId === "after-match-story") {
+    return afterMatchStorySteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
   const baseSteps = objective === "publication"
@@ -667,6 +680,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
       if (!draft.matchDayStory?.homeAway) {
         return { ok: false, message: "Selectionnez domicile ou exterieur.", focusSelector: "[data-match-day-home-away='true']" };
+      }
+      return { ok: true };
+    }
+
+    if (stepId === "after-match-story") {
+      if (!normalize(draft.afterMatchStory?.opponent)) {
+        return { ok: false, message: "Renseignez l adversaire.", focusSelector: "[data-after-match-story-opponent='true']" };
+      }
+      if (!normalize(draft.afterMatchStory?.matchDate)) {
+        return { ok: false, message: "Renseignez la date du match.", focusSelector: "[data-after-match-story-date='true']" };
+      }
+      if (!normalize(draft.afterMatchStory?.score)) {
+        return { ok: false, message: "Renseignez le score.", focusSelector: "[data-after-match-story-score='true']" };
+      }
+      if (!draft.afterMatchStory?.result) {
+        return { ok: false, message: "Selectionnez le resultat.", focusSelector: "[data-after-match-story-result='true']" };
       }
       return { ok: true };
     }
@@ -1833,6 +1862,90 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <label className="creation-inline-field">
             <span>Appel a l action (optionnel)</span>
             <textarea className="creation-textarea" value={draft.matchDayStory?.callToAction ?? ""} onChange={(event) => setMatchDayStoryField("callToAction", event.target.value)} />
+          </label>
+        </section>
+      </section>
+    );
+  };
+
+  const setAfterMatchStoryField = (field: keyof AfterMatchStoryPresetDraft, value: string) => {
+    setDraft((current) => ({
+      ...current,
+      afterMatchStory: {
+        opponent: current.afterMatchStory?.opponent ?? "",
+        competition: current.afterMatchStory?.competition ?? "",
+        matchDate: current.afterMatchStory?.matchDate ?? "",
+        homeAway: current.afterMatchStory?.homeAway ?? "",
+        score: current.afterMatchStory?.score ?? "",
+        result: current.afterMatchStory?.result ?? "",
+        keyMoments: current.afterMatchStory?.keyMoments ?? "",
+        performance: current.afterMatchStory?.performance ?? "",
+        reaction: current.afterMatchStory?.reaction ?? "",
+        callToAction: current.afterMatchStory?.callToAction ?? "",
+        [field]: value,
+      },
+    }));
+  };
+
+  const renderAfterMatchStoryStep = () => {
+    return (
+      <section className="creation-step-block" aria-labelledby="creation-after-match-story-title">
+        <header className="creation-step-head">
+          <h2 id="creation-after-match-story-title">Informations après-match</h2>
+          <p>Renseignez les elements factuels de la rencontre. Aucun appel IA n est lance a cette etape.</p>
+        </header>
+
+        <section className="creation-panel">
+          <div className="creation-fields-grid">
+            <label>
+              <span>Adversaire</span>
+              <input type="text" data-after-match-story-opponent="true" value={draft.afterMatchStory?.opponent ?? ""} onChange={(event) => setAfterMatchStoryField("opponent", event.target.value)} />
+            </label>
+            <label>
+              <span>Competition (optionnel)</span>
+              <input type="text" value={draft.afterMatchStory?.competition ?? ""} onChange={(event) => setAfterMatchStoryField("competition", event.target.value)} />
+            </label>
+            <label>
+              <span>Date du match</span>
+              <input type="date" data-after-match-story-date="true" value={draft.afterMatchStory?.matchDate ?? ""} onChange={(event) => setAfterMatchStoryField("matchDate", event.target.value)} />
+            </label>
+            <label>
+              <span>Domicile / exterieur (optionnel)</span>
+              <select value={draft.afterMatchStory?.homeAway ?? ""} onChange={(event) => setAfterMatchStoryField("homeAway", event.target.value)}>
+                <option value="">Selectionner</option>
+                <option value="home">À domicile</option>
+                <option value="away">À l extérieur</option>
+              </select>
+            </label>
+            <label>
+              <span>Score</span>
+              <input type="text" data-after-match-story-score="true" value={draft.afterMatchStory?.score ?? ""} onChange={(event) => setAfterMatchStoryField("score", event.target.value)} />
+            </label>
+            <label>
+              <span>Resultat</span>
+              <select data-after-match-story-result="true" value={draft.afterMatchStory?.result ?? ""} onChange={(event) => setAfterMatchStoryField("result", event.target.value)}>
+                <option value="">Selectionner</option>
+                <option value="win">Victoire</option>
+                <option value="draw">Match nul</option>
+                <option value="loss">Défaite</option>
+              </select>
+            </label>
+          </div>
+          <label className="creation-inline-field">
+            <span>Moments cles (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.afterMatchStory?.keyMoments ?? ""} onChange={(event) => setAfterMatchStoryField("keyMoments", event.target.value)} />
+          </label>
+          <label className="creation-inline-field">
+            <span>Performance du sujet (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.afterMatchStory?.performance ?? ""} onChange={(event) => setAfterMatchStoryField("performance", event.target.value)} />
+          </label>
+          <label className="creation-inline-field">
+            <span>Reaction / citation (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.afterMatchStory?.reaction ?? ""} onChange={(event) => setAfterMatchStoryField("reaction", event.target.value)} />
+          </label>
+          <label className="creation-inline-field">
+            <span>Appel a l action (optionnel)</span>
+            <textarea className="creation-textarea" value={draft.afterMatchStory?.callToAction ?? ""} onChange={(event) => setAfterMatchStoryField("callToAction", event.target.value)} />
           </label>
         </section>
       </section>
@@ -3386,7 +3499,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <dl className="creation-summary-grid">
             <div><dt>Sujet</dt><dd>{draft.subject.displayName || "Non defini"}</dd></div>
             <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
-            <div><dt>Objectif</dt><dd>{draft.presetId === "match-day-story" ? "Jour de match" : "Story"}</dd></div>
+            <div><dt>Objectif</dt><dd>{draft.presetId === "match-day-story" ? "Jour de match" : draft.presetId === "after-match-story" ? "Après-match" : "Story"}</dd></div>
             {draft.presetId === "match-day-story" ? (
               <>
                 <div><dt>Adversaire</dt><dd>{draft.matchDayStory?.opponent || "Non defini"}</dd></div>
@@ -3397,6 +3510,19 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <div><dt>Domicile / extérieur</dt><dd>{draft.matchDayStory?.homeAway === "home" ? "À domicile" : draft.matchDayStory?.homeAway === "away" ? "À l extérieur" : "Non definie"}</dd></div>
                 <div><dt>Enjeu / contexte</dt><dd>{draft.matchDayStory?.stakes || "Aucun"}</dd></div>
                 <div><dt>Appel a l action</dt><dd>{draft.matchDayStory?.callToAction || "Aucun"}</dd></div>
+              </>
+            ) : draft.presetId === "after-match-story" ? (
+              <>
+                <div><dt>Adversaire</dt><dd>{draft.afterMatchStory?.opponent || "Non defini"}</dd></div>
+                <div><dt>Competition</dt><dd>{draft.afterMatchStory?.competition || "Non definie"}</dd></div>
+                <div><dt>Date du match</dt><dd>{formatMatchDate(draft.afterMatchStory?.matchDate ?? "")}</dd></div>
+                <div><dt>Domicile / extérieur</dt><dd>{draft.afterMatchStory?.homeAway === "home" ? "À domicile" : draft.afterMatchStory?.homeAway === "away" ? "À l extérieur" : "Non defini"}</dd></div>
+                <div><dt>Score</dt><dd>{draft.afterMatchStory?.score || "Non defini"}</dd></div>
+                <div><dt>Resultat</dt><dd>{draft.afterMatchStory?.result === "win" ? "Victoire" : draft.afterMatchStory?.result === "draw" ? "Match nul" : draft.afterMatchStory?.result === "loss" ? "Défaite" : "Non defini"}</dd></div>
+                <div><dt>Moments cles</dt><dd>{draft.afterMatchStory?.keyMoments || "Aucun"}</dd></div>
+                <div><dt>Performance du sujet</dt><dd>{draft.afterMatchStory?.performance || "Non definie"}</dd></div>
+                <div><dt>Reaction / citation</dt><dd>{draft.afterMatchStory?.reaction || "Aucune"}</dd></div>
+                <div><dt>Appel a l action</dt><dd>{draft.afterMatchStory?.callToAction || "Aucun"}</dd></div>
               </>
             ) : (
               <div><dt>Angle editorial</dt><dd>{draft.parameters.storySelectedAngle || "Non defini"}</dd></div>
@@ -3417,7 +3543,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           </dl>
 
           <div className="creation-finish-panel">
-            {mediaCreditRole === "media" && draft.presetId === "match-day-story" ? (
+            {mediaCreditRole === "media" && (draft.presetId === "match-day-story" || draft.presetId === "after-match-story") ? (
               <p className="creation-muted">{`Cette génération coûte ${formatCreditCount(getGenerationCreditCost())}.`}</p>
             ) : null}
             <button
@@ -3429,7 +3555,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading
                 ? "Generation en cours"
-                : draft.presetId === "match-day-story"
+                : draft.presetId === "match-day-story" || draft.presetId === "after-match-story"
                   ? `Générer ${draft.parameters.storyFrameCount} séquences Story`
                   : "Generer 3 sequences Story"}
             </button>
@@ -3582,6 +3708,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       {step.id === "objective" ? renderObjectiveStep() : null}
       {step.id === "match" ? renderMatchStep() : null}
       {step.id === "match-day" ? renderMatchDayStoryStep() : null}
+      {step.id === "after-match-story" ? renderAfterMatchStoryStep() : null}
       {step.id === "contract" ? renderContractStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}
