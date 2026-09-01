@@ -382,6 +382,10 @@ const serviceCreditRequirement: Record<AthleteServiceType, { creditType: Athlete
   custom_content: { creditType: "custom_content", quantity: 1 },
 };
 
+export const getAthleteServiceCreditRequirement = (
+  serviceType: AthleteServiceType,
+): Readonly<{ creditType: AthleteCreditType; quantity: number }> => serviceCreditRequirement[serviceType];
+
 /**
  * Photo standard et interview éditoriale coûtent 1 crédit production.
  * Une capsule vidéo simple coûte 2 crédits production et requiert videoAllowed.
@@ -403,7 +407,7 @@ export const canConsumeAthleteService = ({
     return { allowed: true, creditType: null, creditsRequired: 0, availableBalance: 0, reason: "klique_initiated" };
   }
 
-  const requirement = serviceCreditRequirement[serviceType];
+  const requirement = getAthleteServiceCreditRequirement(serviceType);
   const availableBalance = balance[requirement.creditType];
   if (serviceType === "simple_video" && plan?.videoAllowed !== true) {
     return {

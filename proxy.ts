@@ -15,6 +15,10 @@ const accessPendingPath = "/access-pending";
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
 
 const isAthleteAllowedRoute = (pathname: string): boolean => {
+  if (pathname === "/athlete/services" || pathname === "/api/athlete/services") {
+    return true;
+  }
+
   if (pathname === "/athlete" || pathname.startsWith("/athlete/")) {
     return true;
   }
