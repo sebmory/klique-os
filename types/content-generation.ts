@@ -201,7 +201,7 @@ export type StoryBrief = {
 
 export type ArticleTypeId = "actualite" | "portrait" | "analyse" | "reportage";
 
-export type ArticleLengthId = "court" | "moyen" | "long";
+export type ArticleLengthId = "breve" | "court" | "moyen" | "long";
 
 export type ArticleProvidedCitation = {
   text: string;
@@ -341,7 +341,7 @@ export type PublicationIdea = {
 export type ContentGenerationMetadata = {
   provider: string;
   model: string;
-  templateId: "interview" | "publication" | "reel" | "story";
+  templateId: "interview" | "publication" | "reel" | "story" | "article";
   templateKey: ContentTemplateKey;
   templateVersion: string;
   promptVersion: string;

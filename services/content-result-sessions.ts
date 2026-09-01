@@ -45,7 +45,7 @@ export type StoredContentResult = StoredInterviewResult | StoredArticleResult;
 export type StoredArticlePreviewResult = {
   request: ArticleGenerationRequest;
   result: ArticleFinalResult;
-  createdAt: string;
+  createdAt?: string;
   sessionId?: string;
 };
 
@@ -121,7 +121,7 @@ const writeStoredArticleSession = (record: StoredArticleSessionRecord) => {
   window.sessionStorage.setItem(ARTICLE_RESULT_STORAGE_KEY, JSON.stringify(record));
 };
 
-const isStoredArticleResult = (value: unknown): value is StoredArticleResult => {
+export const isStoredArticleResult = (value: unknown): value is StoredArticleResult => {
   if (!value || typeof value !== "object") return false;
   const session = value as Partial<StoredArticleResult>;
   return session.request?.requestType === "article" &&
@@ -142,8 +142,7 @@ const isStoredArticlePreviewResult = (value: unknown): value is StoredArticlePre
   const session = value as Partial<StoredArticlePreviewResult>;
   return session.request?.requestType === "article" &&
     Boolean(session.result?.title) &&
-    Array.isArray(session.result?.sections) &&
-    Boolean(session.createdAt);
+    Array.isArray(session.result?.sections);
 };
 
 const readStoredArticleSession = (sessionId: string): RestoredArticleResultSession | null => {

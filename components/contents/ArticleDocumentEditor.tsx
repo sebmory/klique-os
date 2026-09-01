@@ -28,7 +28,7 @@ const withSequentialSectionOrder = (document: ArticleDocument): ArticleDocument 
 const validateArticleDocument = (document: ArticleDocument): string | null => {
   if (!document.sections.title.trim()) return "Le titre de l article est obligatoire.";
   if (!document.sections.lead.trim()) return "Le chapeau de l article est obligatoire.";
-  if (!document.sections.conclusion.trim()) return "La conclusion de l article est obligatoire.";
+  if (document.sections.articleLength !== "breve" && !document.sections.conclusion.trim()) return "La conclusion de l article est obligatoire.";
   if (!document.sections.sections.length) return "L article doit contenir au moins une section.";
 
   for (const [sectionIndex, section] of document.sections.sections.entries()) {
@@ -50,6 +50,7 @@ const articleTypeLabels: Record<ArticleDocument["sections"]["articleType"], stri
 };
 
 const articleLengthLabels: Record<ArticleDocument["sections"]["articleLength"], string> = {
+  breve: "Brève",
   court: "Court",
   moyen: "Moyen",
   long: "Long",

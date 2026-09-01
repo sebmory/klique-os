@@ -9,6 +9,7 @@ import {
   runArticleStructureSuggestionsEngine,
 } from "@/services/content-intelligence/article-engine";
 import {
+  ArticleEditorialReadinessError,
   validateArticleAngleSuggestionsRequest,
   validateArticleRequest,
   validateArticleStructureSuggestion,
@@ -16,6 +17,7 @@ import {
 import type {
   ArticleAngleSuggestionsRequest,
   ArticleGenerationRequest,
+  ArticleLengthId,
   ArticleStructureSuggestion,
 } from "@/types/content-generation";
 
@@ -32,10 +34,11 @@ type ArticleGenerateBody = {
 };
 
 const finalCreditCostByLength = {
+  breve: 1,
   court: 2,
   moyen: 3,
   long: 4,
-} as const;
+} as const satisfies Record<ArticleLengthId, number>;
 
 const isArticleAction = (value: unknown): value is ArticleAction =>
   value === "angles" || value === "structures" || value === "final";
@@ -63,6 +66,19 @@ const getCreditCost = (action: ArticleAction, request: ArticleGenerationRequest 
 const errorResponse = (error: unknown) => {
   const accessResponse = contentAccessErrorResponse(error);
   if (accessResponse) return accessResponse;
+
+  if (error instanceof ArticleEditorialReadinessError) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        issues: error.assessment.issues,
+        metrics: error.assessment.metrics,
+      },
+      { status: 422 },
+    );
+  }
 
   const normalized = error instanceof ContentGenerationError
     ? error
@@ -190,14 +206,15 @@ export async function POST(request: Request) {
     );
     return NextResponse.json({ ok: true, action: body.action, result: output });
   } catch (error) {
-    if (creditContext && consumedCreditKeys.length > 0) {
+    const refundContext = creditContext;
+    if (refundContext && consumedCreditKeys.length > 0) {
       await Promise.allSettled(
         consumedCreditKeys.map((originalIdempotencyKey) =>
           refundAiCredit({
-            workspaceId: creditContext.workspaceId,
-            clerkUserId: creditContext.clerkUserId,
-            requestGroupId: creditContext.requestGroupId,
-            operation: creditContext.operation,
+            workspaceId: refundContext.workspaceId,
+            clerkUserId: refundContext.clerkUserId,
+            requestGroupId: refundContext.requestGroupId,
+            operation: refundContext.operation,
             originalIdempotencyKey,
           }),
         ),

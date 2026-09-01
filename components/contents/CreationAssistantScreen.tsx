@@ -61,6 +61,7 @@ import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } 
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
 import { runContentsBackfill } from "@/services/content-backfill";
+import { assessArticleEditorialReadiness } from "@/services/content-intelligence/article-readiness";
 
 type CreationAssistantScreenProps = {
   context: ContentCreationContext;
@@ -282,6 +283,7 @@ const articleTypeLabels: Record<string, string> = {
 };
 
 const articleLengthLabels: Record<string, string> = {
+  breve: "Brève — 50 à 120 mots",
   court: "Court — 400 à 600 mots",
   moyen: "Moyen — 700 à 1 000 mots",
   long: "Long — 1 200 à 1 600 mots",
@@ -447,6 +449,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     errorMessage: string | null;
   }>({ loading: false, errorMessage: null });
   const [expandedArticleStructureId, setExpandedArticleStructureId] = useState<string | null>(null);
+  const [isArticleNotesExampleOpen, setIsArticleNotesExampleOpen] = useState(false);
   const articleHydratedRef = useRef(false);
   const articleContextRestoredRef = useRef(false);
   const generationAbortRef = useRef<AbortController | null>(null);
@@ -529,7 +532,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const getGenerationCreditCost = (): number => {
     if (draft.objective.objective === "article") {
-      return draft.article?.length === "court" ? 2 : draft.article?.length === "long" ? 4 : 3;
+      if (draft.article?.length === "breve") return 1;
+      if (draft.article?.length === "court") return 2;
+      return draft.article?.length === "long" ? 4 : 3;
     }
     return 1;
   };
@@ -566,6 +571,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     () => ContentCreationAssistantService.parametersForObjective(draft.objective.objective),
     [draft.objective.objective]
   );
+  const articleReadiness = useMemo(() => {
+    if (draft.objective.objective !== "article") return null;
+    const articleRequest = prepareArticleAngleSuggestionsRequest(draft, contextState.items);
+    return articleRequest ? assessArticleEditorialReadiness(articleRequest) : null;
+  }, [contextState.items, draft]);
+  const isArticleContextNextDisabled =
+    draft.objective.objective === "article" && step.id === "context" && !articleReadiness?.ready;
 
   useEffect(() => {
     if (context.objective === "article") return;
@@ -999,6 +1011,23 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     if (stepId === "context") {
+      if (draft.objective.objective === "article") {
+        if (!articleReadiness) {
+          return {
+            ok: false,
+            message: "Complétez les informations Article avant d’évaluer la maturité éditoriale.",
+            focusSelector: "[data-article-readiness='true']",
+          };
+        }
+        if (!articleReadiness.ready) {
+          return {
+            ok: false,
+            message: articleReadiness.issues.join(" "),
+            focusSelector: "[data-article-readiness='true']",
+          };
+        }
+        return { ok: true };
+      }
       if (!draft.parameters.useContextIntelligence) return { ok: true };
       if (!draft.parameters.contextEnableCrm && !draft.parameters.contextEnableProductions && !draft.parameters.contextEnableManual && !draft.parameters.contextEnableExternalNews) {
         return { ok: false, message: "Selectionnez au moins une source de contexte.", focusSelector: ".creation-toggle-row input[type='checkbox']" };
@@ -1013,7 +1042,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     return { ok: true };
-  }, [contextState.hasCollected, contextState.loading, draft, objectiveParameters]);
+  }, [articleReadiness, contextState.hasCollected, contextState.loading, draft, objectiveParameters]);
 
   const preparedPayload = useMemo(() => {
     return ContentCreationAssistantService.preparePayload({
@@ -1064,6 +1093,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const moveNext = () => {
+    if (isArticleContextNextDisabled) {
+      setStepErrorMessage(
+        articleReadiness?.issues.join(" ") || "La maturité éditoriale de l’Article est insuffisante.",
+      );
+      focusValidationTarget("[data-article-readiness='true']");
+      return;
+    }
+
     const validation = validateStep(step.id);
     if (!validation.ok) {
       setStepErrorMessage(validation.message || "Cette etape n est pas encore valide.");
@@ -1149,7 +1186,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const selectObjective = (id: CreationObjectiveType) => {
     const objective = template.objectives.find((item) => item.id === id);
-    if (!objective || !objective.enabled) return;
+    const isAvailable = objective?.enabled || id === "article";
+    if (!objective || !isAvailable) return;
+    const articleDefaults = id === "article"
+      ? createInitialAssistantDraft({ ...context, objective: "article" })
+      : null;
     setDraft((current) => ({
       ...current,
       objective: {
@@ -1158,14 +1199,15 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       },
       parameters: {
         ...current.parameters,
-        toneId: id === "publication" || id === "reel" ? current.parameters.toneId || "authentic" : "",
+        toneId: id === "article" ? articleDefaults?.parameters.toneId ?? "" : id === "publication" || id === "reel" ? current.parameters.toneId || "authentic" : "",
         questionCountId: "",
         customQuestionCount: "",
         formatId: id === "publication" ? current.parameters.publicationPlatform : id === "reel" ? current.parameters.reelFormat : "",
-        audienceId: id === "publication" || id === "reel" ? current.parameters.audienceId || "general" : "",
+        audienceId: id === "article" ? articleDefaults?.parameters.audienceId ?? "" : id === "publication" || id === "reel" ? current.parameters.audienceId || "general" : "",
         requiredTopics: "",
         avoidedTopics: "",
       },
+      article: id === "article" ? current.article ?? articleDefaults?.article : current.article,
     }));
   };
 
@@ -1375,6 +1417,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const generateArticleAngles = useCallback(async () => {
+    if (!articleReadiness?.ready) {
+      setArticleAnglesState((current) => ({
+        ...current,
+        errorMessage: articleReadiness?.issues.join(" ") || "La maturité éditoriale de l’Article est insuffisante.",
+      }));
+      return;
+    }
     const articleRequest = prepareArticleAngleSuggestionsRequest(draft, contextState.items);
     if (!articleRequest) {
       const errors = getArticleAnglePreparationErrors(draft);
@@ -1400,9 +1449,16 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     } finally {
       void loadCreditBalance();
     }
-  }, [contextState.items, draft, loadCreditBalance]);
+  }, [articleReadiness, contextState.items, draft, loadCreditBalance]);
 
   const requestArticleAngles = () => {
+    if (!articleReadiness?.ready) {
+      setArticleAnglesState((current) => ({
+        ...current,
+        errorMessage: articleReadiness?.issues.join(" ") || "La maturité éditoriale de l’Article est insuffisante.",
+      }));
+      return;
+    }
     if (articleAnglesState.suggestions.length > 0 && !window.confirm("Regenerer 3 angles Article consommera 1 crédit. Continuer ?")) return;
     if (mediaCreditRole === "media") {
       setCreditModal({ kind: "article_angles", cost: 1 });
@@ -1913,13 +1969,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             {template.objectives.map((objective) => {
               const Icon = objectiveIconById[objective.id];
               const selected = draft.objective.objective === objective.id;
+              const isAvailable = objective.enabled || objective.id === "article";
               return (
                 <button
                   key={objective.id}
                   type="button"
                   className={selected ? "creation-objective-card is-active" : "creation-objective-card"}
                   onClick={() => selectObjective(objective.id)}
-                  disabled={!objective.enabled}
+                  disabled={!isAvailable}
                 >
                   <span className="creation-choice-icon" aria-hidden>
                     <Icon size={17} />
@@ -1928,7 +1985,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     <strong>{objective.title}</strong>
                     <p>{objective.description}</p>
                   </div>
-                  <small>{objective.availabilityLabel}</small>
+                  <small>{objective.id === "article" ? "Disponible" : objective.availabilityLabel}</small>
                 </button>
               );
             })}
@@ -2307,7 +2364,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <option value="actualite">Actualité</option><option value="portrait">Portrait</option><option value="analyse">Analyse</option><option value="reportage">Reportage</option>
         </select></label>
         <label><span>Longueur</span><select data-article-length="true" value={draft.article?.length ?? "moyen"} onChange={(event) => updateArticleDraft((article) => ({ ...article, length: event.target.value as ArticleAssistantDraft["length"] }))}>
-          <option value="court">Court — 400 à 600 mots</option><option value="moyen">Moyen — 700 à 1 000 mots</option><option value="long">Long — 1 200 à 1 600 mots</option>
+          <option value="breve">Brève — 50 à 120 mots</option><option value="court">Court — 400 à 600 mots</option><option value="moyen">Moyen — 700 à 1 000 mots</option><option value="long">Long — 1 200 à 1 600 mots</option>
         </select></label>
       </div></section>
     </section>
@@ -2402,7 +2459,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     <section className="creation-step-block" aria-labelledby="creation-article-angle-title">
       <header className="creation-step-head"><h2 id="creation-article-angle-title">Angle Article</h2></header>
       <section className="creation-panel">
-        <button type="button" className="crm-primary-action" onClick={requestArticleAngles} disabled={articleAnglesState.loading || isPublicationAnglesBlocked}>
+        <button type="button" className="crm-primary-action" onClick={requestArticleAngles} disabled={articleAnglesState.loading || isPublicationAnglesBlocked || !articleReadiness?.ready}>
           {articleAnglesState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
           {articleAnglesState.loading ? "Generation des angles" : "Proposer 3 angles — 1 crédit"}
         </button>
@@ -3501,6 +3558,76 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     );
   };
 
+  const renderArticleReadiness = () => {
+    if (draft.objective.objective !== "article") return null;
+
+    return (
+      <section className="creation-panel" data-article-readiness="true" tabIndex={-1} aria-live="polite">
+        <header>
+          <h3>Maturité éditoriale</h3>
+          <strong>{articleReadiness?.ready ? "Prêt" : "Insuffisant"}</strong>
+        </header>
+        {articleReadiness ? (
+          <>
+            <p className="creation-muted">
+              {`Pour un article ${draft.article?.length ?? "court"}, il faut au minimum ${articleReadiness.metrics.requiredWordCount} mots de matière et ${articleReadiness.metrics.requiredFactualElementCount} faits distincts.`}
+            </p>
+            <dl className="creation-summary-grid">
+              <div><dt>Mots de matière</dt><dd>{`${articleReadiness.metrics.availableWordCount} / ${articleReadiness.metrics.requiredWordCount}`}</dd></div>
+              <div><dt>Éléments factuels distincts</dt><dd>{`${articleReadiness.metrics.distinctFactualElementCount} / ${articleReadiness.metrics.requiredFactualElementCount}`}</dd></div>
+            </dl>
+            {articleReadiness.issues.length > 0 ? (
+              <>
+                <ul>
+                  {articleReadiness.issues.map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+                <p className="creation-muted">Vous pouvez compléter vos notes ou activer la recherche intelligente.</p>
+              </>
+            ) : (
+              <p className="creation-muted">La matière disponible permet de proposer des angles sans recherche supplémentaire.</p>
+            )}
+          </>
+        ) : (
+          <p className="creation-muted">Complétez les informations Article pour calculer la matière disponible.</p>
+        )}
+      </section>
+    );
+  };
+
+  const renderArticleContextHelp = () => {
+    if (draft.objective.objective !== "article") return null;
+
+    return (
+      <div className="creation-muted">
+        <p>Fournissez des notes et des faits, pas un article déjà rédigé. KLIQUE utilisera cette matière pour construire les angles, la structure et le texte final.</p>
+        <ul>
+          <li>Les mots et faits sont cumulés depuis vos notes, les citations et les éléments de contexte sélectionnés.</li>
+          <li>Un fait distinct est une information vérifiable : date, résultat, rôle, événement, déclaration ou statistique.</li>
+          <li>La recherche intelligente peut compléter la matière, mais elle n’est pas obligatoire si vos informations suffisent.</li>
+        </ul>
+        <details onToggle={(event) => setIsArticleNotesExampleOpen(event.currentTarget.open)}>
+          <summary className="contents-secondary-button">
+            {isArticleNotesExampleOpen ? "Masquer l’exemple" : "Voir un exemple de notes"}
+          </summary>
+          <div className="creation-panel">
+            <strong>Exemple de notes suffisantes pour un article court</strong>
+            <ul>
+              <li>Léa Martin, 22 ans, gardienne du FC Exemple</li>
+              <li>Elle a rejoint le club en juillet 2026 après trois saisons au FC Ancien</li>
+              <li>Elle était titulaire contre Lausanne le 18 août 2026</li>
+              <li>Son équipe a remporté le match 2–0</li>
+              <li>Elle a réalisé cinq arrêts, dont un penalty à la 72e minute</li>
+              <li>Il s’agissait du troisième match de championnat de son équipe</li>
+              <li>Source : feuille de match officielle et compte rendu du club</li>
+            </ul>
+            <p><strong>Trop vague :</strong> Faire un article sur la saison de Léa Martin.</p>
+            <p>Vous pouvez écrire sous forme de liste ou de phrases courtes.</p>
+          </div>
+        </details>
+      </div>
+    );
+  };
+
   const renderContextStep = () => {
     const title = isPublicationFlow ? "Contexte intelligent" : "Preparation du contexte";
     const isArticle = draft.objective.objective === "article";
@@ -3511,6 +3638,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <header className="creation-step-head">
             <h2 id="creation-context-title">{title}</h2>
           </header>
+          {renderArticleContextHelp()}
           {isArticle ? (
             <>
               <label className="creation-inline-field">
@@ -3522,6 +3650,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <input type="checkbox" checked={draft.parameters.useContextIntelligence} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, useContextIntelligence: event.target.checked } }))} />
                 <span>Activer la recherche intelligente</span>
               </label>
+              {renderArticleReadiness()}
             </>
           ) : null}
           <p className="creation-muted">{isArticle ? "Le contexte intelligent est désactivé. Les sources et informations saisies seront utilisées pour proposer les angles." : isPublicationFlow ? "Le contexte intelligent est desactive. Activez l option \"Enrichir avec le contexte intelligent\" a l etape precedente pour utiliser les donnees du workspace." : "Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu."}</p>
@@ -3560,6 +3689,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <h2 id="creation-context-title">{title}</h2>
           <p>Collectez, relisez et selectionnez les elements qui seront utilises pour la generation.</p>
         </header>
+        {renderArticleContextHelp()}
 
         {isArticle ? (
           <>
@@ -3572,6 +3702,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               <input type="checkbox" checked={draft.parameters.useContextIntelligence} onChange={(event) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, useContextIntelligence: event.target.checked } }))} />
               <span>Activer la recherche intelligente</span>
             </label>
+            {renderArticleReadiness()}
           </>
         ) : null}
 
@@ -4369,7 +4500,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         <div className="creation-footer-right">
           <Link href="/contents" className="contents-ghost-button">Quitter</Link>
           {!(draft.objective.objective === "article" && step.id === "summary") ? (
-            <button type="button" className="crm-primary-action" onClick={moveNext} disabled={effectiveStepIndex === steps.length - 1}>
+            <button
+              type="button"
+              className={isArticleContextNextDisabled ? "crm-primary-action opacity-50 cursor-not-allowed" : "crm-primary-action"}
+              style={isArticleContextNextDisabled ? { opacity: 0.5, cursor: "not-allowed", background: "#e5e7eb" } : undefined}
+              onClick={moveNext}
+              disabled={effectiveStepIndex === steps.length - 1 || isArticleContextNextDisabled}
+            >
               Suivant <ArrowRight size={15} aria-hidden />
             </button>
           ) : null}

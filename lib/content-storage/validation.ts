@@ -247,12 +247,19 @@ const validateArticleDocumentSections = (value: unknown): void => {
   requireString(sections.title, "sections.title");
   requireOptionalString(sections.subtitle, "sections.subtitle");
   requireString(sections.lead, "sections.lead");
-  requireString(sections.conclusion, "sections.conclusion");
   requireNumber(sections.estimatedWordCount, "sections.estimatedWordCount");
   assertAllowed(sections.articleType, "sections.articleType", ["actualite", "portrait", "analyse", "reportage"] as const);
-  assertAllowed(sections.articleLength, "sections.articleLength", ["court", "moyen", "long"] as const);
+  const articleLength = assertAllowed(sections.articleLength, "sections.articleLength", ["breve", "court", "moyen", "long"] as const);
+  if (articleLength === "breve") {
+    if (typeof sections.conclusion !== "string") throw new ContentStorageValidationError("sections.conclusion doit etre une chaine.");
+  } else {
+    requireString(sections.conclusion, "sections.conclusion");
+  }
   if (!Array.isArray(sections.sections) || sections.sections.length < 1) {
     throw new ContentStorageValidationError("sections.sections doit contenir au moins une section Article.");
+  }
+  if (articleLength === "breve" && sections.sections.length > 2) {
+    throw new ContentStorageValidationError("sections.sections doit contenir 2 sections maximum pour une breve.");
   }
   sections.sections.forEach((section, index) => {
     const item = requireObject(section, `sections.sections[${index}]`);
@@ -397,7 +404,7 @@ const validateStoredArticleResult = (value: unknown): StoredArticleResult => {
   const brief = requireObject(request.brief, "session.request.brief");
   requireString(brief.selectedAngle, "session.request.brief.selectedAngle");
   assertAllowed(brief.articleType, "session.request.brief.articleType", ["actualite", "portrait", "analyse", "reportage"] as const);
-  assertAllowed(brief.length, "session.request.brief.length", ["court", "moyen", "long"] as const);
+  const articleLength = assertAllowed(brief.length, "session.request.brief.length", ["breve", "court", "moyen", "long"] as const);
   requireString(brief.tone, "session.request.brief.tone");
   requireString(brief.audience, "session.request.brief.audience");
   requireStringArray(brief.requiredTopics, "session.request.brief.requiredTopics");
@@ -407,26 +414,33 @@ const validateStoredArticleResult = (value: unknown): StoredArticleResult => {
   requireString(result.title, "session.result.title");
   if (result.subtitle !== null && result.subtitle !== undefined) requireString(result.subtitle, "session.result.subtitle");
   requireString(result.lead, "session.result.lead");
-  requireString(result.conclusion, "session.result.conclusion");
+  if (articleLength === "breve") {
+    if (typeof result.conclusion !== "string") throw new ContentStorageValidationError("session.result.conclusion doit etre une chaine.");
+  } else {
+    requireString(result.conclusion, "session.result.conclusion");
+  }
   requireNumber(result.estimatedWordCount, "session.result.estimatedWordCount");
-  if (!Array.isArray(result.sections) || result.sections.length < 1) throw new ContentStorageValidationError("session.result.sections doit contenir au moins une section.");
-  result.sections.forEach((section, index) => {
+  const resultSections = result.sections;
+  if (!Array.isArray(resultSections) || resultSections.length < 1) throw new ContentStorageValidationError("session.result.sections doit contenir au moins une section.");
+  if (articleLength === "breve" && resultSections.length > 2) throw new ContentStorageValidationError("session.result.sections doit contenir 2 sections maximum pour une breve.");
+  resultSections.forEach((section, index) => {
     const item = requireObject(section, `session.result.sections[${index}]`);
     requireNumber(item.order, `session.result.sections[${index}].order`);
     requireString(item.heading, `session.result.sections[${index}].heading`);
-    requireStringArray(item.paragraphs, `session.result.sections[${index}].paragraphs`);
-    if (item.paragraphs.some((paragraph) => !paragraph)) throw new ContentStorageValidationError(`session.result.sections[${index}].paragraphs ne peut pas contenir de chaine vide.`);
+    const paragraphs = requireStringArray(item.paragraphs, `session.result.sections[${index}].paragraphs`);
+    if (paragraphs.some((paragraph) => !paragraph)) throw new ContentStorageValidationError(`session.result.sections[${index}].paragraphs ne peut pas contenir de chaine vide.`);
   });
-  ["usedCitations", "usedSources"].forEach((field) => {
-    if (!Array.isArray(result[field])) throw new ContentStorageValidationError(`session.result.${field} doit etre un tableau.`);
-  });
-  result.usedCitations.forEach((citation: unknown, index: number) => {
+  const usedCitations = result.usedCitations;
+  if (!Array.isArray(usedCitations)) throw new ContentStorageValidationError("session.result.usedCitations doit etre un tableau.");
+  const usedSources = result.usedSources;
+  if (!Array.isArray(usedSources)) throw new ContentStorageValidationError("session.result.usedSources doit etre un tableau.");
+  usedCitations.forEach((citation, index) => {
     const item = requireObject(citation, `session.result.usedCitations[${index}]`);
     requireString(item.text, `session.result.usedCitations[${index}].text`);
     requireString(item.author, `session.result.usedCitations[${index}].author`);
     requireString(item.source, `session.result.usedCitations[${index}].source`);
   });
-  result.usedSources.forEach((source: unknown, index: number) => {
+  usedSources.forEach((source, index) => {
     const item = requireObject(source, `session.result.usedSources[${index}]`);
     requireString(item.title, `session.result.usedSources[${index}].title`);
     requireString(item.url, `session.result.usedSources[${index}].url`);
@@ -434,7 +448,10 @@ const validateStoredArticleResult = (value: unknown): StoredArticleResult => {
   const selectedAngle = requireObject(session.selectedAngle, "session.selectedAngle");
   requireString(selectedAngle.id, "session.selectedAngle.id");
   requireString(selectedAngle.title, "session.selectedAngle.title");
-  validateArticleStructure(session.selectedStructure);
+  const selectedStructure = validateArticleStructure(session.selectedStructure);
+  if (articleLength === "breve" && selectedStructure.sections.length > 2) {
+    throw new ContentStorageValidationError("session.selectedStructure.sections doit contenir 2 sections maximum pour une breve.");
+  }
   const generationMetadata = requireObject(session.generationMetadata, "session.generationMetadata");
   assertAllowed(generationMetadata.provider, "session.generationMetadata.provider", ["openai"] as const);
   requireString(generationMetadata.model, "session.generationMetadata.model");

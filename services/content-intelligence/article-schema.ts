@@ -103,7 +103,7 @@ export const buildArticleFinalJsonSchema = (): JsonSchema => ({
     subtitle: { type: ["string", "null"] },
     lead: nonEmptyStringSchema,
     sections: { type: "array", minItems: 1, items: finalContentSectionSchema },
-    conclusion: nonEmptyStringSchema,
+    conclusion: { type: "string" },
     usedCitations: { type: "array", items: citationSchema },
     usedSources: { type: "array", items: sourceSchema },
     estimatedWordCount: { type: "integer", minimum: 1 },

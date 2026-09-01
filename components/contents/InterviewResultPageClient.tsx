@@ -10,8 +10,12 @@ import { ContentDocumentDraftService } from "@/services/content-documents/draft-
 import { mapArticleGenerationToDocument } from "@/services/content-documents/document-mapper";
 import { runContentsBackfill } from "@/services/content-backfill";
 import {
+  isStoredArticleResult,
   restoreArticleResultSession,
   restoreInterviewResultSession,
+  restoreLegacyArticlePreviewSession,
+  saveArticleResultSession,
+  type StoredArticlePreviewResult,
   type StoredArticleResult,
   type StoredInterviewResult,
 } from "@/services/content-result-sessions";
@@ -20,10 +24,12 @@ import type { ContentDocumentDraftSaveResult } from "@/services/content-document
 
 export function InterviewResultPageClient() {
   const [parsed, setParsed] = useState<StoredInterviewResult | null>(null);
-  const [articleResult, setArticleResult] = useState<StoredArticleResult | null>(null);
+  const [articleResult, setArticleResult] = useState<StoredArticlePreviewResult | null>(null);
   const [articleDocument, setArticleDocument] = useState<ArticleDocument | null>(null);
   const [articleEditing, setArticleEditing] = useState(false);
   const [articleEditError, setArticleEditError] = useState<string | null>(null);
+  const [articleRegenerating, setArticleRegenerating] = useState(false);
+  const [articleRegenerationError, setArticleRegenerationError] = useState<string | null>(null);
   const [restoredDraft, setRestoredDraft] = useState<ContentDocument | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -61,6 +67,18 @@ export function InterviewResultPageClient() {
         return;
       }
 
+      if (!sessionId) {
+        const legacyArticle = restoreLegacyArticlePreviewSession();
+        if (legacyArticle) {
+          setArticleResult(legacyArticle);
+          setArticleDocument(null);
+          setParsed(null);
+          setRestoredDraft(null);
+          setReady(true);
+          return;
+        }
+      }
+
       const restored = await restoreInterviewResultSession(sessionId, documentId);
       if (!active) return;
 
@@ -95,7 +113,7 @@ export function InterviewResultPageClient() {
   };
 
   const startArticleEditing = async () => {
-    if (!articleResult || articleEditing) return;
+    if (!articleResult || !isStoredArticleResult(articleResult) || articleEditing || articleRegenerating) return;
     setArticleEditing(true);
     setArticleEditError(null);
     try {
@@ -123,6 +141,55 @@ export function InterviewResultPageClient() {
     setArticleDocument(saved.document as ArticleDocument);
   };
 
+  const regenerateArticle = async () => {
+    if (!articleResult || !isStoredArticleResult(articleResult) || articleRegenerating || articleDocument) return;
+
+    const previousResult = articleResult;
+    setArticleRegenerating(true);
+    setArticleRegenerationError(null);
+    try {
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "final",
+          requestId: crypto.randomUUID(),
+          request: previousResult.request,
+          selectedStructure: previousResult.selectedStructure,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        result?: {
+          article?: StoredArticleResult["result"];
+          metadata?: StoredArticleResult["generationMetadata"];
+        };
+        message?: string;
+      } | null;
+      if (!response.ok || !payload?.ok || !payload.result?.article || !payload.result.metadata) {
+        throw new Error(payload?.message || "Impossible de régénérer l’article.");
+      }
+
+      const savedResult = await saveArticleResultSession({
+        request: previousResult.request,
+        result: payload.result.article,
+        selectedAngle: previousResult.selectedAngle,
+        selectedStructure: previousResult.selectedStructure,
+        generationMetadata: payload.result.metadata,
+        createdAt: new Date().toISOString(),
+      });
+      const url = new URL(window.location.href);
+      url.searchParams.set("sessionId", savedResult.sessionId);
+      url.searchParams.delete("documentId");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+      setArticleResult(savedResult);
+    } catch (error) {
+      setArticleRegenerationError(error instanceof Error ? error.message : "Impossible de régénérer l’article.");
+    } finally {
+      setArticleRegenerating(false);
+    }
+  };
+
   if (!ready) {
     return null;
   }
@@ -137,7 +204,19 @@ export function InterviewResultPageClient() {
       );
     }
     if (articleResult) {
-      return <ArticleResultScreen request={articleResult.request} result={articleResult.result} onEdit={() => void startArticleEditing()} editing={articleEditing} editError={articleEditError} />;
+      const completeArticleResult = isStoredArticleResult(articleResult);
+      return (
+        <ArticleResultScreen
+          request={articleResult.request}
+          result={articleResult.result}
+          onEdit={completeArticleResult ? () => void startArticleEditing() : undefined}
+          editing={articleEditing}
+          editError={articleEditError}
+          onRegenerate={completeArticleResult ? () => void regenerateArticle() : undefined}
+          regenerating={articleRegenerating}
+          regenerationError={completeArticleResult ? articleRegenerationError : null}
+        />
+      );
     }
     if (restoredDraft) {
       return <ContentDocumentEditor initialDocument={restoredDraft} onSaveDraft={saveDraft} isPersistedInCloud />;

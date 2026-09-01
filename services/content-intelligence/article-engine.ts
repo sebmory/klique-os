@@ -5,6 +5,7 @@ import { ContentGenerationError, toContentGenerationError } from "@/services/con
 import {
   buildArticleAngleSuggestionsPrompt,
   buildArticleFactualCorrectionInstruction,
+  buildArticleFinalCorrectionInstruction,
   buildArticleFinalPrompt,
   buildArticleStructurePrompt,
 } from "@/services/content-intelligence/article-prompt-builder";
@@ -16,6 +17,9 @@ import {
 import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
 import { buildPublicationAnglesJsonSchema } from "@/services/content-intelligence/publication-schema";
 import {
+  ArticleFinalLengthError,
+  ArticleFinalParagraphCountError,
+  ArticleFinalSentenceRepetitionError,
   validateArticleAngleSuggestions,
   validateArticleAngleQualifications,
   validateArticleAngleSuggestionsRequest,
@@ -347,7 +351,8 @@ export const runArticleFinalEngine = async (
     });
     latestResponse = firstResponse;
     const firstParsed = parseArticleResponse(firstResponse) as ArticleFinalContentRaw;
-    let article: ArticleFinalResult;
+    let article: ArticleFinalResult | null = null;
+    let correctionError: ContentGenerationError | null = null;
 
     try {
       article = assembleArticleFinalResult(firstParsed, selectedStructure);
@@ -355,7 +360,23 @@ export const runArticleFinalEngine = async (
       if (!(error instanceof ContentGenerationError) || error.code !== "INVALID_PROVIDER_RESPONSE") {
         throw error;
       }
+      correctionError = error;
+    }
 
+    if (article) {
+      try {
+        article.estimatedWordCount = validateArticleFinalResult(article, request, selectedStructure);
+      } catch (error) {
+        if (
+          !(error instanceof ArticleFinalLengthError)
+          && !(error instanceof ArticleFinalParagraphCountError)
+          && !(error instanceof ArticleFinalSentenceRepetitionError)
+        ) throw error;
+        correctionError = error;
+      }
+    }
+
+    if (correctionError) {
       await recordArticleUsage({
         callContext,
         operation: "article_final_generation",
@@ -363,17 +384,33 @@ export const runArticleFinalEngine = async (
         status: "failed",
         durationMs: Math.max(1, Date.now() - requestStartedAt),
         response: firstResponse,
-        errorCode: error.code,
+        errorCode: correctionError.code,
       });
 
       activeCallContext = callContext ? { ...callContext, retryNumber: (callContext.retryNumber ?? 0) + 1 } : undefined;
       const correctionPrompt = [
         buildArticleFinalPrompt(request, selectedStructure),
-        "Correction obligatoire: la reponse precedente est invalide uniquement sur son nombre de sections ou ses paragraphs.",
-        "Corriger uniquement les erreurs listees ci-dessous sans ajouter, retirer ou modifier de faits ou de texte valide.",
-        `Erreurs de validation: ${error.message}`,
-        "Reponse invalide:",
-        JSON.stringify(firstParsed, null, 2),
+        buildArticleFinalCorrectionInstruction({
+          errorMessage: correctionError.message,
+          invalidResponse: firstParsed,
+          ...(correctionError instanceof ArticleFinalLengthError
+            ? {
+                actualWordCount: correctionError.actualWordCount,
+                minimumWordCount: correctionError.minimumWordCount,
+                maximumWordCount: correctionError.maximumWordCount,
+              }
+            : {}),
+          ...(correctionError instanceof ArticleFinalParagraphCountError
+            ? {
+                actualVisibleParagraphCount: correctionError.actualVisibleParagraphCount,
+                minimumVisibleParagraphCount: correctionError.minimumVisibleParagraphCount,
+                maximumVisibleParagraphCount: correctionError.maximumVisibleParagraphCount,
+              }
+            : {}),
+          ...(correctionError instanceof ArticleFinalSentenceRepetitionError
+            ? { repeatedSentenceLocations: [correctionError.firstLocation, correctionError.secondLocation] as [string, string] }
+            : {}),
+        }),
       ].join("\n\n");
       const correctionResponse = await client.responses.create({
         model,
@@ -390,9 +427,12 @@ export const runArticleFinalEngine = async (
       });
       latestResponse = correctionResponse;
       article = assembleArticleFinalResult(parseArticleResponse(correctionResponse) as ArticleFinalContentRaw, selectedStructure);
+      article.estimatedWordCount = validateArticleFinalResult(article, request, selectedStructure);
     }
 
-    validateArticleFinalResult(article, request, selectedStructure);
+    if (!article) {
+      throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Article final absent apres validation");
+    }
 
     const metadata = createMetadata(model, requestStartedAt);
     await recordArticleUsage({

@@ -1,4 +1,5 @@
 import type {
+  ArticleLengthId,
   ArticleProvidedCitation,
   ArticleStructureSuggestion,
   ArticleVerifiedSource,
@@ -158,7 +159,7 @@ export type ArticleDocumentSections = {
   usedSources: ArticleVerifiedSource[];
   estimatedWordCount: number;
   articleType: "actualite" | "portrait" | "analyse" | "reportage";
-  articleLength: "court" | "moyen" | "long";
+  articleLength: ArticleLengthId;
   selectedAngle: { id: string; title: string };
   selectedStructure: ArticleStructureSuggestion;
 };

@@ -28,6 +28,7 @@ const documentTypeLabels: Record<string, string> = {
   interview: "Interview",
   publication: "Publication",
   reel: "Reel",
+  article: "Article",
 };
 
 const getDocumentTitle = (document: ContentDocument): string => {

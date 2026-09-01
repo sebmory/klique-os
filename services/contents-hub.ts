@@ -93,9 +93,9 @@ const generators: ContentGenerator[] = [
     id: "article",
     title: "Article",
     description: "Definissez angle, structure et sections pour un article solide.",
-    isAvailable: false,
-    statusLabel: "Bientot disponible",
-    entryRoute: "/contents/create",
+    isAvailable: true,
+    statusLabel: "Disponible",
+    entryRoute: "/contents/create?objective=article",
   },
   {
     id: "campaign",

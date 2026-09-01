@@ -330,7 +330,8 @@ const getSelectedArticleContextItems = (
   return contextItems.filter((item) => {
     if (!selectedItemIds.has(item.id)) return false;
     if (item.connectorId === "external_news") {
-      return Boolean(item.sourceUrl) && selectedSourceUrls.has(item.sourceUrl);
+      const sourceUrl = item.sourceUrl;
+      return sourceUrl !== undefined && selectedSourceUrls.has(sourceUrl);
     }
     return item.connectorId === "crm" || item.connectorId === "productions";
   });
