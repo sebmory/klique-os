@@ -9,10 +9,11 @@ export const contactRequestCategories = [
   "other",
 ] as const;
 
-export const contactRequestStatuses = ["open", "in_progress", "resolved"] as const;
+export const contactRequestStatuses = ["open", "pending", "in_progress", "resolved"] as const;
 
 export type ContactRequestCategory = (typeof contactRequestCategories)[number];
 export type ContactRequestStatus = (typeof contactRequestStatuses)[number];
+export type ContactRequestKind = "athlete_contact" | "partner_athlete_introduction";
 
 export const contactRequestSubjectMaxLength = 150;
 export const contactRequestMessageMaxLength = 3000;
@@ -21,6 +22,8 @@ export type ContactRequestRecord = {
   id: string;
   workspaceId: string;
   athleteId: string;
+  partnerId: string | null;
+  requestKind: ContactRequestKind;
   category: ContactRequestCategory;
   subject: string;
   message: string;
@@ -58,6 +61,8 @@ const mapRow = (row: Record<string, unknown>): ContactRequestRecord => ({
   id: String(row.id ?? ""),
   workspaceId: String(row.workspace_id ?? ""),
   athleteId: String(row.athlete_id ?? ""),
+  partnerId: typeof row.partner_id === "string" ? row.partner_id : null,
+  requestKind: String(row.request_kind ?? "athlete_contact") as ContactRequestKind,
   category: String(row.category ?? "other") as ContactRequestCategory,
   subject: String(row.subject ?? ""),
   message: String(row.message ?? ""),
@@ -95,7 +100,7 @@ export const createContactRequest = async (input: CreateContactRequestInput): Pr
       ${now},
       ${now}
     )
-    RETURNING id, workspace_id, athlete_id, category, subject, message, status, created_at, updated_at
+    RETURNING id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
   `;
 
   return mapRow(rows[0] as Record<string, unknown>);
@@ -106,13 +111,56 @@ export const listContactRequests = async (workspaceId?: string): Promise<Contact
   const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
 
   const rows = await sql`
-    SELECT id, workspace_id, athlete_id, category, subject, message, status, created_at, updated_at
+    SELECT id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
     FROM contact_requests
     WHERE workspace_id = ${resolvedWorkspaceId}
     ORDER BY created_at DESC
   `;
 
   return rows.map((row) => mapRow(row as Record<string, unknown>));
+};
+
+export const hasPendingPartnerAthleteIntroduction = async (
+  workspaceId: string,
+  partnerId: string,
+  athleteId: string,
+): Promise<boolean> => {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT 1
+    FROM contact_requests
+    WHERE workspace_id = ${normalize(workspaceId)}
+      AND partner_id = ${normalize(partnerId)}
+      AND athlete_id = ${normalize(athleteId)}
+      AND request_kind = 'partner_athlete_introduction'
+      AND status = 'pending'
+    LIMIT 1
+  `;
+  return Boolean(rows[0]);
+};
+
+export const createPartnerAthleteIntroduction = async (input: {
+  workspaceId: string;
+  partnerId: string;
+  athleteId: string;
+  reason: string;
+  message: string;
+}): Promise<ContactRequestRecord | null> => {
+  const sql = getSql();
+  const now = new Date().toISOString();
+  const rows = await sql`
+    INSERT INTO contact_requests (
+      id, workspace_id, athlete_id, partner_id, request_kind, category,
+      subject, message, status, created_at, updated_at
+    ) VALUES (
+      ${randomUUID()}, ${normalize(input.workspaceId)}, ${normalize(input.athleteId)},
+      ${normalize(input.partnerId)}, 'partner_athlete_introduction', 'other',
+      ${normalize(input.reason)}, ${normalize(input.message)}, 'pending', ${now}, ${now}
+    )
+    ON CONFLICT DO NOTHING
+    RETURNING id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
+  `;
+  return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
 
 export const updateContactRequestStatus = async (
@@ -131,7 +179,7 @@ export const updateContactRequestStatus = async (
     UPDATE contact_requests
     SET status = ${status}, updated_at = ${now}
     WHERE workspace_id = ${resolvedWorkspaceId} AND id = ${id}
-    RETURNING id, workspace_id, athlete_id, category, subject, message, status, created_at, updated_at
+    RETURNING id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
   `;
 
   return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;

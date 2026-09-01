@@ -16,6 +16,8 @@ type SidebarProps = {
   userRole?: string | null;
   userIsAthlete?: boolean;
   userIsMedia?: boolean;
+  userIsPartner?: boolean;
+  userPartnerLabel?: "Expert" | "Partenaire" | "Partenaire / Expert" | null;
   userName?: string | null;
 };
 
@@ -74,6 +76,8 @@ export function Sidebar({
   userRole,
   userIsAthlete,
   userIsMedia,
+  userIsPartner,
+  userPartnerLabel,
   userName,
 }: SidebarProps) {
   const { signOut } = useClerk();
@@ -83,8 +87,18 @@ export function Sidebar({
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const isAthlete = userIsAthlete ?? userRole === "athlete";
   const isMedia = (userIsMedia ?? userRole === "media") && !isAthlete;
-  const profileName = isAthlete || isMedia ? (userName ?? "Compte Clerk") : "Sebastien Mory";
-  const profileLabel = isAthlete ? "Athlète" : isMedia ? "Média" : "Administrateur";
+  const isPartner = (userIsPartner ?? userRole === "partner_expert") && !isAthlete && !isMedia;
+  const profileName = isAthlete || isMedia || isPartner ? (userName ?? "Compte Clerk") : "Sebastien Mory";
+  const profileLabel = isAthlete
+    ? "Athlète"
+    : isMedia
+      ? "Média"
+      : isPartner
+        ? (userPartnerLabel ?? "Partenaire / Expert")
+        : "Administrateur";
+  const profileInitials = isPartner
+    ? profileName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "PE"
+    : "SM";
   const visibleMainNavigation = isAthlete
     ? [
         { id: "today", label: "Aujourd’hui", href: "/athlete", icon: "house" as const },
@@ -97,9 +111,15 @@ export function Sidebar({
       ]
     : isMedia
       ? [{ id: "contents", label: "Contenus", href: "/contents", icon: "contents" as const }]
-      : mainNavigation;
+      : isPartner
+        ? [
+            { id: "today", label: "Aujourd’hui", href: "/partner", icon: "house" as const },
+            { id: "athletes", label: "Athlètes", href: "/partner/athletes", icon: "users" as const },
+          ]
+        : mainNavigation;
 
-  const visibleSecondaryNavigation = isAthlete || isMedia ? [] : secondaryNavigation;
+  const visibleSecondaryNavigation = isAthlete || isMedia || isPartner ? [] : secondaryNavigation;
+  const homeHref = isPartner ? "/partner" : "/";
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -152,7 +172,7 @@ export function Sidebar({
     <>
       <aside className={collapsed ? "klique-sidebar is-collapsed" : "klique-sidebar"}>
         <div className="sidebar-top-row">
-          <Link href="/" className="klique-logo" aria-label="Accueil KLIQUE">
+          <Link href={homeHref} className="klique-logo" aria-label="Accueil KLIQUE">
             <span>●</span>
             {!collapsed ? <strong>KLIQUE</strong> : null}
           </Link>
@@ -167,7 +187,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <WorkspaceSwitcher collapsed={collapsed} />
+        {!isPartner ? <WorkspaceSwitcher collapsed={collapsed} /> : null}
 
         <nav aria-label="Navigation principale" className="sidebar-nav-block">
           <NavigationSection
@@ -178,7 +198,7 @@ export function Sidebar({
           />
         </nav>
 
-        {!isAthlete && !isMedia ? (
+        {!isAthlete && !isMedia && !isPartner ? (
           <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
             <NavigationSection
               items={visibleSecondaryNavigation}
@@ -202,7 +222,7 @@ export function Sidebar({
             onClick={() => setIsProfileMenuOpen((value) => !value)}
           >
             <span className="user-avatar" aria-hidden>
-              SM
+              {profileInitials}
             </span>
             {!collapsed ? (
               <span className="user-meta">
@@ -256,7 +276,7 @@ export function Sidebar({
           />
           <aside className="mobile-sidebar-drawer" aria-label="Navigation mobile">
             <header>
-              <Link href="/" className="klique-logo" aria-label="Accueil KLIQUE" onClick={onCloseMobile}>
+              <Link href={homeHref} className="klique-logo" aria-label="Accueil KLIQUE" onClick={onCloseMobile}>
                 <span>●</span>
                 <strong>KLIQUE</strong>
               </Link>
@@ -265,7 +285,7 @@ export function Sidebar({
               </button>
             </header>
 
-            <WorkspaceSwitcher />
+            {!isPartner ? <WorkspaceSwitcher /> : null}
 
             <nav aria-label="Navigation principale" className="sidebar-nav-block">
               <NavigationSection
@@ -277,7 +297,7 @@ export function Sidebar({
               />
             </nav>
 
-            {!isAthlete && !isMedia ? (
+            {!isAthlete && !isMedia && !isPartner ? (
               <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
                 <NavigationSection
                   items={visibleSecondaryNavigation}

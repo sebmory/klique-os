@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import path from "path";
-import type { Athlete, AthleteUpdate } from "@/types/athlete";
+import type { Athlete, AthleteUpdate, PublicAthleteDirectoryEntry, PublicAthleteProfile } from "@/types/athlete";
+import { normalizePublicSportLabel } from "@/lib/public-athletes";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
@@ -782,6 +783,105 @@ const athleteColumns = (headers: string[]) => ({
 const athleteSheetRange = "'02_Athlètes'!A3:AI200";
 const athleteSheetHeaderRange = "'02_Athlètes'!A3:AI3";
 const athleteSheetAppendRange = "'02_Athlètes'!A:AI";
+
+const isPublicDirectoryAthleteStatus = (value: unknown): boolean => {
+  const status = normalize(value);
+  if (!status || status.includes("prospect") || status.includes("inactif") || status.includes("refuse")) {
+    return false;
+  }
+  return status.includes("actif") || status.includes("membre");
+};
+
+export async function getPublicAthleteDirectoryFromGoogleSheets(): Promise<PublicAthleteDirectoryEntry[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: athleteSheetRange,
+  });
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map(String);
+  const column = athleteColumns(headers);
+  const publicNameColumn = findColumn(headers, ["nom public", "nom affiche", "nom affiché"], column.name);
+  const publicCityColumn = findColumn(headers, ["ville publique", "ville public"], -1);
+  const publicCountryColumn = findColumn(headers, ["pays public", "pays publique"], -1);
+  const publicPresentationColumn = findColumn(headers, ["presentation publique", "présentation publique", "bio publique"], -1);
+  const read = (row: unknown[], index: number): string => index >= 0 ? String(row[index] ?? "").trim() : "";
+
+  return rows
+    .slice(1)
+    .filter((row) => isPublicDirectoryAthleteStatus(row[column.status]))
+    .map((row) => {
+      const name = read(row, publicNameColumn);
+      return {
+        athleteId: resolveAthleteIdentifier(row[column.athleteId], name),
+        name,
+        sport: read(row, column.sport),
+        club: read(row, column.club),
+        city: read(row, publicCityColumn),
+        country: read(row, publicCountryColumn),
+        portraitUrl: read(row, column.profilePortraitUrl),
+        presentation: read(row, publicPresentationColumn),
+      };
+    })
+    .filter((athlete) => Boolean(athlete.athleteId && athlete.name));
+}
+
+export async function getPublicAthleteProfileFromGoogleSheets(
+  requestedAthleteId: string,
+): Promise<Omit<PublicAthleteProfile, "distinctions"> | null> {
+  const athleteId = requestedAthleteId.trim();
+  if (!athleteId) return null;
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: athleteSheetRange,
+  });
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return null;
+
+  const headers = rows[0].map(String);
+  const normalizedHeaders = headers.map(normalize);
+  const column = athleteColumns(headers);
+  const publicColumn = (candidates: string[]): number => {
+    const normalizedCandidates = candidates.map(normalize);
+    return normalizedHeaders.findIndex((header) => normalizedCandidates.includes(header));
+  };
+  const publicNameColumn = publicColumn(["nom public", "nom affiche", "nom affiché"]);
+  const publicPresentationColumn = publicColumn(["presentation publique", "présentation publique", "bio publique"]);
+  const publicJourneyColumn = publicColumn(["parcours sportif public", "parcours public"]);
+  const publicGoalsColumn = publicColumn(["objectifs sportifs publics", "objectifs sportifs publics", "objectifs publics"]);
+  const socialColumns = [
+    { label: "Instagram", column: publicColumn(["instagram public", "lien instagram public"]) },
+    { label: "TikTok", column: publicColumn(["tiktok public", "lien tiktok public"]) },
+    { label: "YouTube", column: publicColumn(["youtube public", "lien youtube public"]) },
+    { label: "Site web", column: publicColumn(["site public", "site web public"]) },
+  ];
+  const read = (row: unknown[], index: number): string => index >= 0 ? String(row[index] ?? "").trim() : "";
+
+  const row = rows.slice(1).find((candidate) => {
+    if (!isPublicDirectoryAthleteStatus(candidate[column.status])) return false;
+    const sourceName = read(candidate, publicNameColumn >= 0 ? publicNameColumn : column.name);
+    return resolveAthleteIdentifier(candidate[column.athleteId], sourceName) === athleteId;
+  });
+  if (!row) return null;
+
+  const name = read(row, publicNameColumn >= 0 ? publicNameColumn : column.name);
+  return {
+    name,
+    sport: normalizePublicSportLabel(read(row, column.sport)),
+    club: read(row, column.club),
+    portraitUrl: read(row, column.profilePortraitUrl),
+    presentation: read(row, publicPresentationColumn),
+    journey: read(row, publicJourneyColumn),
+    goals: read(row, publicGoalsColumn),
+    socialLinks: socialColumns
+      .map(({ label, column: socialColumn }) => ({ label, url: read(row, socialColumn) }))
+      .filter((link) => Boolean(link.url)),
+  };
+}
 
 const getAthleteRowLength = (column: ReturnType<typeof athleteColumns>): number => {
   const maxIndex = Math.max(...Object.values(column));
@@ -2023,6 +2123,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       usageType: findPartnerColumn(["usage type", "usage", "type d'utilisation", "type d’utilisation", "frequence d'utilisation", "fréquence d'utilisation"], -1),
       usageLimit: findPartnerColumn(["usage limit", "limite d'utilisation", "limite d’utilisation", "nombre de fois", "limite"], -1),
       description: findPartnerColumn(["description", "presentation", "présentation", "presentez votre activite en quelques mots", "présentez votre activité en quelques mots"], -1),
+      services: findPartnerColumn(["services", "prestations", "offre de services"], -1),
       firstContactDate: findPartnerColumn(["date premier contact", "premier contact"], -1),
       kliqueArrivalDate: findPartnerColumnExact(["date arrivee klique"], -1),
       lastContact: findPartnerColumn(["dernier contact"], -1),
@@ -2102,6 +2203,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
           website,
           instagram,
           description: rowFromSheet(sheetRow, column.description) || rowFromSheet(sheetRow, column.counterparts),
+          services: rowFromSheet(sheetRow, column.services),
           benefitType: rowFromSheet(sheetRow, column.benefitType),
           benefits: rowFromSheet(sheetRow, column.benefits),
           benefitDetails: rowFromSheet(sheetRow, column.benefitDetails),
@@ -2282,7 +2384,7 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'06_Partenaires'!A4:Y200",
+    range: "'06_Partenaires'!A4:Y",
   });
 
   const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
@@ -2640,33 +2742,107 @@ export async function rejectPartnerApplication({
 
 export async function addPartnerToGoogleSheets(
   partner: NewPartner
-): Promise<void> {
+): Promise<{ partnerId: string; row: number }> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
-
-  await sheets.spreadsheets.values.append({
+  const headerResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'20_Partenaires'!A:N",
+    range: "'06_Partenaires'!A1:Y3",
+  });
+  const headerRows = (headerResponse.data.values ?? []) as unknown[][];
+  const normalizePartnerHeader = (value: unknown) => normalize(value)
+    .replace(/[?()]/g, "")
+    .replace(/[\/|_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const headerRowIndex = headerRows.findIndex((row) => row.some((value) => {
+    const header = normalizePartnerHeader(value);
+    return header === "nom" || header === "nom partenaire";
+  }));
+  if (headerRowIndex < 0) {
+    throw new Error("En-têtes de la feuille 06_Partenaires introuvables.");
+  }
+
+  const headerRow = headerRows[headerRowIndex];
+  const valuesByHeader: Record<string, string> = {
+    nom: partner.name,
+    "nom partenaire": partner.name,
+    type: partner.relationType ?? partner.type ?? (partner.expertKlique ? "Expert" : "Partenaire"),
+    "type de relation": partner.relationType ?? partner.type ?? (partner.expertKlique ? "Expert" : "Partenaire"),
+    categorie: partner.category,
+    "expert klique": partner.expertKlique ? "Oui" : "Non",
+    "contact principal": partner.contact,
+    contact: partner.contact,
+    email: partner.email,
+    "e mail": partner.email,
+    telephone: partner.phone,
+    tel: partner.phone,
+    description: partner.description,
+    services: partner.services ?? "",
+    prestations: partner.services ?? "",
+    "offre avantage membres": partner.benefits,
+    "avantage membres": partner.benefits,
+    avantages: partner.benefits,
+    benefits: partner.benefits,
+    "site web": partner.website,
+    "site internet": partner.website,
+    website: partner.website,
+    instagram: partner.instagram,
+    statut: partner.status,
+    notes: partner.notes,
+    "athletes concernes": partner.athletes,
+    athletes: partner.athletes,
+  };
+  const fixedColumnValues = Array.from({ length: 25 }, () => "");
+  fixedColumnValues[0] = partner.name;
+  fixedColumnValues[1] = partner.relationType ?? partner.type ?? (partner.expertKlique ? "Expert" : "Partenaire");
+  fixedColumnValues[2] = partner.category;
+  fixedColumnValues[3] = partner.contact;
+  fixedColumnValues[5] = partner.email;
+  fixedColumnValues[6] = partner.phone;
+  fixedColumnValues[7] = partner.website;
+  fixedColumnValues[8] = partner.description || partner.services || "";
+  fixedColumnValues[9] = partner.athletes;
+  fixedColumnValues[10] = partner.status;
+  fixedColumnValues[19] = partner.benefits;
+  const appendValues = Array.from({ length: 25 }, (_, index) => {
+    const header = normalizePartnerHeader(headerRow[index]);
+    return valuesByHeader[header] ?? fixedColumnValues[index];
+  });
+
+  const appendResponse = await sheets.spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'06_Partenaires'!A:Y",
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
-      values: [[
-        `partner-${Date.now()}`,
-        partner.name,
-        partner.category,
-        partner.expertKlique ? "Oui" : "Non",
-        partner.contact,
-        partner.email,
-        partner.phone,
-        partner.website,
-        partner.instagram,
-        partner.description,
-        partner.benefits,
-        partner.notes,
-        partner.status,
-        partner.athletes,
-      ]],
+      values: [appendValues],
     },
   });
+  const updatedRange = appendResponse.data.updates?.updatedRange ?? "";
+  const rowMatch = updatedRange.match(/(\d+)(?::[A-Z]+\d+)?$/i);
+  const row = rowMatch ? Number(rowMatch[1]) : 0;
+  if (!Number.isInteger(row) || row < 4) {
+    throw new Error("La ligne créée dans Google Sheets n’a pas pu être confirmée.");
+  }
+
+  const persistedRowResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: `'06_Partenaires'!A${row}:Y${row}`,
+  });
+  const persistedRow = persistedRowResponse.data.values?.[0] ?? [];
+  const persistedPartnerId = String(persistedRow[0] ?? "").trim();
+  const persistedEmail = String(persistedRow[5] ?? "").trim();
+  if (!persistedPartnerId || persistedPartnerId !== partner.name.trim() || persistedEmail !== partner.email.trim()) {
+    throw new Error("La ressource créée n’a pas pu être confirmée dans 06_Partenaires.");
+  }
+
+  const createdPartner = (await getEcosystemPartnersFrom06Partenaires())
+    .find((candidate) => candidate.row === row);
+  if (!createdPartner || createdPartner.email.trim() !== persistedEmail) {
+    throw new Error("La ressource créée n’est pas disponible dans la source Écosystème.");
+  }
+
+  return { partnerId: createdPartner.id, row };
 }
 
 export async function updatePartnerInGoogleSheets(

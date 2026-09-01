@@ -66,6 +66,22 @@ const isMediaAllowedRoute = (pathname: string): boolean => {
   return false;
 };
 
+const isPartnerAllowedPage = (pathname: string): boolean => {
+  return pathname === "/partner"
+    || pathname === "/partner/athletes"
+    || /^\/partner\/athletes\/[^/]+$/.test(pathname);
+};
+
+const isPartnerAllowedApi = (pathname: string, method: string): boolean => {
+  return pathname === "/api/clerk/access"
+    || pathname === "/api/partners"
+    || (pathname === "/api/partner/contact-requests" && method === "POST")
+    || pathname === "/api/partner/athletes"
+    || /^\/api\/partner\/athletes\/[^/]+$/.test(pathname);
+};
+
+const apiAccessDenied = () => NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+
 export default clerkMiddleware(
   async (auth, request: NextRequest) => {
     if (isPublicRoute(request)) {
@@ -88,7 +104,8 @@ export default clerkMiddleware(
         hasWorkspace &&
         (access.role === "admin" ||
           access.role === "media" ||
-          (access.role === "athlete" && Boolean(access.athleteId?.trim())));
+          (access.role === "athlete" && Boolean(access.athleteId?.trim())) ||
+          (access.role === "partner_expert" && Boolean(access.partnerId?.trim())));
 
       if (!hasActiveAccess) {
         return isApiRoute(pathname)
@@ -97,7 +114,18 @@ export default clerkMiddleware(
       }
 
       if (access.role === "athlete" && !isAthleteAllowedRoute(pathname)) {
-        return NextResponse.redirect(new URL("/athlete", request.url));
+        return isApiRoute(pathname)
+          ? apiAccessDenied()
+          : NextResponse.redirect(new URL("/athlete", request.url));
+      }
+
+      if (access.role === "partner_expert") {
+        if (isApiRoute(pathname) && !isPartnerAllowedApi(pathname, request.method)) {
+          return apiAccessDenied();
+        }
+        if (!isApiRoute(pathname) && !isPartnerAllowedPage(pathname)) {
+          return NextResponse.redirect(new URL("/partner", request.url));
+        }
       }
 
       // Les routes API conservent leurs propres controles : jamais de redirection HTML.

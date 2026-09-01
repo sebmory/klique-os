@@ -1,6 +1,14 @@
 import { SignUp } from "@clerk/nextjs";
 
-export default function SignUpPage() {
+type SignUpPageProps = {
+  searchParams: Promise<{ portal?: string | string[] }>;
+};
+
+export default async function SignUpPage({ searchParams }: SignUpPageProps) {
+  const params = await searchParams;
+  const portal = Array.isArray(params.portal) ? params.portal[0] : params.portal;
+  const redirectUrl = portal === "partner" ? "/partner" : "/athlete";
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_45%),linear-gradient(135deg,_#020617_0%,_#0f172a_100%)] px-6 py-12">
       <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur">
@@ -16,8 +24,8 @@ export default function SignUpPage() {
           <SignUp
             path="/sign-up"
             routing="path"
-            forceRedirectUrl="/athlete"
-            fallbackRedirectUrl="/athlete"
+            forceRedirectUrl={redirectUrl}
+            fallbackRedirectUrl={redirectUrl}
             appearance={{
               variables: {
                 colorPrimary: "#22d3ee",

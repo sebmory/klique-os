@@ -30,6 +30,8 @@ type EcosystemResourceScreenProps = {
   id: string;
 };
 
+type PartnerAccessState = "none" | "invited" | "active";
+
 export const hasRealEcosystemSource = (payload: EcosystemListResponse): boolean => {
   return payload.source === "google-sheets";
 };
@@ -208,6 +210,11 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [partnerAccessState, setPartnerAccessState] = useState<PartnerAccessState>("none");
+  const [canManagePartnerAccess, setCanManagePartnerAccess] = useState(false);
+  const [isInvitingPartner, setIsInvitingPartner] = useState(false);
+  const [partnerInviteError, setPartnerInviteError] = useState<string | null>(null);
+  const [partnerInviteSuccess, setPartnerInviteSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -245,8 +252,71 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
 
   const resource = useMemo(() => {
     const key = decodeURIComponent(id);
+    const rowMatch = key.match(/^row-(\d+)$/);
+    if (rowMatch) {
+      const row = Number(rowMatch[1]);
+      return resources.find((item) => Number(item.raw?.row) === row) ?? null;
+    }
     return resources.find((item) => item.id === key || item.slug === key) ?? null;
   }, [id, resources]);
+
+  useEffect(() => {
+    const resourceRow = Number(resource?.raw?.row);
+    if (!resource?.id || !Number.isInteger(resourceRow) || resourceRow < 4) return;
+    let active = true;
+
+    const loadPartnerAccessState = async () => {
+      try {
+        const response = await fetch(`/api/partners/invite?row=${encodeURIComponent(`row-${resourceRow}`)}`, { cache: "no-store" });
+        if (!active) return;
+        if (response.status === 403) {
+          setCanManagePartnerAccess(false);
+          return;
+        }
+
+        const payload = (await response.json()) as { state?: PartnerAccessState; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Impossible de récupérer l'état d'invitation.");
+        setCanManagePartnerAccess(true);
+        setPartnerAccessState(payload.state ?? "none");
+      } catch (error) {
+        if (!active) return;
+        setPartnerInviteError(error instanceof Error ? error.message : "Impossible de récupérer l'état d'invitation.");
+      }
+    };
+
+    void loadPartnerAccessState();
+    return () => {
+      active = false;
+    };
+  }, [resource?.id, resource?.raw?.row]);
+
+  const handlePartnerInvite = async (resend = false) => {
+    const resourceRow = Number(resource?.raw?.row);
+    if (!resource?.id || !Number.isInteger(resourceRow) || resourceRow < 4) {
+      setPartnerInviteError("Numéro de ligne partenaire introuvable pour cette fiche.");
+      return;
+    }
+    setIsInvitingPartner(true);
+    setPartnerInviteError(null);
+    setPartnerInviteSuccess(null);
+    try {
+      const response = await fetch("/api/partners/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ row: `row-${resourceRow}`, resend }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Impossible d'envoyer l'invitation.");
+      }
+      setPartnerAccessState("invited");
+      setPartnerInviteSuccess(resend ? "Invitation renvoyée avec succès." : "Invitation envoyée avec succès.");
+    } catch (error) {
+      setPartnerInviteError(error instanceof Error ? error.message : "Impossible d'envoyer l'invitation.");
+    } finally {
+      setIsInvitingPartner(false);
+    }
+  };
 
   const type = typeLabel(resource?.type ?? "");
   const lastContact = formatDate(resource?.lastContact ?? "");
@@ -358,6 +428,29 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
         </div>
 
         <div className="crm-person-hero-actions" aria-label="Actions fiche ressource">
+          {canManagePartnerAccess ? (
+            <div className="crm-partner-access-control">
+              <span className={`crm-partner-access-state is-${partnerAccessState}`}>
+                {partnerAccessState === "active" ? "Accès actif" : partnerAccessState === "invited" ? "Invitation envoyée" : "Aucun accès"}
+              </span>
+              {partnerAccessState !== "active" ? (
+                <button
+                  type="button"
+                  className="crm-hero-ghost-action"
+                  onClick={() => void handlePartnerInvite(partnerAccessState === "invited")}
+                  disabled={isInvitingPartner}
+                >
+                  {isInvitingPartner
+                    ? "Envoi en cours…"
+                    : partnerAccessState === "invited"
+                      ? "Renvoyer l’invitation"
+                      : "Inviter sur KLIQUE"}
+                </button>
+              ) : null}
+              {partnerInviteSuccess ? <small className="crm-partner-access-feedback is-success">{partnerInviteSuccess}</small> : null}
+              {partnerInviteError ? <small className="crm-partner-access-feedback is-error">{partnerInviteError}</small> : null}
+            </div>
+          ) : null}
           <button type="button" className="crm-hero-ghost-action"><Edit3 size={15} aria-hidden />Modifier</button>
           <button type="button" className="crm-hero-ghost-action"><Share2 size={15} aria-hidden />Partager</button>
           <button type="button" className="crm-hero-icon-action" aria-label="Plus d actions"><MoreHorizontal size={16} aria-hidden /></button>

@@ -39,13 +39,13 @@ export const PartnerService = {
     return EcosystemService.listRaw();
   },
 
-  async create(partner: NewPartner): Promise<void> {
+  async create(partner: NewPartner): Promise<{ partnerId: string; row: number }> {
     const response = await fetch("/api/partners", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(partner),
     });
-    await parseResponse<{ success: boolean }>(response);
+    return parseResponse<{ success: boolean; partnerId: string; row: number }>(response);
   },
 
   async update(update: PartnerUpdate): Promise<void> {

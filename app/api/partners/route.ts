@@ -90,6 +90,26 @@ const toAthleteEcosystemPartner = (partner: PartnerResponse["partners"][number])
   kliqueArrivalDate: normalize(partner.kliqueArrivalDate),
 });
 
+const toPartnerPortalProfile = (partner: PartnerResponse["partners"][number]) => ({
+  id: partner.id,
+  name: partner.name,
+  type: resolvePublicType(partner),
+  relationType: resolvePublicType(partner),
+  category: isStructuredCategory(partner.category) ? normalize(partner.category) : "Non renseigné",
+  description: normalize(partner.description) || normalize(partner.expertise) || normalize(partner.services),
+  services: normalize(partner.services),
+  benefits: normalize(partner.benefits),
+  benefitDetails: normalize(partner.benefitDetails),
+  memberOffer: normalize(partner.memberOffer) || normalize(partner.benefits) || normalize(partner.benefitDetails),
+  contact: normalize(partner.contactName) || normalize(partner.contact),
+  contactName: normalize(partner.contactName) || normalize(partner.contact),
+  contactRole: normalize(partner.contactRole),
+  email: isValidEmail(normalize(partner.email)) ? normalize(partner.email) : "",
+  phone: normalize(partner.phone),
+  ...splitSiteAndInstagram(partner.website, partner.instagram),
+  expertKlique: partner.expertKlique,
+});
+
 const resolveModeratedByFromClerk = async (request: NextRequest): Promise<string> => {
   const profile = await getCurrentUserAccessProfile(request);
   const clerkUserId = profile?.clerkUser?.id?.trim() ?? "";
@@ -117,9 +137,30 @@ export async function GET(request: NextRequest) {
     const permissionContext = await getCurrentUserPermissionContext(request);
     const canReadAsAdmin = permissionContext.isAdmin && permissionContext.isActive;
     const canReadAsAthlete = permissionContext.isAthlete && permissionContext.isActive;
+    const canReadAsPartner = permissionContext.isPartnerExpert
+      && permissionContext.isActive
+      && Boolean(permissionContext.workspaceId?.trim())
+      && Boolean(permissionContext.partnerId?.trim());
 
-    if (!canReadAsAdmin && !canReadAsAthlete) {
+    if (!canReadAsAdmin && !canReadAsAthlete && !canReadAsPartner) {
       return NextResponse.json({ partners: [], source: "google-sheets" }, { status: 403 });
+    }
+
+    if (canReadAsPartner) {
+      const partnerId = permissionContext.partnerId?.trim() ?? "";
+      const rowMatch = partnerId.match(/^row-(\d+)$/);
+      if (!rowMatch) {
+        return NextResponse.json({ partners: [], source: "google-sheets" });
+      }
+
+      const partnerRow = Number(rowMatch[1]);
+      const partners = await getEcosystemPartnersFrom06Partenaires();
+      const ownPartner = partners.find((partner) => partner.row === partnerRow);
+
+      return NextResponse.json({
+        partners: ownPartner ? [toPartnerPortalProfile(ownPartner)] : [],
+        source: "google-sheets",
+      });
     }
 
     if (canReadAsAthlete) {
@@ -160,15 +201,20 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json()) as NewPartner;
 
-    if (!body.name || !body.category) {
+    const type = normalize(body.relationType ?? body.type);
+    const email = normalize(body.email);
+    if (!normalize(body.name) || !type || !normalize(body.category) || !email) {
       return NextResponse.json(
-        { error: "Le nom et la catégorie sont obligatoires." },
+        { error: "Le nom, le type, la catégorie et l’e-mail sont obligatoires." },
         { status: 400 }
       );
     }
+    if (!isValidEmail(email)) {
+      return NextResponse.json({ error: "L’adresse e-mail n’est pas valide." }, { status: 400 });
+    }
 
-    await googleSheets.addPartnerToGoogleSheets(body);
-    return NextResponse.json({ success: true });
+    const createdPartner = await googleSheets.addPartnerToGoogleSheets(body);
+    return NextResponse.json({ success: true, ...createdPartner });
   } catch (error) {
     return NextResponse.json(
       {

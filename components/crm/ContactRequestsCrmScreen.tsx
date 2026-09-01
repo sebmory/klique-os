@@ -5,11 +5,13 @@ import { Check, Inbox, Pencil, X } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import type { Partner, PartnerResponse } from "@/types/partner";
 
-type ContactRequestStatus = "open" | "in_progress" | "resolved";
+type ContactRequestStatus = "open" | "pending" | "in_progress" | "resolved";
 
 type ContactRequest = {
   id: string;
   athleteId: string;
+  partnerId: string | null;
+  requestKind: "athlete_contact" | "partner_athlete_introduction";
   category: string;
   subject: string;
   message: string;
@@ -46,12 +48,14 @@ const categoryLabels: Record<string, string> = {
 
 const statusLabels: Record<ContactRequestStatus, string> = {
   open: "Nouvelle",
+  pending: "En attente",
   in_progress: "En cours",
   resolved: "Traitée",
 };
 
 const statusBadgeModifier: Record<ContactRequestStatus, string> = {
   open: "is-prospect",
+  pending: "is-prospect",
   in_progress: "is-actif",
   resolved: "is-inactif",
 };
@@ -59,11 +63,12 @@ const statusBadgeModifier: Record<ContactRequestStatus, string> = {
 const filters: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "Tous" },
   { value: "open", label: "Nouvelles" },
+  { value: "pending", label: "En attente" },
   { value: "in_progress", label: "En cours" },
   { value: "resolved", label: "Traitées" },
 ];
 
-const statusOptions: ContactRequestStatus[] = ["open", "in_progress", "resolved"];
+const statusOptions: ContactRequestStatus[] = ["open", "pending", "in_progress", "resolved"];
 
 const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -102,6 +107,7 @@ export function ContactRequestsCrmScreen() {
   const [requests, setRequests] = useState<ContactRequest[]>([]);
   const [partnerApplications, setPartnerApplications] = useState<PartnerApplication[]>([]);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
+  const [partnerNames, setPartnerNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
@@ -142,6 +148,7 @@ export function ContactRequestsCrmScreen() {
         }
 
         let names: Record<string, string> = {};
+        let resolvedPartnerNames: Record<string, string> = {};
         let pendingPartners: PartnerApplication[] = [];
         if (athletesResponse.ok) {
           const athletesPayload = (await athletesResponse.json().catch(() => null)) as AthletesResponse | null;
@@ -156,7 +163,12 @@ export function ContactRequestsCrmScreen() {
 
         if (partnersResponse.ok) {
           const partnersPayload = (await partnersResponse.json().catch(() => null)) as PartnerResponse | null;
-          pendingPartners = (partnersPayload?.partners ?? []).filter((partner) => {
+          const partners = partnersPayload?.partners ?? [];
+          resolvedPartnerNames = partners.reduce<Record<string, string>>((accumulator, partner) => {
+            if (partner.row && partner.name) accumulator[`row-${partner.row}`] = partner.name;
+            return accumulator;
+          }, {});
+          pendingPartners = partners.filter((partner) => {
             const application = partner as PartnerApplication;
             const moderationStatus = application.moderationStatus ?? application.moderation_status ?? application.status;
             return moderationStatus?.toLowerCase() === "pending" && Number(application.sourceRow) >= 2;
@@ -167,6 +179,7 @@ export function ContactRequestsCrmScreen() {
 
         setRequests(requestsPayload?.contactRequests ?? []);
         setAthleteNames(names);
+        setPartnerNames(resolvedPartnerNames);
         setPartnerApplications(pendingPartners);
       } catch (error) {
         if (!active) return;
@@ -188,14 +201,29 @@ export function ContactRequestsCrmScreen() {
     [requests],
   );
 
-  const visibleRequests = useMemo(
-    () => (statusFilter === "all" ? sortedRequests : sortedRequests.filter((request) => request.status === statusFilter)),
-    [sortedRequests, statusFilter],
+  const athleteRequests = useMemo(
+    () => sortedRequests.filter((request) => request.requestKind !== "partner_athlete_introduction"),
+    [sortedRequests],
+  );
+
+  const partnerIntroductionRequests = useMemo(
+    () => sortedRequests.filter((request) => request.requestKind === "partner_athlete_introduction"),
+    [sortedRequests],
+  );
+
+  const visibleAthleteRequests = useMemo(
+    () => (statusFilter === "all" ? athleteRequests : athleteRequests.filter((request) => request.status === statusFilter)),
+    [athleteRequests, statusFilter],
   );
 
   const resolveAthleteLabel = useCallback(
     (athleteId: string) => athleteNames[athleteId] || athleteId || "Athlète inconnu",
     [athleteNames],
+  );
+
+  const resolvePartnerLabel = useCallback(
+    (partnerId: string | null) => (partnerId ? partnerNames[partnerId] || partnerId : "Partenaire inconnu"),
+    [partnerNames],
   );
 
   const handleStatusChange = async (requestId: string, nextStatus: ContactRequestStatus) => {
@@ -285,8 +313,9 @@ export function ContactRequestsCrmScreen() {
     }
   };
 
-  const isEmpty = !loading && !errorMessage && activeView === "athletes" && visibleRequests.length === 0;
-  const isPartnerQueueEmpty = !loading && !errorMessage && activeView === "partners" && partnerApplications.length === 0;
+  const partnerQueueCount = partnerApplications.length + partnerIntroductionRequests.length;
+  const isEmpty = !loading && !errorMessage && activeView === "athletes" && visibleAthleteRequests.length === 0;
+  const isPartnerQueueEmpty = !loading && !errorMessage && activeView === "partners" && partnerQueueCount === 0;
 
   return (
     <section className="crm-people-screen">
@@ -315,7 +344,7 @@ export function ContactRequestsCrmScreen() {
             className={activeView === "partners" ? "is-active" : undefined}
             onClick={() => setActiveView("partners")}
           >
-            Partenaires <span className="crm-partner-count">{partnerApplications.length}</span>
+            Partenaires <span className="crm-partner-count">{partnerQueueCount}</span>
           </button>
         </div>
 
@@ -378,16 +407,16 @@ export function ContactRequestsCrmScreen() {
           <div className="crm-empty-icon" aria-hidden>
             <Inbox size={20} />
           </div>
-          <h2>Aucun partenaire à valider</h2>
-          <p>Les nouvelles demandes partenaires apparaitront ici.</p>
+          <h2>Aucune demande partenaire</h2>
+          <p>Les candidatures et mises en relation partenaires apparaitront ici.</p>
         </section>
       ) : null}
 
-      {!loading && !errorMessage && activeView === "athletes" && visibleRequests.length > 0 ? (
+      {!loading && !errorMessage && activeView === "athletes" && visibleAthleteRequests.length > 0 ? (
         <>
           <section className="crm-list-shell">
             <div className="crm-requests-head" role="row">
-              <span>Athlète</span>
+              <span>Demandeur / Athlète</span>
               <span>Catégorie</span>
               <span>Demande</span>
               <span>Date</span>
@@ -396,7 +425,7 @@ export function ContactRequestsCrmScreen() {
             </div>
 
             <ul className="crm-list-body">
-              {visibleRequests.map((request) => (
+              {visibleAthleteRequests.map((request) => (
                 <li key={request.id}>
                   <div className="crm-requests-row">
                     <span>
@@ -405,7 +434,7 @@ export function ContactRequestsCrmScreen() {
                     <span>{categoryLabels[request.category] ?? request.category}</span>
                     <span className="crm-requests-message-cell">
                       <strong>{request.subject}</strong>
-                      <small>{request.message}</small>
+                      {request.message ? <small>{request.message}</small> : null}
                     </span>
                     <span>{formatDate(request.createdAt)}</span>
                     <span>
@@ -439,7 +468,7 @@ export function ContactRequestsCrmScreen() {
           </section>
 
           <section className="crm-cards-grid desktop-hidden-by-mode">
-            {visibleRequests.map((request) => (
+            {visibleAthleteRequests.map((request) => (
               <article key={request.id} className="crm-person-card">
                 <header>
                   <div>
@@ -467,7 +496,7 @@ export function ContactRequestsCrmScreen() {
                   </div>
                 </dl>
 
-                <p className="crm-requests-card-message">{request.message}</p>
+                {request.message ? <p className="crm-requests-card-message">{request.message}</p> : null}
 
                 <footer>
                   <label className="crm-select-wrap">
@@ -482,6 +511,87 @@ export function ContactRequestsCrmScreen() {
                         <option key={status} value={status}>
                           {statusLabels[status]}
                         </option>
+                      ))}
+                    </select>
+                  </label>
+                </footer>
+              </article>
+            ))}
+          </section>
+        </>
+      ) : null}
+
+      {!loading && !errorMessage && activeView === "partners" && partnerIntroductionRequests.length > 0 ? (
+        <>
+          <section className="crm-list-shell">
+            <div className="crm-introductions-head" role="row">
+              <span>Demandeur</span>
+              <span>Athlète concerné</span>
+              <span>Demande</span>
+              <span>Date</span>
+              <span>Statut</span>
+              <span>Changer le statut</span>
+            </div>
+
+            <ul className="crm-list-body">
+              {partnerIntroductionRequests.map((request) => (
+                <li key={request.id}>
+                  <div className="crm-introductions-row">
+                    <span><strong>{resolvePartnerLabel(request.partnerId)}</strong></span>
+                    <span><strong>{resolveAthleteLabel(request.athleteId)}</strong></span>
+                    <span className="crm-requests-message-cell">
+                      <strong>{request.subject}</strong>
+                      {request.message ? <small>{request.message}</small> : null}
+                    </span>
+                    <span>{formatDate(request.createdAt)}</span>
+                    <span>
+                      <small className={`crm-status-badge ${statusBadgeModifier[request.status]}`}>
+                        {statusLabels[request.status]}
+                      </small>
+                    </span>
+                    <span>
+                      <label className="crm-select-wrap">
+                        <span className="crm-requests-select-label">Statut</span>
+                        <select
+                          value={request.status}
+                          disabled={updatingId === request.id}
+                          onChange={(event) => handleStatusChange(request.id, event.target.value as ContactRequestStatus)}
+                          aria-label={`Modifier le statut de la demande ${request.subject}`}
+                        >
+                          {statusOptions.map((status) => (
+                            <option key={status} value={status}>{statusLabels[status]}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="crm-cards-grid desktop-hidden-by-mode">
+            {partnerIntroductionRequests.map((request) => (
+              <article key={request.id} className="crm-person-card">
+                <header><div><h3>Mise en relation</h3><p>{formatDate(request.createdAt)}</p></div></header>
+                <dl>
+                  <div><dt>Demandeur</dt><dd>{resolvePartnerLabel(request.partnerId)}</dd></div>
+                  <div><dt>Athlète concerné</dt><dd>{resolveAthleteLabel(request.athleteId)}</dd></div>
+                  <div><dt>Motif</dt><dd>{request.subject}</dd></div>
+                  <div><dt>Statut</dt><dd><small className={`crm-status-badge ${statusBadgeModifier[request.status]}`}>{statusLabels[request.status]}</small></dd></div>
+                </dl>
+                {request.message ? <p className="crm-requests-card-message">{request.message}</p> : null}
+                <footer>
+                  <label className="crm-select-wrap">
+                    <span>Statut</span>
+                    <select
+                      value={request.status}
+                      disabled={updatingId === request.id}
+                      onChange={(event) => handleStatusChange(request.id, event.target.value as ContactRequestStatus)}
+                      aria-label={`Modifier le statut de la demande ${request.subject}`}
+                    >
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>{statusLabels[status]}</option>
                       ))}
                     </select>
                   </label>
@@ -556,6 +666,34 @@ export function ContactRequestsCrmScreen() {
           grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1.6fr) 150px 110px 150px;
           gap: 10px;
           align-items: center;
+        }
+
+        .crm-introductions-head,
+        .crm-introductions-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr) 150px 110px 150px;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .crm-introductions-head {
+          height: 52px;
+          padding: 0 18px;
+          border-bottom: 1px solid #f1f1f1;
+          color: #818181;
+          font-size: 0.75rem;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .crm-introductions-row {
+          width: 100%;
+          min-height: 74px;
+          border-radius: 14px;
+          background: #ffffff;
+          padding: 12px 10px;
+          color: inherit;
+          font-size: 0.86rem;
         }
 
         .crm-requests-head {

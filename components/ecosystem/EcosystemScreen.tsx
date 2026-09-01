@@ -1,13 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { LayoutGrid, LayoutList, MoreHorizontal, Search, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LayoutGrid, LayoutList, MoreHorizontal, Plus, Search, Sparkles } from "lucide-react";
 import { EcosystemService } from "@/services/ecosystem.service";
+import { PartnerService } from "@/services/partner.service";
+import { Modal } from "@/components/ui/Modal";
 import type { EcosystemListResponse, EcosystemResource } from "@/types/ecosystem";
+import type { NewPartner } from "@/types/partner";
 
 type SortKey = "name" | "nextFollowUp" | "priority";
 type ViewMode = "list" | "cards";
+
+const emptyResource: NewPartner = {
+  name: "",
+  type: "Partenaire",
+  relationType: "Partenaire",
+  category: "",
+  expertKlique: false,
+  contact: "",
+  email: "",
+  phone: "",
+  website: "",
+  instagram: "",
+  description: "",
+  services: "",
+  benefits: "",
+  notes: "",
+  status: "Actif",
+  athletes: "",
+};
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -98,6 +121,7 @@ const primaryContribution = (resource: EcosystemResource): string => {
 };
 
 export function EcosystemScreen() {
+  const router = useRouter();
   const [resources, setResources] = useState<EcosystemResource[]>([]);
   const [source, setSource] = useState<EcosystemListResponse["source"]>("google-sheets");
   const [message, setMessage] = useState("");
@@ -113,6 +137,30 @@ export function EcosystemScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showCreateResource, setShowCreateResource] = useState(false);
+  const [createForm, setCreateForm] = useState<NewPartner>(emptyResource);
+  const [creatingResource, setCreatingResource] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createdResource, setCreatedResource] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadAccess = async () => {
+      try {
+        const response = await fetch("/api/clerk/access", { credentials: "include", cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active) setIsAdmin(Boolean(payload?.permissions?.isAdmin && payload?.permissions?.isActive));
+      } catch {
+        if (active) setIsAdmin(false);
+      }
+    };
+    void loadAccess();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -253,6 +301,44 @@ export function EcosystemScreen() {
 
   const isEmpty = !loading && filteredResources.length === 0;
 
+  const createResource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isAdmin) return;
+    setCreatingResource(true);
+    setCreateError(null);
+    setCreatedResource(null);
+
+    try {
+      const result = await PartnerService.create(createForm);
+      const payload = await EcosystemService.list();
+      const confirmedResource = payload.resources.find((resource) => Number(resource.raw?.row) === result.row);
+      if (!confirmedResource) {
+        throw new Error("La ressource a été créée, mais sa fiche n’est pas encore disponible. Réessayez dans quelques instants.");
+      }
+      setResources(payload.resources);
+      setSource(payload.source);
+      setMessage(payload.message ?? "");
+      setActiveRowId(confirmedResource.id);
+      setCreatedResource({ id: confirmedResource.id, name: confirmedResource.name });
+      setCreateForm(emptyResource);
+      setShowCreateResource(false);
+      router.push(`/ecosysteme/row-${result.row}`);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "Impossible de créer la ressource.");
+    } finally {
+      setCreatingResource(false);
+    }
+  };
+
+  const updateResourceType = (type: "Expert" | "Partenaire" | "Média") => {
+    setCreateForm((current) => ({
+      ...current,
+      type,
+      relationType: type,
+      expertKlique: type === "Expert",
+    }));
+  };
+
   return (
     <section className="crm-people-screen">
       <header className="crm-people-header">
@@ -260,7 +346,19 @@ export function EcosystemScreen() {
           <h1>Écosystème KLIQUE</h1>
           <p>Découvrez les partenaires, experts, médias et ressources disponibles pour les membres KLIQUE.</p>
         </div>
+        {isAdmin ? (
+          <button type="button" className="crm-primary-action" onClick={() => setShowCreateResource(true)}>
+            <Plus size={16} aria-hidden /> Nouvelle ressource
+          </button>
+        ) : null}
       </header>
+
+      {createdResource ? (
+        <section className="ecosystem-create-success" aria-live="polite">
+          <span>{createdResource.name} a été ajouté à l’écosystème.</span>
+          <Link href={`/ecosysteme/${encodeURIComponent(createdResource.id)}`}>Ouvrir la fiche</Link>
+        </section>
+      ) : null}
 
       {source === "demo" && message ? (
         <section className="crm-partners-info-banner" aria-live="polite">
@@ -554,6 +652,70 @@ export function EcosystemScreen() {
         <p className="crm-skeleton-label" aria-live="polite">
           <Sparkles size={14} aria-hidden /> {filteredResources.length} ressource(s) dans l ecosysteme
         </p>
+      ) : null}
+
+      {isAdmin && showCreateResource ? (
+        <Modal title="Nouvelle ressource" onClose={() => setShowCreateResource(false)}>
+          <form className="ecosystem-create-form" onSubmit={createResource}>
+            <div className="ecosystem-create-grid">
+              <label>
+                <span>Nom *</span>
+                <input value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} required />
+              </label>
+              <label>
+                <span>Type *</span>
+                <select value={createForm.relationType ?? createForm.type} onChange={(event) => updateResourceType(event.target.value as "Expert" | "Partenaire" | "Média")} required>
+                  <option value="Expert">Expert</option>
+                  <option value="Partenaire">Partenaire</option>
+                  <option value="Média">Média</option>
+                </select>
+              </label>
+              <label>
+                <span>Catégorie *</span>
+                <input value={createForm.category} onChange={(event) => setCreateForm({ ...createForm, category: event.target.value })} required />
+              </label>
+              <label>
+                <span>Statut</span>
+                <select value={createForm.status} onChange={(event) => setCreateForm({ ...createForm, status: event.target.value })}>
+                  <option value="Actif">Actif</option>
+                  <option value="Prospect">Prospect</option>
+                  <option value="Inactif">Inactif</option>
+                </select>
+              </label>
+              <label>
+                <span>Contact principal</span>
+                <input value={createForm.contact} onChange={(event) => setCreateForm({ ...createForm, contact: event.target.value })} />
+              </label>
+              <label>
+                <span>E-mail *</span>
+                <input type="email" value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })} required />
+              </label>
+              <label className="ecosystem-create-wide">
+                <span>Description</span>
+                <textarea value={createForm.description} onChange={(event) => setCreateForm({ ...createForm, description: event.target.value })} />
+              </label>
+              <label className="ecosystem-create-wide">
+                <span>Services</span>
+                <textarea value={createForm.services ?? ""} onChange={(event) => setCreateForm({ ...createForm, services: event.target.value })} />
+              </label>
+              <label className="ecosystem-create-wide">
+                <span>Avantages</span>
+                <textarea value={createForm.benefits} onChange={(event) => setCreateForm({ ...createForm, benefits: event.target.value })} />
+              </label>
+              <label className="ecosystem-create-wide">
+                <span>Site</span>
+                <input value={createForm.website} onChange={(event) => setCreateForm({ ...createForm, website: event.target.value })} />
+              </label>
+            </div>
+            {createError ? <p className="ecosystem-create-error" role="alert">{createError}</p> : null}
+            <div className="ecosystem-create-actions">
+              <button type="button" onClick={() => setShowCreateResource(false)}>Annuler</button>
+              <button type="submit" className="crm-primary-action" disabled={creatingResource}>
+                {creatingResource ? "Création…" : "Créer la ressource"}
+              </button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
     </section>
   );

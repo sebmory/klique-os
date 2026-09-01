@@ -115,3 +115,38 @@ export type AthletesResponse = {
   source: "google-sheets" | "demo";
   message?: string;
 };
+
+export type PublicAthleteDirectoryEntry = {
+  athleteId: string;
+  name: string;
+  sport: string;
+  club: string;
+  city: string;
+  country: string;
+  portraitUrl: string;
+  presentation: string;
+};
+
+export type PublicAthleteDistinction = {
+  type: string;
+  awardMonth: number;
+  awardYear: number;
+  description: string;
+};
+
+export type PublicAthleteSocialLink = {
+  label: string;
+  url: string;
+};
+
+export type PublicAthleteProfile = {
+  name: string;
+  sport: string;
+  club: string;
+  portraitUrl: string;
+  presentation: string;
+  journey: string;
+  goals: string;
+  distinctions: PublicAthleteDistinction[];
+  socialLinks: PublicAthleteSocialLink[];
+};

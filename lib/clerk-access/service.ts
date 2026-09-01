@@ -76,11 +76,26 @@ export type AthleteInvitationRecord = {
 
 export type AthleteAccessState = "none" | "invited" | "active";
 
+export type PartnerAccessState = "none" | "invited" | "active";
+
+export type PartnerInvitationIdentity = {
+  partnerId: string;
+  email: string;
+};
+
 export type InviteAthleteResult =
   | { ok: true; invitation: AthleteInvitationRecord }
   | {
       ok: false;
       reason: "forbidden" | "missing_email" | "invalid_email" | "already_active" | "already_invited" | "athlete_not_found" | "clerk_error";
+      message?: string;
+    };
+
+export type InvitePartnerResult =
+  | { ok: true; partnerId: string; email: string; clerkInvitationId: string }
+  | {
+      ok: false;
+      reason: "forbidden" | "missing_email" | "invalid_email" | "already_active" | "already_invited" | "partner_not_found" | "clerk_error";
       message?: string;
     };
 
@@ -153,6 +168,30 @@ const createMediaInvitationsTable = async () => {
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS media_invitations_workspace_email_active_unique
       ON media_invitations (workspace_id, lower(btrim(email)))
+      WHERE status = 'invited'
+  `;
+};
+
+const createPartnerInvitationsTable = async () => {
+  const sql = getSql();
+  await sql`
+    CREATE TABLE IF NOT EXISTS partner_invitations (
+      partner_id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      clerk_invitation_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'accepted', 'revoked')),
+      invited_by_clerk_user_id TEXT NOT NULL,
+      accepted_clerk_user_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      accepted_at TIMESTAMPTZ
+    )
+  `;
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS partner_invitations_workspace_email_pending_unique
+      ON partner_invitations (workspace_id, lower(btrim(email)))
       WHERE status = 'invited'
   `;
 };
@@ -567,6 +606,76 @@ const linkAthleteAccessFromInvitation = async (
   return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
 
+// L'identité partenaire vient exclusivement de partner_invitations et d'un e-mail Clerk vérifié.
+const linkPartnerAccessFromInvitation = async (
+  userId: string,
+  clerkUser: LinkableClerkUser,
+): Promise<ClerkUserAccessRecord | null> => {
+  const verifiedEmails = (clerkUser.emailAddresses ?? [])
+    .filter((entry) => entry.verification?.status === "verified")
+    .map((entry) => entry.emailAddress.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (verifiedEmails.length === 0) return null;
+
+  const metadata = clerkUser.publicMetadata ?? {};
+  const metadataRole = typeof metadata.role === "string" ? metadata.role : null;
+  const metadataPartnerId = typeof metadata.partnerId === "string" ? metadata.partnerId.trim() : "";
+  const metadataWorkspaceId = typeof metadata.workspaceId === "string" ? metadata.workspaceId.trim() : "";
+  if (metadataRole !== "partner_expert" || !metadataPartnerId || !metadataWorkspaceId) return null;
+
+  await createUserAccessTable();
+  await createPartnerInvitationsTable();
+  const sql = getSql();
+  const rows = await sql`
+    WITH claimed AS (
+      SELECT partner_id, workspace_id, btrim(email) AS email
+      FROM partner_invitations
+      WHERE status = 'invited'
+        AND lower(btrim(email)) = ANY(${verifiedEmails})
+        AND partner_id = ${metadataPartnerId}
+        AND workspace_id = ${metadataWorkspaceId}
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    ),
+    validated AS (
+      SELECT partner_id, workspace_id, email
+      FROM claimed
+      WHERE partner_id = ${metadataPartnerId}
+        AND workspace_id = ${metadataWorkspaceId}
+    ),
+    upserted AS (
+      INSERT INTO user_access (
+        clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+      )
+      SELECT ${userId}, email, 'partner_expert', workspace_id, NULL, partner_id, NULL, 'active', NOW(), NOW()
+      FROM validated
+      ON CONFLICT (clerk_user_id) DO UPDATE SET
+        email = EXCLUDED.email,
+        status = 'active',
+        updated_at = NOW()
+      WHERE user_access.role = 'partner_expert'
+        AND user_access.workspace_id = EXCLUDED.workspace_id
+        AND user_access.partner_id = EXCLUDED.partner_id
+      RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    ),
+    accepted AS (
+      UPDATE partner_invitations invitation
+      SET status = 'accepted', accepted_clerk_user_id = ${userId}, accepted_at = NOW(), updated_at = NOW()
+      FROM claimed
+      WHERE invitation.partner_id = claimed.partner_id
+        AND invitation.status = 'invited'
+        AND EXISTS (SELECT 1 FROM upserted)
+      RETURNING invitation.partner_id
+    )
+    SELECT clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    FROM upserted
+  `;
+
+  return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
+};
+
 // L acces est accorde par media_invitations, jamais sur la seule foi des publicMetadata Clerk.
 const linkMediaAccessFromInvitation = async (
   userId: string,
@@ -659,6 +768,10 @@ export const getCurrentUserAccessProfile = async (request?: Request): Promise<Cu
 
   if (!userAccess) {
     userAccess = await linkAthleteAccessFromInvitation(userId, clerkUser);
+  }
+
+  if (!userAccess) {
+    userAccess = await linkPartnerAccessFromInvitation(userId, clerkUser);
   }
 
   if (!userAccess) {
@@ -866,6 +979,134 @@ export const getAthleteAccessState = async (athleteId: string): Promise<{ state:
   }
 
   return { state: "none", email: null };
+};
+
+export const getPartnerAccessState = async ({ partnerId }: PartnerInvitationIdentity): Promise<{ state: PartnerAccessState; email: string | null }> => {
+  const trimmedPartnerId = partnerId.trim();
+  if (!trimmedPartnerId) return { state: "none", email: null };
+
+  await createUserAccessTable();
+  await createPartnerInvitationsTable();
+  const sql = getSql();
+  const activeRows = await sql`
+    SELECT email FROM user_access
+    WHERE partner_id = ${trimmedPartnerId} AND role = 'partner_expert' AND status = 'active'
+  `;
+  if (activeRows[0]) {
+    return { state: "active", email: String((activeRows[0] as Record<string, unknown>).email ?? "") || null };
+  }
+
+  const invitationRows = await sql`
+    SELECT email FROM partner_invitations
+    WHERE partner_id = ${trimmedPartnerId}
+      AND status = 'invited'
+      AND NULLIF(btrim(clerk_invitation_id), '') IS NOT NULL
+  `;
+  if (invitationRows[0]) {
+    return { state: "invited", email: String((invitationRows[0] as Record<string, unknown>).email ?? "") || null };
+  }
+
+  return { state: "none", email: null };
+};
+
+export const invitePartnerToKlique = async (
+  request: Request,
+  partner: PartnerInvitationIdentity,
+  options?: { resend?: boolean },
+): Promise<InvitePartnerResult> => {
+  const trimmedPartnerId = partner.partnerId.trim();
+  if (!trimmedPartnerId) return { ok: false, reason: "partner_not_found" };
+
+  const accessCheck = await evaluateBusinessAccess(request, { action: "write:crm" });
+  if (!accessCheck.allowed) return { ok: false, reason: "forbidden" };
+
+  const authResult = await getAuthenticatedClerkUser(request);
+  if (!authResult) return { ok: false, reason: "forbidden" };
+
+  const exactPartnerId = trimmedPartnerId;
+  const email = partner.email.trim();
+  if (!email) return { ok: false, reason: "missing_email" };
+  if (!isValidEmail(email)) return { ok: false, reason: "invalid_email" };
+  const normalizedEmail = email.toLowerCase();
+
+  await createUserAccessTable();
+  await createPartnerInvitationsTable();
+  const sql = getSql();
+  const inviterRows = await sql`SELECT workspace_id FROM user_access WHERE clerk_user_id = ${authResult.userId}`;
+  const workspaceId = (inviterRows[0] as { workspace_id?: string } | undefined)?.workspace_id?.trim() || getDefaultWorkspaceId();
+
+  const activeRows = await sql`
+    SELECT clerk_user_id FROM user_access
+    WHERE (partner_id = ${exactPartnerId} OR lower(btrim(email)) = ${normalizedEmail}) AND status = 'active'
+  `;
+  if (activeRows[0]) return { ok: false, reason: "already_active" };
+
+  const pendingRows = await sql`
+    SELECT partner_id, email, clerk_invitation_id FROM partner_invitations
+    WHERE status = 'invited'
+      AND NULLIF(btrim(clerk_invitation_id), '') IS NOT NULL
+      AND (partner_id = ${exactPartnerId} OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail}))
+  `;
+  const pending = pendingRows[0] as { partner_id?: string; email?: string; clerk_invitation_id?: string } | undefined;
+  const isResend = options?.resend === true;
+  if (pending && (!isResend || pending.partner_id !== exactPartnerId || pending.email?.trim().toLowerCase() !== normalizedEmail)) {
+    return { ok: false, reason: "already_invited" };
+  }
+
+  const incompleteRows = await sql`
+    SELECT partner_id FROM partner_invitations
+    WHERE status = 'invited'
+      AND NULLIF(btrim(clerk_invitation_id), '') IS NULL
+      AND (partner_id = ${exactPartnerId} OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail}))
+    LIMIT 1
+  `;
+  const hasIncompleteInvitation = Boolean(incompleteRows[0]);
+
+  let clerkInvitationId = "";
+  try {
+    const client = await clerkClient();
+    const invitation = await client.invitations.createInvitation({
+      emailAddress: email,
+      publicMetadata: { role: "partner_expert", workspaceId, partnerId: exactPartnerId },
+      redirectUrl: `${getAppOrigin()}/sign-up`,
+      notify: true,
+      ignoreExisting: isResend || hasIncompleteInvitation,
+    });
+    clerkInvitationId = invitation.id?.trim() ?? "";
+    if (!clerkInvitationId) {
+      return { ok: false, reason: "clerk_error", message: "Clerk n'a retourné aucun identifiant d'invitation." };
+    }
+  } catch (error) {
+    const clerkError = error as { message?: unknown };
+    return { ok: false, reason: "clerk_error", message: String(clerkError.message ?? "Échec de l'invitation Clerk.") };
+  }
+
+  const savedRows = await sql`
+    INSERT INTO partner_invitations (
+      partner_id, workspace_id, email, clerk_invitation_id, status, invited_by_clerk_user_id, created_at, updated_at
+    ) VALUES (
+      ${exactPartnerId}, ${workspaceId}, ${email}, ${clerkInvitationId}, 'invited', ${authResult.userId}, NOW(), NOW()
+    )
+    ON CONFLICT (partner_id) DO UPDATE SET
+      workspace_id = EXCLUDED.workspace_id,
+      email = EXCLUDED.email,
+      clerk_invitation_id = EXCLUDED.clerk_invitation_id,
+      status = 'invited',
+      invited_by_clerk_user_id = EXCLUDED.invited_by_clerk_user_id,
+      accepted_clerk_user_id = NULL,
+      accepted_at = NULL,
+      updated_at = NOW()
+    RETURNING clerk_invitation_id
+  `;
+
+  const savedClerkInvitationId = String(
+    (savedRows[0] as { clerk_invitation_id?: unknown } | undefined)?.clerk_invitation_id ?? "",
+  ).trim();
+  if (!savedClerkInvitationId || savedClerkInvitationId !== clerkInvitationId) {
+    return { ok: false, reason: "clerk_error", message: "L'identifiant de l'invitation Clerk n'a pas été confirmé dans Neon." };
+  }
+
+  return { ok: true, partnerId: exactPartnerId, email, clerkInvitationId: savedClerkInvitationId };
 };
 
 export const inviteAthleteToKlique = async (

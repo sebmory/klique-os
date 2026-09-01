@@ -14,9 +14,11 @@ type ClerkUserAccessState = {
   role: string | null;
   isAthlete: boolean;
   athleteId: string | null;
+  partnerId: string | null;
   workspaceId: string | null;
   status: string | null;
   clerkDisplayName: string | null;
+  partnerProfileLabel: "Expert" | "Partenaire" | "Partenaire / Expert" | null;
 };
 
 type AccessLoadStatus = "loading" | "authorized" | "denied";
@@ -38,9 +40,11 @@ export function AppShell({ children }: AppShellProps) {
     role: null,
     isAthlete: false,
     athleteId: null,
+    partnerId: null,
     workspaceId: null,
     status: null,
     clerkDisplayName: null,
+    partnerProfileLabel: null,
   });
   const [accessLoadStatus, setAccessLoadStatus] = useState<AccessLoadStatus>("loading");
 
@@ -83,7 +87,8 @@ export function AppShell({ children }: AppShellProps) {
           hasWorkspace &&
           (access?.role === "admin" ||
             access?.role === "media" ||
-            (access?.role === "athlete" && typeof access?.athleteId === "string" && access.athleteId.trim().length > 0));
+            (access?.role === "athlete" && typeof access?.athleteId === "string" && access.athleteId.trim().length > 0) ||
+            (access?.role === "partner_expert" && typeof access?.partnerId === "string" && access.partnerId.trim().length > 0));
 
         if (!hasActiveAccess) {
           denyAccess();
@@ -99,13 +104,34 @@ export function AppShell({ children }: AppShellProps) {
           data?.clerkUser?.id ||
           null;
 
+        let partnerProfileLabel: ClerkUserAccessState["partnerProfileLabel"] = null;
+        if (access?.role === "partner_expert") {
+          try {
+            const partnerResponse = await fetch("/api/partners", { credentials: "include", cache: "no-store" });
+            if (partnerResponse.ok) {
+              const partnerPayload = await partnerResponse.json();
+              const ownPartner = Array.isArray(partnerPayload?.partners) ? partnerPayload.partners[0] : null;
+              const type = String(ownPartner?.type ?? ownPartner?.relationType ?? "").trim().toLowerCase();
+              partnerProfileLabel = ownPartner?.expertKlique || type.includes("expert")
+                ? "Expert"
+                : type.includes("partenaire")
+                  ? "Partenaire"
+                  : "Partenaire / Expert";
+            }
+          } catch {
+            partnerProfileLabel = "Partenaire / Expert";
+          }
+        }
+
         setUserAccess({
           role: access?.role ?? null,
           isAthlete: Boolean(data?.permissions?.isAthlete && data?.permissions?.isActive),
           athleteId: access?.athleteId ?? null,
+          partnerId: access?.partnerId ?? null,
           workspaceId: access?.workspaceId ?? null,
           status: access?.status ?? null,
           clerkDisplayName: resolvedDisplayName,
+          partnerProfileLabel,
         });
         setAccessLoadStatus("authorized");
       } catch {
@@ -150,6 +176,8 @@ export function AppShell({ children }: AppShellProps) {
         userRole={userAccess.role}
         userIsAthlete={userAccess.isAthlete}
         userIsMedia={userAccess.role === "media" && userAccess.status === "active"}
+        userIsPartner={userAccess.role === "partner_expert" && userAccess.status === "active"}
+        userPartnerLabel={userAccess.partnerProfileLabel}
         userName={userAccess.clerkDisplayName}
       />
 
