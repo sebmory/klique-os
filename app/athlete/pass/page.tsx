@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { KliquePassCard } from "@/components/klique-pass/KliquePassCard";
+import type { KliquePassMembership, KliquePassPlanRights } from "@/lib/klique-pass";
 
 type AthleteSummary = {
   key?: string;
@@ -10,27 +11,19 @@ type AthleteSummary = {
   adhesionDate?: string;
 };
 
-type ClerkAccessPayload = {
-  ok?: boolean;
-  userAccess?: {
-    athleteId?: string | null;
-    role?: string | null;
-    status?: string | null;
-  } | null;
+type AthletePassPayload = {
+  athlete?: AthleteSummary;
+  athleteIndex?: number | null;
+  membership?: KliquePassMembership;
+  plan?: KliquePassPlanRights | null;
+  error?: string;
 };
-
-type AthletesPayload = {
-  athletes?: AthleteSummary[];
-  source?: string;
-  message?: string;
-};
-
-const normalize = (value: unknown): string => String(value ?? "").trim();
-const formatValue = (value: unknown): string => normalize(value) || "Non renseigné";
 
 export default function AthletePassPage() {
   const [athlete, setAthlete] = useState<AthleteSummary | null>(null);
   const [athleteIndex, setAthleteIndex] = useState<number | null>(null);
+  const [membership, setMembership] = useState<KliquePassMembership | null>(null);
+  const [plan, setPlan] = useState<KliquePassPlanRights | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -42,52 +35,20 @@ export default function AthletePassPage() {
       setErrorMessage(null);
 
       try {
-        const accessResponse = await fetch("/api/clerk/access", {
+        const response = await fetch("/api/athletes/membership", {
           credentials: "include",
           cache: "no-store",
         });
-
-        if (!accessResponse.ok) {
-          throw new Error("Impossible de charger votre Pass KLIQUE.");
+        const payload = (await response.json().catch(() => null)) as AthletePassPayload | null;
+        if (!response.ok || !payload?.athlete || !payload.membership) {
+          throw new Error(payload?.error || "Impossible de charger votre Pass KLIQUE pour le moment.");
         }
-
-        const accessPayload = (await accessResponse.json()) as ClerkAccessPayload;
-        const role = accessPayload?.userAccess?.role ?? null;
-        const athleteId = accessPayload?.userAccess?.athleteId ?? null;
 
         if (!active) return;
-
-        if (role !== "athlete") {
-          throw new Error("Vous n’avez pas les permissions nécessaires pour consulter votre Pass KLIQUE.");
-        }
-
-        if (!athleteId) {
-          throw new Error("Aucun profil athlète n’est associé à votre compte.");
-        }
-
-        const athletesResponse = await fetch("/api/athletes", {
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (!athletesResponse.ok) {
-          throw new Error("Impossible de récupérer vos données de membre.");
-        }
-
-        const athletesPayload = (await athletesResponse.json()) as AthletesPayload;
-        const athletes = athletesPayload?.athletes ?? [];
-        const resolvedAthlete = athletes.find((item) => item.key === athleteId) ?? null;
-        const resolvedIndex = resolvedAthlete ? athletes.findIndex((item) => item.key === athleteId) : null;
-
-        if (!active) return;
-        if (!resolvedAthlete) {
-          setAthlete(null);
-          setErrorMessage("Aucune donnée athlète n’a été retrouvée pour votre compte.");
-          return;
-        }
-
-        setAthlete(resolvedAthlete);
-        setAthleteIndex(resolvedIndex);
+        setAthlete(payload.athlete);
+        setAthleteIndex(payload.athleteIndex ?? null);
+        setMembership(payload.membership);
+        setPlan(payload.plan ?? null);
       } catch (error) {
         if (!active) return;
         setErrorMessage(error instanceof Error ? error.message : "Impossible d’afficher votre Pass KLIQUE.");
@@ -142,7 +103,12 @@ export default function AthletePassPage() {
         </p>
       </div>
 
-      <KliquePassCard athlete={membershipSummary.athlete} athleteIndex={membershipSummary.athleteIndex} />
+      <KliquePassCard
+        athlete={membershipSummary.athlete}
+        athleteIndex={membershipSummary.athleteIndex}
+        membership={membership}
+        plan={plan}
+      />
     </div>
   );
 }

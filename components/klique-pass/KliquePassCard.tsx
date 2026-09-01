@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { buildKliquePassViewModel } from "@/lib/klique-pass";
+import { buildKliquePassViewModel, type KliquePassMembership, type KliquePassPlanRights } from "@/lib/klique-pass";
+import type { CurrentAthleteMembership } from "@/lib/athlete-memberships";
 
 type KliquePassAthlete = {
   key?: string;
@@ -13,12 +14,24 @@ type KliquePassAthlete = {
 type KliquePassCardProps = {
   athlete: KliquePassAthlete | null;
   athleteIndex: number | null;
+  membership?: KliquePassMembership | CurrentAthleteMembership | null;
+  plan?: KliquePassPlanRights | null;
 };
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 const formatValue = (value: unknown): string => normalize(value) || "Non renseigné";
+const formatDate = (value: string | null): string => {
+  if (!value) return "Non renseigné";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Non renseigné" : new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Europe/Zurich",
+  }).format(date);
+};
 
-export function KliquePassCard({ athlete, athleteIndex }: KliquePassCardProps) {
+export function KliquePassCard({ athlete, athleteIndex, membership, plan = null }: KliquePassCardProps) {
   const membershipSummary = useMemo(() => {
     return buildKliquePassViewModel({
       athlete: {
@@ -28,8 +41,9 @@ export function KliquePassCard({ athlete, athleteIndex }: KliquePassCardProps) {
         adhesionDate: athlete?.adhesionDate,
       },
       athleteIndex,
+      membership,
     });
-  }, [athlete, athleteIndex]);
+  }, [athlete, athleteIndex, membership]);
 
   const isActive = membershipSummary.isActive;
 
@@ -52,11 +66,11 @@ export function KliquePassCard({ athlete, athleteIndex }: KliquePassCardProps) {
           </div>
           <div>
             <div style={{ fontSize: "0.78rem", letterSpacing: "0.12em", opacity: 0.9, textTransform: "uppercase" }}>KLIQUE</div>
-            <div style={{ fontWeight: 700, fontSize: "1rem" }}>Membre KLIQUE</div>
+            <div style={{ fontWeight: 700, fontSize: "1rem" }}>{membershipSummary.membershipLabel}</div>
           </div>
         </div>
         <div style={{ padding: "0.4rem 0.7rem", borderRadius: "999px", background: "rgba(255,255,255,0.16)", fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" }}>
-          MEMBRE KLIQUE
+          {membershipSummary.membershipLabel.toUpperCase()}
         </div>
       </div>
 
@@ -76,24 +90,56 @@ export function KliquePassCard({ athlete, athleteIndex }: KliquePassCardProps) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-        <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "16px", padding: "0.75rem" }}>
-          <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.8 }}>Date d’adhésion</div>
-          <div style={{ marginTop: "0.25rem", fontWeight: 600 }}>{membershipSummary.adhesionLabel}</div>
+      {membershipSummary.hasMembership ? (
+        <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "16px", padding: "0.75rem" }}>
+            <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.8 }}>Date d’adhésion</div>
+            <div style={{ marginTop: "0.25rem", fontWeight: 600 }}>{membershipSummary.adhesionLabel}</div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "16px", padding: "0.75rem" }}>
+            <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.8 }}>Valable jusqu’au</div>
+            <div style={{ marginTop: "0.25rem", fontWeight: 600 }}>{membershipSummary.validityLabel ?? "Non renseignée"}</div>
+          </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.12)", borderRadius: "16px", padding: "0.75rem" }}>
-          <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.8 }}>Valable jusqu’au</div>
-          <div style={{ marginTop: "0.25rem", fontWeight: 600 }}>{membershipSummary.validityLabel ?? "Non renseignée"}</div>
+      ) : null}
+
+      {plan ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.22)", borderRadius: "16px", padding: "0.85rem", background: "rgba(255,255,255,0.1)", display: "grid", gap: "0.6rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
+            <strong style={{ fontSize: "1rem" }}>{plan.name}</strong>
+            <span style={{ fontWeight: 700 }}>{plan.paymentLabel}</span>
+          </div>
+          <div>Prochain renouvellement : <strong>{formatDate(plan.nextRenewalAt)}</strong></div>
+          <div style={{ display: "grid", gap: "0.3rem" }}>
+            <span>Productions disponibles : <strong>{plan.productionAvailable} sur {plan.productionIncluded}</strong></span>
+            <span>Contenus personnalisés disponibles : <strong>{plan.customContentAvailable} sur {plan.customContentIncluded}</strong></span>
+          </div>
+          <div style={{ opacity: 0.9 }}>
+            {plan.videoAllowed
+              ? "Photos ou interview · La capsule vidéo simple utilise 2 crédits production."
+              : "Photos ou interview — vidéo non incluse"}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div style={{ border: "1px solid rgba(255,255,255,0.18)", borderRadius: "16px", padding: "0.8rem", background: "rgba(255,255,255,0.08)", color: "#f9fafb", lineHeight: 1.6 }}>
-        Ce Pass confirme votre adhésion KLIQUE. Présentez-le à un partenaire ou expert pour bénéficier des avantages réservés aux membres.
-      </div>
+      {membershipSummary.hasMembership ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.18)", borderRadius: "16px", padding: "0.8rem", background: "rgba(255,255,255,0.08)", color: "#f9fafb", lineHeight: 1.6 }}>
+          Ce Pass confirme votre adhésion KLIQUE. Présentez-le à un partenaire ou expert pour bénéficier des avantages réservés aux membres.
+          {membershipSummary.renewalLabel ? <div style={{ marginTop: "0.35rem", fontWeight: 700 }}>{membershipSummary.renewalLabel}</div> : null}
+        </div>
+      ) : (
+        <div style={{ border: "1px solid rgba(255,255,255,0.18)", borderRadius: "16px", padding: "0.8rem", background: "rgba(255,255,255,0.08)", color: "#f9fafb", lineHeight: 1.6 }}>
+          Aucune adhésion KLIQUE n’est actuellement associée à ce compte.
+        </div>
+      )}
 
-      {isActive ? (
+      {!membershipSummary.hasMembership ? null : isActive ? (
         <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", padding: "0.55rem 0.8rem", borderRadius: "999px", background: "#fef3c7", color: "#92400e", alignSelf: "flex-start", fontWeight: 700 }}>
           ✓ Adhésion vérifiée
+        </div>
+      ) : membershipSummary.statusLabel === "Futur" ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.22)", borderRadius: "16px", padding: "0.8rem", background: "rgba(255,255,255,0.1)", color: "#f9fafb", lineHeight: 1.5 }}>
+          Cette adhésion débutera à la date indiquée sur le Pass.
         </div>
       ) : (
         <div style={{ border: "1px solid rgba(255,255,255,0.22)", borderRadius: "16px", padding: "0.8rem", background: "rgba(255,255,255,0.1)", color: "#fef2f2", lineHeight: 1.5 }}>

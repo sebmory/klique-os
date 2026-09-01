@@ -5,6 +5,7 @@ export type MembershipInput = {
   explicitEndDate?: string | null;
   durationMonths?: MembershipDurationMonths | null;
   isInitialFreeYearEligible?: boolean | null;
+  now?: Date;
 };
 
 export type MembershipState = {
@@ -63,6 +64,7 @@ const addMonths = (date: Date, months: number): Date => {
 export const buildMembershipState = (input: MembershipInput): MembershipState => {
   const startDate = parseMembershipDate(input.startDate);
   const explicitEndDate = parseMembershipDate(input.explicitEndDate);
+  const now = input.now ?? new Date();
 
   if (!startDate) {
     return {
@@ -77,7 +79,7 @@ export const buildMembershipState = (input: MembershipInput): MembershipState =>
   const effectiveDuration = input.durationMonths ?? (input.isInitialFreeYearEligible ? 12 : null);
 
   if (explicitEndDate) {
-    const isActive = new Date() <= explicitEndDate;
+    const isActive = now <= explicitEndDate;
     return {
       statusLabel: isActive ? "Actif" : "Expiré",
       startDateLabel: formatMembershipDate(startDate),
@@ -89,7 +91,7 @@ export const buildMembershipState = (input: MembershipInput): MembershipState =>
 
   if (input.isInitialFreeYearEligible && effectiveDuration === 12) {
     const fallbackEndDate = addMonths(startDate, 12);
-    const isActive = new Date() <= fallbackEndDate;
+    const isActive = now <= fallbackEndDate;
     return {
       statusLabel: isActive ? "Actif" : "Expiré",
       startDateLabel: formatMembershipDate(startDate),

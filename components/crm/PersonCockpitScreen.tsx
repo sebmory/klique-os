@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
+import { AthleteMembershipAdminCard } from "@/components/crm/AthleteMembershipAdminCard";
 import { KliquePassCard } from "@/components/klique-pass/KliquePassCard";
 import { buildKliquePassViewModel } from "@/lib/klique-pass";
 import type { Partner, PartnerResponse } from "@/types/partner";
@@ -808,13 +809,6 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
                 <div>
                   <dt>
                     <Sparkles size={14} aria-hidden />
-                    Adhésion KLIQUE
-                  </dt>
-                  <dd>{membershipSummary.detailLabel}</dd>
-                </div>
-                <div>
-                  <dt>
-                    <Sparkles size={14} aria-hidden />
                     Action
                   </dt>
                   <dd>
@@ -879,6 +873,8 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
               </dl>
             </div>
           </article>
+
+          {isAdmin ? <AthleteMembershipAdminCard athleteId={id} /> : null}
 
           <article className="crm-person-card-shell">
             <header>
