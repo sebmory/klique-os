@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const requestedMemberId = searchParams.get("memberId")?.trim() ?? null;
+    const weeklyResponseDays = searchParams.get("weeklyResponseDays") === "14" ? 14 : undefined;
+    const monthlyResponseDays = searchParams.get("monthlyResponseDays") === "45" ? 45 : undefined;
     const profile = await getCurrentUserAccessProfile(request);
     const role = profile?.userAccess?.role;
     const athleteId = profile?.userAccess?.athleteId;
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ athletes: [], source: "google-sheets" }, { status: 403 });
     }
 
-    const athletes = await getAthletesFromGoogleSheets();
+    const athletes = await getAthletesFromGoogleSheets({ weeklyResponseDays, monthlyResponseDays });
     const fullAthleteIndex = requestedMemberId
       ? athletes.findIndex((athlete) => athlete.key === requestedMemberId)
       : -1;

@@ -586,6 +586,13 @@ export default function HubPage() {
   const selectedOpportunity = useMemo(() => opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) ?? null, [opportunities, selectedOpportunityId]);
 
   useEffect(() => {
+    const opportunityId = new URLSearchParams(window.location.search).get("opportunityId")?.trim();
+    if (!opportunityId) return;
+    setActiveTab("Opportunités");
+    setSelectedOpportunityId(opportunityId);
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
 
     const updateLayout = () => setIsCompactBenefitsLayout(window.innerWidth < 980);

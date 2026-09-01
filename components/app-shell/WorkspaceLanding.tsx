@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/src/design-system/components";
-import type { Athlete, AthletesResponse } from "@/types/athlete";
+import type { Athlete, AthletesResponse, MonthlyFormResponse, WeeklyFormResponse } from "@/types/athlete";
 import type { ShootingsResponse, Shooting } from "@/types/shooting";
 import type { ContentDocument } from "@/types/content-document";
+import { ShootingService } from "@/services/shooting.service";
+import { buildMembershipState } from "@/lib/membership";
 
 type WorkspaceLandingProps = {
   sectionTitle?: string;
@@ -31,11 +33,41 @@ type AthleteOfTheMonthWinner = {
   description: string | null;
 };
 
+type DashboardOpportunity = {
+  id: string;
+  title: string;
+  type: string;
+  location: string;
+  date: string;
+  deadline: string;
+  status: "Ouverte" | "Bientôt" | "Fermée" | "Brouillon";
+  interestCount: number;
+};
+
+type DashboardOpportunityRequest = {
+  opportunityId: string;
+  status: "requested" | "confirmed" | "declined" | "cancelled";
+};
+
+type DashboardOpportunitySlot = {
+  opportunityId: string;
+  startsAt: string;
+  status: "open" | "closed" | "cancelled";
+};
+
+type ProcessedWeeklyResponse = {
+  athleteId: string;
+  responseTimestamp: string;
+};
+
 const DRAFT_KEY_PREFIX = "klique.contents.document-editor.draft.v1";
 const ATHLETE_OF_THE_MONTH_TYPE = "athlete_of_the_month";
 const MONTH_LABELS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
+
+const getWeeklyResponseKey = (athleteId: string, responseTimestamp: string): string =>
+  JSON.stringify([athleteId, responseTimestamp]);
 
 const parseDateRank = (value: string): number => {
   const raw = normalize(value);
@@ -68,18 +100,111 @@ const formatDate = (value: string): string => {
   return new Intl.DateTimeFormat("fr-CH", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(rank));
 };
 
+const normalizeProductionStatus = (value: string): string => normalize(value)
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "");
+
+const isActiveProduction = (shooting: Shooting): boolean => {
+  const status = normalizeProductionStatus(shooting.status);
+  const hasTerminalStatus = ["termine", "archive", "annule", "publie"].some((token) => status.includes(token));
+  return !shooting.published && !ShootingService.isComplete(shooting) && !hasTerminalStatus;
+};
+
+const getProductionUrgencyRank = (shooting: Shooting): number => {
+  const status = normalizeProductionStatus(shooting.status);
+  if (["urgent", "retard", "verif", "bloqu", "action"].some((token) => status.includes(token))) return 0;
+  if (shooting.shootingDone) return 1;
+  if (parseDateRank(shooting.date) <= Date.now()) return 2;
+  return 3;
+};
+
 const getDocumentTitle = (document: ContentDocument): string => {
   if (document.type === "interview") return normalize(document.sections.title) || "Interview sans titre";
   if (document.type === "publication") return normalize(document.sections.title) || "Publication sans titre";
   return normalize(document.sections.title) || "Reel sans titre";
 };
 
-const isMeaningfulAppointment = (value: string): boolean => {
-  const normalized = normalize(value).toLowerCase();
-  if (!normalized) return false;
-  if (["non", "aucun", "aucune", "rien", "nothing", "none"].includes(normalized)) return false;
-  if (/^(non|aucun|aucune|rien|nothing|none)(\s*[:\-].*)?$/.test(normalized)) return false;
-  return true;
+const isMeaningfulWeeklyValue = (value: string): boolean => {
+  const normalized = normalize(value);
+  return Boolean(normalized) && !["/", "//", "-"].includes(normalized);
+};
+
+const isMeaningfulMonthlyValue = (value: string): boolean => {
+  const normalized = normalize(value);
+  return isMeaningfulWeeklyValue(normalized)
+    && !["non", "rien de particulier", "pas en particulier"].includes(normalized.toLowerCase());
+};
+
+const getMonthlyInformation = (response: MonthlyFormResponse): Array<{ label: string; value: string }> => {
+  const seenValues = new Set<string>();
+  return [
+    { label: "Dates importantes", value: response.importantDates },
+    { label: "Objectif principal", value: response.mainObjective },
+    { label: "Autre actualité prévue", value: response.plannedNews },
+    { label: "Opportunité ou besoin", value: response.opportunityOrNeed },
+    { label: "Moment à couvrir", value: response.momentToCover },
+    { label: "Remarque complémentaire", value: response.additionalNote },
+  ].filter((item) => {
+    if (!isMeaningfulMonthlyValue(item.value)) return false;
+    const normalizedValue = normalize(item.value).toLowerCase();
+    if (seenValues.has(normalizedValue)) return false;
+    seenValues.add(normalizedValue);
+    return true;
+  });
+};
+
+const getMonthlyPreviewInformation = (
+  information: Array<{ label: string; value: string }>,
+): Array<{ label: string; value: string }> => {
+  const priorityLabels = [
+    "Opportunité ou besoin",
+    "Moment à couvrir",
+    "Objectif principal",
+    "Dates importantes",
+    "Autre actualité prévue",
+    "Remarque complémentaire",
+  ];
+
+  return [...information]
+    .sort((left, right) => priorityLabels.indexOf(left.label) - priorityLabels.indexOf(right.label))
+    .slice(0, 2);
+};
+
+const hasUsefulWeeklyInformation = (response: WeeklyFormResponse): boolean => {
+  return response.contactRequested || [
+    response.competition,
+    response.result,
+    response.notableEvent,
+    response.notableEventExplanation,
+    response.media,
+    response.mediaLink,
+    response.appointment,
+  ].some(isMeaningfulWeeklyValue);
+};
+
+const parseWeeklyResponseDate = (value: string): number | null => {
+  const raw = normalize(value);
+  const european = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  const parts = european
+    ? { year: european[3], month: european[2], day: european[1], hour: european[4], minute: european[5], second: european[6] }
+    : iso
+      ? { year: iso[1], month: iso[2], day: iso[3], hour: iso[4], minute: iso[5], second: iso[6] }
+      : null;
+  if (!parts) {
+    const fallback = Date.parse(raw);
+    return Number.isNaN(fallback) ? null : fallback;
+  }
+  const parsed = new Date(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour ?? 0),
+    Number(parts.minute ?? 0),
+    Number(parts.second ?? 0),
+  );
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
 };
 
 export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
@@ -92,6 +217,9 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [athletes, setAthletes] = useState<AthletesResponse["athletes"]>([]);
   const [shootings, setShootings] = useState<Shooting[]>([]);
   const [savedDocuments, setSavedDocuments] = useState<ContentDocument[]>([]);
+  const [opportunities, setOpportunities] = useState<DashboardOpportunity[]>([]);
+  const [opportunityRequests, setOpportunityRequests] = useState<DashboardOpportunityRequest[]>([]);
+  const [opportunitySlots, setOpportunitySlots] = useState<DashboardOpportunitySlot[]>([]);
   const [monthlyNominations, setMonthlyNominations] = useState<AthleteOfTheMonthNomination[]>([]);
   const [monthlyWinner, setMonthlyWinner] = useState<AthleteOfTheMonthWinner | null>(null);
   const [selectedNomineeAthleteId, setSelectedNomineeAthleteId] = useState("");
@@ -99,6 +227,14 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [winnerDescription, setWinnerDescription] = useState("");
   const [nominationLoading, setNominationLoading] = useState(false);
   const [nominationError, setNominationError] = useState<string | null>(null);
+  const [processedWeeklyResponseKeys, setProcessedWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
+  const [processingWeeklyResponseKeys, setProcessingWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
+  const [weeklyResponseError, setWeeklyResponseError] = useState<string | null>(null);
+  const [processedMonthlyResponseKeys, setProcessedMonthlyResponseKeys] = useState<Set<string>>(() => new Set());
+  const [processingMonthlyResponseKeys, setProcessingMonthlyResponseKeys] = useState<Set<string>>(() => new Set());
+  const [monthlyResponseError, setMonthlyResponseError] = useState<string | null>(null);
+  const [monthlyDetailOverrides, setMonthlyDetailOverrides] = useState<Record<string, boolean>>({});
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   const loadAthleteOfTheMonth = async () => {
     const response = await fetch(
@@ -128,14 +264,29 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       setLoading(true);
 
       try {
-        const [athletesResponse, shootingsResponse, awardResponse] = await Promise.all([
-          fetch("/api/athletes", { cache: "no-store" }),
+        const [athletesResponse, shootingsResponse, awardResponse, opportunitiesResponse, opportunitySlotsResponse, processedWeeklyResponsesResponse, processedMonthlyResponsesResponse] = await Promise.all([
+          fetch("/api/athletes?weeklyResponseDays=14&monthlyResponseDays=45", { cache: "no-store" }),
           fetch("/api/shootings", { cache: "no-store" }),
           loadAthleteOfTheMonth(),
+          fetch("/api/hub-opportunities", { cache: "no-store" }),
+          fetch("/api/hub-opportunity-slots", { cache: "no-store" }),
+          fetch("/api/weekly-response-processing", { cache: "no-store" }),
+          fetch("/api/weekly-response-processing?responseType=monthly", { cache: "no-store" }),
         ]);
 
         const athletesPayload = (await athletesResponse.json()) as AthletesResponse | { error?: string };
         const shootingsPayload = (await shootingsResponse.json()) as ShootingsResponse | { error?: string };
+        const opportunitiesPayload = (await opportunitiesResponse.json()) as { opportunities?: DashboardOpportunity[] };
+        const opportunitySlotsPayload = (await opportunitySlotsResponse.json()) as {
+          slots?: DashboardOpportunitySlot[];
+          requests?: DashboardOpportunityRequest[];
+        };
+        const processedWeeklyResponsesPayload = (await processedWeeklyResponsesResponse.json()) as {
+          processedResponses?: ProcessedWeeklyResponse[];
+        };
+        const processedMonthlyResponsesPayload = (await processedMonthlyResponsesResponse.json()) as {
+          processedResponses?: ProcessedWeeklyResponse[];
+        };
 
         if (!active) return;
 
@@ -176,6 +327,19 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
 
         setMonthlyNominations(awardResponse.nominations);
         setMonthlyWinner(awardResponse.winner);
+        setOpportunities(opportunitiesResponse.ok && Array.isArray(opportunitiesPayload.opportunities) ? opportunitiesPayload.opportunities : []);
+        setOpportunityRequests(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.requests) ? opportunitySlotsPayload.requests : []);
+        setOpportunitySlots(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.slots) ? opportunitySlotsPayload.slots : []);
+        setProcessedWeeklyResponseKeys(new Set(
+          processedWeeklyResponsesResponse.ok && Array.isArray(processedWeeklyResponsesPayload.processedResponses)
+            ? processedWeeklyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
+            : [],
+        ));
+        setProcessedMonthlyResponseKeys(new Set(
+          processedMonthlyResponsesResponse.ok && Array.isArray(processedMonthlyResponsesPayload.processedResponses)
+            ? processedMonthlyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
+            : [],
+        ));
       } catch {
         if (!active) return;
         setAthletesAvailable(false);
@@ -185,8 +349,16 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         setSavedDocuments([]);
         setMonthlyNominations([]);
         setMonthlyWinner(null);
+        setOpportunities([]);
+        setOpportunityRequests([]);
+        setOpportunitySlots([]);
+        setProcessedWeeklyResponseKeys(new Set());
+        setProcessedMonthlyResponseKeys(new Set());
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setLastRefreshedAt(new Date());
+        }
       }
     };
 
@@ -197,39 +369,212 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     };
   }, []);
 
-  const activeAthletesCount = useMemo(() => {
-    return athletes.filter((athlete) => normalize(athlete.status).toLowerCase().includes("actif")).length;
-  }, [athletes]);
+  const athletesToFollow = useMemo(() => {
+    const now = Date.now();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const renewalWindowEnd = today.getTime() + 30 * 24 * 60 * 60 * 1000;
+    const hasRecentResponse = (value: string, days: number): boolean => {
+      const responseTime = parseWeeklyResponseDate(value);
+      return responseTime !== null && responseTime <= now && responseTime >= now - days * 24 * 60 * 60 * 1000;
+    };
 
-  const latestAthletes = useMemo(() => {
-    return [...athletes]
-      .sort((a, b) => parseDateRank(b.adhesionDate) - parseDateRank(a.adhesionDate))
-      .slice(0, 4);
-  }, [athletes]);
-
-  const importantAppointments = useMemo(() => {
     return athletes
-      .filter((athlete) => isMeaningfulAppointment(athlete.importantRendezVousThisWeek ?? ""))
-      .map((athlete) => ({
-        athlete,
-        appointment: normalize(athlete.importantRendezVousThisWeek ?? ""),
-        responseDate: normalize(athlete.lastResponseWeekly),
-      }))
-      .sort((a, b) => parseDateRank(b.responseDate) - parseDateRank(a.responseDate))
-      .slice(0, 4);
+      .flatMap((athlete, athleteIndex) => {
+        if (!/^(actif|active)(?:\s|$)/i.test(normalize(athlete.status))) return [];
+
+        const reasons: Array<{ priority: number; label: string; tone: string }> = [];
+        const membership = buildMembershipState({
+          startDate: athlete.adhesionDate,
+          isInitialFreeYearEligible: athleteIndex < 16,
+        });
+        const membershipEndRank = membership.endDateLabel ? parseDateRank(membership.endDateLabel) : Number.MAX_SAFE_INTEGER;
+
+        if (membershipEndRank >= today.getTime() && membershipEndRank <= renewalWindowEnd) {
+          reasons.push({ priority: 1, label: `Adhésion à renouveler le ${membership.endDateLabel}`, tone: "priority-urgent" });
+        }
+        const hasRecentMonthlyResponse = hasRecentResponse(athlete.lastResponseMonthly, 45);
+        const hasRecentWeeklyResponse = hasRecentResponse(athlete.lastResponseWeekly, 14);
+        if (!hasRecentMonthlyResponse && !hasRecentWeeklyResponse) {
+          reasons.push({ priority: 3, label: "Aucun retour récent", tone: "priority-haute" });
+        }
+        if (reasons.length === 0) return [];
+
+        return [{
+          athlete,
+          reasons: reasons.sort((left, right) => left.priority - right.priority),
+          priority: Math.min(...reasons.map((reason) => reason.priority)),
+          membershipEndRank,
+        }];
+      })
+      .sort((left, right) =>
+        left.priority - right.priority
+        || left.membershipEndRank - right.membershipEndRank
+        || left.athlete.name.localeCompare(right.athlete.name, "fr")
+      );
   }, [athletes]);
 
-  const pendingProductionsCount = useMemo(() => {
-    return shootings.filter((item) => !item.published).length;
-  }, [shootings]);
-
-  const latestProductions = useMemo(() => {
-    return [...shootings]
-      .sort((a, b) => parseDateRank(b.date) - parseDateRank(a.date))
+  const weeklyResponses = useMemo(() => {
+    const today = new Date();
+    const now = today.getTime();
+    const rollingWindowStart = now - 14 * 24 * 60 * 60 * 1000;
+    return athletes
+      .flatMap((athlete) => {
+        const response = athlete.weeklyFormResponse;
+        if (!response) return [];
+        if (processedWeeklyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))) return [];
+        const responseTime = parseWeeklyResponseDate(response.timestamp);
+        if (responseTime === null || responseTime < rollingWindowStart || responseTime > now) return [];
+        return [{ athlete, response, responseTime }];
+      })
+      .sort((a, b) =>
+        Number(b.response.contactRequested) - Number(a.response.contactRequested)
+        || b.responseTime - a.responseTime
+      )
       .slice(0, 4);
+  }, [athletes, processedWeeklyResponseKeys]);
+
+  const markWeeklyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
+    const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
+    if (processingWeeklyResponseKeys.has(responseKey)) return;
+
+    setWeeklyResponseError(null);
+    setProcessingWeeklyResponseKeys((current) => new Set(current).add(responseKey));
+
+    try {
+      const response = await fetch("/api/weekly-response-processing", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ athleteId, responseTimestamp }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Impossible de traiter la réponse.");
+      }
+      setProcessedWeeklyResponseKeys((current) => new Set(current).add(responseKey));
+    } catch (error) {
+      setWeeklyResponseError(error instanceof Error ? error.message : "Impossible de traiter la réponse.");
+    } finally {
+      setProcessingWeeklyResponseKeys((current) => {
+        const next = new Set(current);
+        next.delete(responseKey);
+        return next;
+      });
+    }
+  };
+
+  const monthlyResponses = useMemo(() => {
+    const now = Date.now();
+    const rollingWindowStart = now - 45 * 24 * 60 * 60 * 1000;
+
+    return athletes
+      .flatMap((athlete) => {
+        const response = athlete.monthlyFormResponse;
+        if (!response) return [];
+        if (processedMonthlyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))) return [];
+        const responseTime = parseWeeklyResponseDate(response.timestamp);
+        if (responseTime === null || responseTime < rollingWindowStart || responseTime > now) return [];
+        const hasPriority = isMeaningfulMonthlyValue(response.opportunityOrNeed) || isMeaningfulMonthlyValue(response.momentToCover);
+        return [{ athlete, response, responseTime, hasPriority }];
+      })
+      .sort((a, b) => Number(b.hasPriority) - Number(a.hasPriority) || b.responseTime - a.responseTime);
+  }, [athletes, processedMonthlyResponseKeys]);
+
+  const markMonthlyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
+    const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
+    if (processingMonthlyResponseKeys.has(responseKey)) return;
+
+    setMonthlyResponseError(null);
+    setProcessingMonthlyResponseKeys((current) => new Set(current).add(responseKey));
+
+    try {
+      const response = await fetch("/api/weekly-response-processing", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ athleteId, responseTimestamp, responseType: "monthly" }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Impossible de traiter la réponse.");
+      }
+      setProcessedMonthlyResponseKeys((current) => new Set(current).add(responseKey));
+    } catch (error) {
+      setMonthlyResponseError(error instanceof Error ? error.message : "Impossible de traiter la réponse.");
+    } finally {
+      setProcessingMonthlyResponseKeys((current) => {
+        const next = new Set(current);
+        next.delete(responseKey);
+        return next;
+      });
+    }
+  };
+
+  const activeProductions = useMemo(() => {
+    return shootings
+      .filter(isActiveProduction)
+      .sort((left, right) => {
+        const urgencyDifference = getProductionUrgencyRank(left) - getProductionUrgencyRank(right);
+        if (urgencyDifference !== 0) return urgencyDifference;
+        return parseDateRank(left.date) - parseDateRank(right.date);
+      });
   }, [shootings]);
 
   const recentDocuments = useMemo(() => savedDocuments.slice(0, 4), [savedDocuments]);
+
+  const opportunitiesToFollow = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const requestCounts = opportunityRequests.reduce<Map<string, { total: number; pending: number }>>((counts, request) => {
+      if (request.status === "cancelled" || request.status === "declined") return counts;
+      const current = counts.get(request.opportunityId) ?? { total: 0, pending: 0 };
+      counts.set(request.opportunityId, {
+        total: current.total + 1,
+        pending: current.pending + (request.status === "requested" ? 1 : 0),
+      });
+      return counts;
+    }, new Map());
+    const futureSlotDates = opportunitySlots.reduce<Map<string, number>>((dates, slot) => {
+      if (slot.status !== "open") return dates;
+      const startsAt = parseDateRank(slot.startsAt);
+      if (!Number.isFinite(startsAt) || startsAt === Number.MIN_SAFE_INTEGER || startsAt < Date.now()) return dates;
+      const current = dates.get(slot.opportunityId);
+      if (current === undefined || startsAt < current) dates.set(slot.opportunityId, startsAt);
+      return dates;
+    }, new Map());
+
+    return opportunities
+      .map((opportunity) => {
+        const dateRank = parseDateRank(opportunity.date);
+        const futureSlotRank = futureSlotDates.get(opportunity.id);
+        const hasValidDateRank = Number.isFinite(dateRank) && dateRank !== Number.MIN_SAFE_INTEGER;
+        const hasValidFutureSlotRank = futureSlotRank !== undefined && Number.isFinite(futureSlotRank);
+        const hasFutureDate = hasValidDateRank && dateRank >= today.getTime();
+        const requests = requestCounts.get(opportunity.id) ?? { total: 0, pending: 0 };
+        const responseCount = opportunity.type === "Shooting" && requests.total > 0 ? requests.total : opportunity.interestCount;
+        const hasResponseToProcess = opportunity.status === "Ouverte" && (responseCount > 0 || requests.pending > 0);
+        const hasFutureProposal = hasFutureDate || hasValidFutureSlotRank;
+        const isAwaitingResponse = opportunity.status === "Ouverte" && !hasResponseToProcess && hasFutureProposal;
+        const isUpcomingValidated = opportunity.status === "Bientôt" && hasFutureDate;
+        const effectiveDateRank = hasFutureDate ? dateRank : hasValidFutureSlotRank ? futureSlotRank : null;
+        const hasValidEffectiveDateRank = effectiveDateRank !== null && effectiveDateRank !== undefined && Number.isFinite(effectiveDateRank);
+        const effectiveDate = hasValidEffectiveDateRank ? new Date(effectiveDateRank) : null;
+        const displayDate = hasFutureDate
+          ? opportunity.date
+          : effectiveDate && Number.isFinite(effectiveDate.getTime())
+            ? effectiveDate.toISOString()
+            : null;
+        const statusLabel = hasResponseToProcess ? "Réponse à traiter" : isAwaitingResponse ? "En attente de réponse" : "Bientôt";
+        const urgency = hasResponseToProcess ? 0 : isAwaitingResponse ? 1 : 2;
+        return { ...opportunity, dateRank: hasValidEffectiveDateRank ? effectiveDateRank : Number.MIN_SAFE_INTEGER, displayDate, responseCount, hasResponseToProcess, isAwaitingResponse, isUpcomingValidated, statusLabel, urgency };
+      })
+      .filter((opportunity) =>
+        opportunity.dateRank >= today.getTime()
+        && (opportunity.hasResponseToProcess || opportunity.isAwaitingResponse || opportunity.isUpcomingValidated),
+      )
+      .sort((first, second) => first.urgency - second.urgency || first.dateRank - second.dateRank);
+  }, [opportunities, opportunityRequests, opportunitySlots]);
 
   const monthLabel = useMemo(() => {
     const monthText = MONTH_LABELS[currentAwardMonth - 1] ?? "mois";
@@ -368,49 +713,130 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     }
   };
 
+  const dashboardDateLabel = new Intl.DateTimeFormat("fr-CH", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(now);
+  const lastRefreshedLabel = lastRefreshedAt
+    ? new Intl.DateTimeFormat("fr-CH", { hour: "2-digit", minute: "2-digit" }).format(lastRefreshedAt)
+    : "en cours";
+  const totalToProcess = opportunitiesToFollow.length + weeklyResponses.length + monthlyResponses.length;
+
   return (
     <section className="workspace-landing">
       <header className="workspace-hero-banner">
-        <div className="workspace-hero-background" aria-hidden />
-        <div className="workspace-hero-overlay" aria-hidden />
         <div className="workspace-hero-content">
-          <p className="workspace-kicker">{sectionTitle.toUpperCase()}</p>
-          <h1>Tableau de bord operationnel</h1>
-          <p>Vue en temps reel des donnees disponibles dans KLIQUE OS.</p>
+          {normalize(sectionTitle).toLowerCase() !== "aujourd'hui" ? (
+            <p className="workspace-kicker">{sectionTitle.toUpperCase()}</p>
+          ) : null}
+          <h1>Bonjour Sébastien</h1>
+          <div className="workspace-header-meta">
+            <span>{dashboardDateLabel}</span>
+            <span>Dernière actualisation à {lastRefreshedLabel}</span>
+          </div>
         </div>
       </header>
 
-      <section className="workspace-dashboard-grid" aria-label="Apercu du dashboard">
-        {athletesAvailable ? (
-          <Card className="workspace-dashboard-card card-priorities">
-            <header className="dashboard-card-head">
-              <h2>Athletes CRM</h2>
-              <div className="dashboard-card-head-right">
-                <span className="card-pill">{activeAthletesCount} actifs</span>
-              </div>
-            </header>
+      <section className="dashboard-summary" aria-label="Synthèse des éléments à traiter">
+        <div className="dashboard-summary-total">
+          <span>Total à traiter</span>
+          <strong>{totalToProcess}</strong>
+        </div>
+        <div className="dashboard-summary-metrics">
+          <div><strong>{opportunitiesToFollow.length}</strong><span>Opportunités</span></div>
+          <div><strong>{weeklyResponses.length}</strong><span>Réponses hebdomadaires</span></div>
+          <div><strong>{monthlyResponses.length}</strong><span>Réponses mensuelles</span></div>
+        </div>
+      </section>
 
+      <section className="workspace-dashboard-grid" aria-label="Apercu du dashboard">
+        <header className="dashboard-section-heading dashboard-priorities-heading">
+          <span>À traiter</span>
+          <h2>Priorités du moment</h2>
+        </header>
+        <header className="dashboard-section-heading dashboard-month-heading">
+          <span>Projection</span>
+          <h2>Vision du mois</h2>
+        </header>
+        <header className="dashboard-section-heading dashboard-activity-heading">
+          <span>Opérations</span>
+          <h2>Suivi de l’activité</h2>
+        </header>
+
+        <Card className="workspace-dashboard-card card-priorities dashboard-opportunities-card">
+          <header className="dashboard-card-head">
+            <h2>Opportunités à suivre</h2>
+            <div className="dashboard-card-head-right">
+              <span className="card-pill">{opportunitiesToFollow.length} à suivre</span>
+            </div>
+          </header>
+
+          {opportunitiesToFollow.length > 0 ? (
             <ul className="priority-list">
-              {latestAthletes.map((athlete) => (
-                <li key={athlete.key} className="priority-item">
+              {opportunitiesToFollow.map((opportunity) => (
+                <li key={opportunity.id} className="priority-item">
                   <span className="priority-check" aria-hidden />
                   <div className="priority-main">
-                    <strong>{athlete.name}</strong>
-                    <small>{normalize(athlete.sport) || "Sport non renseigne"}</small>
+                    <strong>{opportunity.title}</strong>
+                    <span className={`priority-badge ${opportunity.hasResponseToProcess ? "priority-urgent" : "priority-normale"}`}>
+                      {opportunity.statusLabel}
+                    </span>
+                    <small>
+                      {opportunity.type} · {opportunity.location || "Lieu à définir"} · {opportunity.responseCount} participant{opportunity.responseCount === 1 ? "" : "s"}
+                    </small>
                   </div>
-                  <small className="priority-date">{formatDate(athlete.adhesionDate)}</small>
+                  <small className="priority-date">{opportunity.displayDate ? formatDate(opportunity.displayDate) : "Date inconnue"}</small>
+                  <Link href={`/hub?opportunityId=${encodeURIComponent(opportunity.id)}`} className="card-link-button">Gérer</Link>
                 </li>
               ))}
             </ul>
+          ) : (
+            <p>Aucune opportunité ne nécessite d’action.</p>
+          )}
+
+          <Link href="/hub" className="card-link-button">
+            Voir toutes les opportunités
+          </Link>
+        </Card>
+
+        {athletesAvailable ? (
+          <Card className="workspace-dashboard-card card-priorities dashboard-athletes-card">
+            <header className="dashboard-card-head">
+              <h2>Athlètes à suivre</h2>
+              <div className="dashboard-card-head-right">
+                <span className="card-pill">{athletesToFollow.length} à suivre</span>
+              </div>
+            </header>
+
+            {athletesToFollow.length > 0 ? (
+              <ul className="priority-list">
+                {athletesToFollow.slice(0, 5).map(({ athlete, reasons }) => (
+                  <li key={athlete.key} className="priority-item athlete-follow-item">
+                    <div className="priority-main">
+                      <strong>{athlete.name}</strong>
+                      <div className="athlete-follow-reasons">
+                        {reasons.map((reason) => (
+                          <span key={reason.label} className={`priority-badge ${reason.tone}`}>{reason.label}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>Aucun athlète ne nécessite de suivi.</p>
+            )}
 
             <Link href="/crm/personnes" className="card-link-button">
-              Ouvrir le CRM Athletes
+              Ouvrir le CRM Athlètes
             </Link>
           </Card>
         ) : null}
 
         {athletesAvailable ? (
-          <Card className="workspace-dashboard-card card-priorities">
+          <Card className="workspace-dashboard-card card-priorities dashboard-award-card">
             <header className="dashboard-card-head">
               <h2>Athlete KLIQUE du mois</h2>
               <div className="dashboard-card-head-right">
@@ -521,64 +947,153 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           </Card>
         ) : null}
 
-        {athletesAvailable && importantAppointments.length > 0 ? (
-          <Card className="workspace-dashboard-card card-priorities">
+        {athletesAvailable ? (
+          <Card className="workspace-dashboard-card card-priorities dashboard-weekly-card">
             <header className="dashboard-card-head">
-              <h2>Rendez-vous importants cette semaine</h2>
+              <h2>Réponses hebdomadaires</h2>
+              <div className="dashboard-card-head-right">
+                <span className="card-pill">{weeklyResponses.length} athlète{weeklyResponses.length === 1 ? "" : "s"}</span>
+              </div>
             </header>
 
-            <ul className="priority-list">
-              {importantAppointments.map(({ athlete, appointment, responseDate }) => (
-                <li key={`${athlete.key}-${responseDate}`} className="priority-item">
-                  <span className="priority-check" aria-hidden />
-                  <div className="priority-main">
-                    <strong>
-                      <Link href={`/crm/personnes/${athlete.key}`}>{athlete.name}</Link>
-                    </strong>
-                    <small>{appointment}</small>
-                  </div>
-                  <small className="priority-date">{formatDate(responseDate)}</small>
-                </li>
-              ))}
-            </ul>
+            {weeklyResponses.length > 0 ? (
+              <ul className="priority-list">
+                {weeklyResponses.map(({ athlete, response, responseTime }) => {
+                  const responseKey = getWeeklyResponseKey(athlete.key, response.timestamp);
+                  const isProcessing = processingWeeklyResponseKeys.has(responseKey);
+
+                  return (
+                  <li key={responseKey} className="priority-item weekly-response-item">
+                    <input
+                      type="checkbox"
+                      className="priority-check"
+                      checked={isProcessing}
+                      disabled={isProcessing}
+                      aria-label={`Marquer la réponse de ${athlete.name} comme traitée`}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => void markWeeklyResponseAsProcessed(athlete.key, response.timestamp)}
+                    />
+                    <div className="priority-main weekly-response-main">
+                      <strong>
+                        <Link href={`/crm/personnes/${athlete.key}`}>{athlete.name}</Link>
+                      </strong>
+                      {response.contactRequested ? <span className="priority-badge priority-urgent">Contact demandé</span> : null}
+                      {isMeaningfulWeeklyValue(response.competition) ? <small>Compétition : {response.competition}</small> : null}
+                      {isMeaningfulWeeklyValue(response.result) ? <small>Résultat : {response.result}</small> : null}
+                      {isMeaningfulWeeklyValue(response.notableEvent) ? <small>Actualité : {response.notableEvent}</small> : null}
+                      {isMeaningfulWeeklyValue(response.notableEventExplanation) ? <small>Explication : {response.notableEventExplanation}</small> : null}
+                      {isMeaningfulWeeklyValue(response.media) ? <small>Média : {response.media}</small> : null}
+                      {isMeaningfulWeeklyValue(response.mediaLink) ? <small>Lien : {response.mediaLink}</small> : null}
+                      {isMeaningfulWeeklyValue(response.appointment) ? <small>Rendez-vous : {response.appointment}</small> : null}
+                      {response.contactRequested && isMeaningfulWeeklyValue(response.quickContactReason) ? <small>Raison du contact : {response.quickContactReason}</small> : null}
+                      {!hasUsefulWeeklyInformation(response) ? <small>Aucune actualité signalée</small> : null}
+                      <small className="priority-date weekly-response-date">Réponse du {formatDate(new Date(responseTime).toISOString())}</small>
+                    </div>
+                  </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p>Aucun athlète n’a répondu cette semaine.</p>
+            )}
+            {weeklyResponseError ? <p style={{ color: "#b91c1c" }}>{weeklyResponseError}</p> : null}
           </Card>
         ) : null}
 
-        {athletesAvailable && importantAppointments.length === 0 ? (
-          <Card className="workspace-dashboard-card card-priorities">
+        {athletesAvailable ? (
+          <Card className="workspace-dashboard-card card-priorities monthly-responses-card dashboard-monthly-card">
             <header className="dashboard-card-head">
-              <h2>Rendez-vous importants cette semaine</h2>
+              <h2>Réponses mensuelles</h2>
+              <div className="dashboard-card-head-right">
+                <span className="card-pill">{monthlyResponses.length} athlète{monthlyResponses.length === 1 ? "" : "s"}</span>
+              </div>
             </header>
-            <p>Aucun rendez-vous important signalé cette semaine</p>
+
+            {monthlyResponses.length > 0 ? (
+              <ul className="priority-list monthly-responses-list">
+                {monthlyResponses.map(({ athlete, response, responseTime, hasPriority }) => {
+                  const responseKey = getWeeklyResponseKey(athlete.key, response.timestamp);
+                  const isProcessing = processingMonthlyResponseKeys.has(responseKey);
+                  const information = getMonthlyInformation(response);
+                  const isExpanded = monthlyDetailOverrides[responseKey] ?? hasPriority;
+                  const previewInformation = getMonthlyPreviewInformation(information);
+                  const visibleInformation = isExpanded ? information : previewInformation;
+                  const hasAdditionalInformation = information.length > previewInformation.length;
+
+                  return (
+                    <li key={responseKey} className={`priority-item weekly-response-item monthly-response-item${isExpanded ? " is-expanded" : ""}`}>
+                      <input
+                        type="checkbox"
+                        className="priority-check"
+                        checked={isProcessing}
+                        disabled={isProcessing}
+                        aria-label={`Marquer la réponse mensuelle de ${athlete.name} comme traitée`}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={() => void markMonthlyResponseAsProcessed(athlete.key, response.timestamp)}
+                      />
+                      <div className="priority-main weekly-response-main">
+                        <div className="monthly-response-heading">
+                          <strong>
+                            <Link href={`/crm/personnes/${athlete.key}`}>{athlete.name}</Link>
+                          </strong>
+                          <small className="priority-date monthly-response-date">{formatDate(new Date(responseTime).toISOString())}</small>
+                        </div>
+                        <div className="monthly-response-information">
+                          {visibleInformation.map((item) => <small key={item.label}><b>{item.label}</b> : {item.value}</small>)}
+                        </div>
+                        {information.length === 0 ? <small>Aucune information particulière</small> : null}
+                        {hasAdditionalInformation ? (
+                          <button
+                            type="button"
+                            className="monthly-response-toggle"
+                            aria-expanded={isExpanded}
+                            onClick={() => setMonthlyDetailOverrides((current) => ({ ...current, [responseKey]: !isExpanded }))}
+                          >
+                            {isExpanded ? "Masquer le détail" : "Voir le détail"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p>Aucune réponse mensuelle à traiter.</p>
+            )}
+            {monthlyResponseError ? <p style={{ color: "#b91c1c" }}>{monthlyResponseError}</p> : null}
           </Card>
         ) : null}
 
         {productionsAvailable ? (
-          <Card className="workspace-dashboard-card card-projects">
+          <Card className="workspace-dashboard-card card-projects dashboard-productions-card">
             <header className="dashboard-card-head">
               <h2>Productions</h2>
               <div className="dashboard-card-head-right">
-                <span className="card-pill">{pendingProductionsCount} a finaliser</span>
+                <span className="card-pill">{activeProductions.length} à finaliser</span>
               </div>
             </header>
 
-            <ul className="project-list">
-              {latestProductions.map((shooting, index) => (
-                <li key={`${shooting.row ?? index}-${shooting.date}-${shooting.athlete}`} className="project-item">
-                  <div className="project-main-row">
-                    <span className="project-thumbnail" aria-hidden />
-                    <div>
-                      <strong>{normalize(shooting.athlete) || "Athlete non renseigne"}</strong>
-                      <small>{normalize(shooting.type) || "Type non renseigne"}</small>
+            {activeProductions.length > 0 ? (
+              <ul className="project-list">
+                {activeProductions.slice(0, 4).map((shooting, index) => (
+                  <li key={`${shooting.row ?? index}-${shooting.date}-${shooting.athlete}`} className="project-item">
+                    <div className="project-main-row">
+                      <span className="project-thumbnail" aria-hidden />
+                      <div>
+                        <strong>{normalize(shooting.athlete) || normalize(shooting.objective) || "Projet non renseigné"}</strong>
+                        <small>{normalize(shooting.type) || "Type non renseigné"}</small>
+                      </div>
                     </div>
-                  </div>
-                  <div className="project-meta-row">
-                    <small>{formatDate(shooting.date)}</small>
-                    <small>{shooting.published ? "Publie" : "En cours"}</small>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className="project-meta-row">
+                      <small>{ShootingService.stageFromChecklist(shooting)}</small>
+                      <small>{formatDate(shooting.date)}</small>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>Aucune production à finaliser.</p>
+            )}
 
             <Link href="/production" className="card-link-button">
               Ouvrir les productions
@@ -586,7 +1101,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           </Card>
         ) : null}
 
-        <Card className="workspace-dashboard-card card-activity">
+        <Card className="workspace-dashboard-card card-activity dashboard-contents-card">
           <header className="dashboard-card-head">
             <h2>Contenus sauvegardes</h2>
             <div className="dashboard-card-head-right">
@@ -617,7 +1132,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           </Link>
         </Card>
 
-        <Card className="workspace-dashboard-card card-events">
+        <Card className="workspace-dashboard-card card-events dashboard-shortcuts-card">
           <header className="dashboard-card-head">
             <h2>Raccourcis</h2>
           </header>
@@ -657,7 +1172,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         </Card>
 
         {!loading && !athletesAvailable && !productionsAvailable ? (
-          <Card className="workspace-dashboard-card card-messages">
+          <Card className="workspace-dashboard-card card-messages dashboard-sources-card">
             <header className="dashboard-card-head">
               <h2>Sources indisponibles</h2>
             </header>

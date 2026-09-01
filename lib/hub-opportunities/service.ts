@@ -20,6 +20,7 @@ export type HubOpportunityRecord = {
   requirements: string;
   practicalInfo: string;
   status: HubOpportunityStatus;
+  interestCount: number;
   authorClerkUserId: string;
   createdAt: string;
   updatedAt: string;
@@ -145,6 +146,7 @@ const mapOpportunityRow = (row: Record<string, unknown>): HubOpportunityRecord =
   requirements: String(row.requirements ?? ""),
   practicalInfo: String(row.practical_info ?? ""),
   status: normalizeStatus(row.status),
+  interestCount: Number(row.interest_count ?? 0),
   authorClerkUserId: String(row.author_clerk_user_id ?? ""),
   createdAt: String(row.created_at ?? ""),
   updatedAt: String(row.updated_at ?? ""),
@@ -163,16 +165,18 @@ export const loadHubOpportunities = async (request: Request, currentUserId: stri
 
   const rows = access.role === "admin"
     ? await sql`
-        SELECT id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
-        FROM hub_opportunities
-        WHERE workspace_id = ${access.workspaceId}
-        ORDER BY created_at DESC, id DESC
+        SELECT o.id, o.workspace_id, o.title, o.type, o.organization, o.target_audience, o.sport_or_domain, o.location, o.date, o.deadline, o.description, o.requirements, o.practical_info, o.status, o.author_clerk_user_id, o.created_at, o.updated_at,
+          (SELECT COUNT(*) FROM hub_opportunity_interests i WHERE i.opportunity_id = o.id) AS interest_count
+        FROM hub_opportunities o
+        WHERE o.workspace_id = ${access.workspaceId}
+        ORDER BY o.created_at DESC, o.id DESC
       `
     : await sql`
-        SELECT id, workspace_id, title, type, organization, target_audience, sport_or_domain, location, date, deadline, description, requirements, practical_info, status, author_clerk_user_id, created_at, updated_at
-        FROM hub_opportunities
-        WHERE workspace_id = ${access.workspaceId} AND status = ANY(${publishedStatuses})
-        ORDER BY created_at DESC, id DESC
+        SELECT o.id, o.workspace_id, o.title, o.type, o.organization, o.target_audience, o.sport_or_domain, o.location, o.date, o.deadline, o.description, o.requirements, o.practical_info, o.status, o.author_clerk_user_id, o.created_at, o.updated_at,
+          (SELECT COUNT(*) FROM hub_opportunity_interests i WHERE i.opportunity_id = o.id) AS interest_count
+        FROM hub_opportunities o
+        WHERE o.workspace_id = ${access.workspaceId} AND o.status = ANY(${publishedStatuses})
+        ORDER BY o.created_at DESC, o.id DESC
       `;
 
   const opportunities = rows.map((row) => mapOpportunityRow(row as Record<string, unknown>));

@@ -88,7 +88,26 @@ type FormEnrichment = {
 
 type WeeklyResponseValue = {
   timestamp: string;
+  competition: string;
+  result: string;
+  notableEvent: string;
+  notableEventExplanation: string;
+  media: string;
+  mediaLink: string;
   appointment: string;
+  quickContact: string;
+  quickContactReason: string;
+  contactRequested: boolean;
+};
+
+type MonthlyResponseValue = {
+  timestamp: string;
+  importantDates: string;
+  mainObjective: string;
+  plannedNews: string;
+  opportunityOrNeed: string;
+  momentToCover: string;
+  additionalNote: string;
 };
 
 type PartnerFormEntry = {
@@ -558,20 +577,45 @@ async function buildFormAdhesionMap(
 
 async function buildWeeklyResponsesMap(
   sheets: ReturnType<typeof google.sheets>,
-  spreadsheetId: string
+  spreadsheetId: string,
+  days?: number,
 ): Promise<Map<string, WeeklyResponseValue>> {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Forms_Hebdo_Responses'!A1:Z500",
+      range: "'Forms_Hebdo_Responses'!A:Z",
     });
     const rows = res.data.values ?? [];
     if (rows.length < 2) return new Map();
+    const now = Date.now();
+    const oldestAcceptedTimestamp = days === undefined ? null : now - days * 24 * 60 * 60 * 1000;
 
     const headers = rows[0].map(String);
     const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
     const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], -1);
     const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
+    const competitionColumn = findColumn(
+      headers,
+      ["quelle compétition", "quelle competition", "compétition cette semaine", "competition cette semaine", "participé à une compétition", "participe a une competition"],
+      -1,
+    );
+    const resultColumn = findColumn(headers, ["quel résultat", "quel resultat", "résultat obtenu", "resultat obtenu"], -1);
+    const notableEventColumn = findColumn(
+      headers,
+      ["as-tu vécu récemment l’un des événements", "as-tu vécu récemment l'un des événements", "as-tu vécu récemment", "événement ou actualité marquante", "evenement ou actualite marquante", "actualité marquante", "actualite marquante", "événement marquant", "evenement marquant"],
+      5,
+    );
+    const notableEventExplanationColumn = findColumn(
+      headers,
+      ["explique-nous cette actualité en quelques mots", "explique-nous cette actualite en quelques mots", "cette actualité en quelques mots", "cette actualite en quelques mots", "expliquer cet événement", "expliquer cet evenement", "expliquer cette actualité", "expliquer cette actualite", "nous en dire plus"],
+      6,
+    );
+    const mediaColumn = findColumn(
+      headers,
+      ["photos ou vidéos", "photos ou videos", "photos et vidéos", "photos et videos", "photos/vidéos", "photos/videos", "médias disponibles", "medias disponibles"],
+      -1,
+    );
+    const mediaLinkColumn = findColumn(headers, ["lien vers les photos", "lien vers les vidéos", "lien vers les videos", "lien disponible", "lien média", "lien media"], -1);
     const importantAppointmentsColumn = findColumn(
       headers,
       [
@@ -583,23 +627,51 @@ async function buildWeeklyResponsesMap(
       ],
       -1,
     );
+    const quickContactColumn = findColumn(
+      headers,
+      ["besoin d'un contact rapide", "besoin d’un contact rapide", "contacte rapidement", "contacter rapidement", "contact rapide"],
+      -1,
+    );
+    const quickContactReasonColumn = findColumn(
+      headers,
+      ["raison du contact", "raison de ce contact", "pour quelle raison", "pourquoi souhaites-tu être contacté", "pourquoi souhaites-tu etre contacte"],
+      -1,
+    );
 
     const weeklyResponses = new Map<string, WeeklyResponseValue>();
     for (const row of rows.slice(1)) {
       const timestamp = String(row[timestampColumn] ?? "").trim();
       if (!timestamp) continue;
+      const timestampValue = parseTimestampValue(timestamp);
+      if (oldestAcceptedTimestamp !== null && (timestampValue === null || timestampValue < oldestAcceptedTimestamp || timestampValue > now)) continue;
 
-      const rawAppointment = importantAppointmentsColumn >= 0 ? String(row[importantAppointmentsColumn] ?? "").trim() : "";
+      const readResponse = (column: number): string => column >= 0 ? String(row[column] ?? "").trim() : "";
+      const rawAppointment = readResponse(importantAppointmentsColumn);
       const appointment = isMeaningfulWeeklyAppointment(rawAppointment) ? rawAppointment : "";
+      const quickContact = readResponse(quickContactColumn);
       const email = emailColumn >= 0 ? normalize(String(row[emailColumn] ?? "")) : "";
       const name = nameColumn >= 0 ? normalizeNameKey(String(row[nameColumn] ?? "")) : "";
       const keys = email ? [email, name].filter(Boolean) : [name].filter(Boolean);
       if (!keys.length) continue;
 
+      const weeklyResponse: WeeklyResponseValue = {
+        timestamp,
+        competition: readResponse(competitionColumn),
+        result: readResponse(resultColumn),
+        notableEvent: readResponse(notableEventColumn),
+        notableEventExplanation: readResponse(notableEventExplanationColumn),
+        media: readResponse(mediaColumn),
+        mediaLink: readResponse(mediaLinkColumn),
+        appointment,
+        quickContact,
+        quickContactReason: readResponse(quickContactReasonColumn),
+        contactRequested: boolValue(quickContact) || normalize(quickContact).startsWith("oui"),
+      };
+
       for (const key of keys) {
         const current = weeklyResponses.get(key);
         if (!current || shouldReplaceWeeklyResponse(current.timestamp, timestamp)) {
-          weeklyResponses.set(key, { timestamp, appointment });
+          weeklyResponses.set(key, weeklyResponse);
         }
       }
     }
@@ -613,36 +685,52 @@ async function buildWeeklyResponsesMap(
 
 async function buildMonthlyResponsesMap(
   sheets: ReturnType<typeof google.sheets>,
-  spreadsheetId: string
-): Promise<Map<string, string>> {
+  spreadsheetId: string,
+  days?: number,
+): Promise<Map<string, MonthlyResponseValue>> {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "'Forms_Mensuel_Responses'!A1:Z500",
+      range: "'Forms_Mensuel_Responses'!A:H",
     });
     const rows = res.data.values ?? [];
     if (rows.length < 2) return new Map();
+    const now = Date.now();
+    const oldestAcceptedTimestamp = days === undefined ? null : now - days * 24 * 60 * 60 * 1000;
 
-    const headers = rows[0].map(String);
-    const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
-    const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], -1);
-    const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
+    const timestampColumn = 0;
+    const nameColumn = 1;
+    const importantDatesColumn = 2;
+    const mainObjectiveColumn = 3;
+    const plannedNewsColumn = 4;
+    const opportunityOrNeedColumn = 5;
+    const momentToCoverColumn = 6;
+    const additionalNoteColumn = 7;
 
-    const monthlyResponses = new Map<string, string>();
+    const monthlyResponses = new Map<string, MonthlyResponseValue>();
     for (const row of rows.slice(1)) {
       const timestamp = String(row[timestampColumn] ?? "").trim();
       if (!timestamp) continue;
+      const timestampValue = parseTimestampValue(timestamp);
+      if (oldestAcceptedTimestamp !== null && (timestampValue === null || timestampValue < oldestAcceptedTimestamp || timestampValue > now)) continue;
 
-      const email = emailColumn >= 0 ? normalize(String(row[emailColumn] ?? "")) : "";
       const name = nameColumn >= 0 ? normalizeNameKey(String(row[nameColumn] ?? "")) : "";
-      const keys = email ? [email, name].filter(Boolean) : [name].filter(Boolean);
-      if (!keys.length) continue;
+      if (!name) continue;
 
-      for (const key of keys) {
-        const current = monthlyResponses.get(key);
-        if (!current || shouldReplaceWeeklyResponse(current, timestamp)) {
-          monthlyResponses.set(key, timestamp);
-        }
+      const readResponse = (column: number): string => column >= 0 ? String(row[column] ?? "").trim() : "";
+      const monthlyResponse: MonthlyResponseValue = {
+        timestamp,
+        importantDates: readResponse(importantDatesColumn),
+        mainObjective: readResponse(mainObjectiveColumn),
+        plannedNews: readResponse(plannedNewsColumn),
+        opportunityOrNeed: readResponse(opportunityOrNeedColumn),
+        momentToCover: readResponse(momentToCoverColumn),
+        additionalNote: readResponse(additionalNoteColumn),
+      };
+
+      const current = monthlyResponses.get(name);
+      if (!current || shouldReplaceWeeklyResponse(current.timestamp, timestamp)) {
+        monthlyResponses.set(name, monthlyResponse);
       }
     }
 
@@ -792,7 +880,7 @@ const getSpreadsheetId = () => {
   return spreadsheetId;
 };
 
-export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
+export async function getAthletesFromGoogleSheets(options: { weeklyResponseDays?: number; monthlyResponseDays?: number } = {}): Promise<Athlete[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const spreadsheetId = getSpreadsheetId();
 
@@ -802,8 +890,8 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       range: athleteSheetRange,
     }),
     buildFormAdhesionMap(sheets, spreadsheetId),
-    buildWeeklyResponsesMap(sheets, spreadsheetId),
-    buildMonthlyResponsesMap(sheets, spreadsheetId),
+    buildWeeklyResponsesMap(sheets, spreadsheetId, options.weeklyResponseDays),
+    buildMonthlyResponsesMap(sheets, spreadsheetId, options.monthlyResponseDays),
   ]);
 
   const rows = response.data.values ?? [];
@@ -840,7 +928,8 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       const form = formMap.get(athleteEmail);
       const weeklyResponseEntry = weeklyResponses.get(athleteEmail) ?? weeklyResponses.get(normalizeNameKey(name));
       const weeklyResponse = weeklyResponseEntry?.timestamp ?? String(row[column.lastResponseWeekly] ?? "");
-      const monthlyResponse = monthlyResponses.get(athleteEmail) ?? monthlyResponses.get(normalizeNameKey(name)) ?? String(row[column.lastResponseMonthly] ?? "");
+      const monthlyResponseEntry = monthlyResponses.get(athleteEmail) ?? monthlyResponses.get(normalizeNameKey(name));
+      const monthlyResponse = monthlyResponseEntry?.timestamp ?? String(row[column.lastResponseMonthly] ?? "");
       const importantRendezVousThisWeek = weeklyResponseEntry?.appointment ?? "";
 
       return {
@@ -877,6 +966,8 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
         lastResponseMonthly: monthlyResponse,
         lastResponseWeekly: weeklyResponse,
         importantRendezVousThisWeek,
+        weeklyFormResponse: weeklyResponseEntry,
+        monthlyFormResponse: monthlyResponseEntry,
         lastPublication: cleanAthleteDateValue(row[column.lastPublication]),
         titlesOfMonth: String(row[column.titlesOfMonth] ?? ""),
         analysisItems: String(row[column.analysisItems] ?? ""),
@@ -947,6 +1038,8 @@ export async function getAthletesFromGoogleSheets(): Promise<Athlete[]> {
       lastResponseMonthly: "",
       lastResponseWeekly: "",
       importantRendezVousThisWeek: "",
+      weeklyFormResponse: weeklyResponses.get(normalizedEmail) ?? weeklyResponses.get(normalizedName),
+      monthlyFormResponse: monthlyResponses.get(normalizedEmail) ?? monthlyResponses.get(normalizedName),
       lastPublication: "",
       titlesOfMonth: "",
       analysisItems: "",

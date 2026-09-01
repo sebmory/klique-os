@@ -1,3 +1,27 @@
+export type WeeklyFormResponse = {
+  timestamp: string;
+  competition: string;
+  result: string;
+  notableEvent: string;
+  notableEventExplanation: string;
+  media: string;
+  mediaLink: string;
+  appointment: string;
+  quickContact: string;
+  quickContactReason: string;
+  contactRequested: boolean;
+};
+
+export type MonthlyFormResponse = {
+  timestamp: string;
+  importantDates: string;
+  mainObjective: string;
+  plannedNews: string;
+  opportunityOrNeed: string;
+  momentToCover: string;
+  additionalNote: string;
+};
+
 export type Athlete = {
   row?: number;
   athleteId?: string;
@@ -27,6 +51,8 @@ export type Athlete = {
   lastResponseMonthly: string;
   lastResponseWeekly: string;
   importantRendezVousThisWeek?: string;
+  weeklyFormResponse?: WeeklyFormResponse;
+  monthlyFormResponse?: MonthlyFormResponse;
   lastPublication: string;
   titlesOfMonth: string;
   analysisItems: string;
