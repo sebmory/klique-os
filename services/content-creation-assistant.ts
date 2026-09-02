@@ -16,13 +16,6 @@ import type {
   ReelFormatId,
   ReelPlatformId,
   StoryPlatformId,
-  ArticleLengthId,
-  ArticleAngleSuggestionsRequest,
-  ArticleGenerationRequest,
-  ArticleProvidedCitation,
-  ArticleStructureSuggestion,
-  ArticleTypeId,
-  ArticleVerifiedSource,
 } from "@/types/content-generation";
 import { buildDateRange } from "@/services/context-intelligence/utils";
 
@@ -34,7 +27,6 @@ export type CreationObjectiveType =
   | "reel"
   | "story"
   | "podcast"
-  | "article"
   | "newsletter"
   | "campaign"
   | "sponsoring_file";
@@ -137,34 +129,6 @@ export type CreationParametersDraft = {
   storyPlatform: StoryPlatformId;
 };
 
-export type ArticleAssistantStepId = "subject" | "format" | "sources" | "angle" | "structure" | "parameters" | "context" | "summary";
-
-export const articleAssistantSteps: readonly ArticleAssistantStepId[] = [
-  "subject",
-  "format",
-  "sources",
-  "parameters",
-  "context",
-  "angle",
-  "structure",
-  "summary",
-];
-
-export type ArticleAssistantDraft = {
-  articleType: ArticleTypeId;
-  length: ArticleLengthId;
-  verifiedSources: ArticleVerifiedSource[];
-  selectedResearchContextItemIds: string[];
-  selectedResearchSourceUrls: string[];
-  researchAddedSourceUrls: string[];
-  providedCitations: ArticleProvidedCitation[];
-  selectedAngleId: string;
-  selectedAngle: string;
-  structureSuggestions: ArticleStructureSuggestion[];
-  selectedStructureId: string;
-  selectedStructure: ArticleStructureSuggestion | null;
-};
-
 export type AfterMatchPresetDraft = {
   opponent: string;
   result: string;
@@ -174,86 +138,12 @@ export type AfterMatchPresetDraft = {
   nextFixture: string;
 };
 
-export type BeforeMatchPresetDraft = {
-  opponent: string;
-  competition: string;
-  matchDate: string;
-  location: string;
-  stakes: string;
-  recentForm: string;
-  keyInformation: string;
-};
-
-export type NewContractPresetDraft = {
-  organization: string;
-  contractType: string;
-  customContractType: string;
-  role: string;
-  startDate: string;
-  duration: string;
-  keyTerms: string;
-  quote: string;
-  objectives: string;
-};
-
-export type MatchDayStoryPresetDraft = {
-  opponent: string;
-  competition: string;
-  matchDate: string;
-  matchTime: string;
-  venue: string;
-  homeAway: "" | "home" | "away";
-  stakes: string;
-  callToAction: string;
-};
-
-export type AfterMatchStoryPresetDraft = {
-  opponent: string;
-  competition: string;
-  matchDate: string;
-  homeAway: "" | "home" | "away";
-  score: string;
-  result: "" | "win" | "draw" | "loss";
-  keyMoments: string;
-  performance: string;
-  reaction: string;
-  callToAction: string;
-};
-
-export type NewContractTypeId =
-  | "arrival"
-  | "renewal"
-  | "first-professional"
-  | "new-role"
-  | "sponsorship"
-  | "other";
-
-export const NEW_CONTRACT_TYPE_OPTIONS: Array<{ id: NewContractTypeId; label: string }> = [
-  { id: "arrival", label: "Arrivée / signature dans une nouvelle organisation" },
-  { id: "renewal", label: "Prolongation / renouvellement" },
-  { id: "first-professional", label: "Premier contrat professionnel" },
-  { id: "new-role", label: "Nouveau rôle / changement de fonction" },
-  { id: "sponsorship", label: "Partenariat / sponsoring" },
-  { id: "other", label: "Autre situation" },
-];
-
-// Le libelle humain seul alimente le contexte IA et le resume; jamais l identifiant technique.
-export const resolveNewContractTypeLabel = (contractType: string, customContractType: string): string => {
-  if (contractType === "other") return customContractType.trim();
-  return NEW_CONTRACT_TYPE_OPTIONS.find((option) => option.id === contractType)?.label ?? "";
-};
-
 export type CreationAssistantDraft = {
   subject: CreationSubjectDraft;
   objective: CreationObjectiveDraft;
   parameters: CreationParametersDraft;
   presetId?: ContentPresetId;
   afterMatch?: AfterMatchPresetDraft;
-  beforeMatch?: BeforeMatchPresetDraft;
-  newContract?: NewContractPresetDraft;
-  matchDayStory?: MatchDayStoryPresetDraft;
-  afterMatchStory?: AfterMatchStoryPresetDraft;
-  article?: ArticleAssistantDraft;
 };
 
 export type CreationPreparationPayload = {
@@ -309,125 +199,6 @@ export type CreationPreparationPayload = {
   };
 };
 
-const parseDraftTopics = (value: string): string[] =>
-  Array.from(
-    new Set(
-      value
-        .split(/[\n,;|]/)
-        .map((topic) => topic.trim())
-        .filter(Boolean)
-        .slice(0, 12),
-    ),
-  );
-
-const getSelectedArticleContextItems = (
-  article: ArticleAssistantDraft,
-  contextItems: ContextItem[],
-): ContextItem[] => {
-  const selectedItemIds = new Set(article.selectedResearchContextItemIds ?? []);
-  const selectedSourceUrls = new Set(article.selectedResearchSourceUrls ?? []);
-
-  return contextItems.filter((item) => {
-    if (!selectedItemIds.has(item.id)) return false;
-    if (item.connectorId === "external_news") {
-      const sourceUrl = item.sourceUrl;
-      return sourceUrl !== undefined && selectedSourceUrls.has(sourceUrl);
-    }
-    return item.connectorId === "crm" || item.connectorId === "productions";
-  });
-};
-
-export const prepareArticleAngleSuggestionsRequest = (
-  draft: CreationAssistantDraft,
-  selectedContextItems: ContextItem[] = [],
-): ArticleAngleSuggestionsRequest | null => {
-  if (getArticleAnglePreparationErrors(draft).length > 0 || !draft.article || !draft.subject.type) return null;
-
-  const requiredTopics = Array.from(new Set([`Sujet: ${normalize(draft.subject.displayName)}`, ...parseDraftTopics(draft.parameters.requiredTopics)])).slice(0, 12);
-  const selectedArticleContextItems = getSelectedArticleContextItems(draft.article, selectedContextItems);
-  const selectedResearchItems = selectedArticleContextItems.filter((item) => item.connectorId === "external_news");
-  const selectedInternalItems = selectedArticleContextItems.filter((item) => item.connectorId === "crm" || item.connectorId === "productions");
-  const selectedResearchFacts = selectedResearchItems
-    .map((item) => normalize(item.factualStatement || item.editedSummary || item.summary))
-    .filter(Boolean);
-  const selectedInternalFacts = selectedInternalItems
-    .map((item) => normalize(item.factualStatement || item.editedSummary || item.summary))
-    .filter(Boolean);
-  const additionalContext = [
-    normalize(draft.parameters.additionalContext),
-    ...selectedArticleContextItems.map((item) => `${item.title}: ${normalize(item.editedSummary || item.summary)}`).filter((item) => !item.endsWith(": ")),
-  ].filter(Boolean).join("\n\n");
-  return {
-    requestType: "article",
-    language: "fr-CH",
-    template: { key: "article:v1", family: "article", name: "Article", version: "v1" },
-    context: {
-      subjectId: draft.subject.id,
-      source: draft.subject.source,
-      subjectType: draft.subject.type,
-      displayName: normalize(draft.subject.displayName),
-      sport: normalize(draft.subject.sport) || undefined,
-      clubOrOrganization: normalize(draft.subject.clubOrOrganization) || undefined,
-      knownFacts: [],
-      manualContext: additionalContext || undefined,
-      objective: "article",
-      audience: normalize(draft.parameters.audienceId),
-      templateKey: "article:v1",
-      contentType: "article",
-      format: draft.article.articleType,
-      tone: normalize(draft.parameters.toneId),
-      internalFacts: selectedInternalFacts,
-      externalVerifiedFacts: selectedResearchFacts,
-      userProvidedContextItems: [],
-      editorialLeads: [],
-      excludedContext: [],
-      constraints: { requiredTopics, avoidedTopics: [], questionCount: 0 },
-    },
-    selectedContextItems: selectedArticleContextItems,
-    contextSelection: {},
-    rulesVersion: "cie-article-v1",
-    externalContext: null,
-    brief: {
-      objective: "article",
-      articleType: draft.article.articleType,
-      length: draft.article.length,
-      tone: normalize(draft.parameters.toneId),
-      audience: normalize(draft.parameters.audienceId),
-      additionalContext,
-      requiredTopics,
-      externalVerifiedSources: draft.article.verifiedSources,
-      providedCitations: draft.article.providedCitations,
-    },
-  };
-};
-
-export const getArticleAnglePreparationErrors = (draft: CreationAssistantDraft): string[] => {
-  const errors: string[] = [];
-  if (draft.objective.objective !== "article" || !draft.subject.type || !normalize(draft.subject.displayName)) errors.push("sujet");
-  if (!CONTENT_TONE_OPTIONS.some((option) => option.id === draft.parameters.toneId)) errors.push("ton");
-  if (!CONTENT_AUDIENCE_OPTIONS.some((option) => option.id === draft.parameters.audienceId)) errors.push("audience");
-  if (draft.article?.verifiedSources.some((source) => !normalize(source.title) || !/^https?:\/\/[^\s]+$/i.test(normalize(source.url)))) errors.push("source incomplète");
-  if (draft.article?.providedCitations.some((citation) => !normalize(citation.text) || !normalize(citation.author) || !normalize(citation.source))) errors.push("citation incomplète");
-  return errors;
-};
-
-export const prepareArticleGenerationRequest = (
-  draft: CreationAssistantDraft,
-  selectedContextItems: ContextItem[] = [],
-): ArticleGenerationRequest | null => {
-  const angleRequest = prepareArticleAngleSuggestionsRequest(draft, selectedContextItems);
-  const selectedAngle = draft.article?.selectedAngle.trim() ?? "";
-  if (!angleRequest || !draft.article?.selectedAngleId || !selectedAngle) return null;
-
-  return {
-    ...angleRequest,
-    brief: {
-      ...angleRequest.brief,
-      selectedAngle,
-    },
-  };
-};
-
 export const CREATION_MIN_QUESTION_COUNT = 3;
 export const CREATION_MAX_QUESTION_COUNT = 30;
 
@@ -464,13 +235,6 @@ const objectiveDefinitions: CreationObjectiveDefinition[] = [
     id: "podcast",
     title: "Podcast",
     description: "Cadrez une trame audio avec fil conducteur et points forts.",
-    enabled: false,
-    availabilityLabel: "Bientot disponible",
-  },
-  {
-    id: "article",
-    title: "Article",
-    description: "Organisez une version longue avec sections et transitions.",
     enabled: false,
     availabilityLabel: "Bientot disponible",
   },
@@ -586,270 +350,8 @@ const buildAfterMatchTopics = (afterMatch: AfterMatchPresetDraft, subjectName: s
   ].filter(Boolean);
 };
 
-const buildBeforeMatchContextBlock = (
-  beforeMatch: BeforeMatchPresetDraft,
-  subjectName: string,
-  subjectType: CreationSubjectType | null
-): string => {
-  const focusLines = subjectName
-    ? [
-        `Sujet central: ${subjectName} est le point de vue central de cette publication.`,
-        `Chacune des 3 propositions doit mentionner le nom complet de ${subjectName} dans le hook ou la premiere phrase.`,
-        `Chacune des 3 propositions doit rester centree sur ${subjectName} dans tout le corps du texte.`,
-        `Ne jamais transformer le contenu en communication generique du club plutot qu en publication centree sur ${subjectName}.`,
-        `Utiliser les informations avant-match pour raconter ${subjectName}, jamais pour le remplacer comme sujet.`,
-        subjectType === "person"
-          ? `Ne jamais inventer la performance, les statistiques, le temps de jeu ou les declarations de ${subjectName}.`
-          : "",
-        subjectType === "person"
-          ? `Ne jamais affirmer que ${subjectName} sera convoque, selectionne, titulaire, present ou qu il jouera, sauf si cette information figure explicitement dans les informations fournies.`
-          : "",
-        subjectType === "person"
-          ? `Presenter le match comme un rendez-vous a venir du club ou de l environnement de ${subjectName}, sans predire son role.`
-          : "",
-        subjectType === "person"
-          ? "Ne jamais presenter une division ou une competition comme un palmares."
-          : "",
-        subjectType === "person"
-          ? "Eviter que les 3 propositions repetent toutes la meme ambition personnelle."
-          : "",
-        subjectType === "person"
-          ? "Pour les suggestions visuelles, ne jamais supposer qu une image du match a venir existe deja ; proposer un portrait existant, une archive autorisee ou un visuel graphique."
-          : "",
-      ].filter(Boolean)
-    : [];
-
-  const lines = [
-    beforeMatch.opponent ? `Adversaire: ${normalize(beforeMatch.opponent)}` : "",
-    beforeMatch.competition ? `Competition: ${normalize(beforeMatch.competition)}` : "",
-    beforeMatch.matchDate ? `Date du match: ${normalize(beforeMatch.matchDate)}` : "",
-    beforeMatch.location ? `Lieu: ${normalize(beforeMatch.location)}` : "",
-    beforeMatch.stakes ? `Enjeu: ${normalize(beforeMatch.stakes)}` : "",
-    beforeMatch.recentForm ? `Dynamique recente: ${normalize(beforeMatch.recentForm)}` : "",
-    beforeMatch.keyInformation ? `Informations importantes: ${normalize(beforeMatch.keyInformation)}` : "",
-  ].filter(Boolean);
-
-  const allLines = [...focusLines, ...lines];
-  if (!allLines.length) return "";
-
-  return ["[MATCH AVANT-MATCH]", ...allLines].join("\n");
-};
-
-const buildBeforeMatchTopics = (beforeMatch: BeforeMatchPresetDraft, subjectName: string): string[] => {
-  return [
-    subjectName ? `Sujet: ${subjectName}` : "",
-    beforeMatch.opponent ? `Adversaire: ${normalize(beforeMatch.opponent)}` : "",
-    beforeMatch.competition ? `Competition: ${normalize(beforeMatch.competition)}` : "",
-    beforeMatch.matchDate ? `Date du match: ${normalize(beforeMatch.matchDate)}` : "",
-    beforeMatch.location ? `Lieu: ${normalize(beforeMatch.location)}` : "",
-    beforeMatch.stakes ? `Enjeu: ${normalize(beforeMatch.stakes)}` : "",
-  ].filter(Boolean);
-};
-
 const mergeTopics = (existing: string[], additions: string[]): string[] => {
   return [...existing, ...additions].filter(Boolean).slice(0, 12);
-};
-
-// Regles de formulation strictement liees a la nature d annonce resolue; jamais les faits contractuels.
-const buildNewContractNatureRules = (contractType: string, resolvedLabel: string): string[] => {
-  if (!resolvedLabel) return [];
-
-  const natureLine = `Nature de l annonce a respecter exactement: ${resolvedLabel}.`;
-
-  if (contractType === "arrival") {
-    return [natureLine, "Autoriser des formulations comme 'rejoint', 'signe' ou un message de bienvenue, coherents avec une arrivee."];
-  }
-  if (contractType === "renewal") {
-    return [natureLine, "Autoriser uniquement 'prolonge', 'renouvelle' ou 'poursuit'; interdire strictement 'rejoint' et toute formulation de bienvenue."];
-  }
-  if (contractType === "first-professional") {
-    return [natureLine, "Mentionner explicitement qu il s agit d un premier contrat professionnel, sans inventer de statut supplementaire non fourni."];
-  }
-  if (contractType === "new-role") {
-    return [natureLine, "Rester centre sur le nouveau role ou changement de fonction, sans le traiter comme une arrivee sportive classique."];
-  }
-  if (contractType === "sponsorship") {
-    return [natureLine, "Traiter cette annonce comme un partenariat ou un sponsoring, jamais comme une arrivee sportive."];
-  }
-  if (contractType === "other") {
-    return [natureLine, "Respecter uniquement cette formulation personnalisee pour la nature de l annonce, sans lui substituer une autre nature."];
-  }
-  return [natureLine];
-};
-
-const buildNewContractContextBlock = (
-  newContract: NewContractPresetDraft,
-  subjectName: string,
-  subjectType: CreationSubjectType | null
-): string => {
-  const focusLines = subjectName
-    ? [
-        `Sujet central: ${subjectName} est le point de vue central de cette publication.`,
-        `Chacune des 3 propositions doit mentionner le nom complet de ${subjectName} dans le hook ou la premiere phrase.`,
-        `Chacune des 3 propositions doit rester centree sur ${subjectName} dans tout le corps du texte.`,
-        `Les 3 propositions doivent etre reellement distinctes, sans repeter la meme approche.`,
-        "Varier la structure et le ton des 3 propositions, jamais les faits contractuels.",
-        "Ne jamais presenter une division, une promotion sportive ou un niveau de competition comme un palmares.",
-        ...buildNewContractNatureRules(newContract.contractType, resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)),
-        subjectType === "person"
-          ? `Ne jamais inventer de montant, salaire, indemnite, duree, date, role ou conditions non fournis pour ${subjectName}.`
-          : "Ne jamais inventer de montant, salaire, indemnite, duree, date, role ou conditions non fournis.",
-        newContract.quote ? "" : "Aucune citation fournie: ne jamais inventer ou attribuer de citation.",
-      ].filter(Boolean)
-    : [];
-
-  const lines = [
-    newContract.organization ? `Organisation: ${normalize(newContract.organization)}` : "",
-    resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)
-      ? `Type de contrat: ${resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)}`
-      : "",
-    newContract.role ? `Role: ${normalize(newContract.role)}` : "",
-    newContract.startDate ? `Date de debut: ${normalize(newContract.startDate)}` : "",
-    newContract.duration ? `Duree: ${normalize(newContract.duration)}` : "",
-    newContract.keyTerms ? `Elements cles: ${normalize(newContract.keyTerms)}` : "",
-    newContract.quote ? `Citation: ${normalize(newContract.quote)}` : "",
-    newContract.objectives ? `Objectifs: ${normalize(newContract.objectives)}` : "",
-  ].filter(Boolean);
-
-  const allLines = [...focusLines, ...lines];
-  if (!allLines.length) return "";
-
-  return ["[NOUVEAU CONTRAT]", ...allLines].join("\n");
-};
-
-const buildNewContractTopics = (newContract: NewContractPresetDraft, subjectName: string): string[] => {
-  return [
-    subjectName ? `Sujet: ${subjectName}` : "",
-    newContract.organization ? `Organisation: ${normalize(newContract.organization)}` : "",
-    resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)
-      ? `Type de contrat: ${resolveNewContractTypeLabel(newContract.contractType, newContract.customContractType)}`
-      : "",
-    newContract.role ? `Role: ${normalize(newContract.role)}` : "",
-    newContract.startDate ? `Date de debut: ${normalize(newContract.startDate)}` : "",
-    newContract.duration ? `Duree: ${normalize(newContract.duration)}` : "",
-  ].filter(Boolean);
-};
-
-// Le preset Nouveau contrat n a pas d etape Angle dediee; l angle est deduit des faits fournis.
-const buildNewContractSelectedAngle = (subjectName: string, newContract: NewContractPresetDraft): string => {
-  const organization = normalize(newContract.organization);
-  const role = normalize(newContract.role);
-
-  if (!subjectName && !organization && !role) return "";
-
-  const withOrganization = organization ? ` avec ${organization}` : "";
-  const withRole = role ? `, pour le role de ${role}` : "";
-
-  return `Annoncer factuellement et de maniere valorisante le nouveau contrat de ${subjectName || "ce sujet"}${withOrganization}${withRole}.`;
-};
-
-const resolveMatchDayHomeAwayLabel = (homeAway: MatchDayStoryPresetDraft["homeAway"]): string => {
-  if (homeAway === "home") return "A domicile";
-  if (homeAway === "away") return "A l exterieur";
-  return "";
-};
-
-const buildMatchDayStoryContextBlock = (matchDayStory: MatchDayStoryPresetDraft, subjectName: string): string => {
-  const homeAwayLabel = resolveMatchDayHomeAwayLabel(matchDayStory.homeAway);
-  const focusLines = subjectName
-    ? [
-        `Sujet central: ${subjectName} est le point de vue central de cette Story.`,
-        `Rester centre sur ${subjectName} et le match renseigne.`,
-        "Ne jamais inventer de competition, date, heure, lieu, enjeu ou appel a l action absent.",
-        "Respecter exactement la localisation domicile ou exterieur fournie.",
-        "Ne jamais annoncer un resultat puisque le match n a pas encore eu lieu.",
-        "Chaque sequence doit apporter une information ou une fonction differente.",
-        matchDayStory.callToAction ? "La derniere sequence peut reprendre l appel a l action fourni." : "La derniere sequence ne doit pas inventer d appel a l action.",
-      ]
-    : [];
-  const lines = [
-    matchDayStory.opponent ? `Adversaire: ${normalize(matchDayStory.opponent)}` : "",
-    matchDayStory.competition ? `Competition: ${normalize(matchDayStory.competition)}` : "",
-    matchDayStory.matchDate ? `Date du match: ${normalize(matchDayStory.matchDate)}` : "",
-    matchDayStory.matchTime ? `Heure: ${normalize(matchDayStory.matchTime)}` : "",
-    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
-    matchDayStory.venue ? `Lieu: ${normalize(matchDayStory.venue)}` : "",
-    matchDayStory.stakes ? `Enjeu / contexte: ${normalize(matchDayStory.stakes)}` : "",
-    matchDayStory.callToAction ? `Appel a l action: ${normalize(matchDayStory.callToAction)}` : "",
-  ].filter(Boolean);
-
-  const allLines = [...focusLines, ...lines];
-  if (!allLines.length) return "";
-
-  return ["[STORY JOUR DE MATCH]", ...allLines].join("\n");
-};
-
-const buildMatchDayStoryTopics = (matchDayStory: MatchDayStoryPresetDraft, subjectName: string): string[] => {
-  const homeAwayLabel = resolveMatchDayHomeAwayLabel(matchDayStory.homeAway);
-  return [
-    subjectName ? `Sujet: ${subjectName}` : "",
-    matchDayStory.opponent ? `Adversaire: ${normalize(matchDayStory.opponent)}` : "",
-    matchDayStory.competition ? `Competition: ${normalize(matchDayStory.competition)}` : "",
-    matchDayStory.matchDate ? `Date du match: ${normalize(matchDayStory.matchDate)}` : "",
-    matchDayStory.matchTime ? `Heure: ${normalize(matchDayStory.matchTime)}` : "",
-    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
-  ].filter(Boolean);
-};
-
-const buildMatchDayStorySelectedAngle = (subjectName: string, matchDayStory: MatchDayStoryPresetDraft): string => {
-  return `Annoncer clairement le match a venir de ${subjectName || "ce sujet"} contre ${normalize(matchDayStory.opponent) || "son adversaire"}, avec une progression dynamique adaptee a une Story.`;
-};
-
-const resolveAfterMatchStoryResultLabel = (result: AfterMatchStoryPresetDraft["result"]): string => {
-  if (result === "win") return "Victoire";
-  if (result === "draw") return "Match nul";
-  if (result === "loss") return "Defaite";
-  return "";
-};
-
-const buildAfterMatchStoryContextBlock = (afterMatchStory: AfterMatchStoryPresetDraft, subjectName: string): string => {
-  const homeAwayLabel = resolveMatchDayHomeAwayLabel(afterMatchStory.homeAway);
-  const resultLabel = resolveAfterMatchStoryResultLabel(afterMatchStory.result);
-  const focusLines = subjectName
-    ? [
-        `Sujet central: ${subjectName} est le point de vue central de cette Story.`,
-        `Rester centre sur ${subjectName} et le match renseigne.`,
-        "Respecter exactement le score et le resultat fournis; ne jamais transformer une defaite ou un nul en victoire.",
-        "Ne jamais inventer de but, point, statistique, action, classement ou performance.",
-        "Distinguer clairement les faits collectifs de la performance individuelle du sujet.",
-        afterMatchStory.reaction ? "Utiliser uniquement la reaction ou citation fournie." : "Ne jamais attribuer de reaction ou citation absente.",
-        afterMatchStory.callToAction ? "La derniere sequence peut reprendre l appel a l action fourni." : "Sans appel a l action fourni, ne generer aucun CTA, sticker, question, sondage ou invitation.",
-        "Chaque sequence doit apporter une information ou une fonction differente.",
-      ]
-    : [];
-  const lines = [
-    afterMatchStory.opponent ? `Adversaire: ${normalize(afterMatchStory.opponent)}` : "",
-    afterMatchStory.competition ? `Competition: ${normalize(afterMatchStory.competition)}` : "",
-    afterMatchStory.matchDate ? `Date du match: ${normalize(afterMatchStory.matchDate)}` : "",
-    homeAwayLabel ? `Localisation: ${homeAwayLabel}` : "",
-    afterMatchStory.score ? `Score: ${normalize(afterMatchStory.score)}` : "",
-    resultLabel ? `Resultat: ${resultLabel}` : "",
-    afterMatchStory.keyMoments ? `Moments cles: ${normalize(afterMatchStory.keyMoments)}` : "",
-    afterMatchStory.performance ? `Performance du sujet: ${normalize(afterMatchStory.performance)}` : "",
-    afterMatchStory.reaction ? `Reaction / citation: ${normalize(afterMatchStory.reaction)}` : "",
-    afterMatchStory.callToAction ? `Appel a l action: ${normalize(afterMatchStory.callToAction)}` : "",
-  ].filter(Boolean);
-
-  const allLines = [...focusLines, ...lines];
-  if (!allLines.length) return "";
-
-  return ["[STORY APRES-MATCH]", ...allLines].join("\n");
-};
-
-const buildAfterMatchStoryTopics = (afterMatchStory: AfterMatchStoryPresetDraft, subjectName: string): string[] => {
-  const resultLabel = resolveAfterMatchStoryResultLabel(afterMatchStory.result);
-  return [
-    subjectName ? `Sujet: ${subjectName}` : "",
-    afterMatchStory.opponent ? `Adversaire: ${normalize(afterMatchStory.opponent)}` : "",
-    afterMatchStory.competition ? `Competition: ${normalize(afterMatchStory.competition)}` : "",
-    afterMatchStory.matchDate ? `Date du match: ${normalize(afterMatchStory.matchDate)}` : "",
-    afterMatchStory.score ? `Score: ${normalize(afterMatchStory.score)}` : "",
-    resultLabel ? `Resultat: ${resultLabel}` : "",
-  ].filter(Boolean);
-};
-
-const buildAfterMatchStorySelectedAngle = (subjectName: string, afterMatchStory: AfterMatchStoryPresetDraft): string => {
-  return `Raconter le match de ${subjectName || "ce sujet"} contre ${normalize(afterMatchStory.opponent) || "son adversaire"}, en respectant exactement le score et le resultat, avec une progression adaptee a une Story.`;
 };
 
 const mapContextTypeToSubjectType = (value?: string): CreationSubjectType => {
@@ -867,12 +369,8 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isPublication = initialObjective === "publication";
   const isReel = initialObjective === "reel";
   const isStory = initialObjective === "story";
-  // Le preset n a de sens que pour l objectif qui le consomme.
-  const initialPresetId =
-    (isPublication && context.presetId !== "match-day-story" && context.presetId !== "after-match-story") ||
-    (isStory && (context.presetId === "match-day-story" || context.presetId === "after-match-story"))
-      ? context.presetId
-      : undefined;
+  // Le preset n a de sens que pour l objectif Publication, seul flux qui le consommera.
+  const initialPresetId = isPublication ? context.presetId : undefined;
 
   return {
     subject: {
@@ -890,12 +388,12 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: initialObjective === "article" ? "institutional" : isPublication || isReel || isStory ? "authentic" : "",
+      toneId: isPublication || isReel || isStory ? "authentic" : "",
       customTone: "",
       questionCountId: "",
       customQuestionCount: "",
       formatId: "",
-      audienceId: initialObjective === "article" ? "supporters" : isPublication || isReel || isStory ? "general" : "",
+      audienceId: isPublication || isReel || isStory ? "general" : "",
       customAudience: "",
       additionalContext: "",
       requiredTopics: "",
@@ -941,77 +439,6 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
             nextFixture: "",
           }
         : undefined,
-    beforeMatch:
-      initialPresetId === "before-match"
-        ? {
-            opponent: "",
-            competition: "",
-            matchDate: "",
-            location: "",
-            stakes: "",
-            recentForm: "",
-            keyInformation: "",
-          }
-        : undefined,
-    newContract:
-      initialPresetId === "new-contract"
-        ? {
-            organization: "",
-            contractType: "",
-            customContractType: "",
-            role: "",
-            startDate: "",
-            duration: "",
-            keyTerms: "",
-            quote: "",
-            objectives: "",
-          }
-        : undefined,
-    matchDayStory:
-      initialPresetId === "match-day-story"
-        ? {
-            opponent: "",
-            competition: "",
-            matchDate: "",
-            matchTime: "",
-            venue: "",
-            homeAway: "",
-            stakes: "",
-            callToAction: "",
-          }
-        : undefined,
-    afterMatchStory:
-      initialPresetId === "after-match-story"
-        ? {
-            opponent: "",
-            competition: "",
-            matchDate: "",
-            homeAway: "",
-            score: "",
-            result: "",
-            keyMoments: "",
-            performance: "",
-            reaction: "",
-            callToAction: "",
-          }
-        : undefined,
-    article:
-      initialObjective === "article"
-        ? {
-            articleType: "actualite",
-            length: "moyen",
-            verifiedSources: [],
-            selectedResearchContextItemIds: [],
-            selectedResearchSourceUrls: [],
-            researchAddedSourceUrls: [],
-            providedCitations: [],
-            selectedAngleId: "",
-            selectedAngle: "",
-            structureSuggestions: [],
-            selectedStructureId: "",
-            selectedStructure: null,
-          }
-        : undefined,
   };
 };
 
@@ -1043,10 +470,6 @@ export const ContentCreationAssistantService = {
     const isReel = objectiveId === "reel";
     const isStory = objectiveId === "story";
     const isAfterMatch = isPublication && args.draft.presetId === "after-match";
-    const isBeforeMatch = isPublication && args.draft.presetId === "before-match";
-    const isNewContract = isPublication && args.draft.presetId === "new-contract";
-    const isMatchDayStory = isStory && args.draft.presetId === "match-day-story";
-    const isAfterMatchStory = isStory && args.draft.presetId === "after-match-story";
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -1068,7 +491,7 @@ export const ContentCreationAssistantService = {
       if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
       if (isStory) {
-        if (!isMatchDayStory && !isAfterMatchStory && !normalize(args.draft.parameters.storySelectedAngle)) return null;
+        if (!normalize(args.draft.parameters.storySelectedAngle)) return null;
 
         const customFrameCount = Number(args.draft.parameters.storyFrameCount);
         storyFrameCount = Number.isFinite(customFrameCount) && customFrameCount > 0 ? Math.floor(customFrameCount) : 0;
@@ -1125,60 +548,12 @@ export const ContentCreationAssistantService = {
             ]
               .filter(Boolean)
               .join("\n\n")
-          : isBeforeMatch && args.draft.beforeMatch
-            ? [
-                normalize(args.draft.parameters.additionalContext),
-                buildBeforeMatchContextBlock(args.draft.beforeMatch, normalize(args.draft.subject.displayName), subjectType),
-              ]
-                .filter(Boolean)
-                .join("\n\n")
-          : isNewContract && args.draft.newContract
-            ? [
-                normalize(args.draft.parameters.additionalContext),
-                buildNewContractContextBlock(args.draft.newContract, normalize(args.draft.subject.displayName), subjectType),
-              ]
-                .filter(Boolean)
-                .join("\n\n")
-          : isMatchDayStory && args.draft.matchDayStory
-            ? [
-                normalize(args.draft.parameters.additionalContext),
-                buildMatchDayStoryContextBlock(args.draft.matchDayStory, normalize(args.draft.subject.displayName)),
-              ]
-                .filter(Boolean)
-                .join("\n\n")
-          : isAfterMatchStory && args.draft.afterMatchStory
-            ? [
-                normalize(args.draft.parameters.additionalContext),
-                buildAfterMatchStoryContextBlock(args.draft.afterMatchStory, normalize(args.draft.subject.displayName)),
-              ]
-                .filter(Boolean)
-                .join("\n\n")
           : normalize(args.draft.parameters.additionalContext),
         requiredTopics: isAfterMatch && args.draft.afterMatch
           ? mergeTopics(
               parseTopics(args.draft.parameters.requiredTopics),
               buildAfterMatchTopics(args.draft.afterMatch, normalize(args.draft.subject.displayName))
             )
-          : isBeforeMatch && args.draft.beforeMatch
-            ? mergeTopics(
-                parseTopics(args.draft.parameters.requiredTopics),
-                buildBeforeMatchTopics(args.draft.beforeMatch, normalize(args.draft.subject.displayName))
-              )
-          : isNewContract && args.draft.newContract
-            ? mergeTopics(
-                parseTopics(args.draft.parameters.requiredTopics),
-                buildNewContractTopics(args.draft.newContract, normalize(args.draft.subject.displayName))
-              )
-          : isMatchDayStory && args.draft.matchDayStory
-            ? mergeTopics(
-                parseTopics(args.draft.parameters.requiredTopics),
-                buildMatchDayStoryTopics(args.draft.matchDayStory, normalize(args.draft.subject.displayName))
-              )
-          : isAfterMatchStory && args.draft.afterMatchStory
-            ? mergeTopics(
-                parseTopics(args.draft.parameters.requiredTopics),
-                buildAfterMatchStoryTopics(args.draft.afterMatchStory, normalize(args.draft.subject.displayName))
-              )
           : parseTopics(args.draft.parameters.requiredTopics),
         avoidedTopics: parseTopics(args.draft.parameters.avoidedTopics),
         contextIntelligence: {
@@ -1198,11 +573,9 @@ export const ContentCreationAssistantService = {
         },
         publication: isPublication
           ? {
-              objectiveId: isAfterMatch ? "narrate" : isBeforeMatch ? "inform" : isNewContract ? "inform" : args.draft.parameters.publicationObjectiveId,
+              objectiveId: isAfterMatch ? "narrate" : args.draft.parameters.publicationObjectiveId,
               customObjective: normalize(args.draft.parameters.publicationCustomObjective),
-              selectedAngle: isNewContract && args.draft.newContract
-                ? buildNewContractSelectedAngle(normalize(args.draft.subject.displayName), args.draft.newContract)
-                : normalize(args.draft.parameters.publicationSelectedAngle),
+              selectedAngle: normalize(args.draft.parameters.publicationSelectedAngle),
               platform: args.draft.parameters.publicationPlatform,
               length: args.draft.parameters.publicationLength,
               cta: normalize(args.draft.parameters.publicationCta),
@@ -1223,11 +596,7 @@ export const ContentCreationAssistantService = {
           : undefined,
         story: isStory
           ? {
-              selectedAngle: isMatchDayStory && args.draft.matchDayStory
-                ? buildMatchDayStorySelectedAngle(normalize(args.draft.subject.displayName), args.draft.matchDayStory)
-                : isAfterMatchStory && args.draft.afterMatchStory
-                  ? buildAfterMatchStorySelectedAngle(normalize(args.draft.subject.displayName), args.draft.afterMatchStory)
-                : normalize(args.draft.parameters.storySelectedAngle),
+              selectedAngle: normalize(args.draft.parameters.storySelectedAngle),
               frameCount: storyFrameCount,
               platform: args.draft.parameters.storyPlatform,
             }

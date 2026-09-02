@@ -9,17 +9,6 @@ export const buildStoryPrompt = (request: AnyContentGenerationRequest): string =
 
   const selectedCount = request.selectedContextItems.length;
   const frameCount = request.brief.frameCount;
-  const isMatchDayStory = request.context.manualContext?.startsWith("[STORY JOUR DE MATCH]") ?? false;
-  const isAfterMatchStory = request.context.manualContext?.startsWith("[STORY APRES-MATCH]") ?? false;
-  const afterMatchStoryCallToAction = request.context.manualContext
-    ?.split("\n")
-    .find((line) => line.startsWith("Appel a l action:"))
-    ?.replace("Appel a l action:", "")
-    .trim()
-    .toLowerCase();
-  const hasAfterMatchStoryCallToAction = Boolean(
-    afterMatchStoryCallToAction && !["non renseigne", "non renseigné", "aucun", "aucune"].includes(afterMatchStoryCallToAction),
-  );
 
   const storyRules = [
     `- Produire exactement 3 sequences Story distinctes, traitant le meme angle editorial selectionne.`,
@@ -43,38 +32,6 @@ export const buildStoryPrompt = (request: AnyContentGenerationRequest): string =
     "- Ne pas inclure d URL sauf demande explicite.",
   ].join("\n");
 
-  const matchDayStoryRules = isMatchDayStory
-    ? [
-        "- Preset Story jour de match: conserver exactement les faits fournis dans les trois propositions.",
-        "- Proposition 1: annonce factuelle.",
-        "- Proposition 2: montee en tension sportive.",
-        "- Proposition 3: mise en avant du sujet selectionne.",
-        "- Ne jamais completer une information absente par une suggestion generique.",
-        "- Si l appel a l action est absent ou indique comme non renseigne, ne generer aucun CTA, sticker, question, sondage, invitation a repondre ou a partager.",
-        `- Chaque proposition doit contenir exactement ${frameCount} frames demandees.`,
-        "- Chaque frame doit avoir une information ou fonction differente et eviter les repetitions.",
-      ].join("\n")
-    : "";
-
-  const afterMatchStoryRules = isAfterMatchStory
-    ? [
-        "- Preset Story apres-match: conserver exactement les memes score, resultat et faits fournis dans les trois propositions.",
-        "- Proposition 1: resume factuel du match.",
-        "- Proposition 2: recit emotionnel adapte au resultat reel.",
-        "- Proposition 3: mise en avant du sujet selectionne, uniquement avec la performance fournie.",
-        "- Ne jamais inventer de statistique, action, classement, performance, reaction ou citation.",
-        hasAfterMatchStoryCallToAction
-          ? "- Utiliser un appel a l action uniquement s il correspond exactement a celui fourni."
-          : "- Sans appel a l action fourni, ne generer aucun CTA, sticker, question, sondage, invitation, interaction ni frame de type appel_a_action ou equivalent; terminer par une frame de type Conclusion.",
-        `- Chaque proposition doit contenir exactement ${frameCount} frames demandees.`,
-        "- Imposer cette progression chronologique: 1. introduction du match; 2. contexte fourni; 3. resultat et score; 4. lecture emotionnelle strictement coherente avec le resultat; 5. conclusion factuelle.",
-        "- Si des moments cles, une performance ou une reaction sont fournis, les utiliser dans les frames intermediaires.",
-        "- S ils sont absents, rester sobre et ne jamais repeter presque mot pour mot le score ou la defaite dans plusieurs frames.",
-        "- Ne jamais utiliser une frame de type teaser apres avoir deja revele le resultat.",
-        "- Chaque frame doit avoir une fonction differente.",
-      ].join("\n")
-    : "";
-
   const templatePayload = JSON.stringify(
     {
       requestType: request.requestType,
@@ -97,8 +54,6 @@ export const buildStoryPrompt = (request: AnyContentGenerationRequest): string =
     buildEditorialRulesBlock(),
     "Contraintes Story:",
     storyRules,
-    matchDayStoryRules,
-    afterMatchStoryRules,
     "Contexte intelligent:",
     storyContextRules,
     "Contexte et demande:",

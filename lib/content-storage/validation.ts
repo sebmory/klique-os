@@ -1,8 +1,6 @@
 import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
 import type {
-  ArticleFinalResult,
-  ArticleGenerationRequest,
   ArticleStructureSuggestion,
   ContentGenerationRequest,
   InterviewGenerationRequest,

@@ -1,6 +1,6 @@
 export type ContentContextType = "athlete" | "club" | "partner" | "organization" | "other";
 
-export type ContentPresetId = "after-match" | "before-match" | "new-contract" | "match-day-story" | "after-match-story";
+export type ContentPresetId = "after-match";
 
 export type ContentCreationContext = {
   mode: "free" | "contextual";
@@ -17,7 +17,6 @@ export type ContentGeneratorId =
   | "reel"
   | "story"
   | "podcast"
-  | "article"
   | "campaign";
 
 export type ContentGenerator = {
@@ -31,14 +30,10 @@ export type ContentGenerator = {
 
 export type ContentTemplateId =
   | "portrait-athlete"
-  | "before-match"
   | "after-match"
-  | "new-contract"
   | "behind-the-scenes"
   | "fast-questions"
-  | "partner-interview"
-  | "match-day-story"
-  | "after-match-story";
+  | "partner-interview";
 
 export type ContentTemplate = {
   id: ContentTemplateId;
@@ -90,14 +85,6 @@ const generators: ContentGenerator[] = [
     entryRoute: "/contents/create",
   },
   {
-    id: "article",
-    title: "Article",
-    description: "Definissez angle, structure et sections pour un article solide.",
-    isAvailable: true,
-    statusLabel: "Disponible",
-    entryRoute: "/contents/create?objective=article",
-  },
-  {
     id: "campaign",
     title: "Campagne",
     description: "Coordonnez plusieurs formats dans un plan editorial coherent.",
@@ -114,25 +101,11 @@ const templates: ContentTemplate[] = [
     description: "Presenter une personnalite, son parcours et sa vision.",
   },
   {
-    id: "before-match",
-    title: "Avant-match",
-    description: "Monter la tension avant une rencontre importante.",
-    isAvailable: true,
-    entryRoute: "/contents/create?objective=publication&preset=before-match",
-  },
-  {
     id: "after-match",
     title: "Apres-match",
     description: "Capitaliser sur les emotions et les enseignements a chaud.",
     isAvailable: true,
     entryRoute: "/contents/create?objective=publication&preset=after-match",
-  },
-  {
-    id: "new-contract",
-    title: "Nouveau contrat",
-    description: "Annoncer un partenariat ou un engagement strategique.",
-    isAvailable: true,
-    entryRoute: "/contents/create?objective=publication&preset=new-contract",
   },
   {
     id: "behind-the-scenes",
@@ -148,20 +121,6 @@ const templates: ContentTemplate[] = [
     id: "partner-interview",
     title: "Interview partenaire",
     description: "Mettre en avant la collaboration et les activations communes.",
-  },
-  {
-    id: "match-day-story",
-    title: "Story jour de match",
-    description: "Sequencer la journee en stories prêtes a publier.",
-    isAvailable: true,
-    entryRoute: "/contents/create?objective=story&preset=match-day-story",
-  },
-  {
-    id: "after-match-story",
-    title: "Story après-match",
-    description: "Raconter les faits et les émotions après une rencontre.",
-    isAvailable: true,
-    entryRoute: "/contents/create?objective=story&preset=after-match-story",
   },
 ];
 
@@ -186,14 +145,9 @@ export const ContentsHubService = {
       ? (objectiveCandidate as ContentGeneratorId)
       : undefined;
 
-    // Un preset n est retenu que pour l objectif qui le consomme.
+    // Le preset n est retenu que pour l objectif Publication, seul flux qui le consomme.
     const presetCandidate = String(params.preset ?? "").trim().toLowerCase();
-    const presetId =
-      (objective === "publication" &&
-        (presetCandidate === "after-match" || presetCandidate === "before-match" || presetCandidate === "new-contract")) ||
-      (objective === "story" && (presetCandidate === "match-day-story" || presetCandidate === "after-match-story"))
-        ? (presetCandidate as ContentPresetId)
-        : undefined;
+    const presetId = objective === "publication" && presetCandidate === "after-match" ? (presetCandidate as ContentPresetId) : undefined;
 
     const subjectName = String(params.subject ?? "").trim();
     if (!subjectName) {

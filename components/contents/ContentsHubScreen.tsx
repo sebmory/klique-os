@@ -28,7 +28,6 @@ const documentTypeLabels: Record<string, string> = {
   interview: "Interview",
   publication: "Publication",
   reel: "Reel",
-  article: "Article",
 };
 
 const getDocumentTitle = (document: ContentDocument): string => {
@@ -55,20 +54,15 @@ const generatorIconById: Record<ContentGenerator["id"], ComponentType<{ size?: n
   reel: Clapperboard,
   story: Radio,
   podcast: Mic,
-  article: BookOpen,
   campaign: Megaphone,
 };
 
 const templateIconById: Record<ContentTemplate["id"], ComponentType<{ size?: number; className?: string }>> = {
   "portrait-athlete": UserSquare2,
-  "before-match": Sparkles,
   "after-match": Sparkles,
-  "new-contract": FileText,
   "behind-the-scenes": Clapperboard,
   "fast-questions": MessageSquareQuote,
   "partner-interview": MessageSquareQuote,
-  "match-day-story": Radio,
-  "after-match-story": Radio,
 };
 
 export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
@@ -176,7 +170,7 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
           ) : null}
           <h1>Que souhaitez-vous creer aujourd hui ?</h1>
           <p>
-            Creer rapidement des interviews, publications, reels, stories, articles, podcasts ou campagnes.
+            Creer rapidement des interviews, publications, reels, stories, podcasts ou campagnes.
           </p>
 
           <label className="contents-search" htmlFor="contents-hub-search">

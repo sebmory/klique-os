@@ -17,6 +17,8 @@ import type {
   PublicationRegenerateOneResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type { AiUsageGenerationContext } from "@/types/ai-usage";
 
@@ -92,6 +94,10 @@ export function runContentIntelligenceEngine(payload: CreationPreparationPayload
   request: ReelGenerationRequest;
   result: ReelGenerationResult;
 }>;
+export function runContentIntelligenceEngine(payload: CreationPreparationPayload & { objective: { id: "story" } }, usageContext?: AiUsageGenerationContext): Promise<{
+  request: StoryGenerationRequest;
+  result: StoryGenerationResult;
+}>;
 export function runContentIntelligenceEngine(payload: CreationPreparationPayload, usageContext?: AiUsageGenerationContext): Promise<{
   request: AnyContentGenerationRequest;
   result: AnyContentGenerationResult;
@@ -134,12 +140,8 @@ export const runPublicationAngleSuggestionsEngine = async (
 ): Promise<PublicationAngleSuggestion[]> => {
   try {
     const provider = resolveProvider();
-    // Ne propage manualContext/requiredTopics aux angles que pour les presets dedies; les Publications normales restent inchangees.
-    const isPresetContext =
-      request.context.manualContext?.startsWith("[MATCH APRES-MATCH]") ||
-      request.context.manualContext?.startsWith("[MATCH AVANT-MATCH]") ||
-      request.context.manualContext?.startsWith("[NOUVEAU CONTRAT]") ||
-      false;
+    // Ne propage manualContext/requiredTopics aux angles que pour le preset Apres-match; les Publications normales restent inchangees.
+    const isAfterMatchContext = request.context.manualContext?.startsWith("[MATCH APRES-MATCH]") ?? false;
     const angleContext = {
       contentType: "publication",
       subject: {
@@ -160,8 +162,8 @@ export const runPublicationAngleSuggestionsEngine = async (
         userProvidedContextItems: request.context.userProvidedContextItems,
         editorialLeads: request.context.editorialLeads,
         selectedContextItems: request.selectedContextItems,
-        manualContext: isPresetContext ? request.context.manualContext : undefined,
-        requiredTopics: isPresetContext ? request.context.constraints.requiredTopics : undefined,
+        manualContext: isAfterMatchContext ? request.context.manualContext : undefined,
+        requiredTopics: isAfterMatchContext ? request.context.constraints.requiredTopics : undefined,
       },
     };
 

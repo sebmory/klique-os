@@ -7,6 +7,8 @@ import type {
   PublicationGenerationResult,
   ReelGenerationRequest,
   ReelGenerationResult,
+  StoryGenerationRequest,
+  StoryGenerationResult,
 } from "@/types/content-generation";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 
@@ -17,8 +19,8 @@ type StoredDraftRecordV2 = {
 
 type StoredInterviewResult = {
   payload: CreationPreparationPayload;
-  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest;
-  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult;
+  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
+  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   createdAt: string;
   sessionId?: string;
 };
