@@ -62,7 +62,7 @@ export type AthleteServicePurchaseCheck = {
     | "inactive_product"
     | "plan_not_allowed"
     | "production_credit_required";
-  productionCreditsRequired: 0 | 1;
+  productionCreditsRequired: number;
 };
 
 export type AthleteMemberService = {
