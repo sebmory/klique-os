@@ -174,11 +174,21 @@ describe("Athlete à-la-carte service catalog", () => {
       code: "photo_session_standard",
       name: "Session photo KLIQUE",
       memberPriceChf: 149,
-      validityLabel: "12 mois après achat",
+      validityLabel: "12 mois après son achat",
     }));
     expect(projection.services[0]).not.toHaveProperty("fulfillmentKind");
     expect(projection.services[0]).not.toHaveProperty("allowedPlanCodes");
     expect(projection.services[0]).not.toHaveProperty("requiredProductionCredits");
+
+    expect(projection.services.find((service) => service.code === "custom_content_single")?.description).toBe(
+      "Une création demandée par vous pour une communication particulière : annonce, résultat important, recherche de sponsor, événement, remerciement ou autre actualité que vous souhaitez spécialement mettre en avant. KLIQUE réalise, selon le besoin, une publication, un carrousel, une story ou un visuel à partir des éléments disponibles.",
+    );
+    expect(projection.services.find((service) => service.code === "custom_content_pack_5")?.description).toBe(
+      "Cinq demandes de contenus personnalisés à utiliser pendant 12 mois pour vos communications particulières. Chaque demande peut prendre la forme d’une publication, d’un carrousel, d’une story ou d’un visuel.",
+    );
+    expect(projection.services.find((service) => service.code === "simple_video_capsule")?.description).toBe(
+      "Création d’une courte vidéo avec un tournage léger et un montage simple. Les projets plus complexes sont réalisés sur devis.",
+    );
   });
 
   it("shows the video to Essential members as locked for Impact or Signature", () => {
@@ -192,7 +202,7 @@ describe("Athlete à-la-carte service catalog", () => {
 
     expect(video).toMatchObject({
       available: false,
-      availabilityLabel: "Disponible avec Impact ou Signature",
+      availabilityLabel: "Réservé à un autre abonnement",
     });
   });
 
@@ -206,10 +216,14 @@ describe("Athlete à-la-carte service catalog", () => {
 
     expect(withoutCredit).toMatchObject({
       available: false,
-      memberPriceLabel: "CHF 30 + 1 crédit production",
-      availabilityLabel: "1 crédit production requis",
+      memberPriceLabel: "CHF 30",
+      availabilityLabel: "Solde insuffisant",
     });
-    expect(withCredit).toMatchObject({ available: true, availabilityLabel: "Disponible maintenant" });
+    expect(withCredit).toMatchObject({
+      name: "Conversion en couverture de match",
+      available: true,
+      availabilityLabel: "Disponible",
+    });
   });
 
   it("keeps the catalog visible but reserves every service without an active membership", () => {
@@ -246,5 +260,9 @@ describe("Athlete à-la-carte service catalog", () => {
       eligibleWithPlan: false,
       sufficient: false,
     });
+    expect(byCode.photo_session_standard.availabilityLabel).toBe("Inclus");
+    expect(byCode.match_coverage_individual.availabilityLabel).toBe("Disponible");
+    expect(byCode.custom_content_pack_5.availabilityLabel).toBe("Disponible");
+    expect(byCode.simple_video_capsule.availabilityLabel).toBe("Réservé à un autre abonnement");
   });
 });

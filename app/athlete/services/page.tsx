@@ -12,6 +12,24 @@ const KLIQUE_GOLD = "#e8b84b";
 const SURFACE_BORDER = "rgba(255, 255, 255, 0.09)";
 const TEXT_MUTED = "#9ca3af";
 
+const formatRightsBalance = (quantity: number, singular: string, plural: string): string =>
+  `${quantity} ${quantity === 1 ? singular : plural}`;
+
+const formatUsage = (
+  required: number,
+  available: number,
+  rightType: "production" | "custom_content",
+): string => {
+  const availableLabel = `${available} disponible${available === 1 ? "" : "s"}`;
+  if (rightType === "production" && required === 1 && available === 1) {
+    return `Utilise votre production incluse — ${availableLabel}`;
+  }
+  const rightLabel = rightType === "production"
+    ? `${required} production${required === 1 ? "" : "s"} incluse${required === 1 ? "" : "s"}`
+    : `${required} contenu${required === 1 ? "" : "s"} personnalisé${required === 1 ? "" : "s"}`;
+  return `Utilise ${rightLabel} — ${availableLabel}`;
+};
+
 export default function AthleteServicesPage() {
   const [catalog, setCatalog] = useState<AthleteMemberServicesProjection | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,15 +83,21 @@ export default function AthleteServicesPage() {
         </p>
         <h1 style={{ margin: 0, fontSize: "1.5rem", color: "#f8fafc" }}>Services membres</h1>
         <p style={{ margin: 0, color: TEXT_MUTED, fontSize: "0.95rem", lineHeight: 1.5, maxWidth: "68ch" }}>
-          Découvrez les prestations KLIQUE accessibles aux membres. Chaque prestation achetée reste valable pendant 12 mois.
+          Votre abonnement comprend des services inclus chaque année. Les services indiqués comme inclus peuvent être demandés sans paiement supplémentaire et utilisent l’un de vos droits disponibles. Vous pouvez également commander des prestations supplémentaires aux tarifs membres affichés.
         </p>
         {catalog ? (
           <p style={{ margin: "0.2rem 0 0", color: "#d1d5db", fontSize: "0.9rem" }}>
             {catalog.membership.active
-              ? `Plan actuel : ${catalog.membership.planName || "adhésion membre"} · ${catalog.membership.productionCreditBalance} crédit(s) production · ${catalog.membership.customContentCreditBalance} crédit(s) contenu personnalisé`
+              ? `Avec votre abonnement${catalog.membership.planName ? ` ${catalog.membership.planName}` : ""}, il vous reste ${formatRightsBalance(catalog.membership.productionCreditBalance, "production", "productions")} et ${formatRightsBalance(catalog.membership.customContentCreditBalance, "contenu personnalisé", "contenus personnalisés")}.`
               : "Aucune adhésion active"}
           </p>
         ) : null}
+        <aside style={{ marginTop: "0.45rem", padding: "0.85rem 0.95rem", border: `1px solid ${SURFACE_BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.035)", display: "grid", gap: "0.3rem" }}>
+          <strong style={{ color: "#f8fafc", fontSize: "0.92rem" }}>Votre visibilité habituelle reste incluse</strong>
+          <p style={{ margin: 0, color: "#d1d5db", fontSize: "0.86rem", lineHeight: 1.55 }}>
+            KLIQUE continue de suivre votre actualité grâce aux formulaires hebdomadaires et mensuels et sélectionne régulièrement des sujets à mettre en avant. Les contenus initiés par KLIQUE dans ce cadre ne sont pas déduits de vos droits.
+          </p>
+        </aside>
       </header>
 
       {loading ? (
@@ -84,7 +108,17 @@ export default function AthleteServicesPage() {
         </p>
       ) : catalog ? (
         <div style={{ display: "grid", gap: "0.9rem", gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))" }}>
-          {catalog.services.map((service) => (
+          {catalog.services.map((service) => {
+            const isMatchUpgrade = service.code === "match_coverage_upgrade";
+            const isCustomContentPack = service.code === "custom_content_pack_5";
+            const isVideo = service.code === "simple_video_capsule";
+            const includedOption = !isCustomContentPack && service.creditOption?.eligibleWithPlan && service.creditOption.sufficient
+              ? service.creditOption
+              : null;
+            const restrictedVideo = isVideo && service.creditOption && !service.creditOption.eligibleWithPlan;
+            const showPaidOption = !restrictedVideo && (!isMatchUpgrade || Boolean(includedOption));
+
+            return (
             <article
               key={service.code}
               style={{
@@ -107,25 +141,33 @@ export default function AthleteServicesPage() {
               <p style={{ margin: 0, color: "#d1d5db", lineHeight: 1.55, fontSize: "0.9rem" }}>{service.description}</p>
 
               <div style={{ display: "grid", gap: "0.3rem", padding: "0.7rem", border: `1px solid ${SURFACE_BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)" }}>
-                {service.creditOption ? (
-                  <span style={{ color: service.creditOption.sufficient ? "#fde68a" : TEXT_MUTED, fontWeight: 700, fontSize: "0.86rem" }}>
-                    {service.creditOption.eligibleWithPlan
-                      ? service.creditOption.sufficient
-                        ? `Inclus avec ${service.creditOption.label}`
-                        : `Droit membre : ${service.creditOption.label} requis (solde insuffisant)`
-                      : `${service.creditOption.label} avec Impact ou Signature`}
+                {restrictedVideo ? (
+                  <span style={{ color: TEXT_MUTED, fontWeight: 700, fontSize: "0.86rem", lineHeight: 1.45 }}>
+                    Nécessite 2 productions disponibles — réservé aux abonnements Impact et Signature
                   </span>
                 ) : null}
-                <span style={{ color: KLIQUE_GOLD, fontWeight: 800, fontSize: "0.9rem" }}>
-                  {service.creditOption && !service.creditOption.eligibleWithPlan
-                    ? `Tarif membre avec Impact ou Signature · ${service.memberPriceLabel}`
-                    : `À la carte · ${service.memberPriceLabel}`}
-                </span>
+                {includedOption && !isMatchUpgrade ? (
+                  <>
+                    <span style={{ color: "#fde68a", fontWeight: 800, fontSize: "0.9rem" }}>Inclus dans votre abonnement</span>
+                    <span style={{ color: "#d1d5db", fontWeight: 600, fontSize: "0.84rem", lineHeight: 1.45 }}>
+                      {formatUsage(includedOption.creditsRequired, includedOption.availableBalance, includedOption.creditType)}
+                    </span>
+                  </>
+                ) : null}
+                {includedOption && isMatchUpgrade ? (
+                  <span style={{ color: "#fde68a", fontWeight: 700, fontSize: "0.86rem", lineHeight: 1.45 }}>
+                    Transformez 1 production incluse en couverture de match pour CHF 30.
+                  </span>
+                ) : null}
+                {showPaidOption && !isMatchUpgrade ? (
+                  <span style={{ color: KLIQUE_GOLD, fontWeight: 800, fontSize: "0.9rem" }}>
+                    Service supplémentaire : {service.memberPriceLabel}
+                  </span>
+                ) : null}
               </div>
 
               <div style={{ display: "grid", gap: "0.25rem", color: TEXT_MUTED, fontSize: "0.82rem" }}>
-                <span>Validité : {service.validityLabel}</span>
-                {service.includedDeliverables > 1 ? <span>{service.includedDeliverables} livrables inclus</span> : null}
+                {showPaidOption ? <span>Service supplémentaire valable {service.validityLabel}</span> : null}
               </div>
 
               <span
@@ -143,7 +185,8 @@ export default function AthleteServicesPage() {
                 {service.availabilityLabel}
               </span>
             </article>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>

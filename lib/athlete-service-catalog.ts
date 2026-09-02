@@ -79,7 +79,6 @@ export type AthleteMemberService = {
     availableBalance: number;
     eligibleWithPlan: boolean;
     sufficient: boolean;
-    label: string;
   } | null;
   available: boolean;
   availabilityLabel: string;
@@ -197,9 +196,10 @@ const creditRuleForProduct = (
   return null;
 };
 
-const formatCreditOption = (creditType: AthleteCreditType, quantity: number): string => {
-  if (creditType === "production") return `${quantity} crédit${quantity > 1 ? "s" : ""} production`;
-  return `${quantity} crédit${quantity > 1 ? "s contenus" : " contenu"}`;
+const memberDescriptionByProduct: Partial<Record<AthleteServiceProductCode, string>> = {
+  custom_content_single: "Une création demandée par vous pour une communication particulière : annonce, résultat important, recherche de sponsor, événement, remerciement ou autre actualité que vous souhaitez spécialement mettre en avant. KLIQUE réalise, selon le besoin, une publication, un carrousel, une story ou un visuel à partir des éléments disponibles.",
+  custom_content_pack_5: "Cinq demandes de contenus personnalisés à utiliser pendant 12 mois pour vos communications particulières. Chaque demande peut prendre la forme d’une publication, d’un carrousel, d’une story ou d’un visuel.",
+  simple_video_capsule: "Création d’une courte vidéo avec un tournage léger et un montage simple. Les projets plus complexes sont réalisés sur devis.",
 };
 
 export const buildAthleteMemberServicesProjection = ({
@@ -234,6 +234,7 @@ export const buildAthleteMemberServicesProjection = ({
       productionCreditBalance: sanitizedBalance.production,
     });
     const isMatchUpgrade = product.code === "match_coverage_upgrade";
+    const isCustomContentPack = product.code === "custom_content_pack_5";
     const isVideo = product.code === "simple_video_capsule";
     const creditRule = creditRuleForProduct(product);
     const availableBalance = creditRule ? sanitizedBalance[creditRule.creditType] : 0;
@@ -245,31 +246,28 @@ export const buildAthleteMemberServicesProjection = ({
           availableBalance,
           eligibleWithPlan,
           sufficient: membershipActive && eligibleWithPlan && availableBalance >= creditRule.quantity,
-          label: formatCreditOption(creditRule.creditType, creditRule.quantity),
         }
       : null;
 
     const availabilityLabel = !membershipActive
       ? "Réservé aux membres actifs"
-      : check.reason === "plan_not_allowed" && isVideo
-        ? "Disponible avec Impact ou Signature"
-        : check.reason === "production_credit_required"
-          ? "1 crédit production requis"
-          : check.allowed
-            ? isMatchUpgrade
-              ? "Disponible maintenant"
-              : "Accessible avec votre plan actuel"
-            : "Indisponible avec votre plan actuel";
+      : !eligibleWithPlan
+        ? "Réservé à un autre abonnement"
+        : isMatchUpgrade
+          ? creditOption?.sufficient ? "Disponible" : "Solde insuffisant"
+          : isCustomContentPack
+            ? "Disponible"
+          : creditOption
+            ? creditOption.sufficient ? "Inclus" : "Solde insuffisant"
+            : "Disponible";
 
     return {
       code: product.code,
-      name: product.name,
+      name: isMatchUpgrade ? "Conversion en couverture de match" : product.name,
       memberPriceChf: product.priceChf,
-      memberPriceLabel: isMatchUpgrade
-        ? `${formatMemberPrice(product.priceChf)} + 1 crédit production`
-        : formatMemberPrice(product.priceChf),
-      description: product.commercialScope,
-      validityLabel: `${product.validityMonths} mois après achat`,
+      memberPriceLabel: formatMemberPrice(product.priceChf),
+      description: memberDescriptionByProduct[product.code] ?? product.commercialScope,
+      validityLabel: `${product.validityMonths} mois après son achat`,
       includedDeliverables: product.includedDeliverables,
       creditOption,
       available: check.allowed,
