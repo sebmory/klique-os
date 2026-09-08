@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Select, Textarea } from "@/src/design-system/components";
 import { inferBenefitUsage, type BenefitUsage } from "@/lib/benefits-usage";
+import {
+  HUB_RESOURCE_PDF_CONTENT_TYPE,
+  MAX_HUB_RESOURCE_PDF_SIZE_BYTES,
+  isValidHubResourcePdfFile,
+} from "@/lib/hub-resources/pdf-upload";
 import type { Partner } from "@/types/partner";
+
+// Au-dela de ce delai sans succes, l'upload est annule plutot que de bloquer l'ecran indefiniment.
+const RESOURCE_PDF_UPLOAD_TIMEOUT_MS = 60_000;
 
 const normalizeResourceStatus = (status: string | null | undefined): "Brouillon" | "Publié" => {
   if (status === "published" || status === "Publié") return "Publié";
@@ -552,6 +561,13 @@ export default function HubPage() {
   const [resourceForm, setResourceForm] = useState<ResourceFormState>(createEmptyResourceForm());
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
+  const [resourcePdfFilename, setResourcePdfFilename] = useState<string | null>(null);
+  const [resourcePdfUploading, setResourcePdfUploading] = useState(false);
+  const [resourcePdfError, setResourcePdfError] = useState<string | null>(null);
+  const [resourcePdfProgress, setResourcePdfProgress] = useState(0);
+  const [resourcePdfCanRetry, setResourcePdfCanRetry] = useState(false);
+  const resourcePdfAbortRef = useRef<AbortController | null>(null);
+  const resourcePdfPendingFileRef = useRef<File | null>(null);
 
   const visiblePublications = useMemo(() => {
     if (activeFilter === "Tout") return feedItems;
@@ -584,13 +600,6 @@ export default function HubPage() {
   const selectedResource = useMemo(() => resources.find((resource) => resource.id === selectedResourceId) ?? null, [resources, selectedResourceId]);
 
   const selectedOpportunity = useMemo(() => opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) ?? null, [opportunities, selectedOpportunityId]);
-
-  useEffect(() => {
-    const opportunityId = new URLSearchParams(window.location.search).get("opportunityId")?.trim();
-    if (!opportunityId) return;
-    setActiveTab("Opportunités");
-    setSelectedOpportunityId(opportunityId);
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -691,7 +700,7 @@ export default function HubPage() {
           author: String(resource.author ?? "KLIQUE"),
           description: String(resource.description ?? ""),
           contentType: String(resource.type ?? "Article") as ResourceContentType,
-          content: String(resource.content ?? ""),
+          content: String(resource.url ?? resource.content ?? ""),
           date: resource.publishedAt ? String(resource.publishedAt) : String(resource.createdAt ?? ""),
           status: normalizeResourceStatus(String(resource.status ?? "")),
           submittedBy: "KLIQUE",
@@ -1150,10 +1159,74 @@ export default function HubPage() {
       status: resource.status,
       date: resource.date,
     });
+    setResourcePdfFilename(null);
+    setResourcePdfError(null);
+    setResourcePdfProgress(0);
+    resourcePdfPendingFileRef.current = null;
+    setResourcePdfCanRetry(false);
     setIsResourceComposerOpen(true);
   };
 
+  const handleUploadResourcePdf = async (file: File) => {
+    resourcePdfPendingFileRef.current = file;
+    setResourcePdfCanRetry(true);
+    setResourcePdfError(null);
+    setResourcePdfProgress(0);
+    setResourcePdfUploading(true);
+
+    const controller = new AbortController();
+    resourcePdfAbortRef.current = controller;
+    // Delai d'expiration: un upload qui ne progresse jamais (reseau/config Blob) ne doit pas bloquer l'ecran indefiniment.
+    const timeoutId = setTimeout(() => controller.abort(), RESOURCE_PDF_UPLOAD_TIMEOUT_MS);
+
+    try {
+      if (!(await isValidHubResourcePdfFile(file))) {
+        throw new Error(`Le fichier doit être un PDF valide de ${Math.floor(MAX_HUB_RESOURCE_PDF_SIZE_BYTES / (1024 * 1024))} Mo maximum.`);
+      }
+      // Upload direct navigateur -> Blob: ne transite jamais par le corps de notre fonction serverless.
+      const blob = await upload(file.name, file, {
+        access: "private",
+        handleUploadUrl: "/api/hub-resources/pdf",
+        contentType: HUB_RESOURCE_PDF_CONTENT_TYPE,
+        abortSignal: controller.signal,
+        onUploadProgress: ({ percentage }) => setResourcePdfProgress(percentage),
+      });
+      // Le contenu existant (lien externe ou PDF precedent) n'est remplace qu'en cas de succes.
+      setResourceForm((current) => ({ ...current, type: "Document", content: blob.url }));
+      setResourcePdfFilename(file.name);
+      resourcePdfPendingFileRef.current = null;
+      setResourcePdfCanRetry(false);
+    } catch (error) {
+      const timedOut = controller.signal.aborted;
+      setResourcePdfError(
+        timedOut
+          ? "L’envoi du PDF a dépassé le délai autorisé. Vérifiez votre connexion puis réessayez."
+          : error instanceof Error ? error.message : "Impossible d’importer le PDF.",
+      );
+      // La ressource et son lien/contenu actuels restent inchanges: resourceForm.content n'est pas touche ici.
+    } finally {
+      clearTimeout(timeoutId);
+      resourcePdfAbortRef.current = null;
+      setResourcePdfUploading(false);
+      setResourcePdfProgress(0);
+    }
+  };
+
+  const handleCancelResourcePdfUpload = () => {
+    resourcePdfAbortRef.current?.abort();
+  };
+
+  const handleRetryResourcePdfUpload = () => {
+    const file = resourcePdfPendingFileRef.current;
+    if (file) void handleUploadResourcePdf(file);
+  };
+
   const handleOpenResource = (resource: ResourceItem) => {
+    if (resource.contentType === "Document" && resource.content) {
+      // Le PDF est stocke en prive: on passe par la route qui revalide les permissions de la ressource.
+      window.open(`/api/hub-resources/${resource.id}/pdf`, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (resource.contentType === "Lien" || /^https?:\/\//i.test(resource.content.trim())) {
       window.open(resource.content, "_blank", "noopener,noreferrer");
       return;
@@ -2351,6 +2424,11 @@ export default function HubPage() {
                   onClick={() => {
                     setEditingResourceId(null);
                     setResourceForm(createEmptyResourceForm());
+                    setResourcePdfFilename(null);
+                    setResourcePdfError(null);
+                    setResourcePdfProgress(0);
+                    resourcePdfPendingFileRef.current = null;
+                    setResourcePdfCanRetry(false);
                     setIsResourceComposerOpen(true);
                   }}
                   style={{ borderRadius: "999px", padding: "0.72rem 0.95rem", background: "#f59e0b", color: "#fff", border: "none" }}
@@ -2364,7 +2442,7 @@ export default function HubPage() {
               <Card style={{ padding: "1rem", display: "grid", gap: "0.9rem", border: "1px solid #f0e2d0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
                   <h3 style={{ margin: 0, color: "#111827" }}>{editingResourceId ? "Modifier une ressource" : "Ajouter une ressource"}</h3>
-                  <button type="button" onClick={() => { setIsResourceComposerOpen(false); setEditingResourceId(null); setResourceForm(createEmptyResourceForm()); }} style={{ border: "none", background: "transparent", color: "#6b7280", cursor: "pointer", fontWeight: 700 }}>
+                  <button type="button" onClick={() => { resourcePdfAbortRef.current?.abort(); setIsResourceComposerOpen(false); setEditingResourceId(null); setResourceForm(createEmptyResourceForm()); setResourcePdfFilename(null); setResourcePdfError(null); setResourcePdfProgress(0); resourcePdfPendingFileRef.current = null; setResourcePdfCanRetry(false); }} style={{ border: "none", background: "transparent", color: "#6b7280", cursor: "pointer", fontWeight: 700 }}>
                     Fermer
                   </button>
                 </div>
@@ -2392,8 +2470,47 @@ export default function HubPage() {
                 <Textarea placeholder="Description courte" value={resourceForm.description} onChange={(event) => setResourceForm((current) => ({ ...current, description: event.target.value }))} style={{ minHeight: "86px", width: "100%", borderRadius: "14px" }} />
                 <Textarea placeholder="Contenu ou URL selon le type" value={resourceForm.content} onChange={(event) => setResourceForm((current) => ({ ...current, content: event.target.value }))} style={{ minHeight: "108px", width: "100%", borderRadius: "14px" }} />
 
+                <div style={{ display: "grid", gap: "0.5rem", border: "1px dashed #e5e7eb", borderRadius: "14px", padding: "0.85rem" }}>
+                  <p style={{ margin: 0, color: "#374151", fontWeight: 700, fontSize: "0.9rem" }}>Importer un PDF (alternative au lien externe)</p>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    disabled={resourcePdfUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) void handleUploadResourcePdf(file);
+                    }}
+                  />
+                  {resourcePdfUploading ? (
+                    <div style={{ display: "grid", gap: "0.35rem" }}>
+                      <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>Envoi du PDF en cours… {resourcePdfProgress}%</p>
+                      <div style={{ height: 6, borderRadius: 999, background: "#f3f4f6", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${resourcePdfProgress}%`, background: "#f59e0b", transition: "width 150ms ease" }} />
+                      </div>
+                      <button type="button" onClick={handleCancelResourcePdfUpload} style={{ justifySelf: "start", border: "1px solid #e5e7eb", background: "white", color: "#374151", borderRadius: "999px", padding: "0.35rem 0.7rem", cursor: "pointer", fontWeight: 700, fontSize: "0.8rem" }}>
+                        Annuler l’envoi
+                      </button>
+                    </div>
+                  ) : null}
+                  {!resourcePdfUploading && resourcePdfFilename ? (
+                    <p style={{ margin: 0, color: "#047857", fontSize: "0.85rem" }}>PDF importé : {resourcePdfFilename}</p>
+                  ) : null}
+                  {resourcePdfError ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                      <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{resourcePdfError}</p>
+                      {resourcePdfCanRetry ? (
+                        <button type="button" onClick={handleRetryResourcePdfUpload} style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "999px", padding: "0.35rem 0.7rem", cursor: "pointer", fontWeight: 700, fontSize: "0.8rem" }}>
+                        Réessayer
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <p style={{ margin: 0, color: "#9ca3af", fontSize: "0.78rem" }}>PDF uniquement, 20 Mo maximum. Le lien externe ci-dessus reste disponible si vous ne souhaitez pas importer de fichier.</p>
+                </div>
+
                 <div style={{ display: "flex", gap: "0.7rem", flexWrap: "wrap" }}>
-                  <Button type="button" onClick={handleSaveResource} style={{ borderRadius: "999px", padding: "0.72rem 0.92rem", background: "#f59e0b", color: "#fff", border: "none" }}>
+                  <Button type="button" onClick={handleSaveResource} disabled={resourcePdfUploading} style={{ borderRadius: "999px", padding: "0.72rem 0.92rem", background: resourcePdfUploading ? "#f3d99b" : "#f59e0b", color: "#fff", border: "none", cursor: resourcePdfUploading ? "not-allowed" : "pointer" }}>
                     {resourceForm.status === "Publié" ? "Publier" : "Enregistrer le brouillon"}
                   </Button>
                 </div>

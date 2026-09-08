@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   AthleteServiceRequestError,
+  confirmAthleteServiceRequestAsMember,
   createAthleteServiceRequest,
   listAthleteServiceRequests,
   parseAthleteServiceRequestInput,
   type AthleteServiceRequestInput,
+  type AthleteServiceRequestMemberConfirmationResult,
   type PublicAthleteServiceRequest,
 } from "@/lib/athlete-service-requests";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
@@ -27,6 +29,11 @@ type HandlerDependencies = {
     athleteId: string;
     input: AthleteServiceRequestInput;
   }) => Promise<PublicAthleteServiceRequest>;
+  confirmRequest: (input: {
+    workspaceId: string;
+    athleteId: string;
+    requestId: string;
+  }) => Promise<AthleteServiceRequestMemberConfirmationResult>;
 };
 
 const defaultDependencies: HandlerDependencies = {
@@ -36,6 +43,7 @@ const defaultDependencies: HandlerDependencies = {
   },
   listRequests: listAthleteServiceRequests,
   createRequest: createAthleteServiceRequest,
+  confirmRequest: confirmAthleteServiceRequestAsMember,
 };
 
 const getAthleteIdentity = (access: AthleteAccess | null) => {
@@ -57,6 +65,8 @@ const errorResponse = (error: unknown) => {
     { status: 500 },
   );
 };
+
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const createAthleteServiceRequestHandlers = (
   dependencies: HandlerDependencies = defaultDependencies,
@@ -90,8 +100,38 @@ export const createAthleteServiceRequestHandlers = (
       return errorResponse(error);
     }
   },
+  async PATCH(request: Request) {
+    try {
+      const identity = getAthleteIdentity(await dependencies.getAccess(request));
+      if (!identity) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+      if (body?.action !== "confirm" || !requestIdPattern.test(requestId)) {
+        return NextResponse.json({ error: "Demande invalide." }, { status: 400 });
+      }
+
+      const result = await dependencies.confirmRequest({ ...identity, requestId });
+      if (result.outcome === "missing") {
+        return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
+      }
+      if (result.outcome === "conflict") {
+        return NextResponse.json({ error: "Cette demande ne peut plus être confirmée." }, { status: 409 });
+      }
+      if (result.outcome === "insufficient_rights") {
+        return NextResponse.json({ error: "Vos droits disponibles sont insuffisants pour confirmer cette demande." }, { status: 409 });
+      }
+      if (result.outcome === "ineligible") {
+        return NextResponse.json({ error: "Votre adhésion ou votre plan ne permet plus de confirmer cette demande." }, { status: 409 });
+      }
+      return NextResponse.json({ request: result.request, unchanged: result.outcome === "unchanged" });
+    } catch (error) {
+      return errorResponse(error);
+    }
+  },
 });
 
 const handlers = createAthleteServiceRequestHandlers();
 export const GET = handlers.GET;
 export const POST = handlers.POST;
+export const PATCH = handlers.PATCH;

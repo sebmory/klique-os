@@ -19,6 +19,7 @@ const isAthleteAllowedRoute = (pathname: string): boolean => {
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"
     || pathname === "/api/athlete/service-requests"
+    || pathname === "/api/athlete/klique-visibility"
   ) {
     return true;
   }

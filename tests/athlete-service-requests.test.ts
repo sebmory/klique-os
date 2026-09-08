@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAthleteServiceRequestHandlers } from "@/app/api/athlete/service-requests/route";
 import {
+  confirmAthleteServiceRequestAsMember,
   createAthleteServiceRequest,
   parseAthleteServiceRequestInput,
   type AthleteServiceRequestCreationContext,
   type AthleteServiceRequestCreateRecord,
+  type AthleteServiceRequestMemberConfirmationRepository,
   type AthleteServiceRequestRepository,
   type PublicAthleteServiceRequest,
 } from "@/lib/athlete-service-requests";
@@ -48,6 +50,7 @@ const product = (overrides: Partial<AthleteServiceProduct> = {}): AthleteService
 const publicRequest = (
   overrides: Partial<PublicAthleteServiceRequest> = {},
 ): PublicAthleteServiceRequest => ({
+  id: "4b48c7f7-2e17-4cd5-9218-cc76015f77ae",
   productCode: "photo_session_standard",
   fulfillmentMode: "included_right",
   status: "received",
@@ -59,6 +62,11 @@ const publicRequest = (
   completedAt: null,
   refusedAt: null,
   refusalReason: null,
+  snapshotPriceChf: 149,
+  memberConfirmed: false,
+  purchaseStatus: null,
+  purchasedQuantity: null,
+  deliveredQuantity: 0,
   ...overrides,
 });
 
@@ -119,6 +127,7 @@ describe("Athlete service requests", () => {
       }),
       listRequests: vi.fn().mockResolvedValue([]),
       createRequest: createRequestMock,
+      confirmRequest: vi.fn(),
     });
     const request = new Request(
       "http://localhost/api/athlete/service-requests?workspaceId=workspace-client&athleteId=athlete-client",
@@ -156,6 +165,7 @@ describe("Athlete service requests", () => {
       }),
       listRequests,
       createRequest: vi.fn(),
+      confirmRequest: vi.fn(),
     });
 
     const response = await handlers.GET(new Request("http://localhost/api/athlete/service-requests"));
@@ -165,9 +175,99 @@ describe("Athlete service requests", () => {
       workspaceId: "workspace-authenticated",
       athleteId: "athlete-authenticated",
     });
-    expect(payload.requests[0]).not.toHaveProperty("id");
+    expect(payload.requests[0]).toHaveProperty("id");
     expect(payload.requests[0]).not.toHaveProperty("purchaseId");
     expect(payload.requests[0]).not.toHaveProperty("usageMovementId");
+  });
+
+  it("confirms a paid request only with the authenticated athlete identity", async () => {
+    const confirmedRequest = publicRequest({
+      fulfillmentMode: "paid_extra",
+      status: "to_confirm",
+      memberConfirmed: true,
+      purchaseStatus: "pending",
+    });
+    const confirmRequest = vi.fn().mockResolvedValue({ outcome: "confirmed", request: confirmedRequest });
+    const handlers = createAthleteServiceRequestHandlers({
+      getAccess: vi.fn().mockResolvedValue({
+        role: "athlete",
+        status: "active",
+        workspaceId: "workspace-authenticated",
+        athleteId: "athlete-authenticated",
+      }),
+      listRequests: vi.fn(),
+      createRequest: vi.fn(),
+      confirmRequest,
+    });
+
+    const response = await handlers.PATCH(new Request(
+      "http://localhost/api/athlete/service-requests?athleteId=athlete-client",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "confirm",
+          requestId: "4b48c7f7-2e17-4cd5-9218-cc76015f77ae",
+          athleteId: "athlete-client",
+        }),
+      },
+    ));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(confirmRequest).toHaveBeenCalledWith({
+      workspaceId: "workspace-authenticated",
+      athleteId: "athlete-authenticated",
+      requestId: "4b48c7f7-2e17-4cd5-9218-cc76015f77ae",
+    });
+    expect(payload.request).toMatchObject({ memberConfirmed: true, purchaseStatus: "pending" });
+  });
+
+  it("returns an unchanged repeated member confirmation without creating another action", async () => {
+    const confirmRequest = vi.fn().mockResolvedValue({
+      outcome: "unchanged",
+      request: publicRequest({ memberConfirmed: true, purchaseStatus: "pending" }),
+    });
+    const repository: AthleteServiceRequestMemberConfirmationRepository = { confirm: confirmRequest };
+
+    const result = await confirmAthleteServiceRequestAsMember({
+      workspaceId: " workspace-authenticated ",
+      athleteId: " athlete-authenticated ",
+      requestId: " 4b48c7f7-2e17-4cd5-9218-cc76015f77ae ",
+      repository,
+    });
+
+    expect(result.outcome).toBe("unchanged");
+    expect(confirmRequest).toHaveBeenCalledTimes(1);
+    expect(confirmRequest).toHaveBeenCalledWith({
+      workspaceId: "workspace-authenticated",
+      athleteId: "athlete-authenticated",
+      requestId: "4b48c7f7-2e17-4cd5-9218-cc76015f77ae",
+    });
+  });
+
+  it("rejects member confirmation before repository access for a non-athlete", async () => {
+    const confirmRequest = vi.fn();
+    const handlers = createAthleteServiceRequestHandlers({
+      getAccess: vi.fn().mockResolvedValue({
+        role: "admin",
+        status: "active",
+        workspaceId: "workspace-authenticated",
+        athleteId: "athlete-authenticated",
+      }),
+      listRequests: vi.fn(),
+      createRequest: vi.fn(),
+      confirmRequest,
+    });
+
+    const response = await handlers.PATCH(new Request("http://localhost/api/athlete/service-requests", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "confirm", requestId: "4b48c7f7-2e17-4cd5-9218-cc76015f77ae" }),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(confirmRequest).not.toHaveBeenCalled();
   });
 
   it("freezes an available included right after active reservations", async () => {

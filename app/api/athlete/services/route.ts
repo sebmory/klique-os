@@ -5,6 +5,10 @@ import {
   buildAthleteMemberServicesProjection,
   listActiveAthleteServiceProducts,
 } from "@/lib/athlete-service-catalog";
+import {
+  calculateAvailableAthleteServiceBalance,
+  getAthleteServiceReservedBalance,
+} from "@/lib/athlete-service-requests";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
@@ -29,7 +33,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Profil athlète introuvable." }, { status: 404 });
     }
 
-    const [membership, plans, balance, products] = await Promise.all([
+    const [membership, plans, balance, reserved, products] = await Promise.all([
       getCurrentAthleteMembership({
         workspaceId,
         athleteId,
@@ -40,6 +44,7 @@ export async function GET(request: Request) {
       }),
       listActiveAthleteMembershipPlans(),
       getAthleteCreditBalance(workspaceId, athleteId),
+      getAthleteServiceReservedBalance(workspaceId, athleteId),
       listActiveAthleteServiceProducts(),
     ]);
 
@@ -49,7 +54,7 @@ export async function GET(request: Request) {
       products,
       membershipActive: membership.isActive,
       plan,
-      balance,
+      balance: calculateAvailableAthleteServiceBalance(balance, reserved),
     });
 
     return NextResponse.json({

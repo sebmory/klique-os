@@ -44,6 +44,10 @@ const formatDate = (value: string) => {
   return new Intl.DateTimeFormat("fr-CH", { day: "2-digit", month: "long", year: "numeric" }).format(date);
 };
 
+const formatPrice = (value: number | null) => value === null
+  ? "Montant indisponible"
+  : new Intl.NumberFormat("fr-CH", { style: "currency", currency: "CHF" }).format(value);
+
 export default function AthleteServicesPage() {
   const [catalog, setCatalog] = useState<AthleteMemberServicesProjection | null>(null);
   const [requests, setRequests] = useState<PublicAthleteServiceRequest[]>([]);
@@ -58,6 +62,7 @@ export default function AthleteServicesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirmingRequestId, setConfirmingRequestId] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -87,6 +92,38 @@ export default function AthleteServicesPage() {
     };
     void load();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const [catalogResponse, requestsResponse] = await Promise.all([
+          fetch("/api/athlete/services", { credentials: "include", cache: "no-store" }),
+          fetch("/api/athlete/service-requests", { credentials: "include", cache: "no-store" }),
+        ]);
+        if (!active) return;
+        const catalogPayload = (await catalogResponse.json().catch(() => null)) as ServicesPayload | null;
+        const requestsPayload = (await requestsResponse.json().catch(() => null)) as RequestsPayload | null;
+        if (catalogResponse.ok && catalogPayload?.membership && Array.isArray(catalogPayload.services)) {
+          setCatalog({ membership: catalogPayload.membership, services: catalogPayload.services });
+        }
+        if (requestsResponse.ok && Array.isArray(requestsPayload?.requests)) {
+          setRequests(requestsPayload.requests);
+        }
+      } catch {
+        // Le chargement initial conserve l'affichage et la gestion d'erreur existants.
+      }
+    };
+    const handleVisibilityChange = () => { if (document.visibilityState === "visible") void refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -145,6 +182,32 @@ export default function AthleteServicesPage() {
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
+    }
+  };
+
+  const confirmRequest = async (serviceRequest: PublicAthleteServiceRequest) => {
+    if (confirmingRequestId) return;
+    setConfirmingRequestId(serviceRequest.id);
+    setRequestsError(null);
+    try {
+      const response = await fetch("/api/athlete/service-requests", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "confirm", requestId: serviceRequest.id }),
+      });
+      const payload = (await response.json().catch(() => null)) as RequestsPayload | null;
+      if (!response.ok || !payload?.request) {
+        throw new Error(payload?.error || "Impossible de confirmer votre demande.");
+      }
+      setRequests((current) => current.map((item) => (
+        item.id === payload.request!.id ? payload.request! : item
+      )));
+      setSuccessMessage("Votre accord a été enregistré. Aucun débit automatique n’a été effectué.");
+    } catch (error) {
+      setRequestsError(error instanceof Error ? error.message : "Impossible de confirmer votre demande.");
+    } finally {
+      setConfirmingRequestId(null);
     }
   };
 
@@ -233,7 +296,23 @@ export default function AthleteServicesPage() {
           <div style={{ display: "grid", gap: "0.55rem" }}>
             {requests.map((request) => {
               const catalogName = catalog?.services.find((service) => service.code === request.productCode)?.name;
-              return <article key={`${request.productCode}-${request.requestedAt}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.35rem 1rem", padding: "0.85rem", border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)" }}><strong style={{ color: "#f8fafc" }}>{catalogName ?? getAthleteServiceRequestProductLabel(request.productCode)}</strong><span style={{ color: "#fde68a", fontWeight: 700, fontSize: "0.85rem" }}>{getAthleteServiceRequestStatusLabel(request.status)}</span><span style={{ color: MUTED, fontSize: "0.85rem" }}>{request.preferredDate ? `Date souhaitée : ${formatDate(request.preferredDate)}` : "Aucune date souhaitée"}</span><span style={{ color: MUTED, fontSize: "0.8rem" }}>Demandée le {formatDate(request.requestedAt)}</span>{request.refusalReason ? <p style={{ gridColumn: "1 / -1", margin: "0.35rem 0 0", padding: "0.65rem 0.75rem", borderLeft: "3px solid #f87171", background: "rgba(248, 113, 113, 0.08)", color: "#fecaca", fontSize: "0.85rem", lineHeight: 1.5 }}><strong>Motif du refus :</strong> {request.refusalReason}</p> : null}</article>;
+              const paidRequest = request.fulfillmentMode === "paid_extra" || request.fulfillmentMode === "paid_with_right";
+              const awaitingAgreement = paidRequest && request.status === "to_confirm";
+              return <article key={request.id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "0.35rem 1rem", padding: "0.85rem", border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)" }}>
+                <strong style={{ color: "#f8fafc" }}>{catalogName ?? getAthleteServiceRequestProductLabel(request.productCode)}</strong>
+                <span style={{ color: "#fde68a", fontWeight: 700, fontSize: "0.85rem" }}>{getAthleteServiceRequestStatusLabel(request.status)}</span>
+                <span style={{ color: MUTED, fontSize: "0.85rem" }}>{request.completedAt ? `Terminée le ${formatDate(request.completedAt)}` : request.scheduledAt ? `Planifiée le ${formatDate(request.scheduledAt)}` : request.preferredDate ? `Date souhaitée : ${formatDate(request.preferredDate)}` : "Aucune date souhaitée"}</span>
+                <span style={{ color: MUTED, fontSize: "0.8rem" }}>Demandée le {formatDate(request.requestedAt)}</span>
+                {awaitingAgreement ? <div style={{ gridColumn: "1 / -1", marginTop: "0.35rem", padding: "0.75rem", border: "1px solid rgba(232, 184, 75, 0.35)", borderRadius: "8px", display: "grid", gap: "0.45rem", background: "rgba(232, 184, 75, 0.07)" }}>
+                  <strong style={{ color: "#fde68a" }}>{request.fulfillmentMode === "paid_with_right" ? "Droit inclus avec supplément" : "Prestation supplémentaire"} · {formatPrice(request.snapshotPriceChf)}</strong>
+                  <span style={{ color: "#d1d5db", fontSize: "0.85rem", lineHeight: 1.5 }}>Votre confirmation enregistre votre accord. Aucun débit automatique ne sera effectué.</span>
+                  {request.memberConfirmed ? <span style={{ color: "#bbf7d0", fontSize: "0.85rem", fontWeight: 700 }}>Accord enregistré · {request.purchaseStatus === "paid" ? "Paiement reçu" : "Paiement en attente de réception"}</span> : <button type="button" onClick={() => void confirmRequest(request)} disabled={confirmingRequestId !== null} style={{ justifySelf: "start", border: 0, borderRadius: "6px", padding: "0.65rem 0.85rem", background: GOLD, color: "#111318", fontWeight: 800, cursor: confirmingRequestId ? "wait" : "pointer", opacity: confirmingRequestId ? 0.65 : 1 }}>{confirmingRequestId === request.id ? "Confirmation…" : "Confirmer ma demande"}</button>}
+                </div> : null}
+                {paidRequest && request.purchaseStatus && request.status !== "to_confirm" ? <span style={{ gridColumn: "1 / -1", color: request.purchaseStatus === "paid" ? "#bbf7d0" : "#fde68a", fontSize: "0.85rem", fontWeight: 700 }}>{request.purchaseStatus === "paid" ? "Paiement reçu" : request.purchaseStatus === "pending" ? "Paiement en attente de réception" : request.purchaseStatus === "refunded" ? "Paiement remboursé" : "Achat annulé"}</span> : null}
+                {request.fulfillmentMode === "no_charge" ? <span style={{ gridColumn: "1 / -1", color: "#bbf7d0", fontSize: "0.85rem", fontWeight: 700 }}>Pris en charge par KLIQUE — sans déduction de vos services inclus</span> : null}
+                {request.purchasedQuantity && request.purchasedQuantity > 1 ? <span style={{ gridColumn: "1 / -1", color: MUTED, fontSize: "0.85rem" }}>{request.deliveredQuantity} sur {request.purchasedQuantity} livraisons</span> : null}
+                {request.refusalReason ? <p style={{ gridColumn: "1 / -1", margin: "0.35rem 0 0", padding: "0.65rem 0.75rem", borderLeft: "3px solid #f87171", background: "rgba(248, 113, 113, 0.08)", color: "#fecaca", fontSize: "0.85rem", lineHeight: 1.5 }}><strong>Motif du refus :</strong> {request.refusalReason}</p> : null}
+              </article>;
             })}
           </div>
         )}
