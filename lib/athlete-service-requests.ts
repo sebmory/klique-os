@@ -51,13 +51,29 @@ export type PublicAthleteServiceRequest = {
   refusalReason: string | null;
 };
 
+export type AdminAthleteServiceRequest = PublicAthleteServiceRequest & {
+  id: string;
+  athleteId: string;
+  productName: string;
+  snapshotCreditType: AthleteCreditType | null;
+  snapshotCreditQuantity: number | null;
+  snapshotPriceChf: number | null;
+};
+
+export type AdminAthleteServiceRequestTransition =
+  | { outcome: "transitioned" | "unchanged"; request: AdminAthleteServiceRequest }
+  | { outcome: "conflict" | "missing"; request: null };
+
 type RequestedDetails = {
   message?: string;
   preferredDate?: string;
 };
 
 type AthleteServiceRequestRow = {
+  id?: string;
+  athlete_id?: string;
   product_code: AthleteServiceProductCode;
+  product_name?: string;
   fulfillment_mode: AthleteServiceRequestFulfillmentMode;
   status: AthleteServiceRequestStatus;
   requested_details: unknown;
@@ -67,6 +83,9 @@ type AthleteServiceRequestRow = {
   completed_at: string | Date | null;
   refused_at: string | Date | null;
   refusal_reason: string | null;
+  snapshot_credit_type?: AthleteCreditType | null;
+  snapshot_credit_quantity?: number | string | null;
+  snapshot_price_chf?: number | string | null;
 };
 
 export type AthleteServiceRequestCreationContext = {
@@ -97,6 +116,16 @@ export type AthleteServiceRequestRepository = {
     productCode: AthleteServiceProductCode,
   ) => Promise<AthleteServiceRequestCreationContext>;
   create: (record: AthleteServiceRequestCreateRecord) => Promise<PublicAthleteServiceRequest>;
+};
+
+export type AdminAthleteServiceRequestRepository = {
+  list: (workspaceId: string) => Promise<AdminAthleteServiceRequest[]>;
+  transition: (input: {
+    workspaceId: string;
+    requestId: string;
+    nextStatus: "to_confirm" | "refused";
+    refusalReason: string | null;
+  }) => Promise<AdminAthleteServiceRequestTransition>;
 };
 
 export type AthleteServiceRequestErrorCode =
@@ -161,6 +190,20 @@ const mapPublicRequest = (row: AthleteServiceRequestRow): PublicAthleteServiceRe
     refusalReason: row.refusal_reason,
   };
 };
+
+const mapAdminRequest = (row: AthleteServiceRequestRow): AdminAthleteServiceRequest => ({
+  ...mapPublicRequest(row),
+  id: String(row.id ?? ""),
+  athleteId: String(row.athlete_id ?? ""),
+  productName: String(row.product_name ?? row.product_code),
+  snapshotCreditType: row.snapshot_credit_type ?? null,
+  snapshotCreditQuantity: row.snapshot_credit_quantity === null || row.snapshot_credit_quantity === undefined
+    ? null
+    : Number(row.snapshot_credit_quantity),
+  snapshotPriceChf: row.snapshot_price_chf === null || row.snapshot_price_chf === undefined
+    ? null
+    : Number(row.snapshot_price_chf),
+});
 
 const mapProduct = (row: Record<string, unknown>): AthleteServiceProduct => ({
   code: row.product_code as AthleteServiceProductCode,
@@ -310,6 +353,100 @@ const createRepository = (): AthleteServiceRequestRepository => {
     },
   };
 };
+
+const createAdminRepository = (): AdminAthleteServiceRequestRepository => {
+  const sql = createContentStorageClient();
+  return {
+    async list(workspaceId) {
+      const rows = await sql`
+        SELECT request.id, request.athlete_id, request.product_code, product.name AS product_name,
+               request.fulfillment_mode, request.status, request.requested_details, request.requested_at,
+               request.scheduled_at, request.started_at, request.completed_at, request.refused_at,
+               request.refusal_reason, request.snapshot_credit_type, request.snapshot_credit_quantity,
+               request.snapshot_price_chf
+        FROM athlete_service_requests request
+        JOIN athlete_service_products product ON product.code = request.product_code
+        WHERE request.workspace_id = ${workspaceId}
+        ORDER BY CASE WHEN request.status = 'received' THEN 0 ELSE 1 END, request.requested_at DESC
+      `;
+      return (rows as AthleteServiceRequestRow[]).map(mapAdminRequest);
+    },
+    async transition({ workspaceId, requestId, nextStatus, refusalReason }) {
+      const rows = await sql`
+        WITH transitioned AS (
+          UPDATE athlete_service_requests
+          SET status = ${nextStatus},
+              refused_at = CASE WHEN ${nextStatus} = 'refused' THEN NOW() ELSE NULL END,
+              refusal_reason = CASE WHEN ${nextStatus} = 'refused' THEN ${refusalReason} ELSE NULL END,
+              updated_at = NOW()
+          WHERE workspace_id = ${workspaceId}
+            AND id = ${requestId}::uuid
+            AND (
+              (${nextStatus} = 'to_confirm' AND status = 'received')
+              OR (${nextStatus} = 'refused' AND status IN ('received', 'to_confirm'))
+            )
+          RETURNING *
+        )
+        SELECT transitioned.id, transitioned.athlete_id, transitioned.product_code,
+               product.name AS product_name, transitioned.fulfillment_mode, transitioned.status,
+               transitioned.requested_details, transitioned.requested_at, transitioned.scheduled_at,
+               transitioned.started_at, transitioned.completed_at, transitioned.refused_at,
+               transitioned.refusal_reason, transitioned.snapshot_credit_type,
+               transitioned.snapshot_credit_quantity, transitioned.snapshot_price_chf,
+               'transitioned' AS transition_outcome
+        FROM transitioned
+        JOIN athlete_service_products product ON product.code = transitioned.product_code
+        UNION ALL
+        SELECT request.id, request.athlete_id, request.product_code, product.name AS product_name,
+               request.fulfillment_mode, request.status, request.requested_details, request.requested_at,
+               request.scheduled_at, request.started_at, request.completed_at, request.refused_at,
+               request.refusal_reason, request.snapshot_credit_type, request.snapshot_credit_quantity,
+               request.snapshot_price_chf,
+               CASE WHEN request.status = ${nextStatus} THEN 'unchanged' ELSE 'conflict' END AS transition_outcome
+        FROM athlete_service_requests request
+        JOIN athlete_service_products product ON product.code = request.product_code
+        WHERE request.workspace_id = ${workspaceId}
+          AND request.id = ${requestId}::uuid
+          AND NOT EXISTS (SELECT 1 FROM transitioned)
+        LIMIT 1
+      `;
+      const row = rows[0] as (AthleteServiceRequestRow & { transition_outcome: string }) | undefined;
+      if (!row) return { outcome: "missing", request: null };
+      if (row.transition_outcome === "conflict") return { outcome: "conflict", request: null };
+      return {
+        outcome: row.transition_outcome === "transitioned" ? "transitioned" : "unchanged",
+        request: mapAdminRequest(row),
+      };
+    },
+  };
+};
+
+export const listAdminAthleteServiceRequests = async ({
+  workspaceId,
+  repository = createAdminRepository(),
+}: {
+  workspaceId: string;
+  repository?: AdminAthleteServiceRequestRepository;
+}): Promise<AdminAthleteServiceRequest[]> => repository.list(normalize(workspaceId));
+
+export const transitionAdminAthleteServiceRequest = async ({
+  workspaceId,
+  requestId,
+  nextStatus,
+  refusalReason = null,
+  repository = createAdminRepository(),
+}: {
+  workspaceId: string;
+  requestId: string;
+  nextStatus: "to_confirm" | "refused";
+  refusalReason?: string | null;
+  repository?: AdminAthleteServiceRequestRepository;
+}): Promise<AdminAthleteServiceRequestTransition> => repository.transition({
+  workspaceId: normalize(workspaceId),
+  requestId: normalize(requestId),
+  nextStatus,
+  refusalReason: nextStatus === "refused" ? normalize(refusalReason) : null,
+});
 
 const creditRequirement = (
   product: AthleteServiceProduct,

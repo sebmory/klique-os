@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Inbox, Pencil, X } from "lucide-react";
+import { AthleteServiceRequestsCrmSection } from "@/components/crm/AthleteServiceRequestsCrmSection";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import type { Partner, PartnerResponse } from "@/types/partner";
 
@@ -25,7 +26,7 @@ type ContactRequestsResponse = {
 };
 
 type StatusFilter = "all" | ContactRequestStatus;
-type RequestView = "athletes" | "partners";
+type RequestView = "services" | "athletes" | "partners";
 
 type PartnerApplication = Partner & {
   sourceRow?: number;
@@ -103,7 +104,11 @@ const createPartnerForm = (partner: PartnerApplication): PartnerForm => ({
   benefits: partner.benefits ?? partner.benefitDetails ?? partner.memberOffer ?? "",
 });
 
-export function ContactRequestsCrmScreen() {
+export function ContactRequestsCrmScreen({
+  initialView = "services",
+}: {
+  initialView?: RequestView;
+}) {
   const [requests, setRequests] = useState<ContactRequest[]>([]);
   const [partnerApplications, setPartnerApplications] = useState<PartnerApplication[]>([]);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
@@ -111,7 +116,7 @@ export function ContactRequestsCrmScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
-  const [activeView, setActiveView] = useState<RequestView>("athletes");
+  const [activeView, setActiveView] = useState<RequestView>(initialView);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -119,12 +124,6 @@ export function ContactRequestsCrmScreen() {
   const [reviewingPartner, setReviewingPartner] = useState<PartnerApplication | null>(null);
   const [partnerForm, setPartnerForm] = useState<PartnerForm | null>(null);
   const [submittingPartner, setSubmittingPartner] = useState(false);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "partners") {
-      setActiveView("partners");
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -322,7 +321,7 @@ export function ContactRequestsCrmScreen() {
       <header className="crm-people-header">
         <div style={{ textAlign: "center", width: "100%" }}>
           <h1>Demandes KLIQUE</h1>
-          <p>Suivez les demandes envoyées par les athlètes et les partenaires.</p>
+          <p>Suivez les demandes de services, les contacts génériques et les demandes partenaires.</p>
         </div>
       </header>
 
@@ -331,11 +330,20 @@ export function ContactRequestsCrmScreen() {
           <button
             type="button"
             role="tab"
+            aria-selected={activeView === "services"}
+            className={activeView === "services" ? "is-active" : undefined}
+            onClick={() => setActiveView("services")}
+          >
+            Services Athlète
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeView === "athletes"}
             className={activeView === "athletes" ? "is-active" : undefined}
             onClick={() => setActiveView("athletes")}
           >
-            Demandes athlètes
+            Contacts génériques
           </button>
           <button
             type="button"
@@ -365,15 +373,19 @@ export function ContactRequestsCrmScreen() {
         ) : null}
       </section>
 
-      {updateError ? (
+      {activeView === "services" ? (
+        <AthleteServiceRequestsCrmSection resolveAthleteLabel={resolveAthleteLabel} />
+      ) : null}
+
+      {activeView !== "services" && updateError ? (
         <p className="crm-requests-inline-error" role="alert">
           {updateError}
         </p>
       ) : null}
 
-      {updateSuccess ? <p className="crm-requests-inline-success" role="status">{updateSuccess}</p> : null}
+      {activeView !== "services" && updateSuccess ? <p className="crm-requests-inline-success" role="status">{updateSuccess}</p> : null}
 
-      {loading ? (
+      {activeView !== "services" && loading ? (
         <section className="crm-skeleton-shell" aria-live="polite" aria-busy="true">
           <div className="crm-skeleton-row" />
           <div className="crm-skeleton-row" />
@@ -382,7 +394,7 @@ export function ContactRequestsCrmScreen() {
         </section>
       ) : null}
 
-      {!loading && errorMessage ? (
+      {activeView !== "services" && !loading && errorMessage ? (
         <section className="crm-error-state" aria-live="assertive">
           <h2>Impossible de charger les demandes</h2>
           <p>{errorMessage}</p>
