@@ -95,8 +95,7 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
                   : "Cette ressource est prévue pour un document. Si une URL ou un contenu associé est disponible, il peut être ouvert ci-dessous."}
               </p>
               {accessUrl ? (
-                // Le document (ex. PDF stocke en prive) passe par une route qui revalide les permissions de la ressource.
-                <a href={resource.type === "Document" ? `/api/hub-resources/${resource.id}/pdf` : accessUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "fit-content", padding: "0.8rem 1rem", background: "#111827", color: "#fff", borderRadius: "999px", textDecoration: "none", fontWeight: 700 }}>
+                <a href={accessUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "fit-content", padding: "0.8rem 1rem", background: "#111827", color: "#fff", borderRadius: "999px", textDecoration: "none", fontWeight: 700 }}>
                   Ouvrir {resource.type === "Vidéo" ? "la vidéo" : "le document"}
                 </a>
               ) : (
