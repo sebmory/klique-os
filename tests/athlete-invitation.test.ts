@@ -53,6 +53,7 @@ const buildQueryMock = (handlers: Array<{ match: string; result: unknown[] }>) =
 describe("athlete invitation authorization", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.klique.ch");
     getDefaultWorkspaceIdMock.mockReturnValue("klique-os");
     getPartnersFromGoogleSheetsMock.mockResolvedValue([]);
     getMediaFromGoogleSheetsMock.mockResolvedValue([]);
@@ -207,7 +208,7 @@ describe("athlete invitation authorization", () => {
     expect(createInvitationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         emailAddress: "target@example.com",
-        redirectUrl: "/sign-up",
+        redirectUrl: "https://app.klique.ch/sign-up",
         notify: true,
         ignoreExisting: true,
         publicMetadata: { athleteId: "athlete-42", role: "athlete" },
@@ -250,7 +251,7 @@ describe("athlete invitation authorization", () => {
     expect(createInvitationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         emailAddress: "target@example.com",
-        redirectUrl: "/sign-up",
+        redirectUrl: "https://app.klique.ch/sign-up",
         notify: true,
         ignoreExisting: false,
         publicMetadata: { athleteId: "athlete-42", role: "athlete" },

@@ -1189,7 +1189,7 @@ export const inviteAthleteToKlique = async (
         athleteId: trimmedAthleteId,
         role: "athlete",
       },
-      redirectUrl: "/sign-up",
+      redirectUrl: `${getAppOrigin()}/sign-up`,
       notify: true,
       ignoreExisting: isResend,
     });
