@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Avatar, Badge, Button, Card, EmptyState, Input, Select, Textarea } from "@/src/design-system/components";
 import { inferBenefitUsage, type BenefitUsage } from "@/lib/benefits-usage";
@@ -178,6 +178,7 @@ type ResourceItem = {
   date: string;
   status: "Brouillon" | "Publié";
   submittedBy: "KLIQUE" | "Expert";
+  coverImageUrl: string | null;
 };
 
 type ResourceFormState = {
@@ -189,6 +190,7 @@ type ResourceFormState = {
   content: string;
   status: "Brouillon" | "Publié";
   date: string;
+  coverImageUrl: string | null;
 };
 
 const normalizeBenefitText = (value: unknown): string => String(value ?? "").trim();
@@ -395,7 +397,70 @@ const createEmptyResourceForm = (): ResourceFormState => ({
   content: "",
   status: "Publié",
   date: new Date().toISOString().slice(0, 10),
+  coverImageUrl: null,
 });
+
+const RESOURCE_COVER_MAX_BYTES = 4 * 1024 * 1024;
+const RESOURCE_COVER_ACCEPTED_TYPES = ["image/jpeg", "image/png"];
+
+const normalizeResourceCoverUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.startsWith("https://") ? trimmed : null;
+};
+
+// L input date et l API n acceptent que des dates civiles : jamais une date locale type "Tue Sep 08 2026".
+const normalizeResourceDateValue = (value: unknown): string | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const isoPrefix = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+  if (isoPrefix) return isoPrefix[1];
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+};
+
+const formatResourceDateLabel = (value: string): string => {
+  const normalized = normalizeResourceDateValue(value);
+  if (!normalized) return value;
+  const [year, month, day] = normalized.split("-");
+  return `${day}.${month}.${year}`;
+};
+
+// Rendu "couverture de livre" : tranche a gauche et ombre portee, reserve aux ressources qui ont une image.
+const ResourceCover = ({ url, width }: { url: string; width: number }) => (
+  <div
+    style={{
+      position: "relative",
+      width: `${width}px`,
+      flex: `0 0 ${width}px`,
+      aspectRatio: "3 / 4",
+      borderRadius: "6px 14px 14px 6px",
+      overflow: "hidden",
+      background: "#f3f4f6",
+      boxShadow: "0 18px 32px rgba(15, 23, 42, 0.22), 0 2px 6px rgba(15, 23, 42, 0.12)",
+    }}
+  >
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        borderRadius: "6px 14px 14px 6px",
+        background:
+          "linear-gradient(90deg, rgba(15,23,42,0.34) 0%, rgba(15,23,42,0.10) 4%, rgba(255,255,255,0.16) 7%, rgba(255,255,255,0) 16%)",
+        boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.24)",
+        pointerEvents: "none",
+      }}
+    />
+  </div>
+);
 
 const formatTypeLabel = (type: PublicationItem["type"]): string => {
   switch (type) {
@@ -552,6 +617,9 @@ export default function HubPage() {
   const [resourceForm, setResourceForm] = useState<ResourceFormState>(createEmptyResourceForm());
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
+  const [isUploadingResourceCover, setIsUploadingResourceCover] = useState(false);
+  const [resourceCoverError, setResourceCoverError] = useState<string | null>(null);
+  const [resourceSaveError, setResourceSaveError] = useState<string | null>(null);
 
   const visiblePublications = useMemo(() => {
     if (activeFilter === "Tout") return feedItems;
@@ -685,9 +753,10 @@ export default function HubPage() {
           description: String(resource.description ?? ""),
           contentType: String(resource.type ?? "Article") as ResourceContentType,
           content: String(resource.url ?? resource.content ?? ""),
-          date: resource.publishedAt ? String(resource.publishedAt) : String(resource.createdAt ?? ""),
+          date: normalizeResourceDateValue(resource.publishedAt) ?? normalizeResourceDateValue(resource.createdAt) ?? "",
           status: normalizeResourceStatus(String(resource.status ?? "")),
           submittedBy: "KLIQUE",
+          coverImageUrl: normalizeResourceCoverUrl(resource.coverImageUrl),
         }));
         setResources(mappedResources);
       } catch {
@@ -1058,12 +1127,58 @@ export default function HubPage() {
     }
   };
 
+  const handleResourceCoverChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file) return;
+
+    if (!RESOURCE_COVER_ACCEPTED_TYPES.includes(file.type)) {
+      setResourceCoverError("Formats acceptés : JPEG ou PNG.");
+      return;
+    }
+    if (file.size > RESOURCE_COVER_MAX_BYTES) {
+      setResourceCoverError("Image trop volumineuse. Taille maximale : 4 Mo.");
+      return;
+    }
+
+    setResourceCoverError(null);
+    setIsUploadingResourceCover(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/hub-resources/cover", { method: "POST", body: formData });
+      const payload = (await response.json().catch(() => null)) as { url?: unknown; error?: unknown } | null;
+      const uploadedUrl = normalizeResourceCoverUrl(payload?.url);
+      if (!response.ok || !uploadedUrl) {
+        setResourceCoverError(
+          typeof payload?.error === "string" ? payload.error : "La couverture n’a pas pu être envoyée. Veuillez réessayer.",
+        );
+        return;
+      }
+      setResourceForm((current) => ({ ...current, coverImageUrl: uploadedUrl }));
+    } catch {
+      setResourceCoverError("La couverture n’a pas pu être envoyée. Veuillez réessayer.");
+    } finally {
+      setIsUploadingResourceCover(false);
+    }
+  };
+
+  const handleRemoveResourceCover = () => {
+    setResourceCoverError(null);
+    setResourceForm((current) => ({ ...current, coverImageUrl: null }));
+  };
+
   const handleSaveResource = async () => {
+    if (isUploadingResourceCover) return;
     const trimmedTitle = resourceForm.title.trim();
     const trimmedDescription = resourceForm.description.trim();
     const trimmedContent = resourceForm.content.trim();
-    if (!trimmedTitle || !trimmedDescription || !trimmedContent) return;
+    if (!trimmedTitle || !trimmedDescription || !trimmedContent) {
+      setResourceSaveError("Titre, description et contenu sont obligatoires.");
+      return;
+    }
 
+    setResourceSaveError(null);
     try {
       const response = await fetch("/api/hub-resources", {
         method: "POST",
@@ -1077,14 +1192,14 @@ export default function HubPage() {
           description: trimmedDescription,
           content: trimmedContent,
           status: resourceForm.status === "Publié" ? "published" : "draft",
-          date: resourceForm.date || new Date().toISOString().slice(0, 10),
+          date: normalizeResourceDateValue(resourceForm.date) ?? new Date().toISOString().slice(0, 10),
+          coverImageUrl: resourceForm.coverImageUrl,
         }),
       });
 
       if (!response.ok) throw new Error("Failed to save resource");
       const payload = (await response.json()) as { resource?: Record<string, unknown> };
-      if (payload.resource) {
-        const nextResource: ResourceItem = {
+      if (payload.resource) {        const nextResource: ResourceItem = {
           id: String(payload.resource.id ?? ""),
           title: String(payload.resource.title ?? trimmedTitle),
           category: String(payload.resource.category ?? resourceForm.category) as ResourceCategory,
@@ -1092,9 +1207,13 @@ export default function HubPage() {
           description: String(payload.resource.description ?? trimmedDescription),
           contentType: String(payload.resource.type ?? resourceForm.type) as ResourceContentType,
           content: String(payload.resource.content ?? trimmedContent),
-          date: String((payload.resource.publishedAt ?? payload.resource.createdAt ?? resourceForm.date) || new Date().toISOString().slice(0, 10)),
-          status: normalizeResourceStatus(String(payload.resource.status ?? resourceForm.status)),
+          date:
+            normalizeResourceDateValue(payload.resource.publishedAt) ??
+            normalizeResourceDateValue(payload.resource.createdAt) ??
+            normalizeResourceDateValue(resourceForm.date) ??
+            new Date().toISOString().slice(0, 10),          status: normalizeResourceStatus(String(payload.resource.status ?? resourceForm.status)),
           submittedBy: "KLIQUE",
+          coverImageUrl: normalizeResourceCoverUrl(payload.resource.coverImageUrl) ?? resourceForm.coverImageUrl,
         };
 
         setResources((current) => {
@@ -1104,12 +1223,14 @@ export default function HubPage() {
           return [nextResource, ...current];
         });
       }
-    } catch {
-      // Keep the current UI stable if the API call fails.
-    } finally {
+
       setIsResourceComposerOpen(false);
       setEditingResourceId(null);
       setResourceForm(createEmptyResourceForm());
+      setResourceCoverError(null);
+    } catch {
+      // L echec reste visible et le formulaire conserve la couverture televersee.
+      setResourceSaveError("La ressource n’a pas pu être enregistrée. Veuillez réessayer.");
     }
   };
 
@@ -1133,6 +1254,8 @@ export default function HubPage() {
 
   const handleEditResource = (resource: ResourceItem) => {
     setEditingResourceId(resource.id);
+    setResourceCoverError(null);
+    setResourceSaveError(null);
     setResourceForm({
       title: resource.title,
       category: resource.category,
@@ -1141,7 +1264,8 @@ export default function HubPage() {
       description: resource.description,
       content: resource.content,
       status: resource.status,
-      date: resource.date,
+      date: normalizeResourceDateValue(resource.date) ?? "",
+      coverImageUrl: resource.coverImageUrl,
     });
     setIsResourceComposerOpen(true);
   };
@@ -2344,6 +2468,8 @@ export default function HubPage() {
                   onClick={() => {
                     setEditingResourceId(null);
                     setResourceForm(createEmptyResourceForm());
+                    setResourceCoverError(null);
+                    setResourceSaveError(null);
                     setIsResourceComposerOpen(true);
                   }}
                   style={{ borderRadius: "999px", padding: "0.72rem 0.95rem", background: "#f59e0b", color: "#fff", border: "none" }}
@@ -2357,7 +2483,7 @@ export default function HubPage() {
               <Card style={{ padding: "1rem", display: "grid", gap: "0.9rem", border: "1px solid #f0e2d0" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
                   <h3 style={{ margin: 0, color: "#111827" }}>{editingResourceId ? "Modifier une ressource" : "Ajouter une ressource"}</h3>
-                  <button type="button" onClick={() => { setIsResourceComposerOpen(false); setEditingResourceId(null); setResourceForm(createEmptyResourceForm()); }} style={{ border: "none", background: "transparent", color: "#6b7280", cursor: "pointer", fontWeight: 700 }}>
+                  <button type="button" onClick={() => { setIsResourceComposerOpen(false); setEditingResourceId(null); setResourceForm(createEmptyResourceForm()); setResourceCoverError(null); setResourceSaveError(null); }} style={{ border: "none", background: "transparent", color: "#6b7280", cursor: "pointer", fontWeight: 700 }}>
                     Fermer
                   </button>
                 </div>
@@ -2385,10 +2511,63 @@ export default function HubPage() {
                 <Textarea placeholder="Description courte" value={resourceForm.description} onChange={(event) => setResourceForm((current) => ({ ...current, description: event.target.value }))} style={{ minHeight: "86px", width: "100%", borderRadius: "14px" }} />
                 <Textarea placeholder="Contenu ou URL selon le type" value={resourceForm.content} onChange={(event) => setResourceForm((current) => ({ ...current, content: event.target.value }))} style={{ minHeight: "108px", width: "100%", borderRadius: "14px" }} />
 
-                <div style={{ display: "flex", gap: "0.7rem", flexWrap: "wrap" }}>
-                  <Button type="button" onClick={handleSaveResource} style={{ borderRadius: "999px", padding: "0.72rem 0.92rem", background: "#f59e0b", color: "#fff", border: "none" }}>
-                    {resourceForm.status === "Publié" ? "Publier" : "Enregistrer le brouillon"}
+                <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", flexWrap: "wrap", padding: "0.9rem", border: "1px solid #f0e2d0", borderRadius: "16px", background: "#fffdf9" }}>
+                  {resourceForm.coverImageUrl ? <ResourceCover url={resourceForm.coverImageUrl} width={96} /> : null}
+                  <div style={{ display: "grid", gap: "0.5rem", flex: "1 1 240px" }}>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>Couverture (facultative)</p>
+                      <p style={{ margin: "0.2rem 0 0", color: "#6b7280", fontSize: "0.85rem" }}>JPEG ou PNG, 4 Mo maximum.</p>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+                      <label
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          background: "white",
+                          color: "#374151",
+                          borderRadius: "999px",
+                          padding: "0.55rem 0.85rem",
+                          cursor: isUploadingResourceCover ? "not-allowed" : "pointer",
+                          fontWeight: 700,
+                          opacity: isUploadingResourceCover ? 0.6 : 1,
+                        }}
+                      >
+                        {isUploadingResourceCover
+                          ? "Envoi…"
+                          : resourceForm.coverImageUrl
+                            ? "Remplacer la couverture"
+                            : "Ajouter une couverture"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          disabled={isUploadingResourceCover}
+                          onChange={handleResourceCoverChange}
+                          style={{ display: "none" }}
+                        />
+                      </label>
+                      {resourceForm.coverImageUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleRemoveResourceCover}
+                          disabled={isUploadingResourceCover}
+                          style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "999px", padding: "0.55rem 0.85rem", cursor: isUploadingResourceCover ? "not-allowed" : "pointer", fontWeight: 700 }}
+                        >
+                          Retirer
+                        </button>
+                      ) : null}
+                    </div>
+                    {resourceCoverError ? (
+                      <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{resourceCoverError}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "0.7rem", flexWrap: "wrap", alignItems: "center" }}>
+                  <Button type="button" onClick={handleSaveResource} disabled={isUploadingResourceCover} style={{ borderRadius: "999px", padding: "0.72rem 0.92rem", background: "#f59e0b", color: "#fff", border: "none", opacity: isUploadingResourceCover ? 0.6 : 1, cursor: isUploadingResourceCover ? "not-allowed" : "pointer" }}>
+                    {isUploadingResourceCover ? "Envoi de la couverture…" : resourceForm.status === "Publié" ? "Publier" : "Enregistrer le brouillon"}
                   </Button>
+                  {resourceSaveError ? (
+                    <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{resourceSaveError}</p>
+                  ) : null}
                 </div>
               </Card>
             ) : null}
@@ -2419,23 +2598,15 @@ export default function HubPage() {
           </Card>
 
           <div style={{ display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-            {visibleResources.map((resource) => (
-              <Card key={resource.id} style={{ padding: "1rem", display: "grid", gap: "0.8rem", border: "1px solid #efe3d4", boxShadow: "0 20px 40px rgba(15, 23, 42, 0.05)", borderRadius: "20px", background: "#fffdf9" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
-                  <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{resource.category}</Badge>
-                  <div style={{ color: "#6b7280", fontSize: "0.8rem", fontWeight: 600 }}>{resource.date}</div>
-                </div>
-
-                <div>
-                  <h3 style={{ margin: "0 0 0.35rem", fontSize: "1.08rem", color: "#111827", lineHeight: 1.3 }}>{resource.title}</h3>
-                  <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>{resource.description}</p>
-                </div>
-
+            {visibleResources.map((resource) => {
+              const metaBlock = (
                 <div style={{ display: "grid", gap: "0.35rem", color: "#374151", fontSize: "0.92rem" }}>
                   <div><strong style={{ color: "#111827" }}>Auteur :</strong> {resource.author}</div>
                   <div><strong style={{ color: "#111827" }}>Type :</strong> {resource.contentType}</div>
                 </div>
+              );
 
+              const actionsBlock = (
                 <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
                   <Button type="button" onClick={() => handleOpenResource(resource)} style={{ borderRadius: "999px", padding: "0.75rem 0.95rem", alignSelf: "flex-start", background: "#f59e0b", color: "#fff", border: "none" }}>
                     Consulter
@@ -2451,8 +2622,47 @@ export default function HubPage() {
                     </>
                   ) : null}
                 </div>
-              </Card>
-            ))}
+              );
+
+              if (resource.coverImageUrl) {
+                return (
+                  <Card key={resource.id} style={{ gridColumn: "1 / -1", padding: "1rem", display: "flex", gap: "1.1rem", alignItems: "flex-start", flexWrap: "wrap", border: "1px solid #efe3d4", boxShadow: "0 20px 40px rgba(15, 23, 42, 0.05)", borderRadius: "20px", background: "#fffdf9" }}>
+                    <ResourceCover url={resource.coverImageUrl} width={164} />
+                    <div style={{ display: "grid", gap: "0.7rem", alignContent: "start", flex: "1 1 260px", minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
+                        <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{resource.category}</Badge>
+                        <div style={{ color: "#6b7280", fontSize: "0.8rem", fontWeight: 600 }}>{formatResourceDateLabel(resource.date)}</div>
+                      </div>
+
+                      <div>
+                        <h3 style={{ margin: "0 0 0.35rem", fontSize: "1.08rem", color: "#111827", lineHeight: 1.3 }}>{resource.title}</h3>
+                        <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>{resource.description}</p>
+                      </div>
+
+                      {metaBlock}
+                      {actionsBlock}
+                    </div>
+                  </Card>
+                );
+              }
+
+              return (
+                <Card key={resource.id} style={{ padding: "1rem", display: "grid", gap: "0.8rem", border: "1px solid #efe3d4", boxShadow: "0 20px 40px rgba(15, 23, 42, 0.05)", borderRadius: "20px", background: "#fffdf9" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
+                    <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{resource.category}</Badge>
+                    <div style={{ color: "#6b7280", fontSize: "0.8rem", fontWeight: 600 }}>{resource.date}</div>
+                  </div>
+
+                  <div>
+                    <h3 style={{ margin: "0 0 0.35rem", fontSize: "1.08rem", color: "#111827", lineHeight: 1.3 }}>{resource.title}</h3>
+                    <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>{resource.description}</p>
+                  </div>
+
+                  {metaBlock}
+                  {actionsBlock}
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}

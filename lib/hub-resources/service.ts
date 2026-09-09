@@ -13,6 +13,7 @@ export type HubResourceRecord = {
   description: string;
   content: string;
   url: string | null;
+  coverImageUrl: string | null;
   status: HubResourceStatus;
   date: string;
   publishedAt: string | null;
@@ -29,6 +30,7 @@ export type HubResourceCreateInput = {
   content: string;
   status: string;
   date: string;
+  coverImageUrl?: string | null;
 };
 
 const getSql = () => createContentStorageClient();
@@ -43,13 +45,38 @@ const normalizeStatus = (value: unknown): HubResourceStatus => {
   return "draft";
 };
 
-const normalizeDisplayDate = (value: string | null | undefined): string => {
-  const trimmed = (value ?? "").trim();
-  if (trimmed) return trimmed;
-  return new Date().toISOString().slice(0, 10);
+// Une date de ressource est une date civile : jamais une date locale type "Tue Sep 08 2026" ni un horodatage.
+export const normalizeResourceDate = (value: unknown): string | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const isoPrefix = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed);
+  if (isoPrefix) return isoPrefix[1];
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Une date locale designe un jour calendaire local : la convertir en UTC decalerait la veille.
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 };
 
+const todayDate = (): string => new Date().toISOString().slice(0, 10);
+
 const isUrlLike = (value: string): boolean => /^https?:\/\//i.test(value.trim());
+
+// La couverture est facultative : seule une URL https est acceptee, tout le reste devient NULL.
+export const normalizeCoverImageUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+};
 
 const initialSeedResources: HubResourceCreateInput[] = [
   {
@@ -87,12 +114,15 @@ const ensureHubResourceTables = async () => {
       description TEXT NOT NULL,
       content TEXT NOT NULL,
       url TEXT,
+      cover_image_url TEXT,
       status TEXT NOT NULL CHECK (status IN ('draft', 'published')),
       published_at TIMESTAMP WITH TIME ZONE,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
   `;
+
+  await sql`ALTER TABLE hub_resources ADD COLUMN IF NOT EXISTS cover_image_url TEXT`;
 };
 
 const seedHubResourcesIfEmpty = async (sql: ReturnType<typeof getSql>) => {
@@ -133,7 +163,7 @@ const seedHubResourcesIfEmpty = async (sql: ReturnType<typeof getSql>) => {
         ${resolvedContent},
         ${resolvedUrl},
         ${normalizedStatus},
-        ${normalizedStatus === "published" ? now : null},
+        ${normalizedStatus === "published" ? now.slice(0, 10) : null},
         ${now},
         ${now}
       )
@@ -150,9 +180,10 @@ const mapResourceRow = (row: Record<string, unknown>): HubResourceRecord => ({
   description: String(row.description ?? ""),
   content: String(row.content ?? ""),
   url: typeof row.url === "string" ? row.url : null,
+  coverImageUrl: normalizeCoverImageUrl(row.cover_image_url),
   status: normalizeStatus(row.status),
-  date: normalizeDisplayDate(typeof row.published_at === "string" ? row.published_at : null),
-  publishedAt: typeof row.published_at === "string" ? row.published_at : null,
+  date: normalizeResourceDate(row.published_at) ?? todayDate(),
+  publishedAt: normalizeResourceDate(row.published_at),
   createdAt: String(row.created_at ?? ""),
   updatedAt: String(row.updated_at ?? ""),
 });
@@ -173,7 +204,7 @@ export const loadHubResources = async (request: Request, currentUserId: string |
   const isAdmin = accessProfile?.userAccess?.role === "admin";
 
   const rows = await sql`
-    SELECT id, title, category, author, type, description, content, url, status, published_at, created_at, updated_at
+    SELECT id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
     FROM hub_resources
     ORDER BY created_at DESC, id DESC
   `;
@@ -196,7 +227,7 @@ export const getHubResourceById = async (request: Request, resourceId: string, c
   const isAdmin = accessProfile?.userAccess?.role === "admin";
 
   const rows = await sql`
-    SELECT id, title, category, author, type, description, content, url, status, published_at, created_at, updated_at
+    SELECT id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
     FROM hub_resources
     WHERE id = ${resourceId}
     LIMIT 1
@@ -229,7 +260,8 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
   const normalizedStatus = normalizeStatus(input.status);
   const resolvedUrl = isUrlLike(input.content) ? input.content : null;
   const resolvedContent = resolvedUrl ? "" : input.content;
-  const publishedAt = normalizedStatus === "published" ? input.date || now : null;
+  const publishedAt = normalizedStatus === "published" ? normalizeResourceDate(input.date) ?? todayDate() : null;
+  const coverImageUrl = normalizeCoverImageUrl(input.coverImageUrl);
 
   const rows = await sql`
     INSERT INTO hub_resources (
@@ -241,6 +273,7 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
       description,
       content,
       url,
+      cover_image_url,
       status,
       published_at,
       created_at,
@@ -255,12 +288,13 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
       ${input.description},
       ${resolvedContent},
       ${resolvedUrl},
+      ${coverImageUrl},
       ${normalizedStatus},
       ${publishedAt},
       ${now},
       ${now}
     )
-    RETURNING id, title, category, author, type, description, content, url, status, published_at, created_at, updated_at
+    RETURNING id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
   `;
 
   return mapResourceRow(rows[0] as Record<string, unknown>);
@@ -280,7 +314,8 @@ export const updateHubResource = async (request: Request, resourceId: string, in
   const now = new Date().toISOString();
   const resolvedUrl = isUrlLike(input.content) ? input.content : null;
   const resolvedContent = resolvedUrl ? "" : input.content;
-  const publishedAt = normalizedStatus === "published" ? input.date || now : null;
+  const publishedAt = normalizedStatus === "published" ? normalizeResourceDate(input.date) ?? todayDate() : null;
+  const coverImageUrl = normalizeCoverImageUrl(input.coverImageUrl);
 
   const rows = await sql`
     UPDATE hub_resources
@@ -291,11 +326,12 @@ export const updateHubResource = async (request: Request, resourceId: string, in
         description = ${input.description},
         content = ${resolvedContent},
         url = ${resolvedUrl},
+        cover_image_url = ${coverImageUrl},
         status = ${normalizedStatus},
         published_at = ${publishedAt},
         updated_at = ${now}
     WHERE id = ${resourceId}
-    RETURNING id, title, category, author, type, description, content, url, status, published_at, created_at, updated_at
+    RETURNING id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
   `;
 
   if (!rows[0]) {

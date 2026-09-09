@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       content: String(body?.content ?? ""),
       status: String(body?.status ?? "draft"),
       date: String(body?.date ?? ""),
+      coverImageUrl: body?.coverImageUrl ?? null,
     };
 
     if (body?.action === "delete") {

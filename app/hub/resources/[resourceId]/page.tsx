@@ -56,9 +56,40 @@ export default async function ResourceDetailPage({ params }: ResourceDetailPageP
             </span>
           </div>
 
-          <div style={{ display: "grid", gap: "0.4rem" }}>
-            <h1 style={{ margin: 0, fontSize: "clamp(1.35rem, 3vw, 2rem)", lineHeight: 1.2, color: "#111827" }}>{resource.title}</h1>
-            <p style={{ margin: 0, color: "#4b5563", fontSize: "1.02rem", lineHeight: 1.7 }}>{resource.description}</p>
+          <div style={{ display: "flex", gap: "1.4rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+            {resource.coverImageUrl ? (
+              <div
+                style={{
+                  position: "relative",
+                  width: "180px",
+                  flex: "0 0 180px",
+                  aspectRatio: "3 / 4",
+                  borderRadius: "8px 18px 18px 8px",
+                  overflow: "hidden",
+                  background: "#f3f4f6",
+                  boxShadow: "0 26px 48px rgba(15, 23, 42, 0.26), 0 3px 8px rgba(15, 23, 42, 0.14)",
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={resource.coverImageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    borderRadius: "8px 18px 18px 8px",
+                    background:
+                      "linear-gradient(90deg, rgba(15,23,42,0.34) 0%, rgba(15,23,42,0.10) 4%, rgba(255,255,255,0.16) 7%, rgba(255,255,255,0) 16%)",
+                    boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.24)",
+                  }}
+                />
+              </div>
+            ) : null}
+
+            <div style={{ display: "grid", gap: "0.4rem", flex: "1 1 320px", minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: "clamp(1.35rem, 3vw, 2rem)", lineHeight: 1.2, color: "#111827" }}>{resource.title}</h1>
+              <p style={{ margin: 0, color: "#4b5563", fontSize: "1.02rem", lineHeight: 1.7 }}>{resource.description}</p>
+            </div>
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem", color: "#6b7280", fontSize: "0.95rem" }}>
