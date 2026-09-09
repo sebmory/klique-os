@@ -14,7 +14,7 @@ const accessPendingPath = "/access-pending";
 
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
 
-const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
+export const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
   // Lecture seule des ressources du Hub : la creation et la couverture restent reservees a l Admin.
   if (pathname === "/api/hub-resources" && method === "GET") {
     return true;
@@ -72,21 +72,37 @@ const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
   return false;
 };
 
-const isMediaAllowedRoute = (pathname: string): boolean => {
+export const isMediaAllowedRoute = (pathname: string): boolean => {
   if (pathname === "/contents" || pathname.startsWith("/contents/")) {
+    return true;
+  }
+
+  if (pathname === "/media-desk" || pathname.startsWith("/media-desk/")) {
     return true;
   }
 
   return false;
 };
 
-const isPartnerAllowedPage = (pathname: string): boolean => {
+const isMediaSubjectsApi = (pathname: string): boolean =>
+  pathname === "/api/media-subjects" || pathname.startsWith("/api/media-subjects/");
+
+// Le media consulte les sujets en lecture seule : toute ecriture reste reservee a l Admin.
+export const isMediaAllowedApi = (pathname: string, method: string): boolean => {
+  if (isMediaSubjectsApi(pathname)) {
+    return method === "GET";
+  }
+
+  return true;
+};
+
+export const isPartnerAllowedPage = (pathname: string): boolean => {
   return pathname === "/partner"
     || pathname === "/partner/athletes"
     || /^\/partner\/athletes\/[^/]+$/.test(pathname);
 };
 
-const isPartnerAllowedApi = (pathname: string, method: string): boolean => {
+export const isPartnerAllowedApi = (pathname: string, method: string): boolean => {
   return pathname === "/api/clerk/access"
     || pathname === "/api/partners"
     || (pathname === "/api/partner/contact-requests" && method === "POST")
@@ -143,8 +159,14 @@ export default clerkMiddleware(
       }
 
       // Les routes API conservent leurs propres controles : jamais de redirection HTML.
-      if (access.role === "media" && !isApiRoute(pathname) && !isMediaAllowedRoute(pathname)) {
-        return NextResponse.redirect(new URL("/contents", request.url));
+      if (access.role === "media") {
+        if (isApiRoute(pathname)) {
+          if (!isMediaAllowedApi(pathname, request.method)) {
+            return apiAccessDenied();
+          }
+        } else if (!isMediaAllowedRoute(pathname)) {
+          return NextResponse.redirect(new URL("/contents", request.url));
+        }
       }
     } catch {
       return isApiRoute(pathname)

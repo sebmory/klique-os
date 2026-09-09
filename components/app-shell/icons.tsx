@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   Menu,
   MessageSquareText,
+  Newspaper,
   Plug,
   Search,
   Settings,
@@ -36,6 +37,7 @@ export type IconName =
   | "image"
   | "sparkles"
   | "messages"
+  | "newspaper"
   | "calendar"
   | "chart"
   | "plug"
@@ -51,6 +53,7 @@ export const iconByName: Record<IconName, ComponentType<{ className?: string }>>
   image: Image,
   sparkles: Sparkles,
   messages: MessageSquareText,
+  newspaper: Newspaper,
   calendar: CalendarDays,
   chart: ChartNoAxesCombined,
   plug: Plug,

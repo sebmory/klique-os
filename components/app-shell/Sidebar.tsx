@@ -112,7 +112,10 @@ export function Sidebar({
         { id: "contact", label: "Contacter KLIQUE", href: "/athlete/contact", icon: "messages" as const },
       ]
     : isMedia
-      ? [{ id: "contents", label: "Contenus", href: "/contents", icon: "contents" as const }]
+      ? [
+          { id: "media-desk", label: "Media Desk", href: "/media-desk", icon: "newspaper" as const },
+          { id: "contents", label: "Contenus", href: "/contents", icon: "contents" as const },
+        ]
       : isPartner
         ? [
             { id: "today", label: "Aujourd’hui", href: "/partner", icon: "house" as const },
