@@ -14,7 +14,12 @@ const accessPendingPath = "/access-pending";
 
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
 
-const isAthleteAllowedRoute = (pathname: string): boolean => {
+const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
+  // Lecture seule des ressources du Hub : la creation et la couverture restent reservees a l Admin.
+  if (pathname === "/api/hub-resources" && method === "GET") {
+    return true;
+  }
+
   if (
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"
@@ -122,7 +127,7 @@ export default clerkMiddleware(
           : NextResponse.redirect(new URL(accessPendingPath, request.url));
       }
 
-      if (access.role === "athlete" && !isAthleteAllowedRoute(pathname)) {
+      if (access.role === "athlete" && !isAthleteAllowedRoute(pathname, request.method)) {
         return isApiRoute(pathname)
           ? apiAccessDenied()
           : NextResponse.redirect(new URL("/athlete", request.url));
