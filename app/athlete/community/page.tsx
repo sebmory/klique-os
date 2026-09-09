@@ -38,6 +38,8 @@ type ResourceItem = {
   category: string;
   author: string;
   description: string;
+  coverImageUrl: string | null;
+  accessUrl: string | null;
 };
 
 const tabs: CommunityTab[] = ["Fil", "Opportunités", "Avantages", "Ressources"];
@@ -53,6 +55,16 @@ const readJson = async <T,>(response: Response, fallback: T): Promise<T | null> 
 };
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
+
+const normalizeHttpsUrl = (value: unknown): string | null => {
+  const trimmed = normalize(value);
+  return trimmed.startsWith("https://") ? trimmed : null;
+};
+
+const normalizeAccessUrl = (value: unknown): string | null => {
+  const trimmed = normalize(value);
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+};
 
 const formatFeedDate = (value: unknown): string => {
   const raw = normalize(value);
@@ -185,6 +197,8 @@ export default function AthleteCommunityPage() {
             category: normalize(item.category) || "Autre",
             author: normalize(item.author) || "KLIQUE",
             description: normalize(item.description),
+            coverImageUrl: normalizeHttpsUrl(item.coverImageUrl),
+            accessUrl: normalizeAccessUrl(item.url) ?? normalizeAccessUrl(item.content),
           }))
           .filter((item) => item.id && item.title)
       );
@@ -312,12 +326,54 @@ export default function AthleteCommunityPage() {
         ) : (
           <div style={{ display: "grid", gap: "0.8rem" }}>
             {resources.map((item) => (
-              <article key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "0.85rem" }}>
-                <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>{item.title}</p>
-                <p style={{ margin: "0.28rem 0 0", color: "#6b7280", fontSize: "0.88rem" }}>
-                  {item.category} · {item.author}
-                </p>
-                {item.description ? <p style={{ margin: "0.4rem 0 0", color: "#4b5563", lineHeight: 1.6 }}>{item.description}</p> : null}
+              <article key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "0.85rem", display: "flex", gap: "1.1rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+                {item.coverImageUrl ? (
+                  <div
+                    style={{
+                      position: "relative",
+                      width: "164px",
+                      flex: "0 0 164px",
+                      aspectRatio: "3 / 4",
+                      borderRadius: "6px 14px 14px 6px",
+                      overflow: "hidden",
+                      background: "#f3f4f6",
+                      boxShadow: "0 18px 32px rgba(15, 23, 42, 0.22), 0 2px 6px rgba(15, 23, 42, 0.12)",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.coverImageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    <span
+                      aria-hidden
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        borderRadius: "6px 14px 14px 6px",
+                        background:
+                          "linear-gradient(90deg, rgba(15,23,42,0.34) 0%, rgba(15,23,42,0.10) 4%, rgba(255,255,255,0.16) 7%, rgba(255,255,255,0) 16%)",
+                        boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.24)",
+                        pointerEvents: "none",
+                      }}
+                    />
+                  </div>
+                ) : null}
+
+                <div style={{ display: "grid", gap: "0.3rem", alignContent: "start", flex: "1 1 260px", minWidth: 0 }}>
+                  <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>{item.title}</p>
+                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.88rem" }}>
+                    {item.category} · {item.author}
+                  </p>
+                  {item.description ? <p style={{ margin: "0.1rem 0 0", color: "#4b5563", lineHeight: 1.6 }}>{item.description}</p> : null}
+                  {item.accessUrl ? (
+                    <a
+                      href={item.accessUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ marginTop: "0.45rem", justifySelf: "start", background: "#f59e0b", color: "#fff", borderRadius: "999px", padding: "0.6rem 0.95rem", fontWeight: 700, textDecoration: "none" }}
+                    >
+                      Consulter
+                    </a>
+                  ) : null}
+                </div>
               </article>
             ))}
           </div>
