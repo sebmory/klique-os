@@ -22,7 +22,7 @@ export type MediaBankLot = {
   orientations: MediaBankOrientations;
   videos: number;
   rights: string;
-  driveLink: string;
+  galleryUrl: string;
 };
 
 export type MediaBankAccessContext = Pick<ContentAccessContext, "workspaceId" | "role" | "isAdmin">;
@@ -41,8 +41,8 @@ const normalizeCount = (value: unknown): number => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
 };
 
-// Seul un lien Drive https est exploitable : tout le reste est ecarte.
-const normalizeDriveLink = (value: unknown): string | null => {
+// La galerie publique provient du lien stocke dans le Sheet : seul un https est exploitable.
+const normalizeGalleryUrl = (value: unknown): string | null => {
   const trimmed = normalizeText(value);
   if (!trimmed) return null;
   try {
@@ -61,7 +61,7 @@ export const hasMediaUsageRights = (value: unknown): boolean => {
   return /\bmedias?\b/.test(normalized) || /\bpresse\b/.test(normalized);
 };
 
-const toMediaBankLot = (lot: MediaLot, driveLink: string, index: number): MediaBankLot => ({
+const toMediaBankLot = (lot: MediaLot, galleryUrl: string, index: number): MediaBankLot => ({
   id: lot.row ? `lot-${lot.row}` : `lot-index-${index}`,
   row: lot.row ?? null,
   date: normalizeText(lot.date),
@@ -78,7 +78,7 @@ const toMediaBankLot = (lot: MediaLot, driveLink: string, index: number): MediaB
   },
   videos: normalizeCount(lot.videos),
   rights: normalizeText(lot.rights),
-  driveLink,
+  galleryUrl,
 });
 
 export const listMediaBankLots = async (access: MediaBankAccessContext): Promise<MediaBankLot[]> => {
@@ -95,9 +95,70 @@ export const listMediaBankLots = async (access: MediaBankAccessContext): Promise
 
   return lots
     .map((lot, index) => {
-      const driveLink = normalizeDriveLink(lot.driveLink);
-      if (!driveLink || !hasMediaUsageRights(lot.rights)) return null;
-      return toMediaBankLot(lot, driveLink, index);
+      const galleryUrl = normalizeGalleryUrl(lot.driveLink);
+      if (!galleryUrl || !hasMediaUsageRights(lot.rights)) return null;
+      return toMediaBankLot(lot, galleryUrl, index);
     })
     .filter((lot): lot is MediaBankLot => lot !== null);
+};
+
+export type AthleteMediaBankLot = {
+  id: string;
+  date: string;
+  sport: string;
+  mediaType: string;
+  event: string;
+  place: string;
+  totalFiles: number;
+  orientations: MediaBankOrientations;
+  videos: number;
+  galleryUrl: string;
+};
+
+export type AthleteMediaBankAccessContext = {
+  workspaceId: string;
+  role: string;
+  athleteId?: string | null;
+};
+
+const toAthleteMediaBankLot = (lot: MediaLot, galleryUrl: string, index: number): AthleteMediaBankLot => ({
+  id: lot.row ? `lot-${lot.row}` : `lot-index-${index}`,
+  date: normalizeText(lot.date),
+  sport: normalizeText(lot.sport),
+  mediaType: normalizeText(lot.mediaType),
+  event: normalizeText(lot.event),
+  place: normalizeText(lot.place),
+  totalFiles: normalizeCount(lot.totalFiles),
+  orientations: {
+    vertical: normalizeCount(lot.vertical),
+    horizontal: normalizeCount(lot.horizontal),
+    square: normalizeCount(lot.square),
+  },
+  videos: normalizeCount(lot.videos),
+  galleryUrl,
+});
+
+export const listAthleteMediaBankLots = async (
+  access: AthleteMediaBankAccessContext,
+): Promise<AthleteMediaBankLot[]> => {
+  const athleteId = normalizeText(access.athleteId);
+  if (access.role !== "athlete" || !athleteId) {
+    throw new MediaBankForbiddenError();
+  }
+
+  if (normalizeText(access.workspaceId) !== getDefaultWorkspaceId()) {
+    return [];
+  }
+
+  const lots = await getMediaFromGoogleSheets();
+
+  return lots
+    .map((lot, index) => {
+      const galleryUrl = normalizeGalleryUrl(lot.driveLink);
+      if (!galleryUrl) return null;
+      const linkedAthleteIds = Array.isArray(lot.athleteIds) ? lot.athleteIds.map(normalizeText) : [];
+      if (!linkedAthleteIds.includes(athleteId)) return null;
+      return toAthleteMediaBankLot(lot, galleryUrl, index);
+    })
+    .filter((lot): lot is AthleteMediaBankLot => lot !== null);
 };

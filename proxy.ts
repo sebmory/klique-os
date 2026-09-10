@@ -25,6 +25,11 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return method === "GET" || method === "PATCH";
   }
 
+  // L athlete consulte uniquement ses propres lots medias.
+  if (pathname === "/api/athlete-media-bank") {
+    return method === "GET";
+  }
+
   if (
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"

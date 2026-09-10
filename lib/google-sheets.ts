@@ -1540,11 +1540,26 @@ export async function addShootingToGoogleSheets(
     },
   });
 }
+// Colonne X : plusieurs athletes possibles pour un meme lot, separes par des virgules.
+const parseMediaAthleteIds = (value: unknown): string[] | undefined => {
+  const entries = String(value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return entries.length > 0 ? [...new Set(entries)] : undefined;
+};
+
+const formatMediaAthleteIds = (value: unknown): string => {
+  if (!Array.isArray(value)) return "";
+  const entries = value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
+  return [...new Set(entries)].join(", ");
+};
+
 export async function getMediaFromGoogleSheets(): Promise<MediaLot[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'13_Banque Médias'!A3:W300",
+    range: "'13_Banque Médias'!A3:X300",
   });
 
   const rows = response.data.values ?? [];
@@ -1589,6 +1604,7 @@ export async function getMediaFromGoogleSheets(): Promise<MediaLot[]> {
         associatedContent: String(row[20] ?? ""),
         rights: String(row[21] ?? ""),
         notes: String(row[22] ?? ""),
+        athleteIds: parseMediaAthleteIds(row[23]),
       };
     })
     .filter((lot) => lot.athlete || lot.event || lot.totalFiles > 0);
@@ -1601,7 +1617,7 @@ export async function addMediaToGoogleSheets(
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: "'13_Banque Médias'!A:W",
+    range: "'13_Banque Médias'!A:X",
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -1629,6 +1645,7 @@ export async function addMediaToGoogleSheets(
         media.associatedContent,
         media.rights,
         media.notes,
+        formatMediaAthleteIds(media.athleteIds),
       ]],
     },
   });

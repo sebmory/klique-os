@@ -42,7 +42,7 @@ const lot = (overrides: Partial<MediaLot> = {}): MediaLot => ({
   favorites: 16,
   videos: 3,
   source: "Sébastien Mory",
-  driveLink: "https://drive.google.com/drive/folders/abc",
+  driveLink: "https://klique.photodeck.com/gallery/portrait-klique",
   lastUse: "22.07.2026",
   associatedContent: "Portrait",
   rights: "KLIQUE + athlète + médias",
@@ -83,7 +83,12 @@ describe("media bank API", () => {
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
     expect(payload.lots).toHaveLength(1);
-    expect(payload.lots[0]).toMatchObject({ id: "lot-4", athlete: "Loan Cueto" });
+    expect(payload.lots[0]).toMatchObject({
+      id: "lot-4",
+      athlete: "Loan Cueto",
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+    });
+    expect(Object.keys(payload.lots[0])).not.toContain("driveLink");
   });
 
   it("returns the lots to an active media user without internal fields", async () => {

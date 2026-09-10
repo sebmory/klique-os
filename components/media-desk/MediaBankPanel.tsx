@@ -16,7 +16,7 @@ type MediaBankLot = {
   orientations: { vertical: number; horizontal: number; square: number };
   videos: number;
   rights: string;
-  driveLink: string;
+  galleryUrl: string;
 };
 
 type OrientationFilter = "all" | "vertical" | "horizontal" | "square" | "video";
@@ -243,7 +243,7 @@ export function MediaBankPanel() {
               </div>
 
               <a
-                href={lot.driveLink}
+                href={lot.galleryUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{

@@ -23,7 +23,7 @@ const tennisLot = {
   orientations: { vertical: 154, horizontal: 132, square: 0 },
   videos: 0,
   rights: "KLIQUE + athlète + médias",
-  driveLink: "https://drive.google.com/drive/folders/abc",
+  galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
 };
 
 const badmintonLot = {
@@ -39,7 +39,7 @@ const badmintonLot = {
   orientations: { vertical: 0, horizontal: 68, square: 8 },
   videos: 8,
   rights: "Presse suisse",
-  driveLink: "https://drive.google.com/drive/folders/def",
+  galleryUrl: "https://klique.photodeck.com/gallery/camp-intensif",
 };
 
 const fetchMock = vi.fn();
@@ -88,7 +88,7 @@ const setFieldValue = async (element: HTMLInputElement | HTMLSelectElement, valu
   });
 };
 
-const bankPanel = () => container.querySelector('a[href^="https://drive.google.com"]')?.closest("div");
+const bankPanel = () => container.querySelector('a[href^="https://klique.photodeck.com"]')?.closest("div");
 
 const bankText = () => {
   const panel = [...container.querySelectorAll("div")].find((node) =>
@@ -127,7 +127,7 @@ describe("Media bank tab", () => {
     await mount();
 
     expect(bankCalls()).toHaveLength(0);
-    expect(container.querySelector('a[href^="https://drive.google.com"]')).toBeNull();
+    expect(container.querySelector('a[href^="https://klique.photodeck.com"]')).toBeNull();
   });
 
   it("loads the lots once even after several tab switches", async () => {
@@ -144,7 +144,7 @@ describe("Media bank tab", () => {
     expect(bankCalls()).toHaveLength(1);
   });
 
-  it("renders the lot fields and a safe drive link", async () => {
+  it("renders the lot fields and a safe gallery link", async () => {
     await mount();
     await click(tab("Banque d’images"));
 
@@ -159,7 +159,7 @@ describe("Media bank tab", () => {
     expect(text).toContain("8 vidéos");
     expect(text).toContain("KLIQUE + athlète + médias");
 
-    const link = container.querySelector('a[href="https://drive.google.com/drive/folders/abc"]');
+    const link = container.querySelector('a[href="https://klique.photodeck.com/gallery/portrait-klique"]');
     expect(link?.textContent).toContain("Accéder au lot");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");

@@ -1,14 +1,41 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useMemo, useState } from "react";
 import type { Athlete } from "@/types/athlete";
 import type { MediaFilter, MediaLot, NewMediaLot } from "@/types/media";
 import { MediaService } from "@/services/media.service";
 import { Modal } from "@/components/ui/Modal";
+import {
+  Button,
+  Input,
+  Modal as DialogSurface,
+  Select,
+  Textarea,
+} from "@/src/design-system/components";
+
+const fieldControlStyle = { width: "100%", borderRadius: "12px", padding: "0.6rem 0.7rem" } as const;
+
+const secondaryButtonStyle = {
+  border: "1px solid #e5e7eb",
+  background: "#fff",
+  color: "#374151",
+  borderRadius: "999px",
+  padding: "0.6rem 1rem",
+  cursor: "pointer",
+  fontWeight: 700,
+} as const;
+
+const Field = ({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) => (
+  <label style={{ display: "grid", gap: "0.35rem", gridColumn: wide ? "1 / -1" : "auto" }}>
+    <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#374151" }}>{label}</span>
+    {children}
+  </label>
+);
 
 const emptyForm: NewMediaLot = {
   date: "",
   athlete: "",
+  athleteIds: [],
   sport: "",
   mediaType: "Photos",
   event: "",
@@ -54,6 +81,7 @@ export function MediaCenterModule({
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<MediaLot | null>(null);
   const [form, setForm] = useState<NewMediaLot>(emptyForm);
+  const [athleteQuery, setAthleteQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
 
@@ -67,24 +95,61 @@ export function MediaCenterModule({
     ...Array.from(new Set(media.map((lot) => lot.sport))).filter(Boolean),
   ];
 
-  const selectAthlete = (name: string) => {
-    const athlete = athletes.find((item) => item.name === name);
+  const athleteById = useMemo(() => {
+    const index = new Map<string, Athlete>();
+    for (const athlete of athletes) index.set(athlete.key, athlete);
+    return index;
+  }, [athletes]);
+
+  const selectedAthleteIds = useMemo(() => form.athleteIds ?? [], [form.athleteIds]);
+
+  const athleteResults = useMemo(() => {
+    const query = athleteQuery.trim().toLowerCase();
+    const available = athletes.filter((athlete) => !selectedAthleteIds.includes(athlete.key));
+    if (!query) return available.slice(0, 8);
+    return available
+      .filter((athlete) => `${athlete.name} ${athlete.sport}`.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [athleteQuery, athletes, selectedAthleteIds]);
+
+  // Le payload conserve les noms dans athlete et les identifiants dans athleteIds.
+  const applyAthleteIds = (athleteIds: string[]) => {
+    const selected = athleteIds
+      .map((athleteId) => athleteById.get(athleteId))
+      .filter((athlete): athlete is Athlete => Boolean(athlete));
+
     setForm((current) => ({
       ...current,
-      athlete: name,
-      sport: athlete?.sport ?? "",
+      athlete: selected.map((athlete) => athlete.name).join(", "),
+      athleteIds: selected.map((athlete) => athlete.key),
+      sport: selected[0]?.sport ?? "",
     }));
   };
 
   const createLot = async (event: FormEvent) => {
     event.preventDefault();
+
+    if (selectedAthleteIds.length === 0) {
+      setFeedback("Sélectionnez au moins un athlète.");
+      return;
+    }
+
+    const galleryUrl = form.driveLink.trim();
+    if (galleryUrl && !galleryUrl.startsWith("https://")) {
+      setFeedback("La galerie PhotoDeck doit être une URL https.");
+      return;
+    }
+
     setSaving(true);
     setFeedback("");
 
     try {
-      await MediaService.create(form);
+      // Le lien part en galleryUrl : l API conserve driveLink pour les anciens lots.
+      const payload: NewMediaLot & { galleryUrl: string } = { ...form, driveLink: galleryUrl, galleryUrl };
+      await MediaService.create(payload);
       setFeedback("Le lot média a été ajouté dans Google Sheets.");
       setForm(emptyForm);
+      setAthleteQuery("");
       setShowCreate(false);
       await onRefresh();
     } catch (error) {
@@ -306,207 +371,288 @@ export function MediaCenterModule({
       </section>
 
       {showCreate && (
-        <Modal title="Ajouter un lot média" onClose={() => setShowCreate(false)}>
-          <form className="modal-form media-modal-form" onSubmit={createLot}>
-            <label>
-              <span>Athlète</span>
-              <select
-                value={form.athlete}
-                onChange={(event) => selectAthlete(event.target.value)}
-                required
-              >
-                <option value="">Choisir…</option>
-                {athletes.map((athlete) => (
-                  <option key={athlete.name}>{athlete.name}</option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span>Date</span>
-              <input
-                type="date"
-                value={form.date}
-                onChange={(event) =>
-                  setForm({ ...form, date: event.target.value })
-                }
-                required
-              />
-            </label>
-
-            <label>
-              <span>Événement</span>
-              <input
-                value={form.event}
-                onChange={(event) =>
-                  setForm({ ...form, event: event.target.value })
-                }
-                required
-              />
-            </label>
-
-            <label>
-              <span>Type</span>
-              <select
-                value={form.mediaType}
-                onChange={(event) =>
-                  setForm({ ...form, mediaType: event.target.value })
-                }
-              >
-                <option>Photos</option>
-                <option>Vidéos</option>
-                <option>Photos + vidéos</option>
-                <option>Graphismes</option>
-                <option>Mixte</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Total fichiers</span>
-              <input
-                type="number"
-                min="0"
-                value={form.totalFiles}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    totalFiles: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Premium total</span>
-              <input
-                type="number"
-                min="0"
-                value={form.premiumTotal}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    premiumTotal: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Verticales</span>
-              <input
-                type="number"
-                min="0"
-                value={form.vertical}
-                onChange={(event) =>
-                  setForm({ ...form, vertical: Number(event.target.value) })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Horizontales</span>
-              <input
-                type="number"
-                min="0"
-                value={form.horizontal}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    horizontal: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Carrées</span>
-              <input
-                type="number"
-                min="0"
-                value={form.square}
-                onChange={(event) =>
-                  setForm({ ...form, square: Number(event.target.value) })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Vidéos</span>
-              <input
-                type="number"
-                min="0"
-                value={form.videos}
-                onChange={(event) =>
-                  setForm({ ...form, videos: Number(event.target.value) })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Fichiers utilisés</span>
-              <input
-                type="number"
-                min="0"
-                value={form.filesUsed}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    filesUsed: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-
-            <label>
-              <span>Premium utilisés</span>
-              <input
-                type="number"
-                min="0"
-                value={form.premiumUsed}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    premiumUsed: Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Lien Google Drive</span>
-              <input
-                value={form.driveLink}
-                onChange={(event) =>
-                  setForm({ ...form, driveLink: event.target.value })
-                }
-                placeholder="https://drive.google.com/..."
-              />
-            </label>
-
-            <label className="modal-wide">
-              <span>Notes</span>
-              <textarea
-                value={form.notes}
-                onChange={(event) =>
-                  setForm({ ...form, notes: event.target.value })
-                }
-              />
-            </label>
-
-            <div className="modal-actions modal-wide">
+        <div
+          role="presentation"
+          onMouseDown={() => setShowCreate(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(15, 23, 42, 0.45)",
+            display: "grid",
+            placeItems: "center",
+            padding: "1.5rem",
+            overflowY: "auto",
+          }}
+        >
+          <DialogSurface
+            aria-modal="true"
+            aria-label="Ajouter un lot média"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              width: "min(920px, 100%)",
+              maxHeight: "88vh",
+              overflowY: "auto",
+              background: "#fff",
+              borderRadius: "20px",
+              border: "1px solid #f0e2d0",
+              boxShadow: "0 30px 60px rgba(15, 23, 42, 0.25)",
+              padding: "1.4rem",
+              display: "grid",
+              gap: "1.1rem",
+            }}
+          >
+            <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem" }}>
+              <div>
+                <p style={{ margin: 0, fontSize: "0.76rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>
+                  Banque médias
+                </p>
+                <h3 style={{ margin: "0.25rem 0 0", fontSize: "1.2rem", color: "#111827" }}>Ajouter un lot média</h3>
+              </div>
               <button
                 type="button"
-                className="secondary-button"
                 onClick={() => setShowCreate(false)}
+                aria-label="Fermer"
+                style={{ border: "none", background: "transparent", color: "#6b7280", cursor: "pointer", fontSize: "1.3rem", lineHeight: 1 }}
               >
-                Annuler
+                ×
               </button>
-              <button className="primary-button" disabled={saving}>
-                {saving ? "Enregistrement…" : "Ajouter le lot"}
-              </button>
-            </div>
-          </form>
-        </Modal>
+            </header>
+
+            <form onSubmit={createLot} style={{ display: "grid", gap: "1rem" }}>
+              <div style={{ display: "grid", gap: "0.6rem", padding: "0.9rem", border: "1px solid #f0e2d0", borderRadius: "16px", background: "#fffdf9" }}>
+                <p style={{ margin: 0, fontWeight: 700, color: "#111827" }}>Athlètes concernés</p>
+
+                {selectedAthleteIds.length > 0 ? (
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {selectedAthleteIds.map((athleteId) => {
+                      const label = athleteById.get(athleteId)?.name ?? athleteId;
+                      return (
+                        <span
+                          key={athleteId}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "#eff6ff", color: "#1d4ed8", borderRadius: "999px", padding: "0.35rem 0.65rem", fontWeight: 700, fontSize: "0.88rem" }}
+                        >
+                          {label}
+                          <button
+                            type="button"
+                            aria-label={`Retirer ${label}`}
+                            onClick={() => applyAthleteIds(selectedAthleteIds.filter((entry) => entry !== athleteId))}
+                            style={{ border: "none", background: "transparent", color: "#1d4ed8", cursor: "pointer", fontWeight: 700 }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>Aucun athlète associé pour l’instant.</p>
+                )}
+
+                <Input
+                  placeholder="Rechercher un athlète…"
+                  value={athleteQuery}
+                  onChange={(event) => setAthleteQuery(event.target.value)}
+                  style={{ ...fieldControlStyle, maxWidth: "420px" }}
+                />
+
+                {athleteResults.length > 0 ? (
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {athleteResults.map((athlete) => (
+                      <button
+                        key={athlete.key}
+                        type="button"
+                        onClick={() => {
+                          applyAthleteIds([...selectedAthleteIds, athlete.key]);
+                          setAthleteQuery("");
+                        }}
+                        style={secondaryButtonStyle}
+                      >
+                        + {athlete.name}
+                        {athlete.sport ? <span style={{ color: "#6b7280", fontWeight: 600 }}> · {athlete.sport}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.88rem" }}>Aucun athlète ne correspond à cette recherche.</p>
+                )}
+              </div>
+
+              <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                <Field label="Date">
+                  <Input
+                    type="date"
+                    value={form.date}
+                    onChange={(event) => setForm({ ...form, date: event.target.value })}
+                    required
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Événement">
+                  <Input
+                    value={form.event}
+                    onChange={(event) => setForm({ ...form, event: event.target.value })}
+                    required
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Type">
+                  <Select
+                    value={form.mediaType}
+                    onChange={(event) => setForm({ ...form, mediaType: event.target.value })}
+                    style={fieldControlStyle}
+                  >
+                    <option>Photos</option>
+                    <option>Vidéos</option>
+                    <option>Photos + vidéos</option>
+                    <option>Graphismes</option>
+                    <option>Mixte</option>
+                  </Select>
+                </Field>
+
+                <Field label="Total fichiers">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.totalFiles}
+                    onChange={(event) => setForm({ ...form, totalFiles: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Premium total">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.premiumTotal}
+                    onChange={(event) => setForm({ ...form, premiumTotal: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Verticales">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.vertical}
+                    onChange={(event) => setForm({ ...form, vertical: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Horizontales">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.horizontal}
+                    onChange={(event) => setForm({ ...form, horizontal: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Carrées">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.square}
+                    onChange={(event) => setForm({ ...form, square: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Vidéos">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.videos}
+                    onChange={(event) => setForm({ ...form, videos: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Fichiers utilisés">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.filesUsed}
+                    onChange={(event) => setForm({ ...form, filesUsed: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Premium utilisés">
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.premiumUsed}
+                    onChange={(event) => setForm({ ...form, premiumUsed: Number(event.target.value) })}
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Droits d’utilisation" wide>
+                  <Select
+                    value={form.rights}
+                    onChange={(event) => setForm({ ...form, rights: event.target.value })}
+                    required
+                    style={fieldControlStyle}
+                  >
+                    <option value="KLIQUE + athlète">KLIQUE + athlète</option>
+                    <option value="KLIQUE + athlète + médias">KLIQUE + athlète + médias</option>
+                  </Select>
+                </Field>
+
+                <Field label="Galerie PhotoDeck" wide>
+                  <Input
+                    type="url"
+                    value={form.driveLink}
+                    onChange={(event) => setForm({ ...form, driveLink: event.target.value })}
+                    placeholder="https://klique.photodeck.com/..."
+                    style={fieldControlStyle}
+                  />
+                </Field>
+
+                <Field label="Notes" wide>
+                  <Textarea
+                    value={form.notes}
+                    onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                    style={{ ...fieldControlStyle, minHeight: "86px", resize: "vertical" }}
+                  />
+                </Field>
+              </div>
+
+              {feedback ? (
+                <p role="alert" style={{ margin: 0, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "12px", padding: "0.7rem 0.85rem" }}>
+                  {feedback}
+                </p>
+              ) : null}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" }}>
+                <Button type="button" onClick={() => setShowCreate(false)} style={secondaryButtonStyle}>
+                  Annuler
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={saving}
+                  style={{
+                    borderRadius: "999px",
+                    padding: "0.6rem 1.1rem",
+                    background: "#f59e0b",
+                    color: "#fff",
+                    border: "none",
+                    fontWeight: 700,
+                    opacity: saving ? 0.6 : 1,
+                    cursor: saving ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "Enregistrement…" : "Ajouter le lot"}
+                </Button>
+              </div>
+            </form>
+          </DialogSurface>
+        </div>
       )}
 
       {selected && (

@@ -2,6 +2,8 @@ export type MediaLot = {
   row?: number;
   date: string;
   athlete: string;
+  // Colonne X : identifiants d athletes separes par des virgules, absents des lots anterieurs.
+  athleteIds?: string[];
   sport: string;
   mediaType: string;
   event: string;

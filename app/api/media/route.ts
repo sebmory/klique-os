@@ -10,6 +10,20 @@ import type { MediaResponse, NewMediaLot } from "@/types/media";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const isHttpsUrl = (value: string): boolean => {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const normalizeAthleteIds = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const entries = value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
+  return entries.length > 0 ? [...new Set(entries)] : undefined;
+};
+
 export async function GET(request: NextRequest) {
   try {
     const accessCheck = await evaluateBusinessAccess(request, { action: "read:community" });
@@ -41,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
-    const body = (await request.json()) as NewMediaLot;
+    const body = (await request.json()) as NewMediaLot & { galleryUrl?: unknown };
 
     if (!body.date || !body.athlete || !body.event) {
       return NextResponse.json(
@@ -50,7 +64,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await addMediaToGoogleSheets(body);
+    // galleryUrl remplace driveLink en colonne S, l ancien champ reste accepte.
+    const link = String(body.galleryUrl ?? body.driveLink ?? "").trim();
+    if (link && !isHttpsUrl(link)) {
+      return NextResponse.json(
+        { error: "Le lien de galerie doit être une URL https." },
+        { status: 400 }
+      );
+    }
+
+    await addMediaToGoogleSheets({
+      ...body,
+      driveLink: link,
+      athleteIds: normalizeAthleteIds(body.athleteIds),
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

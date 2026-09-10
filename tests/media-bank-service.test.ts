@@ -99,11 +99,11 @@ describe("listMediaBankLots filtering", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps only lots with a valid https drive link", async () => {
+  it("keeps only lots with a valid https gallery link", async () => {
     getMediaFromGoogleSheetsMock.mockResolvedValue([
       lot({ row: 4 }),
       lot({ row: 5, driveLink: "" }),
-      lot({ row: 6, driveLink: "http://drive.google.com/folders/abc" }),
+      lot({ row: 6, driveLink: "http://gallery.photodeck.com/portrait" }),
       lot({ row: 7, driveLink: "javascript:alert(1)" }),
       lot({ row: 8, driveLink: "   " }),
     ]);
@@ -111,7 +111,7 @@ describe("listMediaBankLots filtering", () => {
     const lots = await listMediaBankLots(mediaAccess);
 
     expect(lots.map((entry) => entry.row)).toEqual([4]);
-    expect(lots[0].driveLink).toBe("https://drive.google.com/drive/folders/abc");
+    expect(lots[0].galleryUrl).toBe("https://drive.google.com/drive/folders/abc");
   });
 
   it("keeps only lots whose rights mention media or press", async () => {
@@ -149,8 +149,19 @@ describe("listMediaBankLots projection", () => {
       orientations: { vertical: 154, horizontal: 132, square: 0 },
       videos: 3,
       rights: "KLIQUE + athlète + médias",
-      driveLink: "https://drive.google.com/drive/folders/abc",
+      galleryUrl: "https://drive.google.com/drive/folders/abc",
     });
+  });
+
+  it("derives the gallery url from the sheet link and never exposes driveLink", async () => {
+    getMediaFromGoogleSheetsMock.mockResolvedValue([
+      lot({ driveLink: "https://klique.photodeck.com/gallery/portrait-klique" }),
+    ]);
+
+    const [entry] = await listMediaBankLots(mediaAccess);
+
+    expect(entry.galleryUrl).toBe("https://klique.photodeck.com/gallery/portrait-klique");
+    expect(Object.keys(entry)).not.toContain("driveLink");
   });
 
   it("never exposes notes, source or internal premium counters", async () => {
