@@ -213,6 +213,52 @@ describe("media requests read isolation", () => {
     expect(await getMediaRequestById(mediaAccess, "request-404")).toBeNull();
     expect(await getMediaRequestById(mediaAccess, "  ")).toBeNull();
   });
+
+  // Regression : le driver renvoie des Date pour les TIMESTAMPTZ, l UI affichait "Sans date".
+  it("exposes an ISO date when the driver returns Date objects", async () => {
+    const driverRow = {
+      id: "request-1",
+      workspace_id: "klique-os",
+      subject_id: "subject-1",
+      subject_title: "Retour de blessure",
+      requested_by_clerk_user_id: "user_media",
+      requester_email: "media@example.com",
+      media_id: "media-1",
+      request_type: "interview",
+      message: "Nous souhaitons une interview.",
+      deadline: new Date("2026-09-20T00:00:00.000Z"),
+      status: "awaiting_athlete",
+      admin_note: null,
+      created_at: new Date("2026-09-10T09:00:00.000Z"),
+      updated_at: new Date("2026-09-10T10:30:00.000Z"),
+      athletes: [
+        { athlete_id: "athlete-1", consent_status: "approved", responded_at: new Date("2026-09-10T10:30:00.000Z") },
+      ],
+    };
+    installSqlMock({ requestRows: [driverRow] });
+
+    const [listed] = await listMediaRequests(mediaAccess);
+    const fetched = await getMediaRequestById(mediaAccess, "request-1");
+
+    for (const mediaRequest of [listed, fetched]) {
+      expect(mediaRequest?.createdAt).toBe("2026-09-10T09:00:00.000Z");
+      expect(mediaRequest?.updatedAt).toBe("2026-09-10T10:30:00.000Z");
+      expect(mediaRequest?.deadline).toBe("2026-09-20");
+      expect(mediaRequest?.athletes[0].respondedAt).toBe("2026-09-10T10:30:00.000Z");
+      expect(/^\d{4}-\d{2}-\d{2}/.test(mediaRequest?.createdAt ?? "")).toBe(true);
+    }
+  });
+
+  it("keeps the ISO text form returned for a created request", async () => {
+    installSqlMock({
+      requestRows: [requestRow({ created_at: "2026-09-10 09:00:00+00", updated_at: new Date("2026-09-10T09:00:00.000Z") })],
+    });
+
+    const created = await createMediaRequest(mediaAccess, validInput);
+
+    expect(created.createdAt).toBe("2026-09-10 09:00:00+00");
+    expect(created.updatedAt).toBe("2026-09-10T09:00:00.000Z");
+  });
 });
 
 describe("media requests creation is reserved to the media role", () => {

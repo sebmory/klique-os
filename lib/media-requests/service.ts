@@ -144,6 +144,18 @@ const normalizeAthleteIds = (value: unknown): string[] => {
   return [...unique];
 };
 
+// Le driver renvoie un Date pour les TIMESTAMPTZ : l UI attend une chaine ISO.
+const normalizeTimestamp = (value: unknown): string | null => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  const text = normalizeText(value);
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
 const ensureMediaRequestTables = async () => {
   const sql = getSql();
 
@@ -217,7 +229,7 @@ const mapAthletes = (value: unknown): MediaRequestAthlete[] => {
       return {
         athleteId,
         consentStatus: normalizeConsentStatus(row.consent_status),
-        respondedAt: row.responded_at ? String(row.responded_at) : null,
+        respondedAt: normalizeTimestamp(row.responded_at),
       } satisfies MediaRequestAthlete;
     })
     .filter((entry): entry is MediaRequestAthlete => entry !== null)
@@ -242,8 +254,8 @@ const mapRow = (row: Record<string, unknown>): MediaRequestRecord => {
     adminNote: normalizeOptionalText(row.admin_note),
     athleteIds: athletes.map((athlete) => athlete.athleteId),
     athletes,
-    createdAt: String(row.created_at ?? ""),
-    updatedAt: String(row.updated_at ?? ""),
+    createdAt: normalizeTimestamp(row.created_at) ?? "",
+    updatedAt: normalizeTimestamp(row.updated_at) ?? "",
   };
 };
 
