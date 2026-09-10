@@ -20,6 +20,11 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return true;
   }
 
+  // L athlete lit ses demandes media liees et repond au consentement : aucune autre action.
+  if (pathname === "/api/media-requests") {
+    return method === "GET" || method === "PATCH";
+  }
+
   if (
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"

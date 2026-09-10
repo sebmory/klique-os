@@ -39,4 +39,21 @@ describe("media desk proxy access", () => {
     expect(isAthleteAllowedRoute("/media-desk/subject-1", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/api/media-subjects", "GET")).toBe(false);
   });
+
+  it("opens the media requests API to the athlete in read and consent only", () => {
+    expect(isAthleteAllowedRoute("/api/media-requests", "GET")).toBe(true);
+    expect(isAthleteAllowedRoute("/api/media-requests", "PATCH")).toBe(true);
+
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      expect(isAthleteAllowedRoute("/api/media-requests", method)).toBe(false);
+    }
+
+    expect(isAthleteAllowedRoute("/api/media-requests/request-1", "GET")).toBe(false);
+    expect(isAthleteAllowedRoute("/api/media-requestsoups", "GET")).toBe(false);
+  });
+
+  it("leaves the media requests API to its own controls for the media role", () => {
+    expect(isMediaAllowedApi("/api/media-requests", "GET")).toBe(true);
+    expect(isMediaAllowedApi("/api/media-requests", "POST")).toBe(true);
+  });
 });

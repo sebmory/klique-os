@@ -25,6 +25,66 @@ const selectStyle = {
   background: "white",
 } as const;
 
+type MediaDeskTab = "subjects" | "requests";
+
+type MediaRequestStatus =
+  | "submitted"
+  | "reviewing"
+  | "awaiting_athlete"
+  | "accepted"
+  | "declined"
+  | "completed"
+  | "cancelled";
+
+type MediaRequestItem = {
+  id: string;
+  subjectId: string;
+  subjectTitle: string | null;
+  requestType: MediaRequestType;
+  message: string;
+  deadline: string | null;
+  status: MediaRequestStatus;
+  createdAt: string;
+};
+
+const MEDIA_REQUEST_STATUS_LABELS: Record<MediaRequestStatus, string> = {
+  submitted: "Envoyée",
+  reviewing: "En cours d’examen",
+  awaiting_athlete: "En attente de l’athlète",
+  accepted: "Acceptée",
+  declined: "Refusée",
+  completed: "Terminée",
+  cancelled: "Annulée",
+};
+
+const MEDIA_REQUEST_STATUS_COLORS: Record<MediaRequestStatus, { background: string; color: string }> = {
+  submitted: { background: "#eff6ff", color: "#1d4ed8" },
+  reviewing: { background: "#fef3c7", color: "#b45309" },
+  awaiting_athlete: { background: "#fff7ed", color: "#c2410c" },
+  accepted: { background: "#f0fdf4", color: "#15803d" },
+  declined: { background: "#fef2f2", color: "#b91c1c" },
+  completed: { background: "#f3f4f6", color: "#374151" },
+  cancelled: { background: "#f3f4f6", color: "#6b7280" },
+};
+
+const getRequestStatusLabel = (status: MediaRequestStatus): string =>
+  MEDIA_REQUEST_STATUS_LABELS[status] ?? "Envoyée";
+
+const getRequestStatusColors = (status: MediaRequestStatus) =>
+  MEDIA_REQUEST_STATUS_COLORS[status] ?? MEDIA_REQUEST_STATUS_COLORS.submitted;
+
+const tabStyle = (active: boolean) =>
+  ({
+    borderRadius: "999px",
+    padding: "0.55rem 1rem",
+    fontWeight: 700,
+    fontSize: "0.9rem",
+    cursor: "pointer",
+    border: active ? "1px solid #f59e0b" : "1px solid #efe3d4",
+    background: active ? "#f59e0b" : "#fff",
+    color: active ? "#fff" : "#6b7280",
+  }) as const;
+
 export const SubjectCover = ({ url, width }: { url: string; width: number }) => (
   <div
     style={{
@@ -75,6 +135,11 @@ export function MediaDeskMediaScreen() {
   const [query, setQuery] = useState("");
   const [sport, setSport] = useState("all");
   const [requestType, setRequestType] = useState<MediaRequestType | "all">("all");
+  const [activeTab, setActiveTab] = useState<MediaDeskTab>("subjects");
+  const [requests, setRequests] = useState<MediaRequestItem[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [requestsLoaded, setRequestsLoaded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -115,6 +180,46 @@ export function MediaDeskMediaScreen() {
 
   const sports = useMemo(() => collectSubjectSports(subjects), [subjects]);
 
+  // Les demandes ne sont chargees qu au premier affichage de l onglet.
+  useEffect(() => {
+    if (activeTab !== "requests" || requestsLoaded) return;
+    let active = true;
+
+    const loadRequests = async () => {
+      setRequestsLoading(true);
+      setRequestsError(null);
+      try {
+        const response = await fetch("/api/media-requests", { credentials: "include", cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { ok?: boolean; requests?: MediaRequestItem[]; message?: string }
+          | null;
+
+        if (!active) return;
+
+        if (!response.ok || !payload?.ok || !Array.isArray(payload.requests)) {
+          setRequestsError(payload?.message || "Vos demandes n’ont pas pu être chargées.");
+          setRequests([]);
+          return;
+        }
+
+        setRequests(payload.requests);
+        setRequestsLoaded(true);
+      } catch {
+        if (active) {
+          setRequestsError("Vos demandes n’ont pas pu être chargées. Vérifiez votre connexion.");
+          setRequests([]);
+        }
+      } finally {
+        if (active) setRequestsLoading(false);
+      }
+    };
+
+    void loadRequests();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, requestsLoaded]);
+
   const visibleSubjects = useMemo(
     () => filterMediaSubjects(subjects, { query, sport, requestType }),
     [query, requestType, sport, subjects],
@@ -122,15 +227,124 @@ export function MediaDeskMediaScreen() {
 
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
-      <Card
-        style={{
-          padding: "1.15rem",
-          display: "grid",
-          gap: "1rem",
-          border: "1px solid #f0e2d0",
-          boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)",
-        }}
-      >
+      <div role="tablist" aria-label="Media Desk" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "subjects"}
+          onClick={() => setActiveTab("subjects")}
+          style={tabStyle(activeTab === "subjects")}
+        >
+          Sujets
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "requests"}
+          onClick={() => setActiveTab("requests")}
+          style={tabStyle(activeTab === "requests")}
+        >
+          Mes demandes
+        </button>
+      </div>
+
+      {activeTab === "requests" ? (
+        <div style={{ display: "grid", gap: "1rem" }}>
+          <Card
+            style={{
+              padding: "1.15rem",
+              border: "1px solid #f0e2d0",
+              boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)",
+            }}
+          >
+            <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>
+              MEDIA DESK
+            </p>
+            <h1 style={{ margin: "0.3rem 0 0.35rem", fontSize: "1.35rem", color: "#111827" }}>Mes demandes</h1>
+            <p style={{ margin: 0, color: "#6b7280", maxWidth: "760px", lineHeight: 1.6 }}>
+              Suivez l’avancement des demandes que vous avez envoyées à l’équipe KLIQUE.
+            </p>
+          </Card>
+
+          {requestsError ? (
+            <Card style={{ padding: "1rem", border: "1px solid #fecaca", background: "#fef2f2" }}>
+              <p role="alert" style={{ margin: 0, color: "#b91c1c" }}>
+                {requestsError}
+              </p>
+            </Card>
+          ) : null}
+
+          {requestsLoading ? (
+            <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
+              <p style={{ margin: 0, color: "#6b7280" }}>Chargement de vos demandes…</p>
+            </Card>
+          ) : requests.length === 0 && !requestsError ? (
+            <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
+              <p style={{ margin: 0, color: "#6b7280" }}>Vous n’avez encore envoyé aucune demande.</p>
+            </Card>
+          ) : (
+            <div style={{ display: "grid", gap: "1rem" }}>
+              {requests.map((mediaRequest) => {
+                const statusColors = getRequestStatusColors(mediaRequest.status);
+
+                return (
+                  <Card
+                    key={mediaRequest.id}
+                    style={{
+                      padding: "1rem",
+                      display: "grid",
+                      gap: "0.7rem",
+                      border: "1px solid #efe3d4",
+                      boxShadow: "0 20px 40px rgba(15, 23, 42, 0.05)",
+                      borderRadius: "20px",
+                      background: "#fffdf9",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
+                      <Badge style={{ background: "#f3f4f6", color: "#374151", padding: "0.35rem 0.65rem" }}>
+                        {MEDIA_REQUEST_TYPE_LABELS[mediaRequest.requestType]}
+                      </Badge>
+                      <Badge style={{ ...statusColors, padding: "0.35rem 0.65rem" }}>
+                        {getRequestStatusLabel(mediaRequest.status)}
+                      </Badge>
+                    </div>
+
+                    <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{mediaRequest.message}</p>
+
+                    <div style={{ display: "grid", gap: "0.35rem", color: "#374151", fontSize: "0.92rem" }}>
+                      <div>
+                        <strong style={{ color: "#111827" }}>Échéance :</strong>{" "}
+                        {mediaRequest.deadline ? formatSubjectDateLabel(mediaRequest.deadline) : "Non précisée"}
+                      </div>
+                      <div>
+                        <strong style={{ color: "#111827" }}>Envoyée le :</strong>{" "}
+                        {formatSubjectDateLabel(mediaRequest.createdAt)}
+                      </div>
+                    </div>
+
+                    <Link
+                      href={`/media-desk/${mediaRequest.subjectId}`}
+                      style={{ color: "#b45309", fontWeight: 700, textDecoration: "none", justifySelf: "start" }}
+                    >
+                      {mediaRequest.subjectTitle ? `Voir le sujet : ${mediaRequest.subjectTitle}` : "Voir le sujet"} →
+                    </Link>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <Card
+            style={{
+              padding: "1.15rem",
+              display: "grid",
+              gap: "1rem",
+              border: "1px solid #f0e2d0",
+              boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)",
+            }}
+          >
         <div>
           <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>
             MEDIA DESK
@@ -249,6 +463,8 @@ export function MediaDeskMediaScreen() {
             );
           })}
         </div>
+      )}
+        </>
       )}
     </div>
   );

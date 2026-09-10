@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Input, Textarea } from "@/src/design-system/components";
 import { MediaDeskMediaScreen } from "@/components/media-desk/MediaDeskMediaScreen";
+import { MediaRequestsAdminSection } from "@/components/media-desk/MediaRequestsAdminSection";
 
 type MediaSubjectStatus = "draft" | "published" | "archived";
 
@@ -733,6 +734,8 @@ export default function MediaDeskPage() {
           })}
         </div>
       )}
+
+      <MediaRequestsAdminSection />
     </div>
   );
 }
