@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge, Card, Input } from "@/src/design-system/components";
+import { MediaBankPanel } from "./MediaBankPanel";
 import {
   MEDIA_REQUEST_TYPE_LABELS,
   MEDIA_REQUEST_TYPE_ORDER,
@@ -25,7 +26,7 @@ const selectStyle = {
   background: "white",
 } as const;
 
-type MediaDeskTab = "subjects" | "requests";
+type MediaDeskTab = "subjects" | "requests" | "bank";
 
 type MediaRequestStatus =
   | "submitted"
@@ -140,6 +141,8 @@ export function MediaDeskMediaScreen() {
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [requestsLoaded, setRequestsLoaded] = useState(false);
+  // La banque reste montee apres sa premiere ouverture : ses lots ne sont charges qu une fois.
+  const [bankOpened, setBankOpened] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -246,6 +249,18 @@ export function MediaDeskMediaScreen() {
         >
           Mes demandes
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "bank"}
+          onClick={() => {
+            setActiveTab("bank");
+            setBankOpened(true);
+          }}
+          style={tabStyle(activeTab === "bank")}
+        >
+          Banque d’images
+        </button>
       </div>
 
       {activeTab === "requests" ? (
@@ -334,7 +349,7 @@ export function MediaDeskMediaScreen() {
             </div>
           )}
         </div>
-      ) : (
+      ) : activeTab === "subjects" ? (
         <>
           <Card
             style={{
@@ -465,7 +480,13 @@ export function MediaDeskMediaScreen() {
         </div>
       )}
         </>
-      )}
+      ) : null}
+
+      {bankOpened ? (
+        <div style={{ display: activeTab === "bank" ? "grid" : "none", gap: "1rem" }}>
+          <MediaBankPanel />
+        </div>
+      ) : null}
     </div>
   );
 }

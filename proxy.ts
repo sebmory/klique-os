@@ -98,6 +98,10 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
     return method === "GET";
   }
 
+  if (pathname === "/api/media-bank") {
+    return method === "GET";
+  }
+
   return true;
 };
 
