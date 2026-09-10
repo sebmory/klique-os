@@ -43,6 +43,9 @@ button {
   position: fixed;
   inset: 0 auto 0 0;
   width: 250px;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   border-right: 1px solid #252525;
   background: linear-gradient(180deg, #1a1a1a 0%, #171717 48%, #141414 100%);
   color: #d8d8d8;
@@ -52,6 +55,21 @@ button {
   gap: 16px;
   z-index: var(--kl-layer-zIndex-sticky);
   transition: width 180ms var(--kl-motion-easing-standard), padding 180ms var(--kl-motion-easing-standard);
+}
+
+/* Le logo et le profil restent fixes : seule cette zone defile. */
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: thin;
 }
 
 .klique-app.is-collapsed .klique-sidebar {
@@ -5295,6 +5313,7 @@ button {
 .mobile-sidebar-layer {
   position: fixed;
   inset: 0;
+  height: 100dvh;
   z-index: var(--kl-layer-zIndex-modal);
 }
 
@@ -5310,6 +5329,8 @@ button {
   position: relative;
   width: min(90vw, 22rem);
   height: 100%;
+  max-height: 100dvh;
+  overflow: hidden;
   background: #171717;
   color: #d8d8d8;
   border-right: 1px solid #2b2b2b;

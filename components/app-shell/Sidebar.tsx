@@ -107,6 +107,7 @@ export function Sidebar({
         { id: "services", label: "Services", href: "/athlete/services", icon: "contents" as const },
         { id: "media-requests", label: "Demandes médias", href: "/athlete/media-requests", icon: "newspaper" as const },
         { id: "media-bank", label: "Mes médias", href: "/athlete/media-bank", icon: "image" as const },
+        { id: "media-days", label: "Media Days", href: "/athlete/media-days", icon: "calendar" as const },
         { id: "visibility", label: "Ma visibilité", href: "/athlete/visibilite", icon: "chart" as const },
         { id: "opportunities", label: "Opportunités", href: "/athlete/opportunities", icon: "folder" as const },
         { id: "ecosystem", label: "Écosystème", href: "/athlete/ecosysteme", icon: "network" as const },
@@ -196,25 +197,27 @@ export function Sidebar({
 
         {!isPartner ? <WorkspaceSwitcher collapsed={collapsed} /> : null}
 
-        <nav aria-label="Navigation principale" className="sidebar-nav-block">
-          <NavigationSection
-            items={visibleMainNavigation}
-            pathname={pathname}
-            collapsed={collapsed}
-            group="Navigation"
-          />
-        </nav>
-
-        {!isAthlete && !isMedia && !isPartner ? (
-          <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+        <div className="sidebar-scroll">
+          <nav aria-label="Navigation principale" className="sidebar-nav-block">
             <NavigationSection
-              items={visibleSecondaryNavigation}
+              items={visibleMainNavigation}
               pathname={pathname}
               collapsed={collapsed}
-              group="Espace"
+              group="Navigation"
             />
           </nav>
-        ) : null}
+
+          {!isAthlete && !isMedia && !isPartner ? (
+            <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+              <NavigationSection
+                items={visibleSecondaryNavigation}
+                pathname={pathname}
+                collapsed={collapsed}
+                group="Espace"
+              />
+            </nav>
+          ) : null}
+        </div>
 
         <div className="header-dropdown" ref={profileMenuRootRef}>
           <button
@@ -294,27 +297,29 @@ export function Sidebar({
 
             {!isPartner ? <WorkspaceSwitcher /> : null}
 
-            <nav aria-label="Navigation principale" className="sidebar-nav-block">
-              <NavigationSection
-                items={visibleMainNavigation}
-                pathname={pathname}
-                collapsed={false}
-                group="Navigation"
-                onNavigate={onCloseMobile}
-              />
-            </nav>
-
-            {!isAthlete && !isMedia && !isPartner ? (
-              <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+            <div className="sidebar-scroll">
+              <nav aria-label="Navigation principale" className="sidebar-nav-block">
                 <NavigationSection
-                  items={visibleSecondaryNavigation}
+                  items={visibleMainNavigation}
                   pathname={pathname}
                   collapsed={false}
-                  group="Espace"
+                  group="Navigation"
                   onNavigate={onCloseMobile}
                 />
               </nav>
-            ) : null}
+
+              {!isAthlete && !isMedia && !isPartner ? (
+                <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
+                  <NavigationSection
+                    items={visibleSecondaryNavigation}
+                    pathname={pathname}
+                    collapsed={false}
+                    group="Espace"
+                    onNavigate={onCloseMobile}
+                  />
+                </nav>
+              ) : null}
+            </div>
           </aside>
         </div>
       ) : null}

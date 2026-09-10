@@ -41,6 +41,7 @@ export const mainNavigation: NavItem[] = [
   { id: "ai-studio", label: "AI Studio", href: "/ai-studio", icon: "sparkles", badge: "IA" },
   { id: "hub", label: "HUB", href: "/hub", icon: "messages" },
   { id: "media-desk", label: "Media Desk", href: "/media-desk", icon: "newspaper" },
+  { id: "media-days", label: "Media Days", href: "/media-days", icon: "calendar" },
   { id: "calendar", label: "Calendrier", href: "/calendar", icon: "calendar" },
 ];
 

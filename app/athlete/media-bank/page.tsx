@@ -35,6 +35,9 @@ const inputStyle = {
   fontSize: "0.9rem",
 } as const;
 
+// Le champ ferme reste sombre : seules les options heritent du fond blanc natif de la liste.
+const optionStyle = { color: "#0a0b0f", background: "#ffffff" } as const;
+
 const chipStyle = {
   borderRadius: "999px",
   padding: "0.2rem 0.6rem",
@@ -53,7 +56,6 @@ export default function AthleteMediaBankPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [sport, setSport] = useState("all");
   const [mediaType, setMediaType] = useState("all");
 
   useEffect(() => {
@@ -93,19 +95,17 @@ export default function AthleteMediaBankPage() {
     };
   }, []);
 
-  const sports = useMemo(() => collectValues(lots, "sport"), [lots]);
   const mediaTypes = useMemo(() => collectValues(lots, "mediaType"), [lots]);
 
   const visibleLots = useMemo(() => {
     const search = query.trim().toLowerCase();
 
     return lots.filter((lot) => {
-      if (sport !== "all" && lot.sport.trim() !== sport) return false;
       if (mediaType !== "all" && lot.mediaType.trim() !== mediaType) return false;
       if (!search) return true;
       return [lot.event, lot.place, lot.sport, lot.mediaType].join(" ").toLowerCase().includes(search);
     });
-  }, [lots, mediaType, query, sport]);
+  }, [lots, mediaType, query]);
 
   return (
     <section
@@ -129,7 +129,7 @@ export default function AthleteMediaBankPage() {
         </p>
       </header>
 
-      <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+      <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
         <input
           type="search"
           value={query}
@@ -137,18 +137,12 @@ export default function AthleteMediaBankPage() {
           placeholder="Rechercher un événement, un lieu ou un sport…"
           style={inputStyle}
         />
-        <select value={sport} onChange={(event) => setSport(event.target.value)} style={inputStyle}>
-          <option value="all">Tous les sports</option>
-          {sports.map((entry) => (
-            <option key={entry} value={entry}>
-              {entry}
-            </option>
-          ))}
-        </select>
         <select value={mediaType} onChange={(event) => setMediaType(event.target.value)} style={inputStyle}>
-          <option value="all">Tous les types de médias</option>
+          <option value="all" style={optionStyle}>
+            Tous les types de médias
+          </option>
           {mediaTypes.map((entry) => (
-            <option key={entry} value={entry}>
+            <option key={entry} value={entry} style={optionStyle}>
               {entry}
             </option>
           ))}

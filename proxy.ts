@@ -30,6 +30,11 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return method === "GET";
   }
 
+  // L athlete lit ses journees media et repond a l invitation : aucune autre action.
+  if (pathname === "/api/media-days") {
+    return method === "GET" || method === "PATCH";
+  }
+
   if (
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"
@@ -105,6 +110,11 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
 
   if (pathname === "/api/media-bank") {
     return method === "GET";
+  }
+
+  // Les journees media restent internes a l Admin et aux athletes invites.
+  if (pathname === "/api/media-days") {
+    return false;
   }
 
   return true;

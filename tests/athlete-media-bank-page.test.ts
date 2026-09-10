@@ -120,18 +120,33 @@ describe("Athlete media bank page", () => {
     expect(container.textContent).not.toContain("Camp intensif");
   });
 
-  it("filters by sport and by media type", async () => {
+  it("filters by media type with readable options", async () => {
     await mount();
-    const [sportSelect, mediaTypeSelect] = selects();
+    const [mediaTypeSelect] = selects();
 
-    await setFieldValue(sportSelect, "Tennis");
+    expect(selects()).toHaveLength(1);
+    expect([...mediaTypeSelect.options].map((option) => option.style.color)).toEqual([
+      "rgb(10, 11, 15)",
+      "rgb(10, 11, 15)",
+      "rgb(10, 11, 15)",
+    ]);
+    expect([...mediaTypeSelect.options].every((option) => option.style.background === "rgb(255, 255, 255)")).toBe(true);
+
+    await setFieldValue(mediaTypeSelect, "Photos");
     expect(container.textContent).toContain("Portrait KLIQUE");
     expect(container.textContent).not.toContain("Camp intensif");
 
-    await setFieldValue(sportSelect, "all");
     await setFieldValue(mediaTypeSelect, "Photos + vidéos");
     expect(container.textContent).toContain("Camp intensif");
     expect(container.textContent).not.toContain("Portrait KLIQUE");
+  });
+
+  it("no longer offers the sport filter", async () => {
+    await mount();
+
+    expect(container.textContent).not.toContain("Tous les sports");
+    expect(selects()).toHaveLength(1);
+    expect(searchInput()).not.toBeNull();
   });
 
   it("shows the empty state when no lot matches", async () => {
