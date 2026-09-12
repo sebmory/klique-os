@@ -14,13 +14,20 @@ import {
   type KliqueVisibilityPublication,
   type KliqueVisibilityRegistryTotals,
   type KliqueVisibilityTrackingSettings,
+  type VisibilityAudienceSummary,
+  type VisibilityAudienceTrackingState,
+  type VisibilityEditorialCategory,
+  type VisibilityMetricSnapshot,
+  type VisibilityOrigin,
 } from "@/lib/klique-visibility";
 
 type OverviewPayload = {
   trackingSettings: KliqueVisibilityTrackingSettings | null;
-  publications: KliqueVisibilityPublication[];
+  publications: Array<KliqueVisibilityPublication & { audienceTracking: VisibilityAudienceTrackingState }>;
   historyEntries: KliqueVisibilityHistoryEntry[];
   totals: KliqueVisibilityRegistryTotals;
+  metricSnapshots: VisibilityMetricSnapshot[];
+  audienceSummary: VisibilityAudienceSummary;
   error?: string;
 };
 
@@ -45,10 +52,45 @@ const networkLabels: Record<KliqueVisibilityNetwork, string> = {
   other: "Autre",
 };
 
+const originLabels: Record<VisibilityOrigin, string> = {
+  legacy_unclassified: "Non classé",
+  klique_owned: "Publié par KLIQUE",
+  klique_distributed: "Contenu KLIQUE diffusé par un tiers",
+  external_coverage: "Couverture externe",
+};
+
+const editorialCategoryLabels: Record<Exclude<VisibilityEditorialCategory, "legacy_unclassified">, string> = {
+  athlete_welcome: "Bienvenue d’un athlète",
+  photo_gallery: "Galerie photo",
+  athlete_of_month: "Athlète du mois",
+  interview: "Interview",
+  portrait: "Portrait",
+  performance: "Performance",
+  media_day: "Media Day",
+  news: "Actualité",
+  partner_expert: "Partenaire / expert",
+  behind_the_scenes: "Coulisses",
+  event: "Événement",
+  other: "Autre",
+};
+
 const dateFormatter = new Intl.DateTimeFormat("fr-CH", { day: "2-digit", month: "2-digit", year: "numeric" });
+const dateTimeFormatter = new Intl.DateTimeFormat("fr-CH", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const integerFormatter = new Intl.NumberFormat("fr-CH", { maximumFractionDigits: 0 });
+const percentageFormatter = new Intl.NumberFormat("fr-CH", { maximumFractionDigits: 1 });
 const formatDate = (value: string) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
+};
+const formatDateTime = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 };
 
 // Styles alignes sur les ecrans Admin existants (cartes CRM, palette claire #fff/#ececec/#7a7a7a).
@@ -82,12 +124,27 @@ export default function KliqueVisibilityAdminPage() {
   const [publicationNetwork, setPublicationNetwork] = useState<KliqueVisibilityNetwork>("instagram");
   const [publicationDate, setPublicationDate] = useState("");
   const [publicationLink, setPublicationLink] = useState("");
+  const [publicationTitle, setPublicationTitle] = useState("");
+  const [publicationEditorialCategory, setPublicationEditorialCategory] = useState<Exclude<VisibilityEditorialCategory, "legacy_unclassified"> | "">("");
   const [publicationAthleteIds, setPublicationAthleteIds] = useState<string[]>([]);
   const [publicationAthleteQuery, setPublicationAthleteQuery] = useState("");
   const [publicationSaving, setPublicationSaving] = useState(false);
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [editingPublicationId, setEditingPublicationId] = useState<string | null>(null);
   const [deletingPublicationId, setDeletingPublicationId] = useState<string | null>(null);
+  const [metricPublicationId, setMetricPublicationId] = useState<string | null>(null);
+  const [metricObservedAt, setMetricObservedAt] = useState("");
+  const [metricViews, setMetricViews] = useState("");
+  const [metricReach, setMetricReach] = useState("");
+  const [metricImpressions, setMetricImpressions] = useState("");
+  const [metricSaving, setMetricSaving] = useState(false);
+  const [metricError, setMetricError] = useState<string | null>(null);
+  const [classificationPublicationId, setClassificationPublicationId] = useState<string | null>(null);
+  const [classificationOrigin, setClassificationOrigin] = useState<VisibilityOrigin>("legacy_unclassified");
+  const [classificationPublisherName, setClassificationPublisherName] = useState("");
+  const [classificationExternalPostId, setClassificationExternalPostId] = useState("");
+  const [classificationSaving, setClassificationSaving] = useState(false);
+  const [classificationError, setClassificationError] = useState<string | null>(null);
 
   const [historyScope, setHistoryScope] = useState<KliqueVisibilityHistoryScope>("global");
   const [historyAthleteId, setHistoryAthleteId] = useState("");
@@ -143,6 +200,49 @@ export default function KliqueVisibilityAdminPage() {
     return athletes.filter((athlete) => athlete.name.toLowerCase().includes(query));
   }, [athletes, publicationAthleteQuery]);
 
+  const latestMetrics = useMemo(() => {
+    const latestByPublication = new Map<string, VisibilityMetricSnapshot>();
+    for (const snapshot of overview?.metricSnapshots ?? []) {
+      const current = latestByPublication.get(snapshot.publicationId);
+      if (!current || new Date(snapshot.observedAt).getTime() > new Date(current.observedAt).getTime()) {
+        latestByPublication.set(snapshot.publicationId, snapshot);
+      }
+    }
+    return latestByPublication;
+  }, [overview?.metricSnapshots]);
+
+  const impactKlique = useMemo(() => {
+    const byOrigin = new Map(
+      (overview?.audienceSummary.byOrigin ?? []).map((row) => [row.origin, row]),
+    );
+    const kliqueOwnedViews = byOrigin.get("klique_owned")?.totalViews ?? 0;
+    const kliqueDistributedViews = byOrigin.get("klique_distributed")?.totalViews ?? 0;
+    const externalCoverageViews = byOrigin.get("external_coverage")?.totalViews ?? 0;
+    const kliqueAudienceViews = kliqueOwnedViews + kliqueDistributedViews;
+
+    const viewsByNetwork = (overview?.audienceSummary.byNetwork ?? []).flatMap((row) => {
+      const classifiedPublications = (overview?.publications ?? []).filter(
+        (publication) => publication.network === row.network && publication.origin !== "legacy_unclassified",
+      );
+      if (classifiedPublications.length === 0) return [];
+      return [{
+        network: row.network,
+        views: classifiedPublications.reduce(
+          (sum, publication) => sum + (latestMetrics.get(publication.id)?.views ?? 0),
+          0,
+        ),
+      }];
+    });
+
+    return {
+      kliqueAudienceViews,
+      totalRecordedVisibilityViews: kliqueAudienceViews + externalCoverageViews,
+      externalCoverageViews,
+      unclassifiedPublications: byOrigin.get("legacy_unclassified")?.totalContents ?? 0,
+      viewsByNetwork,
+    };
+  }, [latestMetrics, overview]);
+
   const trackingLocked = Boolean(
     overview?.trackingSettings
     && ((overview.publications.length > 0) || (overview.historyEntries.length > 0)),
@@ -184,6 +284,8 @@ export default function KliqueVisibilityAdminPage() {
     setEditingPublicationId(null);
     setPublicationDate("");
     setPublicationLink("");
+    setPublicationTitle("");
+    setPublicationEditorialCategory("");
     setPublicationAthleteIds([]);
     setPublicationError(null);
   };
@@ -194,6 +296,10 @@ export default function KliqueVisibilityAdminPage() {
     setPublicationNetwork(publication.network);
     setPublicationDate(publication.publishedAt);
     setPublicationLink(publication.link ?? "");
+    setPublicationTitle(publication.title ?? "");
+    setPublicationEditorialCategory(
+      publication.editorialCategory === "legacy_unclassified" ? "" : publication.editorialCategory,
+    );
     setPublicationAthleteIds(publication.athleteIds);
     setPublicationError(null);
   };
@@ -214,6 +320,8 @@ export default function KliqueVisibilityAdminPage() {
             network: publicationNetwork,
             publishedAt: publicationDate,
             link: publicationLink || null,
+            title: publicationTitle.trim(),
+            editorialCategory: publicationEditorialCategory,
             athleteIds: publicationAthleteIds,
           },
         }),
@@ -247,6 +355,101 @@ export default function KliqueVisibilityAdminPage() {
       setPublicationError(error instanceof Error ? error.message : "Impossible de supprimer la publication.");
     } finally {
       setDeletingPublicationId(null);
+    }
+  };
+
+  const resetMetricForm = () => {
+    setMetricPublicationId(null);
+    setMetricObservedAt("");
+    setMetricViews("");
+    setMetricReach("");
+    setMetricImpressions("");
+    setMetricError(null);
+  };
+
+  const startMetricForm = (publicationId: string) => {
+    setClassificationPublicationId(null);
+    setMetricPublicationId(publicationId);
+    setMetricObservedAt("");
+    setMetricViews("");
+    setMetricReach("");
+    setMetricImpressions("");
+    setMetricError(null);
+  };
+
+  const handleSubmitMetric = async (publicationId: string) => {
+    setMetricError(null);
+    const observedDate = new Date(metricObservedAt);
+    if (!metricObservedAt || Number.isNaN(observedDate.getTime())) {
+      setMetricError("Date du relevé invalide.");
+      return;
+    }
+    setMetricSaving(true);
+    try {
+      const response = await fetch("/api/admin/klique-visibility", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "metric_snapshot",
+          publicationId,
+          observedAt: observedDate.toISOString(),
+          views: Number(metricViews),
+          reach: metricReach.trim() ? Number(metricReach) : null,
+          impressions: metricImpressions.trim() ? Number(metricImpressions) : null,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) throw new Error(payload?.error || "Impossible d’enregistrer le relevé.");
+      resetMetricForm();
+      await refreshOverview();
+    } catch (error) {
+      setMetricError(error instanceof Error ? error.message : "Impossible d’enregistrer le relevé.");
+    } finally {
+      setMetricSaving(false);
+    }
+  };
+
+  const resetClassificationForm = () => {
+    setClassificationPublicationId(null);
+    setClassificationPublisherName("");
+    setClassificationExternalPostId("");
+    setClassificationError(null);
+  };
+
+  const startClassificationForm = (publication: KliqueVisibilityPublication) => {
+    setMetricPublicationId(null);
+    setClassificationPublicationId(publication.id);
+    setClassificationOrigin(publication.origin);
+    setClassificationPublisherName(publication.publisherName ?? "");
+    setClassificationExternalPostId(publication.externalPostId ?? "");
+    setClassificationError(null);
+  };
+
+  const handleSubmitClassification = async (publicationId: string) => {
+    setClassificationError(null);
+    setClassificationSaving(true);
+    try {
+      const response = await fetch("/api/admin/klique-visibility", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "classification",
+          publicationId,
+          origin: classificationOrigin,
+          publisherName: classificationPublisherName.trim() || null,
+          externalPostId: classificationExternalPostId.trim() || null,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) throw new Error(payload?.error || "Impossible d’enregistrer l’origine du contenu.");
+      resetClassificationForm();
+      await refreshOverview();
+    } catch (error) {
+      setClassificationError(error instanceof Error ? error.message : "Impossible d’enregistrer l’origine du contenu.");
+    } finally {
+      setClassificationSaving(false);
     }
   };
 
@@ -397,6 +600,31 @@ export default function KliqueVisibilityAdminPage() {
           <>
             <div style={fieldsGridStyle}>
               <label style={fieldWrapStyle}>
+                <span style={fieldLabelStyle}>Titre de la publication</span>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ex. Bienvenue chez KLIQUE – Armand Angha"
+                  style={controlStyle}
+                  value={publicationTitle}
+                  onChange={(event) => setPublicationTitle(event.target.value)}
+                />
+              </label>
+              <label style={fieldWrapStyle}>
+                <span style={fieldLabelStyle}>Catégorie éditoriale</span>
+                <select
+                  required
+                  style={controlStyle}
+                  value={publicationEditorialCategory}
+                  onChange={(event) => setPublicationEditorialCategory(event.target.value as Exclude<VisibilityEditorialCategory, "legacy_unclassified">)}
+                >
+                  <option value="" disabled>Sélectionner une catégorie</option>
+                  {Object.entries(editorialCategoryLabels).map(([category, label]) => (
+                    <option key={category} value={category}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label style={fieldWrapStyle}>
                 <span style={fieldLabelStyle}>Format</span>
                 <select style={controlStyle} value={publicationFormat} onChange={(event) => setPublicationFormat(event.target.value as KliqueVisibilityFormat)}>
                   {kliqueVisibilityFormats.map((format) => <option key={format} value={format}>{formatLabels[format]}</option>)}
@@ -452,8 +680,8 @@ export default function KliqueVisibilityAdminPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <button
                 type="button"
-                style={publicationSaving || !publicationDate || publicationAthleteIds.length === 0 ? disabledPrimaryButtonStyle : primaryButtonStyle}
-                disabled={publicationSaving || !publicationDate || publicationAthleteIds.length === 0}
+                style={publicationSaving || !publicationTitle.trim() || !publicationEditorialCategory || !publicationDate || publicationAthleteIds.length === 0 ? disabledPrimaryButtonStyle : primaryButtonStyle}
+                disabled={publicationSaving || !publicationTitle.trim() || !publicationEditorialCategory || !publicationDate || publicationAthleteIds.length === 0}
                 onClick={() => void handleSubmitPublication()}
               >
                 {publicationSaving ? "Enregistrement..." : editingPublicationId ? "Enregistrer les modifications" : "Ajouter la publication"}
@@ -572,34 +800,201 @@ export default function KliqueVisibilityAdminPage() {
         ) : null}
       </section>
 
+      <section className="crm-actions-bar">
+        <h2 style={sectionTitleStyle}>Audience</h2>
+        <div className="crm-person-kpi-grid">
+          <div className="crm-person-kpi-item">
+            <small>Vues cumulées</small>
+            <strong>{integerFormatter.format(overview.audienceSummary.totalViews)}</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Moyenne par contenu renseigné</small>
+            <strong>{integerFormatter.format(overview.audienceSummary.averageViewsPerMeasuredContent)}</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Contenus mesurés / détaillés</small>
+            <strong>{overview.audienceSummary.contentsWithSnapshot} / {overview.audienceSummary.totalDetailedContents}</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Suivi des audiences</small>
+            <strong>
+              {overview.audienceSummary.contentsWithSnapshot} publication{overview.audienceSummary.contentsWithSnapshot === 1 ? "" : "s"} sur {overview.audienceSummary.totalDetailedContents} renseignée{overview.audienceSummary.contentsWithSnapshot === 1 ? "" : "s"} — {percentageFormatter.format(overview.audienceSummary.coverageRate)} %
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="crm-actions-bar">
+        <h2 style={sectionTitleStyle}>Impact KLIQUE</h2>
+        <p style={sectionHintStyle}>
+          Les chiffres commerciaux excluent les publications non classées. Les audiences concernent uniquement les contenus suivis depuis le début du suivi détaillé.
+        </p>
+        <div className="crm-person-kpi-grid">
+          <div className="crm-person-kpi-item">
+            <small>Audience des contenus KLIQUE</small>
+            <strong>{integerFormatter.format(impactKlique.kliqueAudienceViews)} vues</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Visibilité totale recensée</small>
+            <strong>{integerFormatter.format(impactKlique.totalRecordedVisibilityViews)} vues</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Audience de la couverture externe</small>
+            <strong>{integerFormatter.format(impactKlique.externalCoverageViews)} vues</strong>
+          </div>
+          <div className="crm-person-kpi-item">
+            <small>Publications non classées</small>
+            <strong>{impactKlique.unclassifiedPublications}</strong>
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 8 }}>
+          <h3 style={{ margin: 0, color: "#2f2f2f", fontSize: "0.95rem" }}>Vues par plateforme</h3>
+          {impactKlique.viewsByNetwork.length === 0 ? (
+            <p style={sectionHintStyle}>Aucune publication classée avec audience pour le moment.</p>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {impactKlique.viewsByNetwork.map((row) => (
+                <span key={row.network} style={chipStyle}>
+                  {networkLabels[row.network]} : {integerFormatter.format(row.views)} vues
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
       <section className="crm-list-shell">
         <div style={{ padding: "16px 18px 4px" }}><h2 style={sectionTitleStyle}>Publications suivies</h2></div>
         {overview.publications.length === 0 ? (
           <p style={{ margin: "0 18px 16px", color: "#7a7a7a", fontSize: "0.88rem" }}>Aucune publication enregistrée.</p>
         ) : (
           <ul style={{ margin: 0, padding: "8px", listStyle: "none", display: "grid", gap: "8px" }}>
-            {overview.publications.map((publication) => (
-              <li key={publication.id} style={listRowStyle}>
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: "#1f1f1f", fontWeight: 600, fontSize: "0.9rem" }}>{formatDate(publication.publishedAt)}</span>
-                  <span style={chipStyle}>{formatLabels[publication.format]}</span>
-                  <span style={chipStyle}>{networkLabels[publication.network]}</span>
-                  <span style={{ color: "#7a7a7a", fontSize: "0.85rem" }}>{publication.athleteIds.map(resolveAthleteLabel).join(", ")}</span>
-                  {publication.link ? <a href={publication.link} target="_blank" rel="noreferrer" style={{ color: "#8b6500", fontSize: "0.85rem" }}>Voir le lien</a> : null}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" style={secondaryButtonStyle} onClick={() => startEditPublication(publication)}>Modifier</button>
-                  <button
-                    type="button"
-                    style={deletingPublicationId === publication.id ? disabledSecondaryButtonStyle : dangerButtonStyle}
-                    disabled={deletingPublicationId === publication.id}
-                    onClick={() => void handleDeletePublication(publication.id)}
-                  >
-                    {deletingPublicationId === publication.id ? "Suppression..." : "Supprimer"}
-                  </button>
-                </div>
-              </li>
-            ))}
+            {overview.publications.map((publication) => {
+              const latestMetric = latestMetrics.get(publication.id);
+              const metricFormOpen = metricPublicationId === publication.id;
+              const classificationFormOpen = classificationPublicationId === publication.id;
+              return (
+                <li key={publication.id} style={listRowStyle} data-publication-id={publication.id}>
+                  <div style={{ display: "grid", gap: 7 }}>
+                    <strong style={{ color: "#1f1f1f", fontSize: "0.95rem" }}>{publication.title ?? "Sans intitulé"}</strong>
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                      <span style={{ color: "#1f1f1f", fontWeight: 600, fontSize: "0.9rem" }}>{formatDate(publication.publishedAt)}</span>
+                      <span style={chipStyle}>{formatLabels[publication.format]}</span>
+                      <span style={chipStyle}>{networkLabels[publication.network]}</span>
+                      <span style={{ color: "#7a7a7a", fontSize: "0.85rem" }}>{publication.athleteIds.map(resolveAthleteLabel).join(", ")}</span>
+                      {publication.link ? <a href={publication.link} target="_blank" rel="noreferrer" style={{ color: "#8b6500", fontSize: "0.85rem" }}>Voir le lien</a> : null}
+                    </div>
+                    <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>
+                      Catégorie éditoriale : <strong style={{ color: "#2f2f2f" }}>
+                        {publication.editorialCategory === "legacy_unclassified"
+                          ? "À classifier"
+                          : editorialCategoryLabels[publication.editorialCategory]}
+                      </strong>
+                    </span>
+                    <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>
+                      {publication.audienceTracking.status === "in_progress"
+                        ? `Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
+                        : "Suivi bouclé"}
+                    </span>
+                    {latestMetric ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", color: "#666666", fontSize: "0.82rem" }}>
+                        <strong style={{ color: "#2f2f2f" }}>Dernier relevé : {formatDateTime(latestMetric.observedAt)}</strong>
+                        <span>{integerFormatter.format(latestMetric.views)} vues</span>
+                        <span>Portée : {latestMetric.reach === null ? "—" : integerFormatter.format(latestMetric.reach)}</span>
+                        <span>Impressions : {latestMetric.impressions === null ? "—" : integerFormatter.format(latestMetric.impressions)}</span>
+                      </div>
+                    ) : (
+                      <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>Aucun relevé d’audience</span>
+                    )}
+                    <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>
+                      Origine du contenu : <strong style={{ color: "#2f2f2f" }}>{originLabels[publication.origin]}</strong>
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <button type="button" style={secondaryButtonStyle} onClick={() => startMetricForm(publication.id)}>Ajouter un relevé</button>
+                    <button type="button" style={secondaryButtonStyle} onClick={() => startClassificationForm(publication)}>Modifier l’origine</button>
+                    <button type="button" style={secondaryButtonStyle} onClick={() => startEditPublication(publication)}>Modifier</button>
+                    <button
+                      type="button"
+                      style={deletingPublicationId === publication.id ? disabledSecondaryButtonStyle : dangerButtonStyle}
+                      disabled={deletingPublicationId === publication.id}
+                      onClick={() => void handleDeletePublication(publication.id)}
+                    >
+                      {deletingPublicationId === publication.id ? "Suppression..." : "Supprimer"}
+                    </button>
+                  </div>
+                  {metricFormOpen ? (
+                    <div style={{ flexBasis: "100%", borderTop: "1px solid #ececec", paddingTop: 12, display: "grid", gap: 12 }}>
+                      <div style={fieldsGridStyle}>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Date du relevé</span>
+                          <input type="datetime-local" style={controlStyle} value={metricObservedAt} onChange={(event) => setMetricObservedAt(event.target.value)} />
+                        </label>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Vues</span>
+                          <input type="number" min={0} step={1} style={controlStyle} value={metricViews} onChange={(event) => setMetricViews(event.target.value)} />
+                        </label>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Portée (facultative)</span>
+                          <input type="number" min={0} step={1} style={controlStyle} value={metricReach} onChange={(event) => setMetricReach(event.target.value)} />
+                        </label>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Impressions (facultatives)</span>
+                          <input type="number" min={0} step={1} style={controlStyle} value={metricImpressions} onChange={(event) => setMetricImpressions(event.target.value)} />
+                        </label>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          style={metricSaving || !metricObservedAt || !metricViews ? disabledPrimaryButtonStyle : primaryButtonStyle}
+                          disabled={metricSaving || !metricObservedAt || !metricViews}
+                          onClick={() => void handleSubmitMetric(publication.id)}
+                        >
+                          {metricSaving ? "Enregistrement..." : "Enregistrer le relevé"}
+                        </button>
+                        <button type="button" style={secondaryButtonStyle} disabled={metricSaving} onClick={resetMetricForm}>Annuler</button>
+                      </div>
+                      {metricError ? <p style={errorTextStyle}>{metricError}</p> : null}
+                    </div>
+                  ) : null}
+                  {classificationFormOpen ? (
+                    <div style={{ flexBasis: "100%", borderTop: "1px solid #ececec", paddingTop: 12, display: "grid", gap: 12 }}>
+                      <h3 style={{ margin: 0, color: "#2f2f2f", fontSize: "0.95rem" }}>Origine du contenu</h3>
+                      <div style={fieldsGridStyle}>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Origine</span>
+                          <select style={controlStyle} value={classificationOrigin} onChange={(event) => setClassificationOrigin(event.target.value as VisibilityOrigin)}>
+                            {Object.entries(originLabels).map(([origin, label]) => (
+                              <option key={origin} value={origin}>{label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Nom du diffuseur (facultatif)</span>
+                          <input type="text" style={controlStyle} value={classificationPublisherName} onChange={(event) => setClassificationPublisherName(event.target.value)} />
+                        </label>
+                        <label style={fieldWrapStyle}>
+                          <span style={fieldLabelStyle}>Identifiant externe (facultatif)</span>
+                          <input type="text" style={controlStyle} value={classificationExternalPostId} onChange={(event) => setClassificationExternalPostId(event.target.value)} />
+                        </label>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          style={classificationSaving ? disabledPrimaryButtonStyle : primaryButtonStyle}
+                          disabled={classificationSaving}
+                          onClick={() => void handleSubmitClassification(publication.id)}
+                        >
+                          {classificationSaving ? "Enregistrement..." : "Enregistrer l’origine"}
+                        </button>
+                        <button type="button" style={secondaryButtonStyle} disabled={classificationSaving} onClick={resetClassificationForm}>Annuler</button>
+                      </div>
+                      {classificationError ? <p style={errorTextStyle}>{classificationError}</p> : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

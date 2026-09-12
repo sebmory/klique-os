@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { KliqueVisibilityFormat, KliqueVisibilityFormatBreakdownRow, KliqueVisibilityNetwork } from "@/lib/klique-visibility";
+import type {
+  KliqueVisibilityFormat,
+  KliqueVisibilityFormatBreakdownRow,
+  KliqueVisibilityNetwork,
+  VisibilityAudienceSummary,
+  VisibilityAudienceTrackingState,
+  VisibilityEditorialCategory,
+} from "@/lib/klique-visibility";
 
 const GOLD = "#e8b84b";
 const BORDER = "rgba(255, 255, 255, 0.09)";
@@ -13,12 +20,25 @@ type OwnPublication = {
   network: KliqueVisibilityNetwork;
   publishedAt: string;
   link: string | null;
+  title: string | null;
+  editorialCategory: VisibilityEditorialCategory;
+  audienceTracking: VisibilityAudienceTrackingState;
+};
+
+type LatestMetric = {
+  publicationId: string;
+  observedAt: string;
+  views: number;
+  reach: number | null;
+  impressions: number | null;
 };
 
 type VisibilityPayload = {
   publications: OwnPublication[];
   totals: { totalTracked: number; totalHistorical: number; combinedTotal: number };
   formatBreakdown: KliqueVisibilityFormatBreakdownRow[];
+  audienceSummary: VisibilityAudienceSummary;
+  latestMetrics: LatestMetric[];
   error?: string;
 };
 
@@ -43,10 +63,38 @@ const networkLabels: Record<KliqueVisibilityNetwork, string> = {
   other: "Autre",
 };
 
+const editorialCategoryLabels: Record<Exclude<VisibilityEditorialCategory, "legacy_unclassified">, string> = {
+  athlete_welcome: "Bienvenue d’un athlète",
+  photo_gallery: "Galerie photo",
+  athlete_of_month: "Athlète du mois",
+  interview: "Interview",
+  portrait: "Portrait",
+  performance: "Performance",
+  media_day: "Media Day",
+  news: "Actualité",
+  partner_expert: "Partenaire / expert",
+  behind_the_scenes: "Coulisses",
+  event: "Événement",
+  other: "Autre",
+};
+
 const dateFormatter = new Intl.DateTimeFormat("fr-CH", { day: "2-digit", month: "long", year: "numeric" });
+const dateTimeFormatter = new Intl.DateTimeFormat("fr-CH", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const integerFormatter = new Intl.NumberFormat("fr-CH", { maximumFractionDigits: 0 });
+const percentageFormatter = new Intl.NumberFormat("fr-CH", { maximumFractionDigits: 1 });
 const formatDate = (value: string) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
+};
+const formatDateTime = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 };
 
 export default function AthleteVisibilityPage() {
@@ -73,6 +121,9 @@ export default function AthleteVisibilityPage() {
   }, []);
 
   const visibleFormats = payload?.formatBreakdown.filter((row) => row.combined > 0) ?? [];
+  const latestMetricsByPublication = new Map(
+    (payload?.latestMetrics ?? []).map((metric) => [metric.publicationId, metric]),
+  );
 
   return (
     <section style={{ padding: "1.5rem", maxWidth: "1180px", margin: "0 auto", display: "grid", gap: "1.25rem", background: "#0a0b0f", borderRadius: "24px" }}>
@@ -84,7 +135,7 @@ export default function AthleteVisibilityPage() {
         </p>
         <aside style={{ marginTop: "0.2rem", padding: "0.85rem 0.95rem", border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.035)" }}>
           <p style={{ margin: 0, color: "#d1d5db", fontSize: "0.86rem", lineHeight: 1.55 }}>
-            Ces chiffres comptent les contenus partagés par KLIQUE à votre sujet, pas les vues ni la portée sur les réseaux sociaux.
+            Les compteurs recensent les contenus partagés à votre sujet. Les chiffres d’audience concernent uniquement les contenus pour lesquels un relevé a déjà été enregistré.
           </p>
         </aside>
       </header>
@@ -126,26 +177,83 @@ export default function AthleteVisibilityPage() {
             ) : null}
           </section>
 
+          <section style={{ borderTop: `1px solid ${BORDER}`, paddingTop: "1.25rem", display: "grid", gap: "0.7rem" }}>
+            <h2 style={{ margin: 0, color: "#f8fafc", fontSize: "1.1rem" }}>Audience mesurée</h2>
+            <div style={{ display: "grid", gap: "0.7rem", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.9rem" }}>
+                <small style={{ color: MUTED, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Vues cumulées</small>
+                <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>{integerFormatter.format(payload.audienceSummary.totalViews)}</strong>
+              </div>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.9rem" }}>
+                <small style={{ color: MUTED, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Moyenne par contenu mesuré</small>
+                <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>{integerFormatter.format(payload.audienceSummary.averageViewsPerMeasuredContent)}</strong>
+              </div>
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.9rem" }}>
+                <small style={{ color: MUTED, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Contenus mesurés</small>
+                <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>{payload.audienceSummary.contentsWithSnapshot}</strong>
+              </div>
+              <div style={{ border: `1px solid rgba(232, 184, 75, 0.35)`, borderRadius: "8px", background: "rgba(232, 184, 75, 0.08)", padding: "0.9rem" }}>
+                <small style={{ color: "#fde68a", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Suivi des audiences</small>
+                <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>
+                  {payload.audienceSummary.contentsWithSnapshot} publication{payload.audienceSummary.contentsWithSnapshot === 1 ? "" : "s"} sur {payload.audienceSummary.totalDetailedContents} renseignée{payload.audienceSummary.contentsWithSnapshot === 1 ? "" : "s"} — {percentageFormatter.format(payload.audienceSummary.coverageRate)} %
+                </strong>
+              </div>
+            </div>
+          </section>
+
           <section aria-labelledby="my-publications-title" style={{ borderTop: `1px solid ${BORDER}`, paddingTop: "1.25rem", display: "grid", gap: "0.7rem" }}>
             <h2 id="my-publications-title" style={{ margin: 0, color: "#f8fafc", fontSize: "1.1rem" }}>Publications suivies</h2>
+            <p style={{ margin: 0, color: MUTED, fontSize: "0.84rem", maxWidth: "76ch" }}>
+              Les audiences sont généralement suivies pendant les 30 premiers jours suivant la publication. Elles peuvent être actualisées ultérieurement lorsqu’un contenu continue de progresser.
+            </p>
             {payload.publications.length === 0 ? (
               <p style={{ margin: 0, color: MUTED }}>Aucune publication suivie pour le moment.</p>
             ) : (
               <div style={{ display: "grid", gap: "0.55rem" }}>
-                {payload.publications.map((publication) => (
-                  <article key={publication.id} style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.75rem 0.9rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem" }}>
-                      <span style={{ color: "#f8fafc", fontWeight: 700, fontSize: "0.9rem" }}>{formatDate(publication.publishedAt)}</span>
-                      <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{networkLabels[publication.network]}</span>
-                      <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{formatLabels[publication.format]}</span>
-                    </div>
-                    {publication.link ? (
-                      <a href={publication.link} target="_blank" rel="noreferrer" style={{ color: GOLD, fontSize: "0.85rem", fontWeight: 700 }}>Voir la publication</a>
-                    ) : (
-                      <span style={{ color: MUTED, fontSize: "0.82rem" }}>Aucun lien disponible</span>
-                    )}
-                  </article>
-                ))}
+                {payload.publications.map((publication) => {
+                  const latestMetric = latestMetricsByPublication.get(publication.id);
+                  const editorialCategoryLabel = publication.editorialCategory === "legacy_unclassified"
+                    ? null
+                    : editorialCategoryLabels[publication.editorialCategory];
+                  const isUnclassified = !publication.title?.trim() || !editorialCategoryLabel;
+                  return (
+                    <article key={publication.id} data-publication-id={publication.id} style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.75rem 0.9rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.8rem", justifyContent: "space-between" }}>
+                      <div style={{ display: "grid", gap: "0.55rem" }}>
+                        {isUnclassified ? (
+                          <strong style={{ color: "#f8fafc", fontSize: "0.95rem" }}>Publication non classée</strong>
+                        ) : (
+                          <div style={{ display: "grid", gap: "0.2rem" }}>
+                            <strong style={{ color: "#f8fafc", fontSize: "0.95rem" }}>{publication.title}</strong>
+                            <span style={{ color: MUTED, fontSize: "0.8rem" }}>{editorialCategoryLabel}</span>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.6rem" }}>
+                          <span style={{ color: "#f8fafc", fontWeight: 700, fontSize: "0.9rem" }}>{formatDate(publication.publishedAt)}</span>
+                          <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{networkLabels[publication.network]}</span>
+                          <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{formatLabels[publication.format]}</span>
+                        </div>
+                        <span style={{ color: MUTED, fontSize: "0.82rem" }}>
+                          {publication.audienceTracking.status === "in_progress"
+                            ? `Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
+                            : "Suivi bouclé"}
+                        </span>
+                        {latestMetric ? (
+                          <span style={{ color: "#d1d5db", fontSize: "0.84rem" }}>
+                            <strong style={{ color: "#f8fafc" }}>{integerFormatter.format(latestMetric.views)} vues</strong>
+                            {` · Relevé du ${formatDateTime(latestMetric.observedAt)}`}
+                          </span>
+                        ) : (
+                          <span style={{ color: MUTED, fontSize: "0.82rem" }}>Audience pas encore renseignée</span>
+                        )}
+                      </div>
+                      {publication.link ? (
+                        <a href={publication.link} target="_blank" rel="noreferrer" style={{ color: GOLD, fontSize: "0.85rem", fontWeight: 700 }}>Voir la publication</a>
+                      ) : (
+                        <span style={{ color: MUTED, fontSize: "0.82rem" }}>Aucun lien disponible</span>
+                      )}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

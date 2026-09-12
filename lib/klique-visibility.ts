@@ -22,6 +22,61 @@ export type KliqueVisibilityNetwork =
 
 export type KliqueVisibilityHistoryScope = "global" | "athlete";
 
+export type VisibilityOrigin =
+  | "legacy_unclassified"
+  | "klique_owned"
+  | "klique_distributed"
+  | "external_coverage";
+
+export type VisibilityEditorialCategory =
+  | "legacy_unclassified"
+  | "athlete_welcome"
+  | "photo_gallery"
+  | "athlete_of_month"
+  | "interview"
+  | "portrait"
+  | "performance"
+  | "media_day"
+  | "news"
+  | "partner_expert"
+  | "behind_the_scenes"
+  | "event"
+  | "other";
+
+export type VisibilityMetricSource = "manual" | "import" | "api";
+
+export type VisibilityAudienceTrackingState = {
+  status: "in_progress" | "closed";
+  theoreticalClosingDate: string;
+};
+
+export type VisibilityMetricSnapshot = {
+  id: string;
+  workspaceId: string;
+  publicationId: string;
+  observedAt: string;
+  views: number;
+  reach: number | null;
+  impressions: number | null;
+  source: VisibilityMetricSource;
+  createdByClerkUserId: string;
+  createdAt: string;
+};
+
+export type VisibilityPublicationClassificationInput = {
+  origin: VisibilityOrigin;
+  publisherName?: string | null;
+  externalPostId?: string | null;
+};
+
+export type VisibilityMetricSnapshotInput = {
+  observedAt: string;
+  views: number;
+  reach?: number | null;
+  impressions?: number | null;
+  source: VisibilityMetricSource;
+};
+
 export const kliqueVisibilityFormats: KliqueVisibilityFormat[] = [
   "photo", "video", "carousel", "story", "reel", "article", "live", "other",
 ];
@@ -29,6 +84,17 @@ export const kliqueVisibilityFormats: KliqueVisibilityFormat[] = [
 export const kliqueVisibilityNetworks: KliqueVisibilityNetwork[] = [
   "instagram", "tiktok", "facebook", "youtube", "linkedin", "website", "other",
 ];
+
+export const visibilityOrigins: VisibilityOrigin[] = [
+  "legacy_unclassified", "klique_owned", "klique_distributed", "external_coverage",
+];
+
+export const visibilityEditorialCategories: VisibilityEditorialCategory[] = [
+  "legacy_unclassified", "athlete_welcome", "photo_gallery", "athlete_of_month", "interview", "portrait",
+  "performance", "media_day", "news", "partner_expert", "behind_the_scenes", "event", "other",
+];
+
+export const visibilityMetricSources: VisibilityMetricSource[] = ["manual", "import", "api"];
 
 // Publication reelle: format, reseau, date, lien facultatif, un ou plusieurs athletes.
 export type KliqueVisibilityPublication = {
@@ -38,6 +104,11 @@ export type KliqueVisibilityPublication = {
   network: KliqueVisibilityNetwork;
   publishedAt: string;
   link: string | null;
+  title: string | null;
+  editorialCategory: VisibilityEditorialCategory;
+  origin: VisibilityOrigin;
+  publisherName: string | null;
+  externalPostId: string | null;
   athleteIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -48,6 +119,8 @@ export type KliqueVisibilityPublicationInput = {
   network: KliqueVisibilityNetwork;
   publishedAt: string;
   link?: string | null;
+  title: string;
+  editorialCategory: VisibilityEditorialCategory;
   athleteIds: string[];
 };
 
@@ -90,6 +163,17 @@ export type KliqueVisibilityErrorCode =
   | "invalid_network"
   | "invalid_date"
   | "invalid_link"
+  | "invalid_title"
+  | "invalid_editorial_category"
+  | "invalid_origin"
+  | "invalid_publisher_name"
+  | "invalid_external_post_id"
+  | "invalid_views"
+  | "invalid_reach"
+  | "invalid_impressions"
+  | "invalid_observed_at"
+  | "invalid_metric_source"
+  | "invalid_created_by"
   | "missing_athletes"
   | "invalid_period"
   | "invalid_scope_athlete"
@@ -130,7 +214,7 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
     throw new KliqueVisibilityError("invalid_input", "Données invalides.");
   }
   const input = value as Record<string, unknown>;
-  const allowedKeys = new Set(["format", "network", "publishedAt", "link", "athleteIds"]);
+  const allowedKeys = new Set(["format", "network", "publishedAt", "link", "title", "editorialCategory", "athleteIds"]);
   if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
     throw new KliqueVisibilityError("invalid_input", "Données invalides.");
   }
@@ -157,6 +241,16 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
       link = normalizedLink;
     }
   }
+  if (typeof input.title !== "string" || !input.title.trim()) {
+    throw new KliqueVisibilityError("invalid_title", "Titre de publication invalide.");
+  }
+  const title = input.title.trim();
+  if (
+    !visibilityEditorialCategories.includes(input.editorialCategory as VisibilityEditorialCategory)
+    || input.editorialCategory === "legacy_unclassified"
+  ) {
+    throw new KliqueVisibilityError("invalid_editorial_category", "Catégorie éditoriale invalide.");
+  }
   if (!Array.isArray(input.athleteIds) || input.athleteIds.length === 0) {
     throw new KliqueVisibilityError("missing_athletes", "Au moins un athlète est requis.");
   }
@@ -165,7 +259,98 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
     throw new KliqueVisibilityError("missing_athletes", "Au moins un athlète est requis.");
   }
 
-  return { format: input.format as KliqueVisibilityFormat, network: input.network as KliqueVisibilityNetwork, publishedAt, link, athleteIds };
+  return {
+    format: input.format as KliqueVisibilityFormat,
+    network: input.network as KliqueVisibilityNetwork,
+    publishedAt,
+    link,
+    title,
+    editorialCategory: input.editorialCategory as VisibilityEditorialCategory,
+    athleteIds,
+  };
+};
+
+const parseOptionalClassificationText = (
+  value: unknown,
+  code: "invalid_publisher_name" | "invalid_external_post_id",
+  message: string,
+): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw new KliqueVisibilityError(code, message);
+  const normalized = value.trim();
+  return normalized || null;
+};
+
+export const parseVisibilityPublicationClassificationInput = (
+  value: unknown,
+): VisibilityPublicationClassificationInput => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new KliqueVisibilityError("invalid_input", "Données invalides.");
+  }
+  const input = value as Record<string, unknown>;
+  const allowedKeys = new Set(["origin", "publisherName", "externalPostId"]);
+  if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
+    throw new KliqueVisibilityError("invalid_input", "Données invalides.");
+  }
+  if (!visibilityOrigins.includes(input.origin as VisibilityOrigin)) {
+    throw new KliqueVisibilityError("invalid_origin", "Origine de publication invalide.");
+  }
+
+  return {
+    origin: input.origin as VisibilityOrigin,
+    publisherName: parseOptionalClassificationText(
+      input.publisherName,
+      "invalid_publisher_name",
+      "Nom d’éditeur invalide.",
+    ),
+    externalPostId: parseOptionalClassificationText(
+      input.externalPostId,
+      "invalid_external_post_id",
+      "Identifiant de publication externe invalide.",
+    ),
+  };
+};
+
+const parseMetricCount = (
+  value: unknown,
+  field: "views" | "reach" | "impressions",
+  required: boolean,
+): number | null => {
+  if (value === undefined || value === null) {
+    if (!required) return null;
+    throw new KliqueVisibilityError(`invalid_${field}`, `${field} invalide.`);
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new KliqueVisibilityError(`invalid_${field}`, `${field} invalide.`);
+  }
+  return value;
+};
+
+export const parseVisibilityMetricSnapshotInput = (value: unknown): VisibilityMetricSnapshotInput => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new KliqueVisibilityError("invalid_input", "Données invalides.");
+  }
+  const input = value as Record<string, unknown>;
+  const allowedKeys = new Set(["observedAt", "views", "reach", "impressions", "source"]);
+  if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
+    throw new KliqueVisibilityError("invalid_input", "Données invalides.");
+  }
+  const observedAt = normalize(input.observedAt);
+  const observedDate = new Date(observedAt);
+  if (!observedAt || Number.isNaN(observedDate.getTime())) {
+    throw new KliqueVisibilityError("invalid_observed_at", "Horodatage du relevé invalide.");
+  }
+  if (!visibilityMetricSources.includes(input.source as VisibilityMetricSource)) {
+    throw new KliqueVisibilityError("invalid_metric_source", "Source du relevé invalide.");
+  }
+
+  return {
+    observedAt: observedDate.toISOString(),
+    views: parseMetricCount(input.views, "views", true)!,
+    reach: parseMetricCount(input.reach, "reach", false),
+    impressions: parseMetricCount(input.impressions, "impressions", false),
+    source: input.source as VisibilityMetricSource,
+  };
 };
 
 export const parseKliqueVisibilityHistoryEntryInput = (value: unknown): KliqueVisibilityHistoryEntryInput => {
@@ -235,6 +420,143 @@ export const calculateKliqueVisibilityPublicationTotals = (
     }
   }
   return { totalPublications: publications.length, perAthlete };
+};
+
+export type VisibilityAudienceBreakdown = {
+  totalContents: number;
+  contentsWithSnapshot: number;
+  coverageRate: number;
+  totalViews: number;
+  averageViewsPerMeasuredContent: number;
+  totalReach: number | null;
+  totalImpressions: number | null;
+};
+
+export type VisibilityAudienceSummary = {
+  totalDetailedContents: number;
+  contentsWithSnapshot: number;
+  coverageRate: number;
+  totalViews: number;
+  averageViewsPerMeasuredContent: number;
+  totalReach: number | null;
+  totalImpressions: number | null;
+  mostViewedContent: { publicationId: string; views: number } | null;
+  byNetwork: Array<VisibilityAudienceBreakdown & { network: KliqueVisibilityNetwork }>;
+  byOrigin: Array<VisibilityAudienceBreakdown & { origin: VisibilityOrigin }>;
+};
+
+type VisibilityAudienceAccumulator = {
+  totalContents: number;
+  contentsWithSnapshot: number;
+  totalViews: number;
+  totalReach: number;
+  hasReach: boolean;
+  totalImpressions: number;
+  hasImpressions: boolean;
+};
+
+const createVisibilityAudienceAccumulator = (): VisibilityAudienceAccumulator => ({
+  totalContents: 0,
+  contentsWithSnapshot: 0,
+  totalViews: 0,
+  totalReach: 0,
+  hasReach: false,
+  totalImpressions: 0,
+  hasImpressions: false,
+});
+
+const addVisibilityAudience = (
+  accumulator: VisibilityAudienceAccumulator,
+  snapshot: Pick<VisibilityMetricSnapshot, "views" | "reach" | "impressions"> | undefined,
+) => {
+  accumulator.totalContents += 1;
+  if (!snapshot) return;
+  accumulator.contentsWithSnapshot += 1;
+  accumulator.totalViews += snapshot.views;
+  if (snapshot.reach !== null) {
+    accumulator.totalReach += snapshot.reach;
+    accumulator.hasReach = true;
+  }
+  if (snapshot.impressions !== null) {
+    accumulator.totalImpressions += snapshot.impressions;
+    accumulator.hasImpressions = true;
+  }
+};
+
+const finalizeVisibilityAudience = (
+  accumulator: VisibilityAudienceAccumulator,
+): VisibilityAudienceBreakdown => ({
+  totalContents: accumulator.totalContents,
+  contentsWithSnapshot: accumulator.contentsWithSnapshot,
+  coverageRate: accumulator.totalContents === 0
+    ? 0
+    : (accumulator.contentsWithSnapshot / accumulator.totalContents) * 100,
+  totalViews: accumulator.totalViews,
+  averageViewsPerMeasuredContent: accumulator.contentsWithSnapshot === 0
+    ? 0
+    : accumulator.totalViews / accumulator.contentsWithSnapshot,
+  totalReach: accumulator.hasReach ? accumulator.totalReach : null,
+  totalImpressions: accumulator.hasImpressions ? accumulator.totalImpressions : null,
+});
+
+export const calculateVisibilityAudienceSummary = (
+  publications: Array<Pick<KliqueVisibilityPublication, "id" | "network" | "origin">>,
+  snapshots: Array<Pick<VisibilityMetricSnapshot, "publicationId" | "observedAt" | "views" | "reach" | "impressions">>,
+): VisibilityAudienceSummary => {
+  const publicationsById = new Map(publications.map((publication) => [publication.id, publication]));
+  const latestSnapshots = new Map<string, typeof snapshots[number]>();
+
+  for (const snapshot of snapshots) {
+    if (!publicationsById.has(snapshot.publicationId)) continue;
+    const observedAt = new Date(snapshot.observedAt).getTime();
+    if (Number.isNaN(observedAt)) continue;
+    const current = latestSnapshots.get(snapshot.publicationId);
+    if (!current || observedAt > new Date(current.observedAt).getTime()) {
+      latestSnapshots.set(snapshot.publicationId, snapshot);
+    }
+  }
+
+  const global = createVisibilityAudienceAccumulator();
+  const byNetwork = new Map<KliqueVisibilityNetwork, VisibilityAudienceAccumulator>();
+  const byOrigin = new Map<VisibilityOrigin, VisibilityAudienceAccumulator>();
+  let mostViewedContent: VisibilityAudienceSummary["mostViewedContent"] = null;
+
+  for (const publication of publicationsById.values()) {
+    const snapshot = latestSnapshots.get(publication.id);
+    addVisibilityAudience(global, snapshot);
+
+    const networkAccumulator = byNetwork.get(publication.network) ?? createVisibilityAudienceAccumulator();
+    addVisibilityAudience(networkAccumulator, snapshot);
+    byNetwork.set(publication.network, networkAccumulator);
+
+    const originAccumulator = byOrigin.get(publication.origin) ?? createVisibilityAudienceAccumulator();
+    addVisibilityAudience(originAccumulator, snapshot);
+    byOrigin.set(publication.origin, originAccumulator);
+
+    if (snapshot && (!mostViewedContent || snapshot.views > mostViewedContent.views)) {
+      mostViewedContent = { publicationId: publication.id, views: snapshot.views };
+    }
+  }
+
+  const totals = finalizeVisibilityAudience(global);
+  return {
+    totalDetailedContents: totals.totalContents,
+    contentsWithSnapshot: totals.contentsWithSnapshot,
+    coverageRate: totals.coverageRate,
+    totalViews: totals.totalViews,
+    averageViewsPerMeasuredContent: totals.averageViewsPerMeasuredContent,
+    totalReach: totals.totalReach,
+    totalImpressions: totals.totalImpressions,
+    mostViewedContent,
+    byNetwork: Array.from(byNetwork, ([network, accumulator]) => ({
+      network,
+      ...finalizeVisibilityAudience(accumulator),
+    })),
+    byOrigin: Array.from(byOrigin, ([origin, accumulator]) => ({
+      origin,
+      ...finalizeVisibilityAudience(accumulator),
+    })),
+  };
 };
 
 export type KliqueVisibilityHistoryTotals = {
@@ -323,6 +645,29 @@ export const isKliqueVisibilityPublicationWithinTracking = (
   trackingStartDate: string,
 ): boolean => new Date(publishedAt).getTime() >= new Date(trackingStartDate).getTime();
 
+const toUtcCivilDate = (value: string | Date): Date => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new KliqueVisibilityError("invalid_date", "Date invalide.");
+  }
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+};
+
+export const calculateVisibilityAudienceTrackingState = (
+  publishedAt: string,
+  currentDate: string | Date,
+): VisibilityAudienceTrackingState => {
+  const publicationDate = toUtcCivilDate(publishedAt);
+  const closingDate = new Date(publicationDate.getTime());
+  closingDate.setUTCDate(closingDate.getUTCDate() + 30);
+  const currentCivilDate = toUtcCivilDate(currentDate);
+
+  return {
+    status: currentCivilDate.getTime() >= closingDate.getTime() ? "closed" : "in_progress",
+    theoreticalClosingDate: closingDate.toISOString().slice(0, 10),
+  };
+};
+
 export const isKliqueVisibilityHistoryPeriodBeforeTracking = (
   periodEnd: string,
   trackingStartDate: string,
@@ -365,8 +710,26 @@ type PublicationRow = {
   network: KliqueVisibilityNetwork;
   published_at: string | Date;
   link: string | null;
+  title?: string | null;
+  editorial_category?: VisibilityEditorialCategory | null;
+  origin: VisibilityOrigin;
+  publisher_name: string | null;
+  external_post_id: string | null;
   created_at: string | Date;
   updated_at: string | Date;
+};
+
+type MetricSnapshotRow = {
+  id: string;
+  workspace_id: string;
+  publication_id: string;
+  observed_at: string | Date;
+  views: number | string;
+  reach: number | string | null;
+  impressions: number | string | null;
+  source: VisibilityMetricSource;
+  created_by_clerk_user_id: string;
+  created_at: string | Date;
 };
 
 type HistoryEntryRow = {
@@ -407,9 +770,27 @@ const mapPublicationRow = (row: PublicationRow, athleteIds: string[]): KliqueVis
   network: row.network,
   publishedAt: toIsoDate(row.published_at),
   link: row.link,
+  title: row.title ?? null,
+  editorialCategory: row.editorial_category ?? "legacy_unclassified",
+  origin: row.origin,
+  publisherName: row.publisher_name,
+  externalPostId: row.external_post_id,
   athleteIds,
   createdAt: toIsoDateTime(row.created_at),
   updatedAt: toIsoDateTime(row.updated_at),
+});
+
+const mapMetricSnapshotRow = (row: MetricSnapshotRow): VisibilityMetricSnapshot => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  publicationId: row.publication_id,
+  observedAt: toIsoDateTime(row.observed_at),
+  views: Number(row.views),
+  reach: row.reach === null ? null : Number(row.reach),
+  impressions: row.impressions === null ? null : Number(row.impressions),
+  source: row.source,
+  createdByClerkUserId: row.created_by_clerk_user_id,
+  createdAt: toIsoDateTime(row.created_at),
 });
 
 const mapHistoryEntryRow = (row: HistoryEntryRow): KliqueVisibilityHistoryEntry => ({
@@ -524,12 +905,13 @@ export const createKliqueVisibilityPublication = async (
 
   const insertPublication = sql`
     INSERT INTO klique_visibility_publications (
-      id, workspace_id, format, network, published_at, link, created_at, updated_at
+      id, workspace_id, format, network, published_at, link, title, editorial_category, created_at, updated_at
     ) VALUES (
       ${id}, ${resolvedWorkspaceId}, ${input.format}, ${input.network},
-      ${input.publishedAt}::date, ${input.link}, ${now}, ${now}
+      ${input.publishedAt}::date, ${input.link}, ${input.title}, ${input.editorialCategory}, ${now}, ${now}
     )
-    RETURNING id, workspace_id, format, network, published_at, link, created_at, updated_at
+    RETURNING id, workspace_id, format, network, published_at, link, title, editorial_category,
+              origin, publisher_name, external_post_id, created_at, updated_at
   `;
   const insertAthletes = input.athleteIds.map((athleteId) => sql`
     INSERT INTO klique_visibility_publication_athletes (publication_id, workspace_id, athlete_id, created_at)
@@ -548,7 +930,9 @@ export const listKliqueVisibilityPublications = async (
   const sql = createContentStorageClient();
   const rows = await sql`
     SELECT publication.id, publication.workspace_id, publication.format, publication.network,
-           publication.published_at, publication.link, publication.created_at, publication.updated_at,
+          publication.published_at, publication.link, publication.title, publication.editorial_category,
+          publication.origin, publication.publisher_name,
+           publication.external_post_id, publication.created_at, publication.updated_at,
            COALESCE(
              array_agg(athlete.athlete_id ORDER BY athlete.athlete_id) FILTER (WHERE athlete.athlete_id IS NOT NULL),
              ARRAY[]::text[]
@@ -596,9 +980,10 @@ export const updateKliqueVisibilityPublication = async (
   const updatePublication = sql`
     UPDATE klique_visibility_publications
     SET format = ${input.format}, network = ${input.network}, published_at = ${input.publishedAt}::date,
-        link = ${input.link}, updated_at = ${now}
+        link = ${input.link}, title = ${input.title}, editorial_category = ${input.editorialCategory}, updated_at = ${now}
     WHERE id = ${id} AND workspace_id = ${resolvedWorkspaceId}
-    RETURNING id, workspace_id, format, network, published_at, link, created_at, updated_at
+    RETURNING id, workspace_id, format, network, published_at, link, title, editorial_category,
+              origin, publisher_name, external_post_id, created_at, updated_at
   `;
   const deleteAthletes = sql`
     DELETE FROM klique_visibility_publication_athletes
@@ -630,6 +1015,94 @@ export const deleteKliqueVisibilityPublication = async (
   if (rows.length === 0) {
     throw new KliqueVisibilityError("publication_not_found", "Publication introuvable.");
   }
+};
+
+export const updateKliqueVisibilityPublicationClassification = async (
+  workspaceId: string,
+  publicationId: string,
+  input: VisibilityPublicationClassificationInput,
+): Promise<KliqueVisibilityPublication> => {
+  const resolvedWorkspaceId = requireWorkspaceId(workspaceId);
+  const id = normalize(publicationId);
+  if (!id) throw new KliqueVisibilityError("invalid_input", "Publication invalide.");
+  const sql = createContentStorageClient();
+  const now = new Date().toISOString();
+  const rows = await sql`
+    UPDATE klique_visibility_publications
+    SET origin = ${input.origin}, publisher_name = ${input.publisherName ?? null},
+        external_post_id = ${input.externalPostId ?? null}, updated_at = ${now}
+    WHERE id = ${id} AND workspace_id = ${resolvedWorkspaceId}
+    RETURNING id, workspace_id, format, network, published_at, link, title, editorial_category,
+              origin, publisher_name, external_post_id, created_at, updated_at
+  `;
+  const publicationRow = (rows as PublicationRow[])[0];
+  if (!publicationRow) {
+    throw new KliqueVisibilityError("publication_not_found", "Publication introuvable.");
+  }
+  const athleteRows = await sql`
+    SELECT athlete_id
+    FROM klique_visibility_publication_athletes
+    WHERE publication_id = ${id} AND workspace_id = ${resolvedWorkspaceId}
+    ORDER BY athlete_id
+  `;
+  const athleteIds = (athleteRows as Array<{ athlete_id: string }>).map((row) => row.athlete_id);
+  return mapPublicationRow(publicationRow, athleteIds);
+};
+
+export const createKliqueVisibilityMetricSnapshot = async (
+  workspaceId: string,
+  publicationId: string,
+  createdByClerkUserId: string,
+  input: VisibilityMetricSnapshotInput,
+): Promise<VisibilityMetricSnapshot> => {
+  const resolvedWorkspaceId = requireWorkspaceId(workspaceId);
+  const resolvedPublicationId = normalize(publicationId);
+  if (!resolvedPublicationId) throw new KliqueVisibilityError("invalid_input", "Publication invalide.");
+  const resolvedCreatedBy = normalize(createdByClerkUserId);
+  if (!resolvedCreatedBy) {
+    throw new KliqueVisibilityError("invalid_created_by", "Auteur du relevé requis.");
+  }
+  const sql = createContentStorageClient();
+  const id = randomUUID();
+  const rows = await sql`
+    INSERT INTO klique_visibility_metric_snapshots (
+      id, workspace_id, publication_id, observed_at, views, reach, impressions,
+      source, created_by_clerk_user_id
+    )
+    SELECT
+      ${id}, ${resolvedWorkspaceId}, publication.id, ${input.observedAt}::timestamptz,
+      ${input.views}, ${input.reach ?? null}, ${input.impressions ?? null},
+      ${input.source}, ${resolvedCreatedBy}
+    FROM klique_visibility_publications publication
+    WHERE publication.id = ${resolvedPublicationId}
+      AND publication.workspace_id = ${resolvedWorkspaceId}
+    RETURNING id, workspace_id, publication_id, observed_at, views, reach, impressions,
+              source, created_by_clerk_user_id, created_at
+  `;
+  const snapshotRow = (rows as MetricSnapshotRow[])[0];
+  if (!snapshotRow) {
+    throw new KliqueVisibilityError("publication_not_found", "Publication introuvable.");
+  }
+  return mapMetricSnapshotRow(snapshotRow);
+};
+
+export const listKliqueVisibilityMetricSnapshots = async (
+  workspaceId: string,
+  publicationId: string,
+): Promise<VisibilityMetricSnapshot[]> => {
+  const resolvedWorkspaceId = requireWorkspaceId(workspaceId);
+  const resolvedPublicationId = normalize(publicationId);
+  if (!resolvedPublicationId) throw new KliqueVisibilityError("invalid_input", "Publication invalide.");
+  const sql = createContentStorageClient();
+  const rows = await sql`
+    SELECT id, workspace_id, publication_id, observed_at, views, reach, impressions,
+           source, created_by_clerk_user_id, created_at
+    FROM klique_visibility_metric_snapshots
+    WHERE workspace_id = ${resolvedWorkspaceId}
+      AND publication_id = ${resolvedPublicationId}
+    ORDER BY observed_at DESC, created_at DESC
+  `;
+  return (rows as MetricSnapshotRow[]).map(mapMetricSnapshotRow);
 };
 
 export const createKliqueVisibilityHistoryEntry = async (

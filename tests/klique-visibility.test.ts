@@ -3,6 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   KliqueVisibilityError,
+  calculateVisibilityAudienceTrackingState,
+  calculateVisibilityAudienceSummary,
   calculateKliqueVisibilityFormatBreakdown,
   calculateKliqueVisibilityHistoryTotals,
   calculateKliqueVisibilityPublicationTotals,
@@ -13,6 +15,8 @@ import {
   kliqueVisibilityFormats,
   listKliqueVisibilityPublications,
   parseKliqueVisibilityHistoryEntryInput,
+  parseVisibilityMetricSnapshotInput,
+  parseVisibilityPublicationClassificationInput,
   parseKliqueVisibilityPublicationInput,
 } from "@/lib/klique-visibility";
 
@@ -29,6 +33,8 @@ describe("KLIQUE visibility publication input", () => {
     network: "instagram" as const,
     publishedAt: "2026-09-01",
     link: "https://instagram.com/p/abc123",
+    title: "Galerie de rentrée",
+    editorialCategory: "photo_gallery" as const,
     athleteIds: ["athlete-1", "athlete-2"],
   });
 
@@ -39,6 +45,29 @@ describe("KLIQUE visibility publication input", () => {
     });
     expect(parsed.athleteIds).toEqual(["athlete-1", "athlete-2"]);
     expect(parsed.format).toBe("carousel");
+  });
+
+  it("requires and normalizes editorial details for new and updated publications", () => {
+    const parsed = parseKliqueVisibilityPublicationInput({
+      ...validPublication(),
+      title: "  Galerie de rentrée  ",
+      editorialCategory: "photo_gallery",
+    });
+
+    expect(parsed.title).toBe("Galerie de rentrée");
+    expect(parsed.editorialCategory).toBe("photo_gallery");
+  });
+
+  it("rejects missing or blank titles and unclassified or unknown editorial categories", () => {
+    const { title, ...withoutTitle } = validPublication();
+    void title;
+    expect(() => parseKliqueVisibilityPublicationInput(withoutTitle)).toThrow(KliqueVisibilityError);
+    expect(() => parseKliqueVisibilityPublicationInput({ ...validPublication(), title: "   " }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseKliqueVisibilityPublicationInput({ ...validPublication(), editorialCategory: "legacy_unclassified" }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseKliqueVisibilityPublicationInput({ ...validPublication(), editorialCategory: "sponsoring" }))
+      .toThrow(KliqueVisibilityError);
   });
 
   it("accepts an optional link and defaults it to null when absent", () => {
@@ -70,6 +99,120 @@ describe("KLIQUE visibility publication input", () => {
   it("rejects unknown fields", () => {
     expect(() => parseKliqueVisibilityPublicationInput({ ...validPublication(), extra: true }))
       .toThrow(KliqueVisibilityError);
+  });
+});
+
+describe("KLIQUE visibility publication classification", () => {
+  it("validates the origin and normalizes optional publisher identifiers", () => {
+    expect(parseVisibilityPublicationClassificationInput({
+      origin: "klique_distributed",
+      publisherName: "  Media partenaire  ",
+      externalPostId: "  post-123  ",
+    })).toEqual({
+      origin: "klique_distributed",
+      publisherName: "Media partenaire",
+      externalPostId: "post-123",
+    });
+
+    expect(parseVisibilityPublicationClassificationInput({
+      origin: "legacy_unclassified",
+      publisherName: "   ",
+    })).toEqual({
+      origin: "legacy_unclassified",
+      publisherName: null,
+      externalPostId: null,
+    });
+  });
+
+  it("rejects an unknown origin, non-string optional values, and unknown fields", () => {
+    expect(() => parseVisibilityPublicationClassificationInput({ origin: "owned" }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityPublicationClassificationInput({ origin: "klique_owned", publisherName: 42 }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityPublicationClassificationInput({ origin: "klique_owned", externalPostId: false }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityPublicationClassificationInput({ origin: "klique_owned", extra: true }))
+      .toThrow(KliqueVisibilityError);
+  });
+});
+
+describe("KLIQUE visibility metric snapshot input", () => {
+  it("accepts non-negative counters and normalizes the observed timestamp to ISO", () => {
+    expect(parseVisibilityMetricSnapshotInput({
+      observedAt: "2026-09-12T14:30:00+02:00",
+      views: 1200,
+      reach: 900,
+      impressions: 1500,
+      source: "manual",
+    })).toEqual({
+      observedAt: "2026-09-12T12:30:00.000Z",
+      views: 1200,
+      reach: 900,
+      impressions: 1500,
+      source: "manual",
+    });
+  });
+
+  it("normalizes omitted optional counters to null", () => {
+    const parsed = parseVisibilityMetricSnapshotInput({
+      observedAt: "2026-09-12T12:30:00Z",
+      views: 0,
+      source: "api",
+    });
+    expect(parsed.reach).toBeNull();
+    expect(parsed.impressions).toBeNull();
+  });
+
+  it("rejects invalid timestamps, sources, negative values, decimals, and unsafe integers", () => {
+    const valid = {
+      observedAt: "2026-09-12T12:30:00Z",
+      views: 10,
+      source: "import",
+    };
+    expect(() => parseVisibilityMetricSnapshotInput({ ...valid, observedAt: "invalid" }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityMetricSnapshotInput({ ...valid, source: "scraper" }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityMetricSnapshotInput({ ...valid, views: -1 }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityMetricSnapshotInput({ ...valid, reach: 1.5 }))
+      .toThrow(KliqueVisibilityError);
+    expect(() => parseVisibilityMetricSnapshotInput({ ...valid, impressions: Number.MAX_SAFE_INTEGER + 1 }))
+      .toThrow(KliqueVisibilityError);
+  });
+});
+
+describe("KLIQUE visibility audience persistence", () => {
+  it("updates publication classification only inside the requested workspace", () => {
+    const classificationBody = source.slice(
+      source.indexOf("export const updateKliqueVisibilityPublicationClassification"),
+      source.indexOf("export const createKliqueVisibilityMetricSnapshot"),
+    );
+    expect(classificationBody).toContain("SET origin = ${input.origin}");
+    expect(classificationBody).toContain("WHERE id = ${id} AND workspace_id = ${resolvedWorkspaceId}");
+  });
+
+  it("creates a snapshot from a publication in the same workspace and reads it with both filters", () => {
+    const audienceBody = source.slice(
+      source.indexOf("export const createKliqueVisibilityMetricSnapshot"),
+      source.indexOf("export const createKliqueVisibilityHistoryEntry"),
+    );
+    expect(audienceBody).toContain("INSERT INTO klique_visibility_metric_snapshots");
+    expect(audienceBody).toContain("FROM klique_visibility_publications publication");
+    expect(audienceBody).toContain("publication.workspace_id = ${resolvedWorkspaceId}");
+    expect(audienceBody).toContain("WHERE workspace_id = ${resolvedWorkspaceId}");
+    expect(audienceBody).toContain("AND publication_id = ${resolvedPublicationId}");
+  });
+
+  it("keeps metric snapshots append-only and normalizes Neon timestamps to ISO", () => {
+    const audienceBody = source.slice(
+      source.indexOf("export const createKliqueVisibilityMetricSnapshot"),
+      source.indexOf("export const createKliqueVisibilityHistoryEntry"),
+    );
+    expect(audienceBody).not.toMatch(/UPDATE klique_visibility_metric_snapshots/);
+    expect(audienceBody).not.toMatch(/DELETE FROM klique_visibility_metric_snapshots/);
+    expect(source).toContain("observedAt: toIsoDateTime(row.observed_at)");
+    expect(source).toContain("createdAt: toIsoDateTime(row.created_at)");
   });
 });
 
@@ -181,6 +324,103 @@ describe("KLIQUE visibility publication totals", () => {
   });
 });
 
+describe("KLIQUE visibility audience summary", () => {
+  const publications = [
+    { id: "pub-1", network: "instagram" as const, origin: "klique_owned" as const },
+    { id: "pub-2", network: "instagram" as const, origin: "klique_distributed" as const },
+    { id: "pub-3", network: "tiktok" as const, origin: "external_coverage" as const },
+  ];
+
+  it("uses only the latest snapshot per publication for totals, averages, and the most viewed content", () => {
+    const summary = calculateVisibilityAudienceSummary(publications, [
+      {
+        publicationId: "pub-1",
+        observedAt: "2026-09-10T10:00:00.000Z",
+        views: 900,
+        reach: 800,
+        impressions: 1000,
+      },
+      {
+        publicationId: "pub-2",
+        observedAt: "2026-09-12T10:00:00.000Z",
+        views: 300,
+        reach: null,
+        impressions: 500,
+      },
+      {
+        publicationId: "pub-1",
+        observedAt: "2026-09-12T10:00:00.000Z",
+        views: 100,
+        reach: 70,
+        impressions: null,
+      },
+      {
+        publicationId: "unknown-publication",
+        observedAt: "2026-09-12T10:00:00.000Z",
+        views: 10000,
+        reach: 10000,
+        impressions: 10000,
+      },
+    ]);
+
+    expect(summary.totalDetailedContents).toBe(3);
+    expect(summary.contentsWithSnapshot).toBe(2);
+    expect(summary.coverageRate).toBeCloseTo(66.6667, 3);
+    expect(summary.totalViews).toBe(400);
+    expect(summary.averageViewsPerMeasuredContent).toBe(200);
+    expect(summary.totalReach).toBe(70);
+    expect(summary.totalImpressions).toBe(500);
+    expect(summary.mostViewedContent).toEqual({ publicationId: "pub-2", views: 300 });
+  });
+
+  it("includes publications without snapshots in network and origin coverage without adding views", () => {
+    const summary = calculateVisibilityAudienceSummary(publications, [{
+      publicationId: "pub-1",
+      observedAt: "2026-09-12T10:00:00.000Z",
+      views: 100,
+      reach: null,
+      impressions: null,
+    }]);
+
+    const instagram = summary.byNetwork.find((row) => row.network === "instagram");
+    const tiktok = summary.byNetwork.find((row) => row.network === "tiktok");
+    const external = summary.byOrigin.find((row) => row.origin === "external_coverage");
+
+    expect(instagram).toMatchObject({
+      totalContents: 2,
+      contentsWithSnapshot: 1,
+      coverageRate: 50,
+      totalViews: 100,
+      averageViewsPerMeasuredContent: 100,
+    });
+    expect(tiktok).toMatchObject({
+      totalContents: 1,
+      contentsWithSnapshot: 0,
+      coverageRate: 0,
+      totalViews: 0,
+      averageViewsPerMeasuredContent: 0,
+      totalReach: null,
+      totalImpressions: null,
+    });
+    expect(external).toMatchObject({ totalContents: 1, contentsWithSnapshot: 0, totalViews: 0 });
+  });
+
+  it("returns empty audience values when no detailed content exists", () => {
+    expect(calculateVisibilityAudienceSummary([], [])).toEqual({
+      totalDetailedContents: 0,
+      contentsWithSnapshot: 0,
+      coverageRate: 0,
+      totalViews: 0,
+      averageViewsPerMeasuredContent: 0,
+      totalReach: null,
+      totalImpressions: null,
+      mostViewedContent: null,
+      byNetwork: [],
+      byOrigin: [],
+    });
+  });
+});
+
 describe("KLIQUE visibility history totals", () => {
   it("derives the global total only from scope='global' rows, never by summing athlete rows", () => {
     const totals = calculateKliqueVisibilityHistoryTotals([
@@ -237,6 +477,13 @@ describe("KLIQUE visibility workspace isolation", () => {
 
   it("inserts a publication and its athlete links atomically", () => {
     expect(source).toContain("sql.transaction([insertPublication, ...insertAthletes])");
+  });
+
+  it("persists editorial details and maps legacy publications to safe defaults", () => {
+    expect(source).toContain("title, editorial_category, created_at, updated_at");
+    expect(source).toContain("title = ${input.title}, editorial_category = ${input.editorialCategory}");
+    expect(source).toContain("title: row.title ?? null");
+    expect(source).toContain('editorialCategory: row.editorial_category ?? "legacy_unclassified"');
   });
 });
 
@@ -302,6 +549,39 @@ describe("KLIQUE visibility tracking start date", () => {
     expect(migration).toContain("NEW.published_at < tracking_start");
     expect(migration).toContain("NEW.period_end >= tracking_start");
     expect(migration).not.toMatch(/INSERT\s+INTO/i);
+  });
+});
+
+describe("KLIQUE visibility audience tracking state", () => {
+  it("keeps tracking in progress through J+29", () => {
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "2026-01-30")).toEqual({
+      status: "in_progress",
+      theoreticalClosingDate: "2026-01-31",
+    });
+  });
+
+  it("closes tracking at J+30", () => {
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "2026-01-31")).toEqual({
+      status: "closed",
+      theoreticalClosingDate: "2026-01-31",
+    });
+  });
+
+  it("keeps a future publication in progress", () => {
+    expect(calculateVisibilityAudienceTrackingState("2026-02-10", "2026-02-01")).toEqual({
+      status: "in_progress",
+      theoreticalClosingDate: "2026-03-12",
+    });
+  });
+
+  it("uses UTC civil dates across timezone offsets", () => {
+    expect(calculateVisibilityAudienceTrackingState(
+      "2026-03-01",
+      "2026-03-30T23:30:00-02:00",
+    )).toEqual({
+      status: "closed",
+      theoreticalClosingDate: "2026-03-31",
+    });
   });
 });
 
@@ -453,7 +733,7 @@ describe("KLIQUE visibility admin route: update/delete actions", () => {
     expect(routeSource).toContain('"delete_publication"');
     expect(routeSource).toContain('"update_history_entry"');
     expect(routeSource).toContain('"delete_history_entry"');
-    expect(routeSource).toContain("await getAdminWorkspace(request, dependencies)");
+    expect(routeSource).toContain("await getAdminContext(request, dependencies)");
   });
 
   it("validates ids with the same UUID pattern used elsewhere before touching the database", () => {

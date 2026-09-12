@@ -1,20 +1,29 @@
 import { NextResponse } from "next/server";
 import {
   KliqueVisibilityError,
+  calculateVisibilityAudienceTrackingState,
+  calculateVisibilityAudienceSummary,
   createKliqueVisibilityHistoryEntry,
+  createKliqueVisibilityMetricSnapshot,
   createKliqueVisibilityPublication,
   deleteKliqueVisibilityHistoryEntry,
   deleteKliqueVisibilityPublication,
   getKliqueVisibilityRegistryOverview,
+  listKliqueVisibilityMetricSnapshots,
   parseKliqueVisibilityHistoryEntryInput,
   parseKliqueVisibilityPublicationInput,
+  parseVisibilityMetricSnapshotInput,
+  parseVisibilityPublicationClassificationInput,
   setKliqueVisibilityTrackingStartDate,
   updateKliqueVisibilityHistoryEntry,
   updateKliqueVisibilityPublication,
+  updateKliqueVisibilityPublicationClassification,
   type KliqueVisibilityHistoryEntry,
   type KliqueVisibilityPublication,
+  type KliqueVisibilityPublicationInput,
   type KliqueVisibilityRegistryOverview,
   type KliqueVisibilityTrackingSettings,
+  type VisibilityMetricSnapshot,
 } from "@/lib/klique-visibility";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 
@@ -22,6 +31,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type AdminAccess = {
+  clerkUserId?: string | null;
   role?: string;
   status?: string;
   workspaceId?: string | null;
@@ -31,9 +41,21 @@ type HandlerDependencies = {
   getAccess: (request: Request) => Promise<AdminAccess | null>;
   getOverview: (input: { workspaceId: string }) => Promise<KliqueVisibilityRegistryOverview>;
   setTrackingStartDate: (input: { workspaceId: string; trackingStartDate: string }) => Promise<KliqueVisibilityTrackingSettings>;
-  createPublication: (input: { workspaceId: string; publication: unknown }) => Promise<KliqueVisibilityPublication>;
+  createPublication: (input: { workspaceId: string; publication: KliqueVisibilityPublicationInput }) => Promise<KliqueVisibilityPublication>;
   createHistoryEntry: (input: { workspaceId: string; historyEntry: unknown }) => Promise<KliqueVisibilityHistoryEntry>;
-  updatePublication: (input: { workspaceId: string; publicationId: string; publication: unknown }) => Promise<KliqueVisibilityPublication>;
+  createMetricSnapshot: (input: {
+    workspaceId: string;
+    publicationId: string;
+    createdByClerkUserId: string;
+    snapshot: unknown;
+  }) => Promise<VisibilityMetricSnapshot>;
+  listMetricSnapshots: (input: { workspaceId: string; publicationId: string }) => Promise<VisibilityMetricSnapshot[]>;
+  updatePublication: (input: { workspaceId: string; publicationId: string; publication: KliqueVisibilityPublicationInput }) => Promise<KliqueVisibilityPublication>;
+  updateClassification: (input: {
+    workspaceId: string;
+    publicationId: string;
+    classification: unknown;
+  }) => Promise<KliqueVisibilityPublication>;
   deletePublication: (input: { workspaceId: string; publicationId: string }) => Promise<void>;
   updateHistoryEntry: (input: { workspaceId: string; historyEntryId: string; historyEntry: unknown }) => Promise<KliqueVisibilityHistoryEntry>;
   deleteHistoryEntry: (input: { workspaceId: string; historyEntryId: string }) => Promise<void>;
@@ -42,7 +64,13 @@ type HandlerDependencies = {
 const defaultDependencies: HandlerDependencies = {
   async getAccess(request) {
     const profile = await getCurrentUserAccessProfile(request);
-    return profile?.userAccess ?? null;
+    if (!profile) return null;
+    return {
+      clerkUserId: profile.clerkUser.id,
+      role: profile.userAccess?.role,
+      status: profile.userAccess?.status,
+      workspaceId: profile.userAccess?.workspaceId,
+    };
   },
   async getOverview({ workspaceId }) {
     return getKliqueVisibilityRegistryOverview(workspaceId);
@@ -51,13 +79,31 @@ const defaultDependencies: HandlerDependencies = {
     return setKliqueVisibilityTrackingStartDate(workspaceId, trackingStartDate);
   },
   async createPublication({ workspaceId, publication }) {
-    return createKliqueVisibilityPublication(workspaceId, parseKliqueVisibilityPublicationInput(publication));
+    return createKliqueVisibilityPublication(workspaceId, publication);
   },
   async createHistoryEntry({ workspaceId, historyEntry }) {
     return createKliqueVisibilityHistoryEntry(workspaceId, parseKliqueVisibilityHistoryEntryInput(historyEntry));
   },
+  async createMetricSnapshot({ workspaceId, publicationId, createdByClerkUserId, snapshot }) {
+    return createKliqueVisibilityMetricSnapshot(
+      workspaceId,
+      publicationId,
+      createdByClerkUserId,
+      parseVisibilityMetricSnapshotInput(snapshot),
+    );
+  },
+  async listMetricSnapshots({ workspaceId, publicationId }) {
+    return listKliqueVisibilityMetricSnapshots(workspaceId, publicationId);
+  },
   async updatePublication({ workspaceId, publicationId, publication }) {
-    return updateKliqueVisibilityPublication(workspaceId, publicationId, parseKliqueVisibilityPublicationInput(publication));
+    return updateKliqueVisibilityPublication(workspaceId, publicationId, publication);
+  },
+  async updateClassification({ workspaceId, publicationId, classification }) {
+    return updateKliqueVisibilityPublicationClassification(
+      workspaceId,
+      publicationId,
+      parseVisibilityPublicationClassificationInput(classification),
+    );
   },
   async deletePublication({ workspaceId, publicationId }) {
     return deleteKliqueVisibilityPublication(workspaceId, publicationId);
@@ -70,11 +116,24 @@ const defaultDependencies: HandlerDependencies = {
   },
 };
 
-const getAdminWorkspace = async (request: Request, dependencies: HandlerDependencies) => {
+type AdminContextResult =
+  | { context: { workspaceId: string; clerkUserId: string } }
+  | { response: NextResponse };
+
+const getAdminContext = async (
+  request: Request,
+  dependencies: HandlerDependencies,
+): Promise<AdminContextResult> => {
   const access = await dependencies.getAccess(request);
+  const clerkUserId = access?.clerkUserId?.trim() ?? "";
+  if (!clerkUserId) {
+    return { response: NextResponse.json({ error: "Authentification requise." }, { status: 401 }) };
+  }
   const workspaceId = access?.workspaceId?.trim() ?? "";
-  if (access?.role !== "admin" || access.status !== "active" || !workspaceId) return null;
-  return workspaceId;
+  if (access?.role !== "admin" || access.status !== "active" || !workspaceId) {
+    return { response: NextResponse.json({ error: "Accès refusé." }, { status: 403 }) };
+  }
+  return { context: { workspaceId, clerkUserId } };
 };
 
 const errorStatusByCode: Record<string, number> = {
@@ -126,17 +185,36 @@ export const createAdminKliqueVisibilityHandlers = (
 ) => ({
   async GET(request: Request) {
     try {
-      const workspaceId = await getAdminWorkspace(request, dependencies);
-      if (!workspaceId) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
-      return NextResponse.json(await dependencies.getOverview({ workspaceId }));
+      const accessResult = await getAdminContext(request, dependencies);
+      if ("response" in accessResult) return accessResult.response;
+      const { workspaceId } = accessResult.context;
+      const overview = await dependencies.getOverview({ workspaceId });
+      const currentDate = new Date();
+      const publications = overview.publications.map((publication) => ({
+        ...publication,
+        audienceTracking: calculateVisibilityAudienceTrackingState(publication.publishedAt, currentDate),
+      }));
+      const metricSnapshots = (await Promise.all(
+        overview.publications.map((publication) => dependencies.listMetricSnapshots({
+          workspaceId,
+          publicationId: publication.id,
+        })),
+      )).flat();
+      return NextResponse.json({
+        ...overview,
+        publications,
+        metricSnapshots,
+        audienceSummary: calculateVisibilityAudienceSummary(overview.publications, metricSnapshots),
+      });
     } catch (error) {
       return respondWithError(error, "Impossible de charger le registre de visibilité.");
     }
   },
   async POST(request: Request) {
     try {
-      const workspaceId = await getAdminWorkspace(request, dependencies);
-      if (!workspaceId) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      const accessResult = await getAdminContext(request, dependencies);
+      if ("response" in accessResult) return accessResult.response;
+      const { workspaceId, clerkUserId } = accessResult.context;
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
       const action = body?.action;
@@ -147,12 +225,32 @@ export const createAdminKliqueVisibilityHandlers = (
         return NextResponse.json({ trackingSettings: settings });
       }
       if (action === "create_publication") {
-        const publication = await dependencies.createPublication({ workspaceId, publication: body?.publication });
+        const publicationInput = parseKliqueVisibilityPublicationInput(body?.publication);
+        const publication = await dependencies.createPublication({ workspaceId, publication: publicationInput });
         return NextResponse.json({ publication });
       }
       if (action === "create_history_entry") {
         const historyEntry = await dependencies.createHistoryEntry({ workspaceId, historyEntry: body?.historyEntry });
         return NextResponse.json({ historyEntry });
+      }
+      if (action === "metric_snapshot") {
+        const publicationId = typeof body?.publicationId === "string" ? body.publicationId.trim() : "";
+        if (!idPattern.test(publicationId)) {
+          return NextResponse.json({ error: "Publication invalide." }, { status: 400 });
+        }
+        const metricSnapshot = await dependencies.createMetricSnapshot({
+          workspaceId,
+          publicationId,
+          createdByClerkUserId: clerkUserId,
+          snapshot: {
+            observedAt: body?.observedAt,
+            views: body?.views,
+            reach: body?.reach,
+            impressions: body?.impressions,
+            source: "manual",
+          },
+        });
+        return NextResponse.json({ metricSnapshot });
       }
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
     } catch (error) {
@@ -161,8 +259,9 @@ export const createAdminKliqueVisibilityHandlers = (
   },
   async PATCH(request: Request) {
     try {
-      const workspaceId = await getAdminWorkspace(request, dependencies);
-      if (!workspaceId) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      const accessResult = await getAdminContext(request, dependencies);
+      if ("response" in accessResult) return accessResult.response;
+      const { workspaceId } = accessResult.context;
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
       const action = body?.action;
@@ -176,7 +275,8 @@ export const createAdminKliqueVisibilityHandlers = (
           await dependencies.deletePublication({ workspaceId, publicationId });
           return NextResponse.json({ deleted: true });
         }
-        const publication = await dependencies.updatePublication({ workspaceId, publicationId, publication: body?.publication });
+        const publicationInput = parseKliqueVisibilityPublicationInput(body?.publication);
+        const publication = await dependencies.updatePublication({ workspaceId, publicationId, publication: publicationInput });
         return NextResponse.json({ publication });
       }
 
@@ -191,6 +291,23 @@ export const createAdminKliqueVisibilityHandlers = (
         }
         const historyEntry = await dependencies.updateHistoryEntry({ workspaceId, historyEntryId, historyEntry: body?.historyEntry });
         return NextResponse.json({ historyEntry });
+      }
+
+      if (action === "classification") {
+        const publicationId = typeof body?.publicationId === "string" ? body.publicationId.trim() : "";
+        if (!idPattern.test(publicationId)) {
+          return NextResponse.json({ error: "Publication invalide." }, { status: 400 });
+        }
+        const publication = await dependencies.updateClassification({
+          workspaceId,
+          publicationId,
+          classification: {
+            origin: body?.origin,
+            publisherName: body?.publisherName,
+            externalPostId: body?.externalPostId,
+          },
+        });
+        return NextResponse.json({ publication });
       }
 
       return NextResponse.json({ error: "Action invalide." }, { status: 400 });
