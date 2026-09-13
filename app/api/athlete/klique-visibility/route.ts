@@ -78,7 +78,12 @@ export const createAthleteKliqueVisibilityHandlers = (
         link: publication.link,
         title: publication.title,
         editorialCategory: publication.editorialCategory,
-        audienceTracking: calculateVisibilityAudienceTrackingState(publication.publishedAt, currentDate),
+        isCollaborator: publication.collaboratorAthleteIds.includes(athleteId),
+        audienceTracking: calculateVisibilityAudienceTrackingState(
+          publication.publishedAt,
+          publication.format,
+          currentDate,
+        ),
       }));
       const ownHistoryEntries = allHistoryEntries.filter(
         (entry) => entry.scope === "athlete" && entry.athleteId === athleteId,

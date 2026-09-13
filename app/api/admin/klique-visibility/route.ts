@@ -151,6 +151,15 @@ const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const isExclusionViolation = (error: unknown): boolean =>
   Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23P01");
 
+const isMetricSnapshotDuplicate = (error: unknown): boolean =>
+  Boolean(
+    error
+      && typeof error === "object"
+      && (error as { code?: string }).code === "23505"
+      && (error as { constraint_name?: string }).constraint_name
+        === "klique_visibility_metric_snapshots_workspace_publication_observed_unique",
+  );
+
 // Filet de sécurité: les triggers de début de suivi lèvent un RAISE EXCEPTION brut (code P0001) si un décalage
 // (ex. cache obsolète) laisse passer côté JS une date pourtant refusée par la base, source de vérité.
 const isTrackingStartTriggerViolation = (error: unknown): boolean =>
@@ -164,6 +173,12 @@ const isTrackingStartTriggerViolation = (error: unknown): boolean =>
 const respondWithError = (error: unknown, fallbackMessage: string) => {
   if (error instanceof KliqueVisibilityError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: errorStatusByCode[error.code] ?? 400 });
+  }
+  if (isMetricSnapshotDuplicate(error)) {
+    return NextResponse.json(
+      { error: "Un relevé existe déjà à cette date. Modifiez l’heure de quelques secondes.", code: "metric_snapshot_duplicate" },
+      { status: 409 },
+    );
   }
   if (isExclusionViolation(error)) {
     return NextResponse.json(
@@ -192,7 +207,11 @@ export const createAdminKliqueVisibilityHandlers = (
       const currentDate = new Date();
       const publications = overview.publications.map((publication) => ({
         ...publication,
-        audienceTracking: calculateVisibilityAudienceTrackingState(publication.publishedAt, currentDate),
+        audienceTracking: calculateVisibilityAudienceTrackingState(
+          publication.publishedAt,
+          publication.format,
+          currentDate,
+        ),
       }));
       const metricSnapshots = (await Promise.all(
         overview.publications.map((publication) => dependencies.listMetricSnapshots({

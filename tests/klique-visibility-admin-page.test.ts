@@ -32,6 +32,7 @@ const overview = {
       publisherName: "KLIQUE",
       externalPostId: "example",
       athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: ["athlete-1"],
       createdAt: "2026-09-02T10:00:00.000Z",
       updatedAt: "2026-09-02T10:00:00.000Z",
     },
@@ -49,23 +50,25 @@ const overview = {
       publisherName: "Partenaire",
       externalPostId: "distributed",
       athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: [],
       createdAt: "2026-09-03T10:00:00.000Z",
       updatedAt: "2026-09-03T10:00:00.000Z",
     },
     {
       id: externalPublicationId,
       workspaceId: "workspace-a",
-      format: "article",
+      format: "story",
       network: "youtube",
       publishedAt: "2026-09-04",
       link: null,
       title: "Interview de saison",
       editorialCategory: "interview",
-      audienceTracking: { status: "in_progress", theoreticalClosingDate: "2026-10-04" },
+      audienceTracking: { status: "closed", theoreticalClosingDate: "2026-09-05" },
       origin: "external_coverage",
       publisherName: "Média externe",
       externalPostId: "external",
       athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: [],
       createdAt: "2026-09-04T10:00:00.000Z",
       updatedAt: "2026-09-04T10:00:00.000Z",
     },
@@ -83,6 +86,7 @@ const overview = {
       publisherName: null,
       externalPostId: null,
       athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: [],
       createdAt: "2026-09-05T10:00:00.000Z",
       updatedAt: "2026-09-05T10:00:00.000Z",
     },
@@ -229,6 +233,9 @@ const labelledSelect = (label: string) => {
   return field?.querySelector("select") as HTMLSelectElement;
 };
 
+const collaboratorFieldset = () =>
+  container.querySelector('fieldset[aria-label="Collaborateurs Instagram"]') as HTMLFieldSetElement | null;
+
 const kpiValue = (label: string) => {
   const item = [...container.querySelectorAll(".crm-person-kpi-item")].find(
     (node) => node.querySelector("small")?.textContent?.trim() === label,
@@ -240,7 +247,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/athletes") {
-      return jsonResponse({ athletes: [{ key: "athlete-1", name: "Athlète Test" }] });
+      return jsonResponse({ athletes: [
+        { key: "athlete-1", name: "Athlète Test" },
+        { key: "athlete-2", name: "Deuxième Athlète" },
+      ] });
     }
     if (url === "/api/admin/klique-visibility" && init?.method === "POST") {
       return jsonResponse({ metricSnapshot: overview.metricSnapshots[1] });
@@ -276,7 +286,9 @@ describe("KLIQUE Visibility Admin page audiences", () => {
     expect(row?.textContent).toContain("Dernier relevé");
     expect(row?.textContent).toContain("Galerie de rentrée");
     expect(row?.textContent).toContain("Catégorie éditoriale : Galerie photo");
+    expect(row?.textContent).toContain("Collaboration Instagram : Athlète Test");
     expect(row?.textContent).toContain("Audience en cours");
+    expect(row?.textContent).toContain("Suivi sur 30 jours");
     expect(row?.textContent).toContain("clôture théorique le 02.10.2026");
     expect(row?.textContent).toMatch(/1.?200 vues/);
     expect([...row!.querySelectorAll("button")].some((button) => button.textContent === "Ajouter un relevé")).toBe(true);
@@ -287,6 +299,10 @@ describe("KLIQUE Visibility Admin page audiences", () => {
     const legacyRow = container.querySelector(`[data-publication-id="${unclassifiedPublicationId}"]`);
     expect(legacyRow?.textContent).toContain("Sans intitulé");
     expect(legacyRow?.textContent).toContain("Catégorie éditoriale : À classifier");
+    expect(legacyRow?.textContent).not.toContain("Collaboration Instagram");
+
+    const storyRow = container.querySelector(`[data-publication-id="${externalPublicationId}"]`);
+    expect(storyRow?.textContent).toContain("Suivi sur 24 h");
 
     const closedRow = container.querySelector(`[data-publication-id="${distributedPublicationId}"]`);
     expect(closedRow?.textContent).toContain("Suivi bouclé");
@@ -321,6 +337,7 @@ describe("KLIQUE Visibility Admin page audiences", () => {
     await setFieldValue(category, "portrait");
     await setFieldValue(labelledInput("Date de publication"), "2026-09-06");
     await click(container.querySelector('input[type="checkbox"]') ?? undefined);
+    await click(collaboratorFieldset()?.querySelector('input[type="checkbox"]') ?? undefined);
     expect(submit.disabled).toBe(false);
     await click(submit);
 
@@ -333,12 +350,14 @@ describe("KLIQUE Visibility Admin page audiences", () => {
       publication: {
         title: "Portrait de rentrée",
         editorialCategory: "portrait",
+        collaboratorAthleteIds: ["athlete-1"],
       },
     });
 
     await click(findButton("Modifier"));
     expect(labelledInput("Titre de la publication").value).toBe("Galerie de rentrée");
     expect(labelledSelect("Catégorie éditoriale").value).toBe("photo_gallery");
+    expect((collaboratorFieldset()?.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
     await setFieldValue(labelledInput("Titre de la publication"), "Galerie mise à jour");
     await setFieldValue(labelledSelect("Catégorie éditoriale"), "event");
     await click(findButton("Enregistrer les modifications"));
@@ -353,8 +372,58 @@ describe("KLIQUE Visibility Admin page audiences", () => {
       publication: {
         title: "Galerie mise à jour",
         editorialCategory: "event",
+        collaboratorAthleteIds: ["athlete-1"],
       },
     });
+  });
+
+  it("shows Instagram collaborators only among selected athletes and clears invalid selections", async () => {
+    await mount();
+
+    expect(collaboratorFieldset()).not.toBeNull();
+    expect(collaboratorFieldset()?.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+
+    const athleteCheckboxes = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await click(athleteCheckboxes[0]);
+    expect(collaboratorFieldset()?.textContent).toContain("Athlète Test");
+    expect(collaboratorFieldset()?.textContent).not.toContain("Deuxième Athlète");
+
+    const collaboratorCheckbox = collaboratorFieldset()?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    await click(collaboratorCheckbox);
+    expect(collaboratorCheckbox.checked).toBe(true);
+
+    await setFieldValue(labelledSelect("Réseau"), "tiktok");
+    expect(collaboratorFieldset()).toBeNull();
+    await setFieldValue(labelledSelect("Réseau"), "instagram");
+    expect((collaboratorFieldset()?.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+
+    await click(collaboratorFieldset()?.querySelector('input[type="checkbox"]') ?? undefined);
+    await click([...container.querySelectorAll('input[type="checkbox"]')][0]);
+    expect(collaboratorFieldset()?.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    await click([...container.querySelectorAll('input[type="checkbox"]')][0]);
+    expect((collaboratorFieldset()?.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("opens the edit form for a legacy publication with existing data and blank editorial fields", async () => {
+    await mount();
+
+    const legacyRow = container.querySelector(`[data-publication-id="${unclassifiedPublicationId}"]`);
+    const editButton = [...legacyRow!.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Modifier",
+    );
+    await click(editButton);
+
+    expect([...container.querySelectorAll("h2")].some(
+      (heading) => heading.textContent?.trim() === "Modifier la publication",
+    )).toBe(true);
+    expect(labelledInput("Titre de la publication").value).toBe("");
+    expect(labelledSelect("Catégorie éditoriale").value).toBe("");
+    expect(labelledSelect("Format").value).toBe("photo");
+    expect(labelledSelect("Réseau").value).toBe("instagram");
+    expect(labelledInput("Date de publication").value).toBe("2026-09-05");
+    expect(labelledInput("Lien (facultatif)").value).toBe("");
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    expect((findButton("Enregistrer les modifications") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("renders commercial impact without legacy-unclassified audience", async () => {
@@ -378,12 +447,19 @@ describe("KLIQUE Visibility Admin page audiences", () => {
 
   it("posts a manual metric payload and reloads the overview after success", async () => {
     await mount();
+    const beforeOpen = Date.now();
     await click(findButton("Ajouter un relevé"));
 
-    const observedAt = "2026-09-12T14:30";
-    await setFieldValue(labelledInput("Date du relevé"), observedAt);
+    const observedAtInput = labelledInput("Date du relevé");
+    expect(observedAtInput.step).toBe("1");
+    expect(observedAtInput.value).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.000)?$/);
+    expect(new Date(observedAtInput.value).getTime()).toBeGreaterThanOrEqual(beforeOpen - 999);
+    expect(new Date(observedAtInput.value).getTime()).toBeLessThanOrEqual(Date.now());
+
+    const observedAt = "2026-09-12T14:30:45";
+    await setFieldValue(observedAtInput, observedAt);
     await setFieldValue(labelledInput("Vues"), "1800");
-    await setFieldValue(labelledInput("Portée (facultative)"), "1400");
+    await setFieldValue(labelledInput("Comptes touchés (facultatif)"), "1400");
     await setFieldValue(labelledInput("Impressions (facultatives)"), "2100");
     await click(findButton("Enregistrer le relevé"));
 
@@ -402,6 +478,32 @@ describe("KLIQUE Visibility Admin page audiences", () => {
       ([url, init]) => url === "/api/admin/klique-visibility" && !(init as RequestInit | undefined)?.method,
     );
     expect(overviewReads).toHaveLength(2);
+  });
+
+  it("shows the duplicate snapshot conflict and keeps the metric form open", async () => {
+    await mount();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/admin/klique-visibility" && init?.method === "POST") {
+        return jsonResponse({
+          error: "Un relevé existe déjà à cette date. Modifiez l’heure de quelques secondes.",
+          code: "metric_snapshot_duplicate",
+        }, 409);
+      }
+      return jsonResponse(overview);
+    });
+
+    await click(findButton("Ajouter un relevé"));
+    await setFieldValue(labelledInput("Vues"), "1800");
+    await click(findButton("Enregistrer le relevé"));
+
+    expect(container.textContent).toContain(
+      "Un relevé existe déjà à cette date. Modifiez l’heure de quelques secondes.",
+    );
+    expect(findButton("Enregistrer le relevé")).toBeDefined();
+    const overviewReads = fetchMock.mock.calls.filter(
+      ([url, init]) => url === "/api/admin/klique-visibility" && !(init as RequestInit | undefined)?.method,
+    );
+    expect(overviewReads).toHaveLength(1);
   });
 
   it("requires views and sends omitted reach and impressions as null", async () => {

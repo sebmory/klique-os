@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import {
@@ -92,6 +92,10 @@ const formatDateTime = (value: string) => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 };
+const toLocalDateTimeInputValue = (date: Date) => {
+  const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60_000));
+  return localDate.toISOString().slice(0, 19);
+};
 
 // Styles alignes sur les ecrans Admin existants (cartes CRM, palette claire #fff/#ececec/#7a7a7a).
 const fieldsGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "14px" };
@@ -111,6 +115,7 @@ const warningBannerStyle: CSSProperties = { border: "1px solid #f2e3a4", borderR
 const listRowStyle: CSSProperties = { background: "#ffffff", border: "1px solid #f1f1f1", borderRadius: 14, padding: "12px 14px", display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", justifyContent: "space-between" };
 
 export default function KliqueVisibilityAdminPage() {
+  const publicationFormRef = useRef<HTMLElement>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
@@ -127,6 +132,7 @@ export default function KliqueVisibilityAdminPage() {
   const [publicationTitle, setPublicationTitle] = useState("");
   const [publicationEditorialCategory, setPublicationEditorialCategory] = useState<Exclude<VisibilityEditorialCategory, "legacy_unclassified"> | "">("");
   const [publicationAthleteIds, setPublicationAthleteIds] = useState<string[]>([]);
+  const [publicationCollaboratorAthleteIds, setPublicationCollaboratorAthleteIds] = useState<string[]>([]);
   const [publicationAthleteQuery, setPublicationAthleteQuery] = useState("");
   const [publicationSaving, setPublicationSaving] = useState(false);
   const [publicationError, setPublicationError] = useState<string | null>(null);
@@ -275,7 +281,17 @@ export default function KliqueVisibilityAdminPage() {
   };
 
   const toggleAthleteId = (athleteId: string) => {
-    setPublicationAthleteIds((current) => (
+    const isSelected = publicationAthleteIds.includes(athleteId);
+    setPublicationAthleteIds(isSelected
+      ? publicationAthleteIds.filter((id) => id !== athleteId)
+      : [...publicationAthleteIds, athleteId]);
+    if (isSelected) {
+      setPublicationCollaboratorAthleteIds((current) => current.filter((id) => id !== athleteId));
+    }
+  };
+
+  const toggleCollaboratorAthleteId = (athleteId: string) => {
+    setPublicationCollaboratorAthleteIds((current) => (
       current.includes(athleteId) ? current.filter((id) => id !== athleteId) : [...current, athleteId]
     ));
   };
@@ -287,6 +303,7 @@ export default function KliqueVisibilityAdminPage() {
     setPublicationTitle("");
     setPublicationEditorialCategory("");
     setPublicationAthleteIds([]);
+    setPublicationCollaboratorAthleteIds([]);
     setPublicationError(null);
   };
 
@@ -301,7 +318,11 @@ export default function KliqueVisibilityAdminPage() {
       publication.editorialCategory === "legacy_unclassified" ? "" : publication.editorialCategory,
     );
     setPublicationAthleteIds(publication.athleteIds);
+    setPublicationCollaboratorAthleteIds(
+      publication.network === "instagram" ? (publication.collaboratorAthleteIds ?? []) : [],
+    );
     setPublicationError(null);
+    publicationFormRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
 
   const handleSubmitPublication = async () => {
@@ -323,6 +344,7 @@ export default function KliqueVisibilityAdminPage() {
             title: publicationTitle.trim(),
             editorialCategory: publicationEditorialCategory,
             athleteIds: publicationAthleteIds,
+            collaboratorAthleteIds: publicationCollaboratorAthleteIds,
           },
         }),
       });
@@ -370,7 +392,7 @@ export default function KliqueVisibilityAdminPage() {
   const startMetricForm = (publicationId: string) => {
     setClassificationPublicationId(null);
     setMetricPublicationId(publicationId);
-    setMetricObservedAt("");
+    setMetricObservedAt(toLocalDateTimeInputValue(new Date()));
     setMetricViews("");
     setMetricReach("");
     setMetricImpressions("");
@@ -591,7 +613,7 @@ export default function KliqueVisibilityAdminPage() {
         {trackingError ? <p style={errorTextStyle}>{trackingError}</p> : null}
       </section>
 
-      <section className="crm-actions-bar">
+      <section ref={publicationFormRef} className="crm-actions-bar">
         <h2 style={sectionTitleStyle}>{editingPublicationId ? "Modifier la publication" : "Ajouter une publication"}</h2>
         <p style={sectionHintStyle}>Une publication réelle, datée à partir du début du suivi, format et réseau, avec un lien facultatif et un ou plusieurs athlètes concernés.</p>
         {!overview.trackingSettings ? (
@@ -632,7 +654,15 @@ export default function KliqueVisibilityAdminPage() {
               </label>
               <label style={fieldWrapStyle}>
                 <span style={fieldLabelStyle}>Réseau</span>
-                <select style={controlStyle} value={publicationNetwork} onChange={(event) => setPublicationNetwork(event.target.value as KliqueVisibilityNetwork)}>
+                <select
+                  style={controlStyle}
+                  value={publicationNetwork}
+                  onChange={(event) => {
+                    const network = event.target.value as KliqueVisibilityNetwork;
+                    setPublicationNetwork(network);
+                    if (network !== "instagram") setPublicationCollaboratorAthleteIds([]);
+                  }}
+                >
                   {kliqueVisibilityNetworks.map((network) => <option key={network} value={network}>{networkLabels[network]}</option>)}
                 </select>
               </label>
@@ -677,6 +707,31 @@ export default function KliqueVisibilityAdminPage() {
               </div>
             </div>
 
+            {publicationNetwork === "instagram" ? (
+              <fieldset aria-label="Collaborateurs Instagram" style={{ ...fieldWrapStyle, margin: 0, padding: 0, border: 0 }}>
+                <legend style={fieldLabelStyle}>
+                  Collaborateurs Instagram ({publicationCollaboratorAthleteIds.length} sélectionné{publicationCollaboratorAthleteIds.length > 1 ? "s" : ""})
+                </legend>
+                <div style={{ border: "1px solid #ececec", borderRadius: 14, padding: "6px" }}>
+                  {publicationAthleteIds.length === 0 ? (
+                    <p style={{ margin: "8px", color: "#7a7a7a", fontSize: "0.85rem" }}>Aucun athlète concerné sélectionné.</p>
+                  ) : publicationAthleteIds.map((athleteId) => (
+                    <label
+                      key={athleteId}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, fontSize: "0.9rem", color: "#2f2f2f" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={publicationCollaboratorAthleteIds.includes(athleteId)}
+                        onChange={() => toggleCollaboratorAthleteId(athleteId)}
+                      />
+                      {resolveAthleteLabel(athleteId)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <button
                 type="button"
@@ -708,7 +763,7 @@ export default function KliqueVisibilityAdminPage() {
           <>
             <div style={fieldsGridStyle}>
               <label style={fieldWrapStyle}>
-                <span style={fieldLabelStyle}>Portée</span>
+                <span style={fieldLabelStyle}>Comptes touchés</span>
                 <select style={controlStyle} value={historyScope} onChange={(event) => setHistoryScope(event.target.value as KliqueVisibilityHistoryScope)}>
                   <option value="global">Globale (sans athlète précis)</option>
                   <option value="athlete">Par athlète</option>
@@ -891,16 +946,24 @@ export default function KliqueVisibilityAdminPage() {
                           : editorialCategoryLabels[publication.editorialCategory]}
                       </strong>
                     </span>
+                    {publication.network === "instagram" && publication.collaboratorAthleteIds.length > 0 ? (
+                      <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>
+                        Collaboration Instagram : <strong style={{ color: "#2f2f2f" }}>
+                          {publication.collaboratorAthleteIds.map(resolveAthleteLabel).join(", ")}
+                        </strong>
+                      </span>
+                    ) : null}
                     <span style={{ color: "#7a7a7a", fontSize: "0.82rem" }}>
+                      {publication.format === "story" ? "Suivi sur 24 h" : "Suivi sur 30 jours"}
                       {publication.audienceTracking.status === "in_progress"
-                        ? `Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
-                        : "Suivi bouclé"}
+                        ? ` · Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
+                        : " · Suivi bouclé"}
                     </span>
                     {latestMetric ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", color: "#666666", fontSize: "0.82rem" }}>
                         <strong style={{ color: "#2f2f2f" }}>Dernier relevé : {formatDateTime(latestMetric.observedAt)}</strong>
                         <span>{integerFormatter.format(latestMetric.views)} vues</span>
-                        <span>Portée : {latestMetric.reach === null ? "—" : integerFormatter.format(latestMetric.reach)}</span>
+                        <span>Comptes touchés : {latestMetric.reach === null ? "—" : integerFormatter.format(latestMetric.reach)}</span>
                         <span>Impressions : {latestMetric.impressions === null ? "—" : integerFormatter.format(latestMetric.impressions)}</span>
                       </div>
                     ) : (
@@ -928,14 +991,14 @@ export default function KliqueVisibilityAdminPage() {
                       <div style={fieldsGridStyle}>
                         <label style={fieldWrapStyle}>
                           <span style={fieldLabelStyle}>Date du relevé</span>
-                          <input type="datetime-local" style={controlStyle} value={metricObservedAt} onChange={(event) => setMetricObservedAt(event.target.value)} />
+                          <input type="datetime-local" step={1} style={controlStyle} value={metricObservedAt} onChange={(event) => setMetricObservedAt(event.target.value)} />
                         </label>
                         <label style={fieldWrapStyle}>
                           <span style={fieldLabelStyle}>Vues</span>
                           <input type="number" min={0} step={1} style={controlStyle} value={metricViews} onChange={(event) => setMetricViews(event.target.value)} />
                         </label>
                         <label style={fieldWrapStyle}>
-                          <span style={fieldLabelStyle}>Portée (facultative)</span>
+                          <span style={fieldLabelStyle}>Comptes touchés (facultatif)</span>
                           <input type="number" min={0} step={1} style={controlStyle} value={metricReach} onChange={(event) => setMetricReach(event.target.value)} />
                         </label>
                         <label style={fieldWrapStyle}>

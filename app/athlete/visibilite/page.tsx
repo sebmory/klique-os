@@ -22,6 +22,7 @@ type OwnPublication = {
   link: string | null;
   title: string | null;
   editorialCategory: VisibilityEditorialCategory;
+  isCollaborator: boolean;
   audienceTracking: VisibilityAudienceTrackingState;
 };
 
@@ -192,6 +193,12 @@ export default function AthleteVisibilityPage() {
                 <small style={{ color: MUTED, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Contenus mesurés</small>
                 <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>{payload.audienceSummary.contentsWithSnapshot}</strong>
               </div>
+              {payload.audienceSummary.totalReach !== null ? (
+                <div style={{ border: `1px solid ${BORDER}`, borderRadius: "8px", background: "rgba(255, 255, 255, 0.025)", padding: "0.9rem" }}>
+                  <small style={{ color: MUTED, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Comptes touchés</small>
+                  <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>{integerFormatter.format(payload.audienceSummary.totalReach)}</strong>
+                </div>
+              ) : null}
               <div style={{ border: `1px solid rgba(232, 184, 75, 0.35)`, borderRadius: "8px", background: "rgba(232, 184, 75, 0.08)", padding: "0.9rem" }}>
                 <small style={{ color: "#fde68a", fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Suivi des audiences</small>
                 <strong style={{ display: "block", marginTop: 6, color: "#f8fafc", fontSize: "1.3rem" }}>
@@ -204,7 +211,7 @@ export default function AthleteVisibilityPage() {
           <section aria-labelledby="my-publications-title" style={{ borderTop: `1px solid ${BORDER}`, paddingTop: "1.25rem", display: "grid", gap: "0.7rem" }}>
             <h2 id="my-publications-title" style={{ margin: 0, color: "#f8fafc", fontSize: "1.1rem" }}>Publications suivies</h2>
             <p style={{ margin: 0, color: MUTED, fontSize: "0.84rem", maxWidth: "76ch" }}>
-              Les audiences sont généralement suivies pendant les 30 premiers jours suivant la publication. Elles peuvent être actualisées ultérieurement lorsqu’un contenu continue de progresser.
+              Les Stories sont suivies pendant les 24 premières heures suivant leur publication, et les autres contenus pendant les 30 premiers jours. Les audiences peuvent être actualisées ultérieurement lorsqu’un contenu continue de progresser.
             </p>
             {payload.publications.length === 0 ? (
               <p style={{ margin: 0, color: MUTED }}>Aucune publication suivie pour le moment.</p>
@@ -231,15 +238,22 @@ export default function AthleteVisibilityPage() {
                           <span style={{ color: "#f8fafc", fontWeight: 700, fontSize: "0.9rem" }}>{formatDate(publication.publishedAt)}</span>
                           <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{networkLabels[publication.network]}</span>
                           <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#d1d5db", border: `1px solid ${BORDER}`, background: "rgba(255, 255, 255, 0.04)" }}>{formatLabels[publication.format]}</span>
+                          {publication.isCollaborator ? (
+                            <span style={{ borderRadius: "999px", padding: "0.2rem 0.6rem", fontSize: "0.74rem", fontWeight: 700, color: "#fde68a", border: "1px solid rgba(232, 184, 75, 0.45)", background: "rgba(232, 184, 75, 0.1)" }}>
+                              Collaboration Instagram
+                            </span>
+                          ) : null}
                         </div>
                         <span style={{ color: MUTED, fontSize: "0.82rem" }}>
+                          {publication.format === "story" ? "Suivi sur 24 h" : "Suivi sur 30 jours"}
                           {publication.audienceTracking.status === "in_progress"
-                            ? `Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
-                            : "Suivi bouclé"}
+                            ? ` · Audience en cours · clôture théorique le ${formatDate(publication.audienceTracking.theoreticalClosingDate)}`
+                            : " · Suivi bouclé"}
                         </span>
                         {latestMetric ? (
                           <span style={{ color: "#d1d5db", fontSize: "0.84rem" }}>
                             <strong style={{ color: "#f8fafc" }}>{integerFormatter.format(latestMetric.views)} vues</strong>
+                            {latestMetric.reach !== null ? ` · Comptes touchés : ${integerFormatter.format(latestMetric.reach)}` : null}
                             {` · Relevé du ${formatDateTime(latestMetric.observedAt)}`}
                           </span>
                         ) : (

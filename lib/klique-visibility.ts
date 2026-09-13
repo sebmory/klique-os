@@ -110,6 +110,7 @@ export type KliqueVisibilityPublication = {
   publisherName: string | null;
   externalPostId: string | null;
   athleteIds: string[];
+  collaboratorAthleteIds: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -122,6 +123,7 @@ export type KliqueVisibilityPublicationInput = {
   title: string;
   editorialCategory: VisibilityEditorialCategory;
   athleteIds: string[];
+  collaboratorAthleteIds?: string[];
 };
 
 // Reprise historique saisie manuellement: periode, format, reseau, athlete et quantite (jamais des publications individuelles).
@@ -175,6 +177,8 @@ export type KliqueVisibilityErrorCode =
   | "invalid_metric_source"
   | "invalid_created_by"
   | "missing_athletes"
+  | "invalid_collaborator_athletes"
+  | "collaborators_require_instagram"
   | "invalid_period"
   | "invalid_scope_athlete"
   | "invalid_quantity"
@@ -214,7 +218,10 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
     throw new KliqueVisibilityError("invalid_input", "Données invalides.");
   }
   const input = value as Record<string, unknown>;
-  const allowedKeys = new Set(["format", "network", "publishedAt", "link", "title", "editorialCategory", "athleteIds"]);
+  const allowedKeys = new Set([
+    "format", "network", "publishedAt", "link", "title", "editorialCategory", "athleteIds",
+    "collaboratorAthleteIds",
+  ]);
   if (Object.keys(input).some((key) => !allowedKeys.has(key))) {
     throw new KliqueVisibilityError("invalid_input", "Données invalides.");
   }
@@ -258,6 +265,26 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
   if (athleteIds.some((id) => !id)) {
     throw new KliqueVisibilityError("missing_athletes", "Au moins un athlète est requis.");
   }
+  if (input.collaboratorAthleteIds !== undefined && !Array.isArray(input.collaboratorAthleteIds)) {
+    throw new KliqueVisibilityError("invalid_collaborator_athletes", "Collaborateurs invalides.");
+  }
+  const collaboratorAthleteIds = Array.from(new Set(
+    (input.collaboratorAthleteIds ?? []).map((id) => normalize(id)),
+  ));
+  if (
+    collaboratorAthleteIds.some((id) => !id || !athleteIds.includes(id))
+  ) {
+    throw new KliqueVisibilityError(
+      "invalid_collaborator_athletes",
+      "Chaque collaborateur doit être inclus dans les athlètes concernés.",
+    );
+  }
+  if (collaboratorAthleteIds.length > 0 && input.network !== "instagram") {
+    throw new KliqueVisibilityError(
+      "collaborators_require_instagram",
+      "Les collaborateurs sont autorisés uniquement sur Instagram.",
+    );
+  }
 
   return {
     format: input.format as KliqueVisibilityFormat,
@@ -267,6 +294,7 @@ export const parseKliqueVisibilityPublicationInput = (value: unknown): KliqueVis
     title,
     editorialCategory: input.editorialCategory as VisibilityEditorialCategory,
     athleteIds,
+    collaboratorAthleteIds,
   };
 };
 
@@ -655,11 +683,12 @@ const toUtcCivilDate = (value: string | Date): Date => {
 
 export const calculateVisibilityAudienceTrackingState = (
   publishedAt: string,
+  format: KliqueVisibilityFormat,
   currentDate: string | Date,
 ): VisibilityAudienceTrackingState => {
   const publicationDate = toUtcCivilDate(publishedAt);
   const closingDate = new Date(publicationDate.getTime());
-  closingDate.setUTCDate(closingDate.getUTCDate() + 30);
+  closingDate.setUTCDate(closingDate.getUTCDate() + (format === "story" ? 1 : 30));
   const currentCivilDate = toUtcCivilDate(currentDate);
 
   return {
@@ -763,7 +792,11 @@ const toIsoDate = (value: string | Date): string => {
 
 const toIsoDateTime = (value: string | Date): string => new Date(value).toISOString();
 
-const mapPublicationRow = (row: PublicationRow, athleteIds: string[]): KliqueVisibilityPublication => ({
+const mapPublicationRow = (
+  row: PublicationRow,
+  athleteIds: string[],
+  collaboratorAthleteIds: string[],
+): KliqueVisibilityPublication => ({
   id: row.id,
   workspaceId: row.workspace_id,
   format: row.format,
@@ -776,6 +809,7 @@ const mapPublicationRow = (row: PublicationRow, athleteIds: string[]): KliqueVis
   publisherName: row.publisher_name,
   externalPostId: row.external_post_id,
   athleteIds,
+  collaboratorAthleteIds,
   createdAt: toIsoDateTime(row.created_at),
   updatedAt: toIsoDateTime(row.updated_at),
 });
@@ -902,6 +936,8 @@ export const createKliqueVisibilityPublication = async (
   const sql = createContentStorageClient();
   const id = randomUUID();
   const now = new Date().toISOString();
+  const collaboratorAthleteIds = input.collaboratorAthleteIds ?? [];
+  const collaboratorAthleteIdSet = new Set(collaboratorAthleteIds);
 
   const insertPublication = sql`
     INSERT INTO klique_visibility_publications (
@@ -914,13 +950,16 @@ export const createKliqueVisibilityPublication = async (
               origin, publisher_name, external_post_id, created_at, updated_at
   `;
   const insertAthletes = input.athleteIds.map((athleteId) => sql`
-    INSERT INTO klique_visibility_publication_athletes (publication_id, workspace_id, athlete_id, created_at)
-    VALUES (${id}, ${resolvedWorkspaceId}, ${athleteId}, ${now})
+    INSERT INTO klique_visibility_publication_athletes (
+      publication_id, workspace_id, athlete_id, is_collaborator, created_at
+    ) VALUES (
+      ${id}, ${resolvedWorkspaceId}, ${athleteId}, ${collaboratorAthleteIdSet.has(athleteId)}, ${now}
+    )
   `);
 
   const results = await sql.transaction([insertPublication, ...insertAthletes]);
   const publicationRow = (results[0] as PublicationRow[])[0];
-  return mapPublicationRow(publicationRow, input.athleteIds);
+  return mapPublicationRow(publicationRow, input.athleteIds, collaboratorAthleteIds);
 };
 
 export const listKliqueVisibilityPublications = async (
@@ -936,7 +975,11 @@ export const listKliqueVisibilityPublications = async (
            COALESCE(
              array_agg(athlete.athlete_id ORDER BY athlete.athlete_id) FILTER (WHERE athlete.athlete_id IS NOT NULL),
              ARRAY[]::text[]
-           ) AS athlete_ids
+           ) AS athlete_ids,
+           COALESCE(
+             array_agg(athlete.athlete_id ORDER BY athlete.athlete_id) FILTER (WHERE athlete.is_collaborator IS TRUE),
+             ARRAY[]::text[]
+           ) AS collaborator_athlete_ids
     FROM klique_visibility_publications publication
     LEFT JOIN klique_visibility_publication_athletes athlete
       ON athlete.publication_id = publication.id
@@ -946,8 +989,8 @@ export const listKliqueVisibilityPublications = async (
     ORDER BY publication.published_at DESC, publication.created_at DESC
   `;
 
-  return (rows as (PublicationRow & { athlete_ids: string[] })[]).map(
-    (row) => mapPublicationRow(row, row.athlete_ids),
+  return (rows as (PublicationRow & { athlete_ids: string[]; collaborator_athlete_ids: string[] })[]).map(
+    (row) => mapPublicationRow(row, row.athlete_ids, row.collaborator_athlete_ids),
   );
 };
 
@@ -967,6 +1010,8 @@ export const updateKliqueVisibilityPublication = async (
     );
   }
   const sql = createContentStorageClient();
+  const collaboratorAthleteIds = input.collaboratorAthleteIds ?? [];
+  const collaboratorAthleteIdSet = new Set(collaboratorAthleteIds);
 
   // Verifie l'appartenance au workspace avant la transaction pour ne jamais inserer des liens athletes orphelins.
   const existing = await sql`
@@ -990,13 +1035,16 @@ export const updateKliqueVisibilityPublication = async (
     WHERE publication_id = ${id} AND workspace_id = ${resolvedWorkspaceId}
   `;
   const insertAthletes = input.athleteIds.map((athleteId) => sql`
-    INSERT INTO klique_visibility_publication_athletes (publication_id, workspace_id, athlete_id, created_at)
-    VALUES (${id}, ${resolvedWorkspaceId}, ${athleteId}, ${now})
+    INSERT INTO klique_visibility_publication_athletes (
+      publication_id, workspace_id, athlete_id, is_collaborator, created_at
+    ) VALUES (
+      ${id}, ${resolvedWorkspaceId}, ${athleteId}, ${collaboratorAthleteIdSet.has(athleteId)}, ${now}
+    )
   `);
 
   const results = await sql.transaction([updatePublication, deleteAthletes, ...insertAthletes]);
   const publicationRow = (results[0] as PublicationRow[])[0];
-  return mapPublicationRow(publicationRow, input.athleteIds);
+  return mapPublicationRow(publicationRow, input.athleteIds, collaboratorAthleteIds);
 };
 
 export const deleteKliqueVisibilityPublication = async (
@@ -1040,13 +1088,17 @@ export const updateKliqueVisibilityPublicationClassification = async (
     throw new KliqueVisibilityError("publication_not_found", "Publication introuvable.");
   }
   const athleteRows = await sql`
-    SELECT athlete_id
+    SELECT athlete_id, is_collaborator
     FROM klique_visibility_publication_athletes
     WHERE publication_id = ${id} AND workspace_id = ${resolvedWorkspaceId}
     ORDER BY athlete_id
   `;
-  const athleteIds = (athleteRows as Array<{ athlete_id: string }>).map((row) => row.athlete_id);
-  return mapPublicationRow(publicationRow, athleteIds);
+  const typedAthleteRows = athleteRows as Array<{ athlete_id: string; is_collaborator: boolean }>;
+  const athleteIds = typedAthleteRows.map((row) => row.athlete_id);
+  const collaboratorAthleteIds = typedAthleteRows
+    .filter((row) => row.is_collaborator)
+    .map((row) => row.athlete_id);
+  return mapPublicationRow(publicationRow, athleteIds, collaboratorAthleteIds);
 };
 
 export const createKliqueVisibilityMetricSnapshot = async (

@@ -9,7 +9,7 @@ const clerkUserId = "user-admin";
 const publication = {
   id: publicationId,
   workspaceId,
-  format: "photo" as const,
+  format: "story" as const,
   network: "instagram" as const,
   publishedAt: "2026-09-01",
   link: null,
@@ -97,8 +97,8 @@ describe("KLIQUE visibility Admin audience API", () => {
     expect(dependencies.getOverview).toHaveBeenCalledWith({ workspaceId });
     expect(dependencies.listMetricSnapshots).toHaveBeenCalledWith({ workspaceId, publicationId });
     expect(payload.publications[0].audienceTracking).toEqual({
-      status: "in_progress",
-      theoreticalClosingDate: "2026-10-01",
+      status: "closed",
+      theoreticalClosingDate: "2026-09-02",
     });
     expect(payload.metricSnapshots).toEqual([metricSnapshot]);
     expect(payload.audienceSummary).toMatchObject({
@@ -123,7 +123,6 @@ describe("KLIQUE visibility Admin audience API", () => {
       impressions: 1600,
       source: "api",
     }));
-
     expect(response.status).toBe(200);
     expect(dependencies.createMetricSnapshot).toHaveBeenCalledWith({
       workspaceId,
@@ -136,6 +135,27 @@ describe("KLIQUE visibility Admin audience API", () => {
         impressions: 1600,
         source: "manual",
       },
+    });
+  });
+
+  it("returns 409 when a snapshot already exists at the exact same instant", async () => {
+    const dependencies = createDependencies();
+    dependencies.createMetricSnapshot.mockRejectedValueOnce({
+      code: "23505",
+      constraint_name: "klique_visibility_metric_snapshots_workspace_publication_observed_unique",
+    });
+    const handlers = createAdminKliqueVisibilityHandlers(dependencies);
+    const response = await handlers.POST(request("POST", {
+      action: "metric_snapshot",
+      publicationId,
+      observedAt: "2026-09-12T10:00:00.000Z",
+      views: 1250,
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "Un relevé existe déjà à cette date. Modifiez l’heure de quelques secondes.",
+      code: "metric_snapshot_duplicate",
     });
   });
 
@@ -163,7 +183,7 @@ describe("KLIQUE visibility Admin audience API", () => {
     });
   });
 
-  it("preserves the existing publication POST and PATCH actions", async () => {
+  it("passes deduplicated collaborator athlete ids through publication POST and PATCH actions", async () => {
     const dependencies = createDependencies();
     const handlers = createAdminKliqueVisibilityHandlers(dependencies);
     const publicationInput = {
@@ -172,12 +192,14 @@ describe("KLIQUE visibility Admin audience API", () => {
       publishedAt: "2026-09-01",
       title: "  Galerie de rentrée  ",
       editorialCategory: "photo_gallery",
-      athleteIds: ["athlete-1"],
+      athleteIds: ["athlete-1", "athlete-2"],
+      collaboratorAthleteIds: ["athlete-2", "athlete-2"],
     };
     const validatedPublicationInput = {
       ...publicationInput,
       title: "Galerie de rentrée",
       link: null,
+      collaboratorAthleteIds: ["athlete-2"],
     };
 
     expect((await handlers.POST(request("POST", {
@@ -192,6 +214,44 @@ describe("KLIQUE visibility Admin audience API", () => {
       publication: publicationInput,
     }))).status).toBe(200);
     expect(dependencies.updatePublication).toHaveBeenCalledWith({ workspaceId, publicationId, publication: validatedPublicationInput });
+  });
+
+  it.each([
+    ["a collaborator outside the publication athletes", {
+      network: "instagram",
+      athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: ["athlete-2"],
+    }],
+    ["a collaborator outside Instagram", {
+      network: "tiktok",
+      athleteIds: ["athlete-1"],
+      collaboratorAthleteIds: ["athlete-1"],
+    }],
+  ])("returns 400 for %s when creating or updating a publication", async (_label, collaboratorFields) => {
+    const dependencies = createDependencies();
+    const handlers = createAdminKliqueVisibilityHandlers(dependencies);
+    const invalidPublication = {
+      format: "photo",
+      publishedAt: "2026-09-01",
+      title: "Galerie de rentrée",
+      editorialCategory: "photo_gallery",
+      ...collaboratorFields,
+    };
+
+    const createResponse = await handlers.POST(request("POST", {
+      action: "create_publication",
+      publication: invalidPublication,
+    }));
+    const updateResponse = await handlers.PATCH(request("PATCH", {
+      action: "update_publication",
+      publicationId,
+      publication: invalidPublication,
+    }));
+
+    expect(createResponse.status).toBe(400);
+    expect(updateResponse.status).toBe(400);
+    expect(dependencies.createPublication).not.toHaveBeenCalled();
+    expect(dependencies.updatePublication).not.toHaveBeenCalled();
   });
 
   it.each([

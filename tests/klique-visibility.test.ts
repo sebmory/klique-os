@@ -44,7 +44,29 @@ describe("KLIQUE visibility publication input", () => {
       athleteIds: ["athlete-1", "athlete-2", "athlete-1"],
     });
     expect(parsed.athleteIds).toEqual(["athlete-1", "athlete-2"]);
+    expect(parsed.collaboratorAthleteIds).toEqual([]);
     expect(parsed.format).toBe("carousel");
+  });
+
+  it("deduplicates Instagram collaborators included in the publication athletes", () => {
+    const parsed = parseKliqueVisibilityPublicationInput({
+      ...validPublication(),
+      collaboratorAthleteIds: [" athlete-2 ", "athlete-2"],
+    });
+
+    expect(parsed.collaboratorAthleteIds).toEqual(["athlete-2"]);
+  });
+
+  it("rejects collaborators outside the publication athletes or outside Instagram", () => {
+    expect(() => parseKliqueVisibilityPublicationInput({
+      ...validPublication(),
+      collaboratorAthleteIds: ["athlete-3"],
+    })).toThrow("Chaque collaborateur doit être inclus dans les athlètes concernés.");
+    expect(() => parseKliqueVisibilityPublicationInput({
+      ...validPublication(),
+      network: "tiktok",
+      collaboratorAthleteIds: ["athlete-1"],
+    })).toThrow("Les collaborateurs sont autorisés uniquement sur Instagram.");
   });
 
   it("requires and normalizes editorial details for new and updated publications", () => {
@@ -213,6 +235,18 @@ describe("KLIQUE visibility audience persistence", () => {
     expect(audienceBody).not.toMatch(/DELETE FROM klique_visibility_metric_snapshots/);
     expect(source).toContain("observedAt: toIsoDateTime(row.observed_at)");
     expect(source).toContain("createdAt: toIsoDateTime(row.created_at)");
+  });
+
+  it("writes collaborator flags on athlete links and exposes only flagged athletes", () => {
+    const publicationBody = source.slice(
+      source.indexOf("export const createKliqueVisibilityPublication"),
+      source.indexOf("export const deleteKliqueVisibilityPublication"),
+    );
+    expect(publicationBody).toContain("publication_id, workspace_id, athlete_id, is_collaborator, created_at");
+    expect(publicationBody).toContain("${collaboratorAthleteIdSet.has(athleteId)}");
+    expect(publicationBody).toContain("FILTER (WHERE athlete.is_collaborator IS TRUE)");
+    expect(publicationBody).toContain("AS collaborator_athlete_ids");
+    expect(source).toContain("collaboratorAthleteIds,");
   });
 });
 
@@ -554,21 +588,32 @@ describe("KLIQUE visibility tracking start date", () => {
 
 describe("KLIQUE visibility audience tracking state", () => {
   it("keeps tracking in progress through J+29", () => {
-    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "2026-01-30")).toEqual({
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "photo", "2026-01-30")).toEqual({
       status: "in_progress",
       theoreticalClosingDate: "2026-01-31",
     });
   });
 
   it("closes tracking at J+30", () => {
-    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "2026-01-31")).toEqual({
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "reel", "2026-01-31")).toEqual({
       status: "closed",
       theoreticalClosingDate: "2026-01-31",
     });
   });
 
+  it("keeps a Story in progress through J+0 and closes it at J+1", () => {
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "story", "2026-01-01")).toEqual({
+      status: "in_progress",
+      theoreticalClosingDate: "2026-01-02",
+    });
+    expect(calculateVisibilityAudienceTrackingState("2026-01-01", "story", "2026-01-02")).toEqual({
+      status: "closed",
+      theoreticalClosingDate: "2026-01-02",
+    });
+  });
+
   it("keeps a future publication in progress", () => {
-    expect(calculateVisibilityAudienceTrackingState("2026-02-10", "2026-02-01")).toEqual({
+    expect(calculateVisibilityAudienceTrackingState("2026-02-10", "article", "2026-02-01")).toEqual({
       status: "in_progress",
       theoreticalClosingDate: "2026-03-12",
     });
@@ -577,6 +622,7 @@ describe("KLIQUE visibility audience tracking state", () => {
   it("uses UTC civil dates across timezone offsets", () => {
     expect(calculateVisibilityAudienceTrackingState(
       "2026-03-01",
+      "video",
       "2026-03-30T23:30:00-02:00",
     )).toEqual({
       status: "closed",
@@ -700,6 +746,8 @@ describe("KLIQUE visibility admin update and delete", () => {
     expect(updateBody).toContain("requireTrackingStartDate(resolvedWorkspaceId)");
     expect(updateBody).toContain("isKliqueVisibilityPublicationWithinTracking(input.publishedAt, trackingStartDate)");
     expect(updateBody).toContain("SELECT id FROM klique_visibility_publications WHERE id = ${id} AND workspace_id = ${resolvedWorkspaceId}");
+    expect(updateBody).toContain("publication_id, workspace_id, athlete_id, is_collaborator, created_at");
+    expect(updateBody).toContain("${collaboratorAthleteIdSet.has(athleteId)}");
     expect(updateBody).toContain("sql.transaction([updatePublication, deleteAthletes, ...insertAthletes])");
   });
 

@@ -8,10 +8,12 @@ const publication = (
   id: string,
   athleteIds: string[],
   network: "instagram" | "tiktok" = "instagram",
+  format: "photo" | "story" = "photo",
+  collaboratorAthleteIds: string[] = [],
 ) => ({
   id,
   workspaceId,
-  format: "photo" as const,
+  format,
   network,
   publishedAt: "2026-09-01",
   link: `https://example.com/${id}`,
@@ -21,6 +23,7 @@ const publication = (
   publisherName: "KLIQUE",
   externalPostId: id,
   athleteIds,
+  collaboratorAthleteIds,
   createdAt: "2026-09-01T10:00:00.000Z",
   updatedAt: "2026-09-01T10:00:00.000Z",
 });
@@ -55,9 +58,9 @@ const createDependencies = () => ({
     athleteId,
   }),
   listPublications: vi.fn().mockResolvedValue([
-    publication(ownPublicationId, [athleteId, "athlete-2"]),
-    publication(ownPublicationWithoutMetricsId, [athleteId], "tiktok"),
-    publication(otherPublicationId, ["athlete-2"]),
+    publication(ownPublicationId, [athleteId, "athlete-2"], "instagram", "photo", [athleteId, "athlete-2"]),
+    publication(ownPublicationWithoutMetricsId, [athleteId], "tiktok", "story"),
+    publication(otherPublicationId, ["athlete-2"], "instagram", "photo", ["athlete-2"]),
   ]),
   listHistoryEntries: vi.fn().mockResolvedValue([]),
   listMetricSnapshots: vi.fn().mockImplementation(async (_workspaceId: string, publicationId: string) => {
@@ -97,9 +100,19 @@ describe("KLIQUE visibility Athlete audience GET", () => {
       id: ownPublicationId,
       title: `Publication ${ownPublicationId}`,
       editorialCategory: "photo_gallery",
+      isCollaborator: true,
       audienceTracking: {
         status: "in_progress",
         theoreticalClosingDate: "2026-10-01",
+      },
+    });
+    expect(payload.publications[1]).toMatchObject({
+      id: ownPublicationWithoutMetricsId,
+      format: "story",
+      isCollaborator: false,
+      audienceTracking: {
+        status: "closed",
+        theoreticalClosingDate: "2026-09-02",
       },
     });
     expect(payload.audienceSummary).toMatchObject({
@@ -124,6 +137,7 @@ describe("KLIQUE visibility Athlete audience GET", () => {
     const payload = await response.json();
 
     expect(payload.publications[0]).not.toHaveProperty("athleteIds");
+    expect(payload.publications[0]).not.toHaveProperty("collaboratorAthleteIds");
     expect(payload.latestMetrics[0]).not.toHaveProperty("workspaceId");
     expect(payload.latestMetrics[0]).not.toHaveProperty("createdByClerkUserId");
     expect(payload.latestMetrics[0]).not.toHaveProperty("source");

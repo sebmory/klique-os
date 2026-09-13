@@ -18,23 +18,25 @@ const payload = {
       link: "https://instagram.com/p/measured",
       title: "Galerie de rentrée",
       editorialCategory: "photo_gallery",
+      isCollaborator: true,
       audienceTracking: { status: "in_progress", theoreticalClosingDate: "2026-10-02" },
     },
     {
       id: pendingPublicationId,
-      format: "reel",
+      format: "story",
       network: "tiktok",
       publishedAt: "2026-09-05",
       link: null,
       title: null,
       editorialCategory: "legacy_unclassified",
-      audienceTracking: { status: "closed", theoreticalClosingDate: "2026-10-05" },
+      isCollaborator: false,
+      audienceTracking: { status: "closed", theoreticalClosingDate: "2026-09-06" },
     },
   ],
   totals: { totalTracked: 2, totalHistorical: 5, combinedTotal: 7 },
   formatBreakdown: [
     { format: "photo", tracked: 1, historical: 5, combined: 6 },
-    { format: "reel", tracked: 1, historical: 0, combined: 1 },
+    { format: "story", tracked: 1, historical: 0, combined: 1 },
   ],
   audienceSummary: {
     totalDetailedContents: 2,
@@ -111,6 +113,7 @@ describe("KLIQUE Visibility Athlete page audiences", () => {
     expect(metricValue("Vues cumulées")).toMatch(/1.?250/);
     expect(metricValue("Moyenne par contenu mesuré")).toMatch(/1.?250/);
     expect(metricValue("Contenus mesurés")).toBe("1");
+    expect(metricValue("Comptes touchés")).toBe("900");
     expect(metricValue("Suivi des audiences")).toBe("1 publication sur 2 renseignée — 50 %");
 
     expect(metricValue("Suivi détaillé")).toBe("2");
@@ -127,17 +130,36 @@ describe("KLIQUE Visibility Athlete page audiences", () => {
     expect(measured?.textContent).toContain("Galerie de rentrée");
     expect(measured?.textContent).toContain("Galerie photo");
     expect(measured?.textContent).toContain("Audience en cours");
+    expect(measured?.textContent).toContain("Suivi sur 30 jours");
     expect(measured?.textContent).toContain("clôture théorique le 02 octobre 2026");
     expect(measured?.textContent).toContain("Instagram");
     expect(measured?.textContent).toContain("Photo");
+    expect(measured?.textContent).toContain("Collaboration Instagram");
     expect(measured?.querySelector("a")?.getAttribute("href")).toBe("https://instagram.com/p/measured");
     expect(measured?.textContent).toMatch(/1.?250 vues/);
+    expect(measured?.textContent).toContain("Comptes touchés : 900");
     expect(measured?.textContent).toContain("Relevé du");
     expect(pending?.textContent).toContain("Publication non classée");
+    expect(pending?.textContent).toContain("Suivi sur 24 h");
     expect(pending?.textContent).toContain("Suivi bouclé");
     expect(pending?.textContent).toContain("TikTok");
-    expect(pending?.textContent).toContain("Reel");
+    expect(pending?.textContent).toContain("Story");
+    expect(pending?.textContent).not.toContain("Collaboration Instagram");
     expect(pending?.textContent).toContain("Audience pas encore renseignée");
+  });
+
+  it("hides accounts reached when the summary and latest snapshot values are null", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...payload,
+      publications: [payload.publications[0]],
+      audienceSummary: { ...payload.audienceSummary, totalReach: null },
+      latestMetrics: [{ ...payload.latestMetrics[0], reach: null }],
+    }));
+    await mount();
+
+    expect(metricValue("Comptes touchés")).toBeUndefined();
+    const measured = container.querySelector(`[data-publication-id="${measuredPublicationId}"]`);
+    expect(measured?.textContent).not.toContain("Comptes touchés");
   });
 
   it("explains that audience figures cover only measured content", async () => {
@@ -147,7 +169,7 @@ describe("KLIQUE Visibility Athlete page audiences", () => {
       "Les chiffres d’audience concernent uniquement les contenus pour lesquels un relevé a déjà été enregistré.",
     );
     expect(container.textContent).toContain(
-      "Les audiences sont généralement suivies pendant les 30 premiers jours suivant la publication. Elles peuvent être actualisées ultérieurement lorsqu’un contenu continue de progresser.",
+      "Les Stories sont suivies pendant les 24 premières heures suivant leur publication, et les autres contenus pendant les 30 premiers jours. Les audiences peuvent être actualisées ultérieurement lorsqu’un contenu continue de progresser.",
     );
     expect(container.textContent).not.toContain("pas les vues ni la portée sur les réseaux sociaux");
   });
