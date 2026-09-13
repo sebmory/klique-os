@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import { resolveActiveAccess } from "@/lib/hub-opportunities/service";
+import {
+  createNotificationsForRecipients,
+  findActiveAthleteClerkUserIds,
+} from "@/lib/notifications/service";
 
 export type HubOpportunitySlotStatus = "open" | "closed" | "cancelled";
 export type HubOpportunitySlotRequestStatus = "requested" | "confirmed" | "declined" | "cancelled";
@@ -78,6 +82,34 @@ const mapRequestRow = (row: Record<string, unknown>): HubOpportunitySlotRequestR
 const parseTimestamp = (value: string): number => {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+};
+
+const notifyAthleteOfSlotRequestDecision = async (
+  slotRequest: HubOpportunitySlotRequestRecord,
+): Promise<void> => {
+  if (slotRequest.status !== "confirmed" && slotRequest.status !== "declined") return;
+
+  try {
+    const recipientClerkUserIds = await findActiveAthleteClerkUserIds(
+      slotRequest.workspaceId,
+      [slotRequest.athleteId],
+    );
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId: slotRequest.workspaceId,
+      recipientClerkUserIds,
+      type: "opportunity.slot_request_decision",
+      title: slotRequest.status === "confirmed"
+        ? "Votre créneau a été accepté"
+        : "Votre demande de créneau a été refusée",
+      actionHref: "/athlete/opportunities",
+      sourceType: "hub_opportunity_slot_request",
+      sourceId: `${slotRequest.id}:${slotRequest.status}`,
+    });
+  } catch (error) {
+    console.error(`[hub_opportunity_slot_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 
 export const loadHubOpportunitySlots = async (request: Request, opportunityId?: string | null) => {
@@ -360,7 +392,9 @@ export const updateHubOpportunitySlotRequestStatus = async (
       throw new Error("NotFound");
     }
 
-    return mapRequestRow(rows[0] as Record<string, unknown>);
+    const updatedRequest = mapRequestRow(rows[0] as Record<string, unknown>);
+    await notifyAthleteOfSlotRequestDecision(updatedRequest);
+    return updatedRequest;
   }
 
   // Le verrou sur le creneau serialise les confirmations concurrentes et empeche la surreservation.
@@ -399,5 +433,7 @@ export const updateHubOpportunitySlotRequestStatus = async (
     throw new Error("SlotFull");
   }
 
-  return mapRequestRow(updatedRows[0]);
+  const updatedRequest = mapRequestRow(updatedRows[0]);
+  await notifyAthleteOfSlotRequestDecision(updatedRequest);
+  return updatedRequest;
 };

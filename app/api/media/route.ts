@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { demoMedia } from "@/lib/demo-media";
-import { evaluateBusinessAccess } from "@/lib/clerk-access/service";
+import { evaluateBusinessAccess, getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import {
   addMediaToGoogleSheets,
   getMediaFromGoogleSheets,
 } from "@/lib/google-sheets";
+import { hasMediaUsageRights } from "@/lib/media-bank/service";
+import {
+  createNotificationsForRecipients,
+  findAllActiveMediaClerkUserIds,
+  findActiveAthleteClerkUserIds,
+} from "@/lib/notifications/service";
 import type { MediaResponse, NewMediaLot } from "@/types/media";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +28,63 @@ const normalizeAthleteIds = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) return undefined;
   const entries = value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
   return entries.length > 0 ? [...new Set(entries)] : undefined;
+};
+
+const notifyAthletesOfMediaLot = async (
+  request: Request,
+  mediaLotId: string,
+  athleteIds: string[],
+  body: string,
+): Promise<void> => {
+  try {
+    const profile = await getCurrentUserAccessProfile(request);
+    const workspaceId = profile?.userAccess?.workspaceId?.trim() ?? "";
+    if (!workspaceId) return;
+
+    const recipientClerkUserIds = await findActiveAthleteClerkUserIds(workspaceId, athleteIds);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId,
+      recipientClerkUserIds,
+      type: "media_lot.gallery_available",
+      title: "Nouvelle galerie disponible",
+      body,
+      actionHref: "/athlete/media-bank",
+      sourceType: "media_lot",
+      sourceId: mediaLotId,
+    });
+  } catch (error) {
+    console.error(`[media_lot_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const notifyMediaUsersOfMediaLot = async (
+  request: Request,
+  mediaLotId: string,
+  body: string,
+): Promise<void> => {
+  try {
+    const profile = await getCurrentUserAccessProfile(request);
+    const workspaceId = profile?.userAccess?.workspaceId?.trim() ?? "";
+    if (!workspaceId) return;
+
+    const recipientClerkUserIds = await findAllActiveMediaClerkUserIds(workspaceId);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId,
+      recipientClerkUserIds,
+      type: "media_bank.lot_available",
+      title: "Nouveau lot d’images disponible",
+      body,
+      actionHref: "/media-desk",
+      sourceType: "media_bank_lot",
+      sourceId: mediaLotId,
+    });
+  } catch (error) {
+    console.error(`[media_lot_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
 };
 
 export async function GET(request: NextRequest) {
@@ -73,11 +136,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await addMediaToGoogleSheets({
+    const athleteIds = normalizeAthleteIds(body.athleteIds);
+    const mediaLotId = await addMediaToGoogleSheets({
       ...body,
       driveLink: link,
-      athleteIds: normalizeAthleteIds(body.athleteIds),
+      athleteIds,
     });
+    if (mediaLotId && link && athleteIds) {
+      await notifyAthletesOfMediaLot(
+        request,
+        mediaLotId,
+        athleteIds,
+        String(body.event ?? body.mediaType ?? "").trim(),
+      );
+    }
+    if (mediaLotId && link && hasMediaUsageRights(body.rights)) {
+      await notifyMediaUsersOfMediaLot(
+        request,
+        mediaLotId,
+        String(body.event ?? body.mediaType ?? "").trim(),
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

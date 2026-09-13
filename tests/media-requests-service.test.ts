@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sqlMock, createContentStorageClientMock, getCurrentUserAccessProfileMock } = vi.hoisted(() => ({
+const {
+  sqlMock,
+  createContentStorageClientMock,
+  getCurrentUserAccessProfileMock,
+  createNotificationsForRecipientsMock,
+  findActiveAdminClerkUserIdsMock,
+  findActiveAthleteClerkUserIdsMock,
+} = vi.hoisted(() => ({
   sqlMock: vi.fn(),
   createContentStorageClientMock: vi.fn(),
   getCurrentUserAccessProfileMock: vi.fn(),
+  createNotificationsForRecipientsMock: vi.fn(),
+  findActiveAdminClerkUserIdsMock: vi.fn(),
+  findActiveAthleteClerkUserIdsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/content-storage/db", () => ({
@@ -13,6 +23,12 @@ vi.mock("@/lib/content-storage/db", () => ({
 
 vi.mock("@/lib/clerk-access/service", () => ({
   getCurrentUserAccessProfile: getCurrentUserAccessProfileMock,
+}));
+
+vi.mock("@/lib/notifications/service", () => ({
+  createNotificationsForRecipients: createNotificationsForRecipientsMock,
+  findActiveAdminClerkUserIds: findActiveAdminClerkUserIdsMock,
+  findActiveAthleteClerkUserIds: findActiveAthleteClerkUserIdsMock,
 }));
 
 import {
@@ -132,6 +148,12 @@ const validInput = {
   deadline: "2026-09-20",
   athleteIds: ["athlete-1"],
 };
+
+beforeEach(() => {
+  createNotificationsForRecipientsMock.mockReset().mockResolvedValue([]);
+  findActiveAdminClerkUserIdsMock.mockReset().mockResolvedValue([]);
+  findActiveAthleteClerkUserIdsMock.mockReset().mockResolvedValue([]);
+});
 
 describe("media requests normalization", () => {
   it("keeps only the seven allowed statuses", () => {
@@ -317,6 +339,54 @@ describe("media requests creation is reserved to the media role", () => {
     );
   });
 
+  it.each([
+    ["interview", "Interview"],
+    ["reaction", "Réaction"],
+    ["reportage", "Reportage"],
+    ["images", "Images"],
+    ["podcast", "Podcast"],
+  ] as const)("notifies all active admins after creating a %s request", async (requestType, label) => {
+    findActiveAdminClerkUserIdsMock.mockResolvedValue(["user_admin_1", "user_admin_2"]);
+    installSqlMock({
+      subjectRows: [subjectRow({
+        available_request_types: ["interview", "reaction", "reportage", "images", "podcast"],
+      })],
+      requestRows: [requestRow({ request_type: requestType })],
+    });
+
+    await createMediaRequest(mediaAccess, {
+      ...validInput,
+      requestType,
+      athleteIds: requestType === "images" ? [] : validInput.athleteIds,
+    });
+
+    expect(findActiveAdminClerkUserIdsMock).toHaveBeenCalledWith("klique-os");
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_admin_1", "user_admin_2"],
+      type: "media_request.created",
+      title: "Nouvelle demande média",
+      body: label,
+      actionHref: "/media-desk",
+      sourceType: "media_request_created",
+      sourceId: "request-1",
+    });
+  });
+
+  it("keeps the created request successful when admin notification fails", async () => {
+    findActiveAdminClerkUserIdsMock.mockResolvedValue(["user_admin"]);
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(createMediaRequest(mediaAccess, validInput)).resolves.toMatchObject({
+      id: "request-1",
+      requestType: "interview",
+    });
+
+    expect(consoleError).toHaveBeenCalledWith("[media_requests_notifications] Notifications unavailable");
+    consoleError.mockRestore();
+  });
+
   it("only reads a published subject of the caller workspace", async () => {
     await createMediaRequest(mediaAccess, validInput);
 
@@ -419,6 +489,156 @@ describe("media requests status update is admin only", () => {
     expect(update?.text).toContain("else admin_note end");
   });
 
+  it.each([
+    ["submitted", "Envoyée"],
+    ["reviewing", "En cours d’examen"],
+    ["awaiting_athlete", "En attente de l’athlète"],
+    ["accepted", "Acceptée"],
+    ["declined", "Refusée"],
+    ["completed", "Terminée"],
+    ["cancelled", "Annulée"],
+  ] as const)("notifies the requester when status changes to %s", async (status, label) => {
+    const previousStatus = status === "submitted" ? "reviewing" : "submitted";
+    installSqlMock({
+      updateRows: [{
+        id: "request-1",
+        previous_status: previousStatus,
+        requested_by_clerk_user_id: "user_media",
+      }],
+      requestRows: [requestRow({ status })],
+    });
+
+    await updateMediaRequestStatus(adminAccess, "request-1", { status });
+
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_media"],
+      type: "media_request.status_updated",
+      title: "Votre demande média a été mise à jour",
+      body: label,
+      actionHref: "/media-desk",
+      sourceType: "media_request_status",
+      sourceId: `request-1:${status}`,
+    });
+  });
+
+  it("does not notify when only the internal note changes", async () => {
+    installSqlMock({
+      updateRows: [{
+        id: "request-1",
+        previous_status: "submitted",
+        requested_by_clerk_user_id: "user_media",
+      }],
+      requestRows: [requestRow({ status: "submitted", admin_note: "Note actualisee" })],
+    });
+
+    await updateMediaRequestStatus(adminAccess, "request-1", {
+      status: "submitted",
+      adminNote: "Note actualisee",
+    });
+
+    expect(createNotificationsForRecipientsMock).not.toHaveBeenCalled();
+    expect(findActiveAthleteClerkUserIdsMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["interview", "Interview"],
+    ["reaction", "Réaction"],
+    ["reportage", "Reportage"],
+    ["images", "Images"],
+    ["podcast", "Podcast"],
+  ] as const)("notifies each active athlete when a %s request awaits consent", async (requestType, label) => {
+    installSqlMock({
+      updateRows: [{
+        id: "request-1",
+        previous_status: "reviewing",
+        requested_by_clerk_user_id: "user_media",
+      }],
+      requestRows: [requestRow({
+        status: "awaiting_athlete",
+        request_type: requestType,
+        athletes: [
+          { athlete_id: "athlete-1", consent_status: "pending", responded_at: null },
+          { athlete_id: "athlete-2", consent_status: "pending", responded_at: null },
+        ],
+      })],
+    });
+    findActiveAthleteClerkUserIdsMock.mockImplementation(
+      async (_workspaceId: string, athleteIds: string[]) => [`user_${athleteIds[0]}`],
+    );
+
+    await updateMediaRequestStatus(adminAccess, "request-1", { status: "awaiting_athlete" });
+
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenNthCalledWith(1, "klique-os", ["athlete-1"]);
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenNthCalledWith(2, "klique-os", ["athlete-2"]);
+    for (const athleteId of ["athlete-1", "athlete-2"]) {
+      expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+        workspaceId: "klique-os",
+        recipientClerkUserIds: [`user_${athleteId}`],
+        type: "media_request.athlete_consent_requested",
+        title: "Votre accord est demandé",
+        body: label,
+        actionHref: "/athlete/media-requests",
+        sourceType: "media_request_athlete",
+        sourceId: `request-1:${athleteId}`,
+      });
+    }
+  });
+
+  it("keeps the status update successful and continues after an athlete notification fails", async () => {
+    installSqlMock({
+      updateRows: [{
+        id: "request-1",
+        previous_status: "reviewing",
+        requested_by_clerk_user_id: "user_media",
+      }],
+      requestRows: [requestRow({
+        status: "awaiting_athlete",
+        athletes: [
+          { athlete_id: "athlete-1", consent_status: "pending", responded_at: null },
+          { athlete_id: "athlete-2", consent_status: "pending", responded_at: null },
+        ],
+      })],
+    });
+    findActiveAthleteClerkUserIdsMock.mockImplementation(
+      async (_workspaceId: string, athleteIds: string[]) => [`user_${athleteIds[0]}`],
+    );
+    createNotificationsForRecipientsMock
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("Notifications unavailable"))
+      .mockResolvedValueOnce([]);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(updateMediaRequestStatus(adminAccess, "request-1", { status: "awaiting_athlete" }))
+      .resolves.toMatchObject({ id: "request-1", status: "awaiting_athlete" });
+
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenCalledTimes(2);
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: "request-1:athlete-2" }),
+    );
+    expect(consoleError).toHaveBeenCalledWith("[media_requests_notifications] Notifications unavailable");
+    consoleError.mockRestore();
+  });
+
+  it("keeps the status update successful when notification delivery fails", async () => {
+    installSqlMock({
+      updateRows: [{
+        id: "request-1",
+        previous_status: "submitted",
+        requested_by_clerk_user_id: "user_media",
+      }],
+      requestRows: [requestRow({ status: "accepted" })],
+    });
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(updateMediaRequestStatus(adminAccess, "request-1", { status: "accepted" }))
+      .resolves.toMatchObject({ id: "request-1", status: "accepted" });
+
+    expect(consoleError).toHaveBeenCalledWith("[media_requests_notifications] Notifications unavailable");
+    consoleError.mockRestore();
+  });
+
   it("refuses an invalid status before any write", async () => {
     await expect(
       updateMediaRequestStatus(adminAccess, "request-1", { status: "archive" }),
@@ -511,6 +731,38 @@ describe("media requests athlete consent", () => {
     expect(update?.text).toContain("athlete_id =");
     expect(update?.text).toContain("workspace_id =");
     expect(update?.values).toEqual(["approved", "request-1", "klique-os", "athlete-1"]);
+  });
+
+  it.each([
+    ["approved", "Accord athlète reçu"],
+    ["declined", "Demande média refusée par l’athlète"],
+  ] as const)("notifies all active admins after an athlete response of %s", async (consent, title) => {
+    findActiveAdminClerkUserIdsMock.mockResolvedValue(["user_admin_1", "user_admin_2"]);
+
+    await updateMediaRequestAthleteConsent(athleteAccess, "request-1", consent);
+
+    expect(findActiveAdminClerkUserIdsMock).toHaveBeenCalledWith("klique-os");
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_admin_1", "user_admin_2"],
+      type: "media_request.athlete_response",
+      title,
+      actionHref: "/media-desk",
+      sourceType: "media_request_athlete_response",
+      sourceId: `request-1:athlete-1:${consent}`,
+    });
+  });
+
+  it("keeps the athlete response successful when admin notification fails", async () => {
+    findActiveAdminClerkUserIdsMock.mockResolvedValue(["user_admin"]);
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(updateMediaRequestAthleteConsent(athleteAccess, "request-1", "approved"))
+      .resolves.toMatchObject({ id: "request-1" });
+
+    expect(consoleError).toHaveBeenCalledWith("[media_requests_notifications] Notifications unavailable");
+    consoleError.mockRestore();
   });
 
   it("refuses to answer a request that is not awaiting the athlete", async () => {

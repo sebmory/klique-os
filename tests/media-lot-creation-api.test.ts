@@ -1,12 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { evaluateBusinessAccessMock, valuesAppendMock } = vi.hoisted(() => ({
+const {
+  evaluateBusinessAccessMock,
+  getCurrentUserAccessProfileMock,
+  valuesAppendMock,
+  findAllActiveMediaClerkUserIdsMock,
+  findActiveAthleteClerkUserIdsMock,
+  createNotificationsForRecipientsMock,
+} = vi.hoisted(() => ({
   evaluateBusinessAccessMock: vi.fn(),
+  getCurrentUserAccessProfileMock: vi.fn(),
   valuesAppendMock: vi.fn(),
+  findAllActiveMediaClerkUserIdsMock: vi.fn(),
+  findActiveAthleteClerkUserIdsMock: vi.fn(),
+  createNotificationsForRecipientsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/clerk-access/service", () => ({
   evaluateBusinessAccess: evaluateBusinessAccessMock,
+  getCurrentUserAccessProfile: getCurrentUserAccessProfileMock,
+}));
+
+vi.mock("@/lib/notifications/service", () => ({
+  findAllActiveMediaClerkUserIds: findAllActiveMediaClerkUserIdsMock,
+  findActiveAthleteClerkUserIds: findActiveAthleteClerkUserIdsMock,
+  createNotificationsForRecipients: createNotificationsForRecipientsMock,
 }));
 
 vi.mock("googleapis", () => ({
@@ -68,7 +86,16 @@ describe("POST /api/media gallery and athleteIds", () => {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = "./credentials/test.json";
     process.env.GOOGLE_SHEET_ID = "test-sheet";
     evaluateBusinessAccessMock.mockResolvedValue({ allowed: true });
-    valuesAppendMock.mockResolvedValue({});
+    getCurrentUserAccessProfileMock.mockResolvedValue({
+      clerkUser: { id: "user_admin", email: "admin@example.com" },
+      userAccess: { workspaceId: "klique-os" },
+    });
+    findAllActiveMediaClerkUserIdsMock.mockResolvedValue([]);
+    findActiveAthleteClerkUserIdsMock.mockResolvedValue([]);
+    createNotificationsForRecipientsMock.mockResolvedValue([]);
+    valuesAppendMock.mockResolvedValue({
+      data: { updates: { updatedRange: "'13_Banque Médias'!A42:X42" } },
+    });
   });
 
   it("writes galleryUrl in column S and athleteIds in column X", async () => {
@@ -89,6 +116,118 @@ describe("POST /api/media gallery and athleteIds", () => {
     expect(row[23]).toBe("athlete-1, athlete-2");
     expect(row[21]).toBe("KLIQUE + athlète + médias");
     expect(row[0]).toBe("18.03.2026");
+  });
+
+  it("notifies every active athlete when the created lot has a gallery", async () => {
+    findActiveAthleteClerkUserIdsMock.mockResolvedValue(["user_athlete_1", "user_athlete_2"]);
+
+    const response = await POST(postRequest({
+      ...baseBody,
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+      athleteIds: ["athlete-1", "athlete-2"],
+    }));
+
+    expect(response.status).toBe(200);
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenCalledWith(
+      "klique-os",
+      ["athlete-1", "athlete-2"],
+    );
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_athlete_1", "user_athlete_2"],
+      type: "media_lot.gallery_available",
+      title: "Nouvelle galerie disponible",
+      body: "Portrait KLIQUE",
+      actionHref: "/athlete/media-bank",
+      sourceType: "media_lot",
+      sourceId: "lot-42",
+    });
+  });
+
+  it("notifies every active Media account when the lot has a gallery and media rights", async () => {
+    findAllActiveMediaClerkUserIdsMock.mockResolvedValue(["user_media_1", "user_media_2"]);
+
+    const response = await POST(postRequest({
+      ...baseBody,
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+      athleteIds: [],
+      rights: "KLIQUE + médias",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(findAllActiveMediaClerkUserIdsMock).toHaveBeenCalledWith("klique-os");
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_media_1", "user_media_2"],
+      type: "media_bank.lot_available",
+      title: "Nouveau lot d’images disponible",
+      body: "Portrait KLIQUE",
+      actionHref: "/media-desk",
+      sourceType: "media_bank_lot",
+      sourceId: "lot-42",
+    });
+  });
+
+  it.each([
+    ["without a gallery", { galleryUrl: "", athleteIds: ["athlete-1"], rights: "KLIQUE + athlète" }],
+    ["without athletes", { galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique", athleteIds: [], rights: "KLIQUE + athlète" }],
+  ])("does not notify athletes for a lot %s", async (_label, fields) => {
+    const response = await POST(postRequest({ ...baseBody, ...fields }));
+
+    expect(response.status).toBe(200);
+    expect(findActiveAthleteClerkUserIdsMock).not.toHaveBeenCalled();
+    expect(createNotificationsForRecipientsMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["without a gallery", { galleryUrl: "", rights: "KLIQUE + médias" }],
+    ["without media rights", {
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+      rights: "KLIQUE + athlète",
+    }],
+  ])("does not notify Media accounts for a lot %s", async (_label, fields) => {
+    findAllActiveMediaClerkUserIdsMock.mockResolvedValue(["user_media_1"]);
+
+    const response = await POST(postRequest({ ...baseBody, athleteIds: [], ...fields }));
+
+    expect(response.status).toBe(200);
+    expect(findAllActiveMediaClerkUserIdsMock).not.toHaveBeenCalled();
+    expect(createNotificationsForRecipientsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel lot creation when the Media notification fails", async () => {
+    findAllActiveMediaClerkUserIdsMock.mockResolvedValue(["user_media_1"]);
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(postRequest({
+      ...baseBody,
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+      athleteIds: [],
+      rights: "Presse",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(valuesAppendMock).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith("[media_lot_notifications] Notifications unavailable");
+    consoleError.mockRestore();
+  });
+
+  it("does not cancel lot creation when notification fails", async () => {
+    findActiveAthleteClerkUserIdsMock.mockResolvedValue(["user_athlete_1"]);
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(postRequest({
+      ...baseBody,
+      galleryUrl: "https://klique.photodeck.com/gallery/portrait-klique",
+      athleteIds: ["athlete-1"],
+    }));
+
+    expect(response.status).toBe(200);
+    expect(valuesAppendMock).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith("[media_lot_notifications] Notifications unavailable");
+    consoleError.mockRestore();
   });
 
   it("writes the usage rights in column V without touching the other columns", async () => {

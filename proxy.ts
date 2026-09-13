@@ -15,6 +15,10 @@ const accessPendingPath = "/access-pending";
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
 
 export const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
+  if (pathname === "/api/notifications") {
+    return method === "GET" || method === "PATCH";
+  }
+
   // Lecture seule des ressources du Hub : la creation et la couverture restent reservees a l Admin.
   if (pathname === "/api/hub-resources" && method === "GET") {
     return true;
@@ -104,6 +108,10 @@ const isMediaSubjectsApi = (pathname: string): boolean =>
 
 // Le media consulte les sujets en lecture seule : toute ecriture reste reservee a l Admin.
 export const isMediaAllowedApi = (pathname: string, method: string): boolean => {
+  if (pathname === "/api/notifications") {
+    return method === "GET" || method === "PATCH";
+  }
+
   if (isMediaSubjectsApi(pathname)) {
     return method === "GET";
   }
@@ -127,7 +135,8 @@ export const isPartnerAllowedPage = (pathname: string): boolean => {
 };
 
 export const isPartnerAllowedApi = (pathname: string, method: string): boolean => {
-  return pathname === "/api/clerk/access"
+  return (pathname === "/api/notifications" && (method === "GET" || method === "PATCH"))
+    || pathname === "/api/clerk/access"
     || pathname === "/api/partners"
     || (pathname === "/api/partner/contact-requests" && method === "POST")
     || pathname === "/api/partner/athletes"

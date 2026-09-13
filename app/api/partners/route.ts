@@ -3,6 +3,10 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { evaluateBusinessAccess, getCurrentUserAccessProfile, getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import * as googleSheets from "@/lib/google-sheets";
 import { getEcosystemPartnersFrom06Partenaires } from "@/lib/google-sheets";
+import {
+  createNotificationsForRecipients,
+  findActiveAdminClerkUserIds,
+} from "@/lib/notifications/service";
 import type {
   NewPartner,
   PartnerResponse,
@@ -21,6 +25,35 @@ const normalizeKey = (value: string): string =>
     .toLowerCase();
 
 const isValidEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+const notifyAdminsOfPartnerApplications = async (
+  workspaceId: string,
+  applications: Array<Record<string, unknown>>,
+): Promise<void> => {
+  for (const application of applications) {
+    const sourceRow = Number(application.sourceRow ?? application.source_row ?? 0);
+    const name = normalize(application.name);
+    if (!Number.isInteger(sourceRow) || sourceRow < 2 || !name) continue;
+
+    try {
+      const recipientClerkUserIds = await findActiveAdminClerkUserIds(workspaceId);
+      if (recipientClerkUserIds.length === 0) continue;
+
+      await createNotificationsForRecipients({
+        workspaceId,
+        recipientClerkUserIds,
+        type: "partner_application.created",
+        title: "Nouvelle candidature Partenaire/Expert",
+        body: name,
+        actionHref: "/crm/demandes?tab=partners",
+        sourceType: "partner_application",
+        sourceId: String(sourceRow),
+      });
+    } catch (error) {
+      console.error(`[partner_application_notifications] ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+};
 
 const isStructuredCategory = (value: string): boolean => {
   const text = normalize(value);
@@ -172,6 +205,10 @@ export async function GET(request: NextRequest) {
     }
 
     const visibility = await googleSheets.getPartnerVisibilityBuckets();
+    await notifyAdminsOfPartnerApplications(
+      permissionContext.workspaceId,
+      visibility.pending as Array<Record<string, unknown>>,
+    );
     const partners = [...visibility.approved, ...visibility.pending];
 
     const response: PartnerResponse = {

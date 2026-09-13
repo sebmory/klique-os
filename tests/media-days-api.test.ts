@@ -283,6 +283,23 @@ describe("media days API validation", () => {
 });
 
 describe("media days proxy access", () => {
+  it("opens personal notifications to athlete, media and partner in GET and PATCH only", () => {
+    for (const method of ["GET", "PATCH"]) {
+      expect(isAthleteAllowedRoute("/api/notifications", method)).toBe(true);
+      expect(isMediaAllowedApi("/api/notifications", method)).toBe(true);
+      expect(isPartnerAllowedApi("/api/notifications", method)).toBe(true);
+    }
+
+    for (const method of ["HEAD", "POST", "PUT", "DELETE", "OPTIONS"]) {
+      expect(isAthleteAllowedRoute("/api/notifications", method)).toBe(false);
+      expect(isMediaAllowedApi("/api/notifications", method)).toBe(false);
+      expect(isPartnerAllowedApi("/api/notifications", method)).toBe(false);
+    }
+
+    expect(isAthleteAllowedRoute("/api/notifications/item-1", "GET")).toBe(false);
+    expect(isPartnerAllowedApi("/api/notifications/item-1", "GET")).toBe(false);
+  });
+
   it("opens the route to the athlete in read and response only", () => {
     expect(isAthleteAllowedRoute("/api/media-days", "GET")).toBe(true);
     expect(isAthleteAllowedRoute("/api/media-days", "PATCH")).toBe(true);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bell } from "./icons";
 
 type ContactRequest = {
@@ -19,8 +20,18 @@ type PartnerApplication = {
 };
 
 type NotificationsMenuProps = {
+  enabled?: boolean;
   isAdmin?: boolean;
   isAthlete?: boolean;
+};
+
+type PersonalNotification = {
+  id: string;
+  title: string;
+  body: string | null;
+  actionHref: string;
+  readAt: string | null;
+  createdAt: string;
 };
 
 type SlotDecision = {
@@ -69,8 +80,12 @@ const formatDate = (value: string): string => {
   return Number.isNaN(parsed.getTime()) ? "Date inconnue" : dateFormatter.format(parsed);
 };
 
-export function NotificationsMenu({ isAdmin = false, isAthlete = false }: NotificationsMenuProps) {
+export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete = false }: NotificationsMenuProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [personalNotifications, setPersonalNotifications] = useState<PersonalNotification[]>([]);
+  const [personalUnreadCount, setPersonalUnreadCount] = useState(0);
+  const [personalNotificationsLoading, setPersonalNotificationsLoading] = useState(false);
   const [openRequests, setOpenRequests] = useState<ContactRequest[]>([]);
   const [pendingPartnerCount, setPendingPartnerCount] = useState(0);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
@@ -99,15 +114,42 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
     };
   }, []);
 
-  const unreadCount = useMemo(() => 0, []);
+  useEffect(() => {
+    if (!enabled) return;
+
+    let active = true;
+
+    const loadPersonalNotifications = async () => {
+      setPersonalNotificationsLoading(true);
+      try {
+        const response = await fetch("/api/notifications", { credentials: "include", cache: "no-store" });
+        if (!response.ok) throw new Error("unavailable");
+        const payload = (await response.json()) as {
+          notifications?: PersonalNotification[];
+          unreadCount?: number;
+        };
+        if (!active) return;
+        setPersonalNotifications(Array.isArray(payload.notifications) ? payload.notifications : []);
+        setPersonalUnreadCount(Number.isFinite(payload.unreadCount) ? Number(payload.unreadCount) : 0);
+      } catch {
+        if (active) {
+          setPersonalNotifications([]);
+          setPersonalUnreadCount(0);
+        }
+      } finally {
+        if (active) setPersonalNotificationsLoading(false);
+      }
+    };
+
+    void loadPersonalNotifications();
+
+    return () => {
+      active = false;
+    };
+  }, [enabled]);
 
   useEffect(() => {
-    if (!isAdmin) {
-      setOpenRequests([]);
-      setAthleteNames({});
-      setPendingPartnerCount(0);
-      return;
-    }
+    if (!isAdmin) return;
 
     let active = true;
 
@@ -247,12 +289,11 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
   }, []);
 
   useEffect(() => {
-    if (!isAthlete) {
-      setSlotDecisions([]);
-      return;
-    }
+    if (!isAthlete) return;
 
-    void loadSlotDecisions();
+    queueMicrotask(() => {
+      void loadSlotDecisions();
+    });
   }, [isAthlete, loadSlotDecisions]);
 
   const unseenDecisionsCount = slotDecisions.filter((decision) => !decision.seen).length;
@@ -276,108 +317,34 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
     }
   };
 
-  if (isAthlete) {
-    return (
-      <div className="header-dropdown" ref={rootRef}>
-        <button
-          type="button"
-          className="header-icon-button"
-          aria-label="Notifications"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Bell className="app-icon" />
-          {unseenDecisionsCount > 0 ? (
-            <span className="notification-count-badge" aria-hidden>
-              {unseenDecisionsCount > 9 ? "9+" : unseenDecisionsCount}
-            </span>
-          ) : null}
-        </button>
+  const handleOpenPersonalNotification = async (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    notification: PersonalNotification,
+  ) => {
+    event.preventDefault();
+    setOpen(false);
 
-        {open ? (
-          <div className="header-menu notification-menu" role="menu" aria-label="Mes notifications">
-            <header className="notification-requests-header">
-              <strong>Mes demandes</strong>
-              <small>
-                {unseenDecisionsCount > 0 ? `${unseenDecisionsCount} nouvelle(s) r\u00e9ponse(s)` : "Aucune nouvelle notification"}
-              </small>
-            </header>
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId: notification.id }),
+      });
+      if (response.ok && notification.readAt === null) {
+        setPersonalNotifications((current) =>
+          current.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString() } : item),
+        );
+        setPersonalUnreadCount((current) => Math.max(0, current - 1));
+      }
+    } catch {
+      // La navigation reste prioritaire si le marquage echoue.
+    } finally {
+      router.push(notification.actionHref);
+    }
+  };
 
-            {slotDecisionsLoading && slotDecisions.length === 0 ? (
-              <p className="menu-empty">Chargement des notifications...</p>
-            ) : slotDecisions.length === 0 ? (
-              <p className="menu-empty">Aucune nouvelle notification</p>
-            ) : (
-              <ul className="notification-requests-list">
-                {slotDecisions.map((decision) => (
-                  <li key={decision.requestId} className={decision.seen ? undefined : "is-unread"}>
-                    <Link
-                      href={`/athlete/opportunities/${encodeURIComponent(decision.opportunityId)}`}
-                      onClick={() => handleOpenDecision(decision)}
-                    >
-                      <strong>Demande {slotDecisionLabels[decision.status]}</strong>
-                      <span>{decision.opportunityTitle}</span>
-                      <small>{decision.startsAt ? formatSlotDateTime(decision.startsAt) : "Créneau non renseigné"}</small>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-
-        <style>{`
-          .notification-count-badge {
-            position: absolute;
-            top: 2px;
-            right: 2px;
-            min-width: 18px;
-            height: 18px;
-            padding: 0 4px;
-            border-radius: var(--kl-radius-full, 999px);
-            background: #ffd54a;
-            color: #1f1f1f;
-            font-size: 0.68rem;
-            font-weight: 700;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-          }
-
-          .notification-requests-header {
-            display: grid;
-            gap: 2px;
-            padding: var(--kl-spacing-3) var(--kl-spacing-3) var(--kl-spacing-2);
-          }
-
-          .notification-requests-header small {
-            color: var(--kl-color-textMuted, #7b7b7b);
-            font-size: var(--kl-typography-sizes-caption);
-          }
-
-          .notification-requests-list li a {
-            display: grid;
-            gap: 2px;
-            text-decoration: none;
-            color: inherit;
-          }
-
-          .notification-requests-list li a span {
-            font-size: 0.85rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          .notification-requests-list li a small {
-            color: var(--kl-color-textMuted, #7b7b7b);
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
+  if (!enabled) {
     return null;
   }
 
@@ -391,52 +358,108 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
         onClick={() => setOpen((value) => !value)}
       >
         <Bell className="app-icon" />
-        {adminNotificationsCount > 0 ? (
+        {personalUnreadCount > 0 ? (
           <span className="notification-count-badge" aria-hidden>
-            {adminNotificationsCount > 9 ? "9+" : adminNotificationsCount}
+            {personalUnreadCount > 9 ? "9+" : personalUnreadCount}
           </span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="header-menu notification-menu" role="menu" aria-label="Demandes KLIQUE">
+        <div className="header-menu notification-menu" role="menu" aria-label="Mes notifications">
           <header className="notification-requests-header">
-            <strong>Demandes KLIQUE</strong>
+            <strong>Mes notifications</strong>
             <small>
-              {adminNotificationsCount > 0 ? `${adminNotificationsCount} nouvelle(s) demande(s)` : "Aucune nouvelle demande"}
+              {personalUnreadCount > 0
+                ? `${personalUnreadCount} notification${personalUnreadCount > 1 ? "s" : ""} non lue${personalUnreadCount > 1 ? "s" : ""}`
+                : "Aucune notification non lue"}
             </small>
           </header>
 
-          {requestsLoading && recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
-            <p className="menu-empty">Chargement des demandes...</p>
-          ) : recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
-            <p className="menu-empty">Aucune nouvelle demande</p>
+          {personalNotificationsLoading && personalNotifications.length === 0 ? (
+            <p className="menu-empty">Chargement des notifications...</p>
+          ) : personalNotifications.length === 0 ? (
+            <p className="menu-empty">Aucune notification</p>
           ) : (
             <ul className="notification-requests-list">
-              {pendingPartnerCount > 0 ? (
-                <li className="is-unread">
-                  <Link href="/crm/demandes?tab=partners" onClick={() => setOpen(false)}>
-                    <strong>{pendingPartnerCount} partenaire{pendingPartnerCount > 1 ? "s" : ""} à valider</strong>
-                  </Link>
-                </li>
-              ) : null}
-              {recentOpenRequests.map((request) => (
-                <li key={request.id} className="is-unread">
-                  <Link href="/crm/demandes" onClick={() => setOpen(false)}>
-                    <strong>{resolveAthleteLabel(request.athleteId)}</strong>
-                    <span>{request.subject}</span>
-                    <small>{formatDate(request.createdAt)}</small>
+              {personalNotifications.map((notification) => (
+                <li key={notification.id} className={notification.readAt === null ? "is-unread" : undefined}>
+                  <Link href={notification.actionHref} onClick={(event) => handleOpenPersonalNotification(event, notification)}>
+                    <strong>{notification.title}</strong>
+                    {notification.body ? <span>{notification.body}</span> : null}
+                    <small>{formatDate(notification.createdAt)}</small>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
 
-          <footer>
-            <Link href="/crm/demandes" className="menu-action-link" onClick={() => setOpen(false)}>
-              Voir toutes les demandes
-            </Link>
-          </footer>
+          {isAthlete ? (
+            <section className="notification-legacy-section" aria-label="Anciennes alertes Athlète">
+              <header className="notification-requests-header">
+                <strong>Mes demandes</strong>
+                <small>{unseenDecisionsCount > 0 ? `${unseenDecisionsCount} nouvelle(s) réponse(s)` : "Aucune nouvelle réponse"}</small>
+              </header>
+              {slotDecisionsLoading && slotDecisions.length === 0 ? (
+                <p className="menu-empty">Chargement des demandes...</p>
+              ) : slotDecisions.length === 0 ? (
+                <p className="menu-empty">Aucune demande récente</p>
+              ) : (
+                <ul className="notification-requests-list">
+                  {slotDecisions.map((decision) => (
+                    <li key={decision.requestId} className={decision.seen ? undefined : "is-unread"}>
+                      <Link
+                        href={`/athlete/opportunities/${encodeURIComponent(decision.opportunityId)}`}
+                        onClick={() => handleOpenDecision(decision)}
+                      >
+                        <strong>Demande {slotDecisionLabels[decision.status]}</strong>
+                        <span>{decision.opportunityTitle}</span>
+                        <small>{decision.startsAt ? formatSlotDateTime(decision.startsAt) : "Créneau non renseigné"}</small>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          {isAdmin ? (
+            <section className="notification-legacy-section" aria-label="Anciennes alertes Admin">
+              <header className="notification-requests-header">
+                <strong>Demandes KLIQUE</strong>
+                <small>{adminNotificationsCount > 0 ? `${adminNotificationsCount} nouvelle(s) demande(s)` : "Aucune nouvelle demande"}</small>
+              </header>
+              {requestsLoading && recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
+                <p className="menu-empty">Chargement des demandes...</p>
+              ) : recentOpenRequests.length === 0 && pendingPartnerCount === 0 ? (
+                <p className="menu-empty">Aucune nouvelle demande</p>
+              ) : (
+                <ul className="notification-requests-list">
+                  {pendingPartnerCount > 0 ? (
+                    <li className="is-unread">
+                      <Link href="/crm/demandes?tab=partners" onClick={() => setOpen(false)}>
+                        <strong>{pendingPartnerCount} partenaire{pendingPartnerCount > 1 ? "s" : ""} à valider</strong>
+                      </Link>
+                    </li>
+                  ) : null}
+                  {recentOpenRequests.map((request) => (
+                    <li key={request.id} className="is-unread">
+                      <Link href="/crm/demandes" onClick={() => setOpen(false)}>
+                        <strong>{resolveAthleteLabel(request.athleteId)}</strong>
+                        <span>{request.subject}</span>
+                        <small>{formatDate(request.createdAt)}</small>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <footer>
+                <Link href="/crm/demandes" className="menu-action-link" onClick={() => setOpen(false)}>
+                  Voir toutes les demandes
+                </Link>
+              </footer>
+            </section>
+          ) : null}
 
           <style>{`
             .notification-requests-header {
@@ -453,6 +476,10 @@ export function NotificationsMenu({ isAdmin = false, isAthlete = false }: Notifi
             .notification-requests-header small {
               color: var(--kl-color-textMuted, #7b7b7b);
               font-size: var(--kl-typography-sizes-caption);
+            }
+
+            .notification-legacy-section {
+              border-top: 1px solid var(--kl-color-border, #e5e5e5);
             }
 
             .notification-requests-list li a {

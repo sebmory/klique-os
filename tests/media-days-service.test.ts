@@ -1,13 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sqlMock, createContentStorageClientMock } = vi.hoisted(() => ({
+const {
+  sqlMock,
+  createContentStorageClientMock,
+  findActiveAdminClerkUserIdsMock,
+  findActiveAthleteClerkUserIdsMock,
+  createNotificationsForRecipientsMock,
+} = vi.hoisted(() => ({
   sqlMock: vi.fn(),
   createContentStorageClientMock: vi.fn(),
+  findActiveAdminClerkUserIdsMock: vi.fn(),
+  findActiveAthleteClerkUserIdsMock: vi.fn(),
+  createNotificationsForRecipientsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/content-storage/db", () => ({
   createContentStorageClient: createContentStorageClientMock,
   getDefaultWorkspaceId: () => "klique-os",
+}));
+
+vi.mock("@/lib/notifications/service", () => ({
+  findActiveAdminClerkUserIds: findActiveAdminClerkUserIdsMock,
+  findActiveAthleteClerkUserIds: findActiveAthleteClerkUserIdsMock,
+  createNotificationsForRecipients: createNotificationsForRecipientsMock,
 }));
 
 import {
@@ -126,6 +141,12 @@ const validInput = {
   status: "open",
   athletes: [{ athleteId: "athlete-1", slotStart: "09:30", slotEnd: "10:00", adminNote: "Prevoir maillot" }],
 };
+
+beforeEach(() => {
+  findActiveAdminClerkUserIdsMock.mockReset().mockResolvedValue(["user_admin"]);
+  findActiveAthleteClerkUserIdsMock.mockReset().mockResolvedValue(["user_athlete"]);
+  createNotificationsForRecipientsMock.mockReset().mockResolvedValue([]);
+});
 
 describe("media days normalization", () => {
   it("keeps only the four allowed statuses", () => {
@@ -273,6 +294,61 @@ describe("media days writes are admin only", () => {
     expect(insert?.values).toContain("open");
   });
 
+  it("notifies every active invited athlete when an open media day is created", async () => {
+    findActiveAthleteClerkUserIdsMock.mockResolvedValue(["user_athlete", "user_second"]);
+
+    const created = await createMediaDay(adminAccess, validInput);
+
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenCalledWith("klique-os", ["athlete-1"]);
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_athlete", "user_second"],
+      type: "media_day.invitation",
+      title: "Nouvelle invitation Media Day",
+      actionHref: "/athlete/media-days",
+      sourceType: "media_day",
+      sourceId: created.id,
+    });
+  });
+
+  it("does not notify athletes when a media day is created as a draft", async () => {
+    installSqlMock({ dayRows: [dayRow({ status: "draft" })] });
+
+    await createMediaDay(adminAccess, { ...validInput, status: "draft" });
+
+    expect(findActiveAthleteClerkUserIdsMock).not.toHaveBeenCalled();
+    expect(createNotificationsForRecipientsMock).not.toHaveBeenCalled();
+  });
+
+  it("notifies athletes only when a media day transitions from draft to open", async () => {
+    installSqlMock({ updateRows: [{ id: "day-1", previous_status: "draft" }] });
+
+    await updateMediaDay(adminAccess, "day-1", validInput);
+
+    expect(findActiveAthleteClerkUserIdsMock).toHaveBeenCalledWith("klique-os", ["athlete-1"]);
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledOnce();
+
+    vi.clearAllMocks();
+    findActiveAthleteClerkUserIdsMock.mockResolvedValue(["user_athlete"]);
+    createNotificationsForRecipientsMock.mockResolvedValue([]);
+    installSqlMock({ updateRows: [{ id: "day-1", previous_status: "open" }] });
+
+    await updateMediaDay(adminAccess, "day-1", validInput);
+
+    expect(findActiveAthleteClerkUserIdsMock).not.toHaveBeenCalled();
+    expect(createNotificationsForRecipientsMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Media Day creation successful when notification delivery fails", async () => {
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Neon notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(createMediaDay(adminAccess, validInput)).resolves.toMatchObject({ id: "day-1", status: "open" });
+
+    expect(consoleError).toHaveBeenCalledWith("[media_days_notifications] Neon notifications unavailable");
+    consoleError.mockRestore();
+  });
+
   it("scopes update and delete to the caller workspace", async () => {
     await updateMediaDay(adminAccess, "day-1", validInput);
     expect(findCall("update media_days")?.text).toContain("workspace_id =");
@@ -417,6 +493,37 @@ describe("media days athlete response", () => {
     expect(update?.text).toContain("workspace_id =");
     expect(update?.text).toContain("status = 'invited'");
     expect(update?.values).toEqual(["confirmed", "day-1", "klique-os", "athlete-1"]);
+  });
+
+  it.each([
+    ["confirmed", "Participation Media Day confirmée"],
+    ["declined", "Participation Media Day refusée"],
+  ] as const)("notifies every active Admin after an athlete response %s", async (response, title) => {
+    findActiveAdminClerkUserIdsMock.mockResolvedValue(["user_admin", "user_admin_second"]);
+
+    const updated = await respondToMediaDay(athleteAccess, "day-1", response);
+
+    expect(findActiveAdminClerkUserIdsMock).toHaveBeenCalledWith("klique-os");
+    expect(createNotificationsForRecipientsMock).toHaveBeenCalledWith({
+      workspaceId: "klique-os",
+      recipientClerkUserIds: ["user_admin", "user_admin_second"],
+      type: "media_day.response",
+      title,
+      actionHref: "/media-days",
+      sourceType: "media_day_response",
+      sourceId: `${updated.id}:athlete-1`,
+    });
+  });
+
+  it("keeps the athlete response successful when Admin notification delivery fails", async () => {
+    createNotificationsForRecipientsMock.mockRejectedValue(new Error("Notifications unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(respondToMediaDay(athleteAccess, "day-1", "confirmed"))
+      .resolves.toMatchObject({ id: "day-1", status: "open" });
+
+    expect(consoleError).toHaveBeenCalledWith("[media_days_notifications] Notifications unavailable");
+    consoleError.mockRestore();
   });
 
   it("refuses a media day that is not open", async () => {

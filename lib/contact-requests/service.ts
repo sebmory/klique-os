@@ -1,5 +1,9 @@
 import { randomUUID } from "crypto";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
+import {
+  createNotificationsForRecipients,
+  findActiveAdminClerkUserIds,
+} from "@/lib/notifications/service";
 
 export const contactRequestCategories = [
   "content_photo",
@@ -71,6 +75,26 @@ const mapRow = (row: Record<string, unknown>): ContactRequestRecord => ({
   updatedAt: String(row.updated_at ?? ""),
 });
 
+const notifyAdminsOfContactRequest = async (contactRequest: ContactRequestRecord): Promise<void> => {
+  try {
+    const recipientClerkUserIds = await findActiveAdminClerkUserIds(contactRequest.workspaceId);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId: contactRequest.workspaceId,
+      recipientClerkUserIds,
+      type: "contact_request.created",
+      title: "Nouvelle demande de contact",
+      body: contactRequest.subject,
+      actionHref: "/crm/demandes",
+      sourceType: "contact_request",
+      sourceId: contactRequest.id,
+    });
+  } catch (error) {
+    console.error(`[contact_request_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
 export const createContactRequest = async (input: CreateContactRequestInput): Promise<ContactRequestRecord> => {
   const sql = getSql();
   const resolvedWorkspaceId = resolveWorkspaceId(input.workspaceId);
@@ -103,7 +127,9 @@ export const createContactRequest = async (input: CreateContactRequestInput): Pr
     RETURNING id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
   `;
 
-  return mapRow(rows[0] as Record<string, unknown>);
+  const contactRequest = mapRow(rows[0] as Record<string, unknown>);
+  await notifyAdminsOfContactRequest(contactRequest);
+  return contactRequest;
 };
 
 export const listContactRequests = async (workspaceId?: string): Promise<ContactRequestRecord[]> => {

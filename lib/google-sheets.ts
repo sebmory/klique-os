@@ -1612,10 +1612,10 @@ export async function getMediaFromGoogleSheets(): Promise<MediaLot[]> {
 
 export async function addMediaToGoogleSheets(
   media: NewMediaLot
-): Promise<void> {
+): Promise<string | null> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
 
-  await sheets.spreadsheets.values.append({
+  const appendResponse = await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
     range: "'13_Banque Médias'!A:X",
     valueInputOption: "USER_ENTERED",
@@ -1649,6 +1649,10 @@ export async function addMediaToGoogleSheets(
       ]],
     },
   });
+  const updatedRange = appendResponse.data.updates?.updatedRange ?? "";
+  const rowMatch = updatedRange.match(/(\d+)(?::[A-Z]+\d+)?$/i);
+  const row = rowMatch ? Number(rowMatch[1]) : 0;
+  return Number.isInteger(row) && row > 0 ? `lot-${row}` : null;
 }
 export async function updateShootingInGoogleSheets(
   update: ShootingUpdate

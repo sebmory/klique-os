@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MediaCreditsSection } from "@/components/settings/MediaCreditsSection";
 import { MediaInviteSection } from "@/components/settings/MediaInviteSection";
 
@@ -13,6 +14,26 @@ export default function SettingsPage() {
           Gérez les accès et les réglages de votre workspace KLIQUE.
         </p>
       </header>
+
+      <Link
+        href="/settings/notifications"
+        style={{
+          display: "grid",
+          gap: "0.35rem",
+          padding: "1.15rem",
+          border: "1px solid #f0e2d0",
+          borderRadius: "8px",
+          background: "#fff",
+          boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)",
+          color: "inherit",
+          textDecoration: "none",
+        }}
+      >
+        <strong style={{ color: "#111827", fontSize: "1.05rem" }}>Notifications et annonces</strong>
+        <span style={{ color: "#6b7280", lineHeight: 1.6 }}>
+          Envoyer des annonces aux Athlètes, Médias et Partenaires/Experts.
+        </span>
+      </Link>
 
       <MediaInviteSection />
       <MediaCreditsSection />

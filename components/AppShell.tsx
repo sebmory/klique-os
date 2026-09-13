@@ -185,6 +185,10 @@ export function AppShell({ children }: AppShellProps) {
         <Header
           pathname={pathname}
           onOpenMobileSidebar={() => setMobileOpen(true)}
+          notificationsEnabled={
+            userAccess.status === "active"
+            && ["admin", "athlete", "media", "partner_expert"].includes(userAccess.role ?? "")
+          }
           isAdmin={userAccess.role === "admin"}
           isAthlete={userAccess.role === "athlete"}
         />

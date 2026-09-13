@@ -9,11 +9,18 @@ import { Menu } from "./icons";
 type HeaderProps = {
   pathname: string;
   onOpenMobileSidebar: () => void;
+  notificationsEnabled?: boolean;
   isAdmin?: boolean;
   isAthlete?: boolean;
 };
 
-export function Header({ pathname, onOpenMobileSidebar, isAdmin = false, isAthlete = false }: HeaderProps) {
+export function Header({
+  pathname,
+  onOpenMobileSidebar,
+  notificationsEnabled = false,
+  isAdmin = false,
+  isAthlete = false,
+}: HeaderProps) {
   return (
     <header className="klique-header">
       <div className="header-left">
@@ -36,7 +43,7 @@ export function Header({ pathname, onOpenMobileSidebar, isAdmin = false, isAthle
         <div className="desktop-hidden">
           <GlobalSearch compact />
         </div>
-        <NotificationsMenu isAdmin={isAdmin} isAthlete={isAthlete} />
+        <NotificationsMenu enabled={notificationsEnabled} isAdmin={isAdmin} isAthlete={isAthlete} />
         <UserMenu />
       </div>
     </header>

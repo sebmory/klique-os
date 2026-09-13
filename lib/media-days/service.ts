@@ -1,6 +1,11 @@
 import { randomUUID } from "crypto";
 import type { ContentAccessContext } from "@/lib/content-storage/access";
 import { createContentStorageClient } from "@/lib/content-storage/db";
+import {
+  createNotificationsForRecipients,
+  findActiveAdminClerkUserIds,
+  findActiveAthleteClerkUserIds,
+} from "@/lib/notifications/service";
 
 export type MediaDayStatus = "draft" | "open" | "completed" | "cancelled";
 
@@ -454,6 +459,55 @@ const syncMediaDayAthletes = async (
   }
 };
 
+const notifyMediaDayAthletes = async (mediaDay: MediaDayRecord): Promise<void> => {
+  if (mediaDay.athleteIds.length === 0) return;
+
+  try {
+    const recipientClerkUserIds = await findActiveAthleteClerkUserIds(
+      mediaDay.workspaceId,
+      mediaDay.athleteIds,
+    );
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId: mediaDay.workspaceId,
+      recipientClerkUserIds,
+      type: "media_day.invitation",
+      title: "Nouvelle invitation Media Day",
+      actionHref: "/athlete/media-days",
+      sourceType: "media_day",
+      sourceId: mediaDay.id,
+    });
+  } catch (error) {
+    console.error(`[media_days_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const notifyMediaDayAdminsOfResponse = async (
+  mediaDay: MediaDayRecord,
+  athleteId: string,
+  response: "confirmed" | "declined",
+): Promise<void> => {
+  try {
+    const recipientClerkUserIds = await findActiveAdminClerkUserIds(mediaDay.workspaceId);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId: mediaDay.workspaceId,
+      recipientClerkUserIds,
+      type: "media_day.response",
+      title: response === "confirmed"
+        ? "Participation Media Day confirmée"
+        : "Participation Media Day refusée",
+      actionHref: "/media-days",
+      sourceType: "media_day_response",
+      sourceId: `${mediaDay.id}:${athleteId}`,
+    });
+  } catch (error) {
+    console.error(`[media_days_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
 export const createMediaDay = async (
   access: MediaDayAccessContext,
   input: MediaDayInput,
@@ -490,6 +544,9 @@ export const createMediaDay = async (
   if (!created) {
     throw new MediaDayNotFoundError();
   }
+  if (created.status === "open") {
+    await notifyMediaDayAthletes(created);
+  }
   return created;
 };
 
@@ -510,7 +567,13 @@ export const updateMediaDay = async (
   const sql = getSql();
 
   const rows = await sql`
-    UPDATE media_days
+    WITH previous AS (
+      SELECT id, status
+      FROM media_days
+      WHERE id = ${id} AND workspace_id = ${access.workspaceId}
+      FOR UPDATE
+    )
+    UPDATE media_days AS current
     SET title = ${validated.title},
         description = ${validated.description},
         day_date = ${validated.date},
@@ -520,8 +583,10 @@ export const updateMediaDay = async (
         capacity = ${validated.capacity},
         status = ${validated.status},
         updated_at = NOW()
-    WHERE id = ${id} AND workspace_id = ${access.workspaceId}
-    RETURNING id
+    FROM previous
+    WHERE current.id = previous.id
+      AND current.workspace_id = ${access.workspaceId}
+    RETURNING current.id, previous.status AS previous_status
   `;
 
   if (!rows[0]) {
@@ -533,6 +598,10 @@ export const updateMediaDay = async (
   const updated = await getMediaDayById(access, id);
   if (!updated) {
     throw new MediaDayNotFoundError();
+  }
+  const previousStatus = normalizeMediaDayStatus((rows[0] as Record<string, unknown>).previous_status);
+  if (previousStatus === "draft" && updated.status === "open") {
+    await notifyMediaDayAthletes(updated);
   }
   return updated;
 };
@@ -617,5 +686,6 @@ export const respondToMediaDay = async (
   if (!updated) {
     throw new MediaDayNotFoundError();
   }
+  await notifyMediaDayAdminsOfResponse(updated, athleteId, status);
   return updated;
 };

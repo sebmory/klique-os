@@ -2,6 +2,11 @@ import { randomUUID } from "crypto";
 import type { ContentAccessContext } from "@/lib/content-storage/access";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import { MEDIA_REQUEST_TYPES, type MediaRequestType } from "@/lib/media-subjects/service";
+import {
+  createNotificationsForRecipients,
+  findActiveAdminClerkUserIds,
+  findActiveAthleteClerkUserIds,
+} from "@/lib/notifications/service";
 
 export type MediaRequestStatus =
   | "submitted"
@@ -21,6 +26,24 @@ export const MEDIA_REQUEST_STATUSES: readonly MediaRequestStatus[] = Object.free
   "completed",
   "cancelled",
 ]);
+
+const MEDIA_REQUEST_STATUS_LABELS: Record<MediaRequestStatus, string> = {
+  submitted: "Envoyée",
+  reviewing: "En cours d’examen",
+  awaiting_athlete: "En attente de l’athlète",
+  accepted: "Acceptée",
+  declined: "Refusée",
+  completed: "Terminée",
+  cancelled: "Annulée",
+};
+
+const MEDIA_REQUEST_TYPE_LABELS: Record<MediaRequestType, string> = {
+  interview: "Interview",
+  reaction: "Réaction",
+  reportage: "Reportage",
+  images: "Images",
+  podcast: "Podcast",
+};
 
 export type MediaRequestConsentStatus = "pending" | "approved" | "declined";
 
@@ -271,6 +294,102 @@ const requireMedia = (access: MediaRequestAccessContext) => {
   }
 };
 
+const notifyMediaRequestStatusChange = async (
+  workspaceId: string,
+  requestId: string,
+  recipientClerkUserIdValue: unknown,
+  status: MediaRequestStatus,
+): Promise<void> => {
+  const recipientClerkUserId = normalizeText(recipientClerkUserIdValue);
+  if (!recipientClerkUserId) return;
+
+  try {
+    await createNotificationsForRecipients({
+      workspaceId,
+      recipientClerkUserIds: [recipientClerkUserId],
+      type: "media_request.status_updated",
+      title: "Votre demande média a été mise à jour",
+      body: MEDIA_REQUEST_STATUS_LABELS[status],
+      actionHref: "/media-desk",
+      sourceType: "media_request_status",
+      sourceId: `${requestId}:${status}`,
+    });
+  } catch (error) {
+    console.error(`[media_requests_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const notifyAdminsOfMediaRequestCreation = async (mediaRequest: MediaRequestRecord): Promise<void> => {
+  try {
+    const recipientClerkUserIds = await findActiveAdminClerkUserIds(mediaRequest.workspaceId);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId: mediaRequest.workspaceId,
+      recipientClerkUserIds,
+      type: "media_request.created",
+      title: "Nouvelle demande média",
+      body: MEDIA_REQUEST_TYPE_LABELS[mediaRequest.requestType],
+      actionHref: "/media-desk",
+      sourceType: "media_request_created",
+      sourceId: mediaRequest.id,
+    });
+  } catch (error) {
+    console.error(`[media_requests_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const notifyMediaRequestAthletesForConsent = async (mediaRequest: MediaRequestRecord): Promise<void> => {
+  for (const athleteId of mediaRequest.athleteIds) {
+    try {
+      const recipientClerkUserIds = await findActiveAthleteClerkUserIds(
+        mediaRequest.workspaceId,
+        [athleteId],
+      );
+      if (recipientClerkUserIds.length === 0) continue;
+
+      await createNotificationsForRecipients({
+        workspaceId: mediaRequest.workspaceId,
+        recipientClerkUserIds,
+        type: "media_request.athlete_consent_requested",
+        title: "Votre accord est demandé",
+        body: MEDIA_REQUEST_TYPE_LABELS[mediaRequest.requestType],
+        actionHref: "/athlete/media-requests",
+        sourceType: "media_request_athlete",
+        sourceId: `${mediaRequest.id}:${athleteId}`,
+      });
+    } catch (error) {
+      console.error(`[media_requests_notifications] ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+};
+
+const notifyAdminsOfMediaRequestAthleteResponse = async (
+  workspaceId: string,
+  requestId: string,
+  athleteId: string,
+  consentStatus: "approved" | "declined",
+): Promise<void> => {
+  try {
+    const recipientClerkUserIds = await findActiveAdminClerkUserIds(workspaceId);
+    if (recipientClerkUserIds.length === 0) return;
+
+    await createNotificationsForRecipients({
+      workspaceId,
+      recipientClerkUserIds,
+      type: "media_request.athlete_response",
+      title: consentStatus === "approved"
+        ? "Accord athlète reçu"
+        : "Demande média refusée par l’athlète",
+      actionHref: "/media-desk",
+      sourceType: "media_request_athlete_response",
+      sourceId: `${requestId}:${athleteId}:${consentStatus}`,
+    });
+  } catch (error) {
+    console.error(`[media_requests_notifications] ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
 // Un athlete ne voit et ne repond que pour les demandes ou son propre athleteId est cible.
 const getScopedAthleteId = (access: MediaRequestAccessContext): string | null =>
   access.role === "athlete" ? normalizeOptionalText(access.athleteId) : null;
@@ -485,6 +604,7 @@ export const createMediaRequest = async (
   if (!created) {
     throw new MediaRequestNotFoundError();
   }
+  await notifyAdminsOfMediaRequestCreation(created);
   return created;
 };
 
@@ -511,12 +631,23 @@ export const updateMediaRequestStatus = async (
 
   const sql = getSql();
   const rows = await sql`
-    UPDATE media_requests
+    WITH previous AS (
+      SELECT id, status, requested_by_clerk_user_id
+      FROM media_requests
+      WHERE id = ${id} AND workspace_id = ${access.workspaceId}
+      FOR UPDATE
+    )
+    UPDATE media_requests AS current
     SET status = ${status},
         admin_note = CASE WHEN ${hasAdminNote}::boolean THEN ${adminNote} ELSE admin_note END,
         updated_at = NOW()
-    WHERE id = ${id} AND workspace_id = ${access.workspaceId}
-    RETURNING id
+    FROM previous
+    WHERE current.id = previous.id
+      AND current.workspace_id = ${access.workspaceId}
+    RETURNING
+      current.id,
+      previous.status AS previous_status,
+      previous.requested_by_clerk_user_id
   `;
 
   if (!rows[0]) {
@@ -526,6 +657,19 @@ export const updateMediaRequestStatus = async (
   const updated = await getMediaRequestById(access, id);
   if (!updated) {
     throw new MediaRequestNotFoundError();
+  }
+  const updateRow = rows[0] as Record<string, unknown>;
+  const previousStatus = normalizeMediaRequestStatus(updateRow.previous_status);
+  if (previousStatus && previousStatus !== status) {
+    await notifyMediaRequestStatusChange(
+      access.workspaceId,
+      id,
+      updateRow.requested_by_clerk_user_id,
+      status,
+    );
+    if (status === "awaiting_athlete") {
+      await notifyMediaRequestAthletesForConsent(updated);
+    }
   }
   return updated;
 };
@@ -589,5 +733,11 @@ export const updateMediaRequestAthleteConsent = async (
   if (!updated) {
     throw new MediaRequestNotFoundError();
   }
+  await notifyAdminsOfMediaRequestAthleteResponse(
+    access.workspaceId,
+    id,
+    athleteId,
+    consentStatus,
+  );
   return updated;
 };
