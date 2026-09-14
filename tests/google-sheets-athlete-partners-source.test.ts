@@ -28,7 +28,7 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
     process.env.GOOGLE_SHEET_ID = "test-sheet";
 
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
-      if (range === "'06_Partenaires'!A4:K200") {
+      if (range === "'06_Partenaires'!A4:Y") {
         return {
           data: {
             values: [
@@ -41,9 +41,18 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
                 "contact@klyo-massage.ch",
                 "+41 79 111 11 11",
                 "klyo-massage.ch",
-                "Massage sportif et récupération pour athlètes.",
+                "",
                 "Athlètes KLIQUE",
                 "Actif",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Massage sportif et récupération pour athlètes.",
               ],
               [
                 "Avec Rachel",
@@ -54,9 +63,18 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
                 "contact@avec-rachel.com",
                 "+41 79 412 12 15",
                 "avec-rachel.com",
-                "Coach en préparation mentale pour sportifs.",
+                "",
                 "Athlètes KLIQUE",
                 "Actif",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Coach en préparation mentale pour sportifs.",
               ],
             ],
           },
@@ -72,7 +90,7 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
 
     expect(valuesGetMock).toHaveBeenCalledTimes(1);
     expect(valuesGetMock).toHaveBeenCalledWith(
-      expect.objectContaining({ range: "'06_Partenaires'!A4:K200" })
+      expect.objectContaining({ range: "'06_Partenaires'!A4:Y" })
     );
 
     expect(partners).toHaveLength(2);

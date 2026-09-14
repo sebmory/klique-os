@@ -355,7 +355,13 @@ export const resolveCurrentUserBusinessLink = async (request?: Request): Promise
     }
 
     const partners = await getPartnersFromGoogleSheets();
-    const activePartner = partners.find((partner) => partner.id === partnerId || partner.row?.toString() === partnerId);
+    const rowPartnerIdMatch = /^row-(\d+)$/.exec(partnerId);
+    const rowPartnerId = rowPartnerIdMatch ? Number(rowPartnerIdMatch[1]) : null;
+    const activePartner = partners.find((partner) =>
+      partner.id === partnerId
+      || partner.row?.toString() === partnerId
+      || (rowPartnerId !== null && partner.row === rowPartnerId)
+    );
     if (!activePartner) {
       return {
         businessType: "invalid",
@@ -1068,7 +1074,7 @@ export const invitePartnerToKlique = async (
     const invitation = await client.invitations.createInvitation({
       emailAddress: email,
       publicMetadata: { role: "partner_expert", workspaceId, partnerId: exactPartnerId },
-      redirectUrl: `${getAppOrigin()}/sign-up`,
+      redirectUrl: `${getAppOrigin()}/sign-up?portal=partner`,
       notify: true,
       ignoreExisting: isResend || hasIncompleteInvitation,
     });

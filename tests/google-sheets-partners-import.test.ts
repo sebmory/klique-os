@@ -21,17 +21,75 @@ vi.mock("googleapis", () => ({
 
 import { getPartnersFromGoogleSheets } from "@/lib/google-sheets";
 
-const PARTNERS_RANGE = "'20_Partenaires'!A1:AZ300";
+const PARTNERS_RANGE = "'06_Partenaires'!A1:AZ300";
 const FORMS_PARTNERS_RANGE = "'Forms_Partenaires_Responses'!A1:Z500";
+
+const createPartnerRow = ({
+  name,
+  type,
+  category,
+  contact,
+  email,
+  phone,
+  status,
+}: {
+  name: string;
+  type: string;
+  category: string;
+  contact: string;
+  email: string;
+  phone: string;
+  status: string;
+}) => {
+  const row = Array.from({ length: 25 }, () => "");
+  row[0] = name;
+  row[1] = type;
+  row[2] = category;
+  row[3] = contact;
+  row[5] = email;
+  row[6] = phone;
+  row[10] = status;
+  return row;
+};
 
 const createPartnersSheet = (rows: string[][]) => ({
   data: {
     values: [
-      ["Nom", "Type", "Catégorie", "Contact principal", "Email", "Téléphone", "Statut"],
+      ["Nom", "Type de relation", "Catégorie", "Contact principal", "Fonction", "E-mail", "Téléphone", "Site", "Description", "Athlètes concernés", "Statut", "", "", "", "", "", "", "", "", "Offre / avantage membres", "", "", "", "", "Date arrivée KLIQUE"],
       ...rows,
     ],
   },
 });
+
+const partnerFormHeaders = [
+  "Nom de l'entreprise",
+  "Personne de contact",
+  "E-mail de contact",
+  "Téléphone",
+  "Site internet",
+  "Instagram",
+  "Présentez votre activité en quelques mots / lignes",
+  "Quels avantages souhaiteriez-vous proposer aux membres Klique (la liste est évolutive) ?",
+  "Merci de préciser les détails des avantages sélectionnés (% de réduction, nature de l'offre / cadeau /produits à tester / etc.)",
+  "Quels types de collaborations vous intéressent pour votre entreprise (la liste est évolutive) ?",
+  "Communication - Acceptez-vous que Klique utilise votre logo et vos visuels pour présenter le partenariat ?",
+  "Logo - Disposez-vous d'un logo HD pour la communication de Klique ?",
+];
+
+const createPartnerFormRow = (name: string, contact: string, email: string) => [
+  name,
+  contact,
+  email,
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+];
 
 describe("getPartnersFromGoogleSheets partner form imports", () => {
   beforeEach(() => {
@@ -42,7 +100,7 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
       if (range === PARTNERS_RANGE) {
         return createPartnersSheet([
-          ["Studio Alpha", "Partenaire", "Media", "Mila Benjak", "alpha@example.com", "010101", "Actif"],
+          createPartnerRow({ name: "Studio Alpha", type: "Partenaire", category: "Media", contact: "Mila Benjak", email: "alpha@example.com", phone: "010101", status: "Actif" }),
         ]);
       }
 
@@ -58,7 +116,7 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
       if (range === PARTNERS_RANGE) {
         return createPartnersSheet([
-          ["Studio Alpha", "Partenaire", "Media", "Mila Benjak", "alpha@example.com", "010101", "Actif"],
+          createPartnerRow({ name: "Studio Alpha", type: "Expert Klique", category: "Media", contact: "Mila Benjak", email: "alpha@example.com", phone: "010101", status: "Actif" }),
         ]);
       }
 
@@ -66,8 +124,8 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom de la structure", "Nom du contact", "Type"],
-              ["2026-08-01 10:00:00", "new@example.com", "Studio Nouveau", "Nina Laurent", "Expert"],
+              partnerFormHeaders,
+              createPartnerFormRow("Studio Nouveau", "Nina Laurent", "new@example.com"),
             ],
           },
         };
@@ -87,7 +145,7 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
       if (range === PARTNERS_RANGE) {
         return createPartnersSheet([
-          ["Studio Alpha", "Partenaire", "Media", "Mila Benjak", "alpha@example.com", "010101", "Actif"],
+          createPartnerRow({ name: "Studio Alpha", type: "Partenaire", category: "Media", contact: "Mila Benjak", email: "alpha@example.com", phone: "010101", status: "Actif" }),
         ]);
       }
 
@@ -95,8 +153,8 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom de la structure", "Nom du contact", "Type"],
-              ["2026-08-01 10:00:00", "alpha@example.com", "Studio Alpha", "Mila Benjak", "Partenaire"],
+              partnerFormHeaders,
+              createPartnerFormRow("Studio Alpha", "Mila Benjak", "alpha@example.com"),
             ],
           },
         };
@@ -114,7 +172,7 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
       if (range === PARTNERS_RANGE) {
         return createPartnersSheet([
-          ["Studio Alpha", "Partenaire", "Media", "Mila Benjak", "", "010101", "Actif"],
+          createPartnerRow({ name: "Studio Alpha", type: "Partenaire", category: "Media", contact: "Mila Benjak", email: "", phone: "010101", status: "Actif" }),
         ]);
       }
 
@@ -122,8 +180,8 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom de la structure", "Nom du contact", "Type"],
-              ["2026-08-01 10:00:00", "", "Studio Alpha", "Mila Benjak", "Partenaire"],
+              partnerFormHeaders,
+              createPartnerFormRow("Studio Alpha", "Mila Benjak", ""),
             ],
           },
         };
@@ -141,7 +199,7 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
       if (range === PARTNERS_RANGE) {
         return createPartnersSheet([
-          ["Studio Alpha", "Partenaire", "Media", "Mila Benjak", "alpha@example.com", "010101", "Actif"],
+          createPartnerRow({ name: "Studio Alpha", type: "Partenaire", category: "Media", contact: "Mila Benjak", email: "alpha@example.com", phone: "010101", status: "Actif" }),
         ]);
       }
 
@@ -149,8 +207,8 @@ describe("getPartnersFromGoogleSheets partner form imports", () => {
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom de la structure", "Nom du contact", "Type"],
-              ["2026-08-01 10:00:00", "", "", "", "Partenaire"],
+              partnerFormHeaders,
+              createPartnerFormRow("", "", ""),
             ],
           },
         };
