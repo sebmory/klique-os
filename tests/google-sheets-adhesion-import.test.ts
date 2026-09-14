@@ -21,10 +21,10 @@ vi.mock("googleapis", () => ({
 
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
-const ATHLETES_RANGE = "'02_Athlètes'!A3:AC200";
+const ATHLETES_RANGE = "'02_Athlètes'!A3:AI200";
 const FORMS_ADHESION_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
-const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A1:Z500";
-const MONTHLY_RESPONSES_RANGE = "'Forms_Mensuel_Responses'!A1:Z500";
+const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A:Z";
+const MONTHLY_RESPONSES_RANGE = "'Forms_Mensuel_Responses'!A:H";
 
 const createAthletesSheet = (rows: string[][]) => ({
   data: {
@@ -137,6 +137,40 @@ describe("getAthletesFromGoogleSheets adhesion imports", () => {
     const athletes = await getAthletesFromGoogleSheets();
 
     expect(athletes.filter((athlete) => athlete.email === "alpha@example.com")).toHaveLength(1);
+  });
+
+  it("exposes the adhesion timestamp as an ISO date and preserves a truly missing date", async () => {
+    valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
+      if (range === ATHLETES_RANGE) {
+        return createAthletesSheet([
+          ["Mila Benjak", "Tennis", "Club A", "@mila", "111", "", "Actif"],
+          ["Sans Date", "Natation", "Club B", "@sansdate", "222", "missing@example.com", "Actif"],
+        ]);
+      }
+
+      if (range === FORMS_ADHESION_RANGE) {
+        return {
+          data: {
+            values: [
+              ["Horodateur", "Email", "Nom complet"],
+              ["14/09/2026 08:45:12", "", "Benjak Mila"],
+              ["", "missing@example.com", "Sans Date"],
+            ],
+          },
+        };
+      }
+
+      if (range === WEEKLY_RESPONSES_RANGE || range === MONTHLY_RESPONSES_RANGE) {
+        return { data: { values: [] } };
+      }
+
+      throw new Error(`Unexpected range: ${range}`);
+    });
+
+    const athletes = await getAthletesFromGoogleSheets();
+
+    expect(athletes.find(({ name }) => name === "Mila Benjak")?.adhesionDate).toBe("2026-09-14");
+    expect(athletes.find(({ name }) => name === "Sans Date")?.adhesionDate).toBe("");
   });
 
   it("does not create a duplicate when the adhesion matches an existing athlete by normalized name", async () => {

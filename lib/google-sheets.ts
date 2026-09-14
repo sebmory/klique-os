@@ -47,6 +47,26 @@ const cleanAthleteDateValue = (value: unknown): string => {
   return trimmed;
 };
 
+const normalizeAdhesionDate = (value: unknown): string => {
+  const cleaned = cleanAthleteDateValue(value);
+  if (!cleaned) return "";
+  const isoMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(cleaned);
+  const europeanMatch = /^(\d{1,2})[./](\d{1,2})[./](\d{4})(?:\s+.*)?$/.exec(cleaned);
+  const parts = isoMatch
+    ? { year: Number(isoMatch[1]), month: Number(isoMatch[2]), day: Number(isoMatch[3]) }
+    : europeanMatch
+      ? { year: Number(europeanMatch[3]), month: Number(europeanMatch[2]), day: Number(europeanMatch[1]) }
+      : null;
+  if (!parts) return "";
+  const parsed = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  if (parsed.getUTCFullYear() !== parts.year
+    || parsed.getUTCMonth() !== parts.month - 1
+    || parsed.getUTCDate() !== parts.day) {
+    return "";
+  }
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+};
+
 const toneFromCoverage = (coverage: number): Athlete["tone"] => {
   if (coverage >= 75) return "solid";
   if (coverage >= 55) return "correct";
@@ -551,7 +571,7 @@ async function buildFormAdhesionMap(
         nationality:      col.nationality      >= 0 ? String(row[col.nationality]      ?? "") : "",
         position:         col.position         >= 0 ? String(row[col.position]         ?? "") : "",
         competitionPhoto: col.competitionPhoto >= 0 ? boolValue(row[col.competitionPhoto]) : false,
-        adhesionDate:     col.adhesionDate     >= 0 ? String(row[col.adhesionDate]     ?? "") : "",
+        adhesionDate:     col.adhesionDate     >= 0 ? normalizeAdhesionDate(row[col.adhesionDate]) : "",
       };
 
       const existingEntry = [normalizedEmail, normalizedName]
@@ -1025,7 +1045,7 @@ export async function getAthletesFromGoogleSheets(options: { weeklyResponseDays?
       const coverage =
         column.coverage >= 0 ? numberValue(row[column.coverage]) : 0;
       const athleteEmail = normalize(String(row[column.email] ?? ""));
-      const form = formMap.get(athleteEmail);
+      const form = formMap.get(athleteEmail) ?? formMap.get(normalizeNameKey(name));
       const weeklyResponseEntry = weeklyResponses.get(athleteEmail) ?? weeklyResponses.get(normalizeNameKey(name));
       const weeklyResponse = weeklyResponseEntry?.timestamp ?? String(row[column.lastResponseWeekly] ?? "");
       const monthlyResponseEntry = monthlyResponses.get(athleteEmail) ?? monthlyResponses.get(normalizeNameKey(name));
@@ -1088,7 +1108,7 @@ export async function getAthletesFromGoogleSheets(options: { weeklyResponseDays?
         nationality:      form?.nationality      ?? "",
         position:         form?.position         ?? "",
         competitionPhoto: form?.competitionPhoto ?? false,
-        adhesionDate:     cleanAthleteDateValue(form?.adhesionDate),
+        adhesionDate:     form?.adhesionDate ?? "",
       };
     });
 
@@ -1157,7 +1177,7 @@ export async function getAthletesFromGoogleSheets(options: { weeklyResponseDays?
       nationality:      form.nationality,
       position:         form.position,
       competitionPhoto: form.competitionPhoto,
-      adhesionDate:     cleanAthleteDateValue(form.adhesionDate),
+      adhesionDate:     form.adhesionDate,
     });
 
     if (normalizedEmail) {
