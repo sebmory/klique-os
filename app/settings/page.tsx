@@ -16,6 +16,26 @@ export default function SettingsPage() {
       </header>
 
       <Link
+        href="/settings/athlete-subscriptions"
+        style={{
+          display: "grid",
+          gap: "0.35rem",
+          padding: "1.15rem",
+          border: "1px solid #f0e2d0",
+          borderRadius: "8px",
+          background: "#fff",
+          boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)",
+          color: "inherit",
+          textDecoration: "none",
+        }}
+      >
+        <strong style={{ color: "#111827", fontSize: "1.05rem" }}>Abonnements Athlètes</strong>
+        <span style={{ color: "#6b7280", lineHeight: 1.6 }}>
+          Attribuer les offres Athlètes et suivre les abonnements du workspace.
+        </span>
+      </Link>
+
+      <Link
         href="/settings/notifications"
         style={{
           display: "grid",

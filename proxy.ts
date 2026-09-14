@@ -39,6 +39,14 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return method === "GET" || method === "PATCH";
   }
 
+  if (pathname === "/api/athlete/subscription") {
+    return method === "GET";
+  }
+
+  if (pathname === "/api/athlete/subscription/content-requests") {
+    return method === "GET" || method === "POST";
+  }
+
   if (
     pathname === "/athlete/services"
     || pathname === "/api/athlete/services"

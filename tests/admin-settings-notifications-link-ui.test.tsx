@@ -37,7 +37,13 @@ afterEach(async () => {
   container.remove();
 });
 
-describe("Admin settings notifications access", () => {
+describe("Admin settings navigation", () => {
+  it("links to Athlete subscription management", () => {
+    const link = container.querySelector('a[href="/settings/athlete-subscriptions"]');
+
+    expect(link?.textContent).toContain("Abonnements Athlètes");
+  });
+
   it("links clearly to the notifications and announcements page", () => {
     const link = container.querySelector('a[href="/settings/notifications"]');
 
