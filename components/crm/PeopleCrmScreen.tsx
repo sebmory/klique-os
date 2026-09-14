@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { LayoutGrid, LayoutList, MoreHorizontal, Search } from "lucide-react";
+import { LayoutGrid, LayoutList, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { CrmModuleNav } from "@/components/crm/CrmModuleNav";
 
@@ -10,6 +10,12 @@ type ContactType = "Athletes";
 type ContactStatus = "Actif" | "Prospect" | "Inactif";
 type SortKey = "name" | "lastActivity" | "createdAt" | "clubName";
 type ViewMode = "list" | "cards";
+
+type AdhesionSyncResult = {
+  created: number;
+  skipped: number;
+  errors: Array<{ sourceRow: number; message: string }>;
+};
 
 type Person = {
   id: string;
@@ -87,6 +93,9 @@ export function PeopleCrmScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [syncingAdhesions, setSyncingAdhesions] = useState(false);
+  const [adhesionSyncResult, setAdhesionSyncResult] = useState<AdhesionSyncResult | null>(null);
+  const [adhesionSyncError, setAdhesionSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -126,6 +135,41 @@ export function PeopleCrmScreen() {
       active = false;
     };
   }, [retryToken]);
+
+  const syncAdhesions = async () => {
+    setSyncingAdhesions(true);
+    setAdhesionSyncResult(null);
+    setAdhesionSyncError(null);
+
+    try {
+      const response = await fetch("/api/admin/athletes/sync-adhesions", {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = (await response.json().catch(() => null)) as (AdhesionSyncResult & { ok?: boolean }) | { error?: string } | null;
+
+      if (!response.ok || !payload || !("created" in payload)) {
+        throw new Error(payload && "error" in payload && payload.error
+          ? payload.error
+          : "Impossible de synchroniser les adhésions.");
+      }
+
+      const result = {
+        created: payload.created,
+        skipped: payload.skipped,
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+      setAdhesionSyncResult(result);
+
+      if (result.created > 0) {
+        setRetryToken((value) => value + 1);
+      }
+    } catch (error) {
+      setAdhesionSyncError(error instanceof Error ? error.message : "Impossible de synchroniser les adhésions.");
+    } finally {
+      setSyncingAdhesions(false);
+    }
+  };
 
   const peopleSource = useMemo(() => rawAthletes.map(mapAthleteToPerson), [rawAthletes]);
 
@@ -175,6 +219,16 @@ export function PeopleCrmScreen() {
         </label>
 
         <div className="crm-actions-right">
+          <button
+            type="button"
+            className="crm-secondary-action-link"
+            onClick={() => void syncAdhesions()}
+            disabled={syncingAdhesions}
+          >
+            <RefreshCw size={16} aria-hidden />
+            <span>{syncingAdhesions ? "Synchronisation…" : "Synchroniser les adhésions"}</span>
+          </button>
+
           <label className="crm-select-wrap">
             <span>Trier</span>
             <select value={sortBy} onChange={(event) => setSortBy(event.target.value as SortKey)}>
@@ -207,6 +261,22 @@ export function PeopleCrmScreen() {
           </div>
         </div>
       </section>
+
+      {adhesionSyncResult ? (
+        <section className="crm-sync-result" aria-live="polite">
+          <strong>Bilan de la synchronisation</strong>
+          <span>{adhesionSyncResult.created} créé(s)</span>
+          <span>{adhesionSyncResult.skipped} ignoré(s)</span>
+          <span>{adhesionSyncResult.errors.length} erreur(s)</span>
+          {adhesionSyncResult.errors.map((error) => (
+            <p key={`${error.sourceRow}-${error.message}`} role="alert">
+              Ligne {error.sourceRow} : {error.message}
+            </p>
+          ))}
+        </section>
+      ) : null}
+
+      {adhesionSyncError ? <p className="crm-sync-error" role="alert">{adhesionSyncError}</p> : null}
 
       {loading ? (
         <section className="crm-skeleton-shell" aria-live="polite" aria-busy="true">

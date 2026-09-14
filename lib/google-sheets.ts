@@ -107,6 +107,12 @@ type FormEnrichment = {
   adhesionDate: string;
 };
 
+export type AthleteAdhesionSyncResult = {
+  created: number;
+  skipped: number;
+  errors: Array<{ sourceRow: number; message: string }>;
+};
+
 type WeeklyResponseValue = {
   timestamp: string;
   competition: string;
@@ -527,6 +533,10 @@ const shouldReplaceWeeklyResponse = (current: string | undefined, candidate: str
 const formAdhesionColumns = (headers: string[]) => ({
   email:            findColumn(headers, ["email", "adresse e-mail", "adresse mail"], 1),
   name:             findColumn(headers, ["nom complet", "prénom et nom", "nom et prénom", "name", "nom"], -1),
+  phone:            findColumn(headers, ["numéro de téléphone", "numero de telephone", "téléphone", "telephone", "tel"], -1),
+  instagram:        findColumn(headers, ["compte instagram", "instagram"], -1),
+  sport:            findColumn(headers, ["sport pratiqué", "sport pratique", "sport", "discipline"], -1),
+  club:             findColumn(headers, ["club actuel", "club", "équipe", "equipe"], -1),
   palmares:         findColumn(headers, ["palmares", "palmarès (si disponible)", "palmares (si disponible)"], -1),
   objective:        findColumn(headers, ["court terme"], -1),
   longTerm:         findColumn(headers, ["long terme"], -1),
@@ -1274,6 +1284,88 @@ export async function addAthleteToGoogleSheets(athlete: Athlete): Promise<void> 
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [newRow] },
   });
+}
+
+export async function syncAthleteAdhesionsToGoogleSheets(): Promise<AthleteAdhesionSyncResult> {
+  const result: AthleteAdhesionSyncResult = { created: 0, skipped: 0, errors: [] };
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+
+  const [athleteResponse, adhesionResponse] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId, range: athleteSheetRange }),
+    sheets.spreadsheets.values.get({ spreadsheetId, range: "'Forms_Adhesion_Responses'!A1:Z500" }),
+  ]);
+
+  const athleteRows = athleteResponse.data.values ?? [];
+  if (athleteRows.length < 1) {
+    throw new Error("Impossible de lire les en-têtes de 02_Athlètes.");
+  }
+
+  const adhesionRows = adhesionResponse.data.values ?? [];
+  if (adhesionRows.length < 2) return result;
+
+  const athleteColumn = athleteColumns(athleteRows[0].map(String));
+  const adhesionColumn = formAdhesionColumns(adhesionRows[0].map(String));
+  const existingEmails = new Set(
+    athleteRows.slice(1).map((row) => normalize(row[athleteColumn.email])).filter(Boolean),
+  );
+  const existingNames = new Set(
+    athleteRows.slice(1).map((row) => normalizeNameKey(row[athleteColumn.name])).filter(Boolean),
+  );
+  const rowLength = getAthleteRowLength(athleteColumn);
+  const read = (row: unknown[], columnIndex: number): string =>
+    columnIndex >= 0 ? String(row[columnIndex] ?? "").trim() : "";
+
+  for (const [index, adhesionRow] of adhesionRows.slice(1).entries()) {
+    const sourceRow = index + 2;
+    const name = read(adhesionRow, adhesionColumn.name);
+    const email = read(adhesionRow, adhesionColumn.email);
+    const normalizedEmail = normalize(email);
+    const normalizedName = normalizeNameKey(name);
+
+    if (!name) {
+      result.errors.push({ sourceRow, message: "Nom athlète manquant." });
+      continue;
+    }
+
+    if (normalizedEmail && existingEmails.has(normalizedEmail)) {
+      result.skipped += 1;
+      continue;
+    }
+    if (normalizedName && existingNames.has(normalizedName)) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const newRow = Array.from({ length: rowLength }, () => "");
+    newRow[athleteColumn.name] = name;
+    newRow[athleteColumn.sport] = read(adhesionRow, adhesionColumn.sport);
+    newRow[athleteColumn.club] = read(adhesionRow, adhesionColumn.club);
+    newRow[athleteColumn.instagram] = read(adhesionRow, adhesionColumn.instagram);
+    newRow[athleteColumn.phone] = read(adhesionRow, adhesionColumn.phone);
+    newRow[athleteColumn.email] = email;
+    newRow[athleteColumn.status] = "Actif";
+
+    try {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: athleteSheetAppendRange,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [newRow] },
+      });
+      result.created += 1;
+      if (normalizedEmail) existingEmails.add(normalizedEmail);
+      if (normalizedName) existingNames.add(normalizedName);
+    } catch (error) {
+      result.errors.push({
+        sourceRow,
+        message: error instanceof Error ? error.message : "Impossible d'ajouter l'athlète.",
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function updateAthleteInGoogleSheets(
