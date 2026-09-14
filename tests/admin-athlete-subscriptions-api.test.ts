@@ -40,6 +40,11 @@ const dependencies = (overrides: Record<string, unknown> = {}) => ({
   }),
   listSubscriptions: vi.fn().mockResolvedValue([subscription()]),
   assignSubscription: vi.fn().mockResolvedValue(subscription()),
+  bulkAssignFounder: vi.fn().mockResolvedValue({
+    created: [subscription({ planCode: "founder", isFounder: true, isComplimentary: true, priceChf: 0 })],
+    skipped: [{ athleteId: "athlete-2", reason: "active_subscription" }],
+    errors: [{ athleteId: "athlete-3", message: "startsOn est requis." }],
+  }),
   cancelSubscription: vi.fn().mockResolvedValue(subscription({ status: "cancelled" })),
   ...overrides,
 });
@@ -136,6 +141,47 @@ describe("Admin athlete subscriptions API", () => {
       workspaceId: "workspace-session",
       createdByClerkUserId: "admin-session",
     });
+  });
+
+  it("runs bulk Founder assignment with session identity and returns its detailed result", async () => {
+    const mocks = dependencies();
+    const assignments = [
+      { athleteId: " athlete-1 ", startsOn: "2026-09-14", endsOn: "2027-09-14" },
+      { athleteId: "athlete-2", startsOn: "2026-08-01", endsOn: "2027-08-01" },
+    ];
+
+    const response = await createAdminAthleteSubscriptionHandlers(mocks).POST(request("POST", {
+      action: "bulk_founder",
+      assignments,
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.bulkAssignFounder).toHaveBeenCalledWith({
+      assignments,
+      workspaceId: "workspace-session",
+      createdByClerkUserId: "admin-session",
+    });
+    expect(payload).toMatchObject({
+      created: [expect.objectContaining({ planCode: "founder" })],
+      skipped: [{ athleteId: "athlete-2", reason: "active_subscription" }],
+      errors: [{ athleteId: "athlete-3", message: "startsOn est requis." }],
+    });
+    expect(mocks.assignSubscription).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { action: "bulk_founder", assignments: "athlete-1" },
+    { action: "bulk_founder", assignments: [{ athleteId: "athlete-1", startsOn: "2026-09-14" }] },
+    { action: "bulk_founder", assignments: [{ athleteId: "athlete-1", startsOn: "2026-09-14", endsOn: "2027-09-14", planCode: "founder" }] },
+    { action: "bulk_founder", assignments: [], workspaceId: "workspace-client" },
+  ])("rejects malformed or extended bulk Founder payloads", async (body) => {
+    const mocks = dependencies();
+
+    const response = await createAdminAthleteSubscriptionHandlers(mocks).POST(request("POST", body));
+
+    expect(response.status).toBe(400);
+    expect(mocks.bulkAssignFounder).not.toHaveBeenCalled();
   });
 
   it.each([

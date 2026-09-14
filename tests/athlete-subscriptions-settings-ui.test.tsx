@@ -31,7 +31,7 @@ const subscription = {
   updatedAt: "2026-09-14T08:00:00.000Z",
 };
 
-const athlete = { key: "athlete-1", name: "Lina Morel" };
+const athlete = { key: "athlete-1", name: "Lina Morel", adhesionDate: "14.09.2026" };
 const contentRequest = (overrides: Record<string, unknown> = {}) => ({
   id: "91d272d1-1a5b-4486-bbc0-69b1ce747e4d",
   workspaceId: "workspace-1",
@@ -240,6 +240,69 @@ describe("Athlete subscriptions settings page", () => {
       isFounder: true,
       isComplimentary: true,
     });
+  });
+
+  it("bulk assigns selected eligible athletes with adhesion dates prefilled for one year", async () => {
+    const activeAthlete = { ...athlete, key: "athlete-active", name: "Athlète Actif" };
+    const founderSubscription = {
+      ...subscription,
+      athleteId: athlete.key,
+      planCode: "founder",
+      startsOn: "2026-09-14",
+      endsOn: "2027-09-14",
+      priceChf: 0,
+    };
+    fetchMock
+      .mockResolvedValueOnce(response({ athletes: [athlete, activeAthlete], source: "google-sheets" }))
+      .mockResolvedValueOnce(response({ subscriptions: [{ ...subscription, athleteId: activeAthlete.key }] }))
+      .mockResolvedValueOnce(response({ requests: [] }))
+      .mockResolvedValueOnce(response({ created: [founderSubscription], skipped: [], errors: [] }));
+    await mount();
+
+    expect(container.querySelector('[aria-label="Sélectionner Lina Morel"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Sélectionner Athlète Actif"]')).toBeNull();
+    await click(container.querySelector('[aria-label="Sélectionner Lina Morel"]')!);
+
+    expect((container.querySelector('[aria-label="Début Founder pour Lina Morel"]') as HTMLInputElement).value)
+      .toBe("2026-09-14");
+    expect((container.querySelector('[aria-label="Fin Founder pour Lina Morel"]') as HTMLInputElement).value)
+      .toBe("2027-09-14");
+
+    const bulkButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Attribuer les accès fondateurs")!;
+    await act(async () => {
+      bulkButton.closest("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/admin/athlete-subscriptions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        action: "bulk_founder",
+        assignments: [{ athleteId: "athlete-1", startsOn: "2026-09-14", endsOn: "2027-09-14" }],
+      }),
+    }));
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("1 créé(s), 0 ignoré(s), 0 erreur(s).");
+  });
+
+  it("signals a missing adhesion date before bulk validation", async () => {
+    const athleteWithoutDate = { ...athlete, key: "athlete-missing", name: "Sans Date", adhesionDate: "" };
+    fetchMock
+      .mockResolvedValueOnce(response({ athletes: [athleteWithoutDate], source: "google-sheets" }))
+      .mockResolvedValueOnce(response({ subscriptions: [] }))
+      .mockResolvedValueOnce(response({ requests: [] }));
+    await mount();
+
+    expect(container.textContent).toContain("Date d’adhésion manquante");
+    await click(container.querySelector('[aria-label="Sélectionner Sans Date"]')!);
+    const bulkButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Attribuer les accès fondateurs")!;
+    await act(async () => {
+      bulkButton.closest("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Date d’adhésion manquante pour : Sans Date.");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("confirms and patches cancellation", async () => {

@@ -1,9 +1,12 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   assignAthleteSubscription,
   AthleteSubscriptionConflictError,
   AthleteSubscriptionNotFoundError,
   AthleteSubscriptionValidationError,
+  bulkAssignFounderSubscriptions,
   cancelAthleteSubscription,
   getActiveAthleteSubscription,
   listAthleteSubscriptions,
@@ -34,6 +37,7 @@ const neonRow = (overrides: Record<string, unknown> = {}): Record<string, unknow
 
 const repository = (overrides: Partial<AthleteSubscriptionRepository> = {}) => {
   const createdRecords: Array<Parameters<AthleteSubscriptionRepository["create"]>[0]> = [];
+  const bulkCreatedRecords: Array<Parameters<AthleteSubscriptionRepository["bulkCreateFounder"]>[0]> = [];
   const value: AthleteSubscriptionRepository = {
     list: vi.fn().mockResolvedValue([]),
     getActive: vi.fn().mockResolvedValue(null),
@@ -57,10 +61,30 @@ const repository = (overrides: Partial<AthleteSubscriptionRepository> = {}) => {
         created_by_clerk_user_id: record.createdByClerkUserId,
       });
     }),
+    bulkCreateFounder: vi.fn(async (records) => {
+      bulkCreatedRecords.push(records);
+      return records.map((record: Parameters<AthleteSubscriptionRepository["bulkCreateFounder"]>[0][number]) => neonRow({
+        id: record.id,
+        workspace_id: record.workspaceId,
+        athlete_id: record.athleteId,
+        plan_code: "founder",
+        starts_on: record.startsOn,
+        ends_on: record.endsOn,
+        is_founder: true,
+        is_complimentary: true,
+        price_chf: "0",
+        discount_percent: "0",
+        photo_sessions_included: "0",
+        media_days_included: "0",
+        competition_sessions_included: "0",
+        custom_contents_included: "0",
+        created_by_clerk_user_id: record.createdByClerkUserId,
+      }));
+    }),
     cancel: vi.fn().mockResolvedValue({ outcome: "not_found", row: null }),
     ...overrides,
   };
-  return { value, createdRecords };
+  return { value, createdRecords, bulkCreatedRecords };
 };
 
 const assign = (
@@ -239,6 +263,96 @@ describe("Athlete subscriptions service", () => {
       expect(createdRecords[0].priceChf).toBeGreaterThan(0);
     },
   );
+
+  it("creates a Founder batch with normalized dates and forced zero terms", async () => {
+    const { value, bulkCreatedRecords } = repository();
+
+    const result = await bulkAssignFounderSubscriptions({
+      workspaceId: " workspace-1 ",
+      createdByClerkUserId: " admin-1 ",
+      assignments: [
+        { athleteId: " athlete-1 ", startsOn: "2026-09-14", endsOn: "2027-09-14" },
+        { athleteId: " athlete-2 ", startsOn: "2026-02-28", endsOn: "2027-02-28" },
+      ],
+    }, value);
+
+    expect(bulkCreatedRecords).toHaveLength(1);
+    expect(bulkCreatedRecords[0]).toHaveLength(2);
+    expect(bulkCreatedRecords[0][0]).toMatchObject({
+      workspaceId: "workspace-1",
+      athleteId: "athlete-1",
+      databasePlanCode: "founder",
+      isFounder: true,
+      isComplimentary: true,
+      priceChf: 0,
+      discountPercent: 0,
+      photoSessionsIncluded: 0,
+      mediaDaysIncluded: 0,
+      competitionSessionsIncluded: 0,
+      customContentsIncluded: 0,
+      createdByClerkUserId: "admin-1",
+    });
+    expect(result).toMatchObject({
+      created: [{ athleteId: "athlete-1", planCode: "founder" }, { athleteId: "athlete-2", planCode: "founder" }],
+      skipped: [],
+      errors: [],
+    });
+  });
+
+  it("returns skipped conflicts and per-athlete errors without duplicate insert attempts", async () => {
+    const serviceRepository = repository({
+      bulkCreateFounder: vi.fn(async (records) => [
+        neonRow({
+          id: records[0].id,
+          athlete_id: records[0].athleteId,
+          plan_code: "founder",
+          starts_on: records[0].startsOn,
+          ends_on: records[0].endsOn,
+          is_founder: true,
+          is_complimentary: true,
+          price_chf: "0",
+          discount_percent: "0",
+          photo_sessions_included: "0",
+          media_days_included: "0",
+          competition_sessions_included: "0",
+          custom_contents_included: "0",
+        }),
+        null,
+      ]),
+    }).value;
+
+    const result = await bulkAssignFounderSubscriptions({
+      workspaceId: "workspace-1",
+      createdByClerkUserId: "admin-1",
+      assignments: [
+        { athleteId: "athlete-1", startsOn: "2026-09-14", endsOn: "2027-09-14" },
+        { athleteId: "athlete-1", startsOn: "2026-09-14", endsOn: "2027-09-14" },
+        { athleteId: "athlete-2", startsOn: "", endsOn: "" },
+        { athleteId: "athlete-3", startsOn: "2026-09-14", endsOn: "2027-09-14" },
+      ],
+    }, serviceRepository);
+
+    expect(serviceRepository.bulkCreateFounder).toHaveBeenCalledWith([
+      expect.objectContaining({ athleteId: "athlete-1" }),
+      expect.objectContaining({ athleteId: "athlete-3" }),
+    ]);
+    expect(result.created).toHaveLength(1);
+    expect(result.skipped).toEqual([{ athleteId: "athlete-3", reason: "active_subscription" }]);
+    expect(result.errors).toEqual([
+      { athleteId: "athlete-1", message: "Cet athlète est présent plusieurs fois dans le lot." },
+      { athleteId: "athlete-2", message: "startsOn est requis." },
+    ]);
+  });
+
+  it("implements bulk Founder persistence as one conflict-safe transaction", () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "lib/athlete-subscriptions/service.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("const results = await sql.transaction(queries)");
+    expect(source).toContain("ON CONFLICT (workspace_id, athlete_id) WHERE status = 'active' DO NOTHING");
+  });
 
   it("rejects invalid identity, plan, dates, and flags with validation errors", async () => {
     const serviceRepository = repository().value;

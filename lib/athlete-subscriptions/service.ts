@@ -44,6 +44,22 @@ export type AssignAthleteSubscriptionInput = {
   createdByClerkUserId: string;
 };
 
+export type BulkFounderAssignmentInput = {
+  workspaceId: string;
+  createdByClerkUserId: string;
+  assignments: readonly {
+    athleteId: string;
+    startsOn: string | Date;
+    endsOn: string | Date;
+  }[];
+};
+
+export type BulkFounderAssignmentResult = {
+  created: AthleteSubscription[];
+  skipped: Array<{ athleteId: string; reason: "active_subscription" }>;
+  errors: Array<{ athleteId: string; message: string }>;
+};
+
 export type CancelAthleteSubscriptionInput = {
   workspaceId: string;
   subscriptionId: string;
@@ -106,6 +122,9 @@ export type AthleteSubscriptionRepository = {
   list: (workspaceId: string) => Promise<AthleteSubscriptionRow[]>;
   getActive: (workspaceId: string, athleteId: string) => Promise<AthleteSubscriptionRow | null>;
   create: (record: AthleteSubscriptionCreateRecord) => Promise<AthleteSubscriptionRow>;
+  bulkCreateFounder: (
+    records: readonly AthleteSubscriptionCreateRecord[],
+  ) => Promise<Array<AthleteSubscriptionRow | null>>;
   cancel: (workspaceId: string, subscriptionId: string) => Promise<{
     outcome: "cancelled" | "conflict" | "not_found";
     row: AthleteSubscriptionRow | null;
@@ -269,6 +288,28 @@ const createRepository = (): AthleteSubscriptionRepository => {
       `;
       return rows[0] as AthleteSubscriptionRow;
     },
+    async bulkCreateFounder(records) {
+      const queries = records.map((record) => sql`
+        INSERT INTO athlete_subscriptions (
+          id, workspace_id, athlete_id, plan_code, status, starts_on, ends_on,
+          is_founder, is_complimentary, price_chf, discount_percent,
+          photo_sessions_included, media_days_included, competition_sessions_included,
+          custom_contents_included, created_by_clerk_user_id, created_at, updated_at
+        ) VALUES (
+          ${record.id}::uuid, ${record.workspaceId}, ${record.athleteId}, 'founder',
+          'active', ${record.startsOn}::date, ${record.endsOn}::date,
+          TRUE, TRUE, 0, 0, 0, 0, 0, 0,
+          ${record.createdByClerkUserId}, NOW(), NOW()
+        )
+        ON CONFLICT (workspace_id, athlete_id) WHERE status = 'active' DO NOTHING
+        RETURNING id, workspace_id, athlete_id, plan_code, status, starts_on, ends_on,
+                  is_founder, is_complimentary, price_chf, discount_percent,
+                  photo_sessions_included, media_days_included, competition_sessions_included,
+                  custom_contents_included, created_by_clerk_user_id, created_at, updated_at
+      `);
+      const results = await sql.transaction(queries);
+      return results.map((rows) => (rows[0] as AthleteSubscriptionRow | undefined) ?? null);
+    },
     async cancel(workspaceId, subscriptionId) {
       const rows = await sql`
         WITH candidate AS (
@@ -381,6 +422,71 @@ export const assignAthleteSubscription = async (
     }
     throw error;
   }
+};
+
+export const bulkAssignFounderSubscriptions = async (
+  input: BulkFounderAssignmentInput,
+  repository: AthleteSubscriptionRepository = createRepository(),
+): Promise<BulkFounderAssignmentResult> => {
+  const workspaceId = requireText(input.workspaceId, "workspaceId");
+  const createdByClerkUserId = requireText(input.createdByClerkUserId, "createdByClerkUserId");
+  if (!Array.isArray(input.assignments) || input.assignments.length === 0) {
+    throw new AthleteSubscriptionValidationError("Au moins une attribution Founder est requise.");
+  }
+
+  const records: AthleteSubscriptionCreateRecord[] = [];
+  const errors: BulkFounderAssignmentResult["errors"] = [];
+  const seenAthleteIds = new Set<string>();
+
+  for (const assignment of input.assignments) {
+    const candidateAthleteId = normalizeText(assignment?.athleteId);
+    try {
+      const athleteId = requireText(assignment?.athleteId, "athleteId");
+      if (seenAthleteIds.has(athleteId)) {
+        throw new AthleteSubscriptionValidationError("Cet athlète est présent plusieurs fois dans le lot.");
+      }
+      seenAthleteIds.add(athleteId);
+      const startsOn = normalizeDate(assignment?.startsOn, "startsOn");
+      const endsOn = normalizeDate(assignment?.endsOn, "endsOn");
+      if (endsOn <= startsOn) {
+        throw new AthleteSubscriptionValidationError("endsOn doit être postérieure à startsOn.");
+      }
+      records.push({
+        id: randomUUID(),
+        workspaceId,
+        athleteId,
+        databasePlanCode: "founder",
+        startsOn,
+        endsOn,
+        isFounder: true,
+        isComplimentary: true,
+        priceChf: 0,
+        discountPercent: 0,
+        photoSessionsIncluded: 0,
+        mediaDaysIncluded: 0,
+        competitionSessionsIncluded: 0,
+        customContentsIncluded: 0,
+        createdByClerkUserId,
+      });
+    } catch (error) {
+      errors.push({
+        athleteId: candidateAthleteId,
+        message: error instanceof AthleteSubscriptionError ? error.message : "Attribution invalide.",
+      });
+    }
+  }
+
+  if (records.length === 0) return { created: [], skipped: [], errors };
+
+  const rows = await repository.bulkCreateFounder(records);
+  const created: AthleteSubscription[] = [];
+  const skipped: BulkFounderAssignmentResult["skipped"] = [];
+  records.forEach((record, index) => {
+    const row = rows[index];
+    if (row) created.push(mapSubscriptionRow(row));
+    else skipped.push({ athleteId: record.athleteId, reason: "active_subscription" });
+  });
+  return { created, skipped, errors };
 };
 
 export const cancelAthleteSubscription = async (

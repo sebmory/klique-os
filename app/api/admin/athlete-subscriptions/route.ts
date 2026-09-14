@@ -3,11 +3,14 @@ import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import {
   assignAthleteSubscription,
   AthleteSubscriptionError,
+  bulkAssignFounderSubscriptions,
   cancelAthleteSubscription,
   listAthleteSubscriptions,
   type AssignAthleteSubscriptionInput,
   type AthleteSubscription,
   type AthleteSubscriptionAssignmentPlanCode,
+  type BulkFounderAssignmentInput,
+  type BulkFounderAssignmentResult,
   type CancelAthleteSubscriptionInput,
 } from "@/lib/athlete-subscriptions/service";
 
@@ -25,6 +28,7 @@ type HandlerDependencies = {
   getAccess: (request: Request) => Promise<AdminAccess | null>;
   listSubscriptions: (workspaceId: string) => Promise<AthleteSubscription[]>;
   assignSubscription: (input: AssignAthleteSubscriptionInput) => Promise<AthleteSubscription>;
+  bulkAssignFounder: (input: BulkFounderAssignmentInput) => Promise<BulkFounderAssignmentResult>;
   cancelSubscription: (input: CancelAthleteSubscriptionInput) => Promise<AthleteSubscription>;
 };
 
@@ -41,6 +45,7 @@ const defaultDependencies: HandlerDependencies = {
   },
   listSubscriptions: listAthleteSubscriptions,
   assignSubscription: assignAthleteSubscription,
+  bulkAssignFounder: bulkAssignFounderSubscriptions,
   cancelSubscription: cancelAthleteSubscription,
 };
 
@@ -131,6 +136,31 @@ const parseCancellationBody = (value: unknown): { subscriptionId: string } => {
   return { subscriptionId };
 };
 
+const parseBulkFounderBody = (
+  value: Record<string, unknown>,
+): Pick<BulkFounderAssignmentInput, "assignments"> => {
+  if (!hasOnlyKeys(value, ["action", "assignments"])
+    || value.action !== "bulk_founder"
+    || !Array.isArray(value.assignments)) {
+    throw new AthleteSubscriptionError("validation", "Données d’attribution groupée invalides.");
+  }
+  const assignments = value.assignments.map((assignment) => {
+    if (!isRecord(assignment)
+      || !hasOnlyKeys(assignment, ["athleteId", "startsOn", "endsOn"])
+      || typeof assignment.athleteId !== "string"
+      || typeof assignment.startsOn !== "string"
+      || typeof assignment.endsOn !== "string") {
+      throw new AthleteSubscriptionError("validation", "Une attribution Founder est invalide.");
+    }
+    return {
+      athleteId: assignment.athleteId,
+      startsOn: assignment.startsOn,
+      endsOn: assignment.endsOn,
+    };
+  });
+  return { assignments };
+};
+
 export const createAdminAthleteSubscriptionHandlers = (
   dependencies: HandlerDependencies = defaultDependencies,
 ) => ({
@@ -150,6 +180,15 @@ export const createAdminAthleteSubscriptionHandlers = (
       const access = await getAdminContext(request, dependencies);
       if ("response" in access) return access.response;
       const body = await request.json().catch(() => null);
+      if (isRecord(body) && body.action === "bulk_founder") {
+        const input = parseBulkFounderBody(body);
+        const result = await dependencies.bulkAssignFounder({
+          ...input,
+          workspaceId: access.context.workspaceId,
+          createdByClerkUserId: access.context.clerkUserId,
+        });
+        return NextResponse.json(result);
+      }
       const input = parseAssignmentBody(body);
       const subscription = await dependencies.assignSubscription({
         ...input,
