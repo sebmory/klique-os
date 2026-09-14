@@ -110,6 +110,8 @@ export default function PartnerAthleteProfilePage() {
     );
   }
 
+  const location = [athlete.city, athlete.country].map(normalize).filter(Boolean).join(", ");
+
   return (
     <section className="partner-portal partner-athlete-profile">
       <Link href="/partner/athletes" className="partner-athlete-back"><ArrowLeft size={16} aria-hidden /> Retour aux athlètes</Link>
@@ -117,9 +119,12 @@ export default function PartnerAthleteProfilePage() {
       <header className="partner-athlete-profile-hero">
         {athlete.portraitUrl ? <img src={athlete.portraitUrl} alt="" /> : null}
         <div>
-          {athlete.sport ? <p>{athlete.sport}</p> : null}
           <h1>{athlete.name}</h1>
-          {athlete.club ? <span>{athlete.club}</span> : null}
+          <dl className="partner-athlete-profile-meta">
+            {athlete.sport ? <div><dt>Sport</dt><dd>{athlete.sport}</dd></div> : null}
+            {athlete.club ? <div><dt>Club / équipe</dt><dd>{athlete.club}</dd></div> : null}
+            {location ? <div><dt>Localisation</dt><dd>{location}</dd></div> : null}
+          </dl>
           <button
             type="button"
             className="partner-athlete-introduction-button"

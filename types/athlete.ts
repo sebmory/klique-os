@@ -143,6 +143,8 @@ export type PublicAthleteProfile = {
   name: string;
   sport: string;
   club: string;
+  city: string;
+  country: string;
   portraitUrl: string;
   presentation: string;
   journey: string;

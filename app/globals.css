@@ -6727,18 +6727,9 @@ button {
   border-radius: 7px;
 }
 
-.partner-athlete-profile-hero div {
+.partner-athlete-profile-hero > div {
   min-width: 0;
   padding-bottom: 8px;
-}
-
-.partner-athlete-profile-hero p {
-  margin: 0 0 7px;
-  color: #f08a42;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .partner-athlete-profile-hero h1 {
@@ -6749,10 +6740,29 @@ button {
   letter-spacing: 0;
 }
 
-.partner-athlete-profile-hero span {
-  display: block;
-  margin-top: 9px;
-  color: #c9c9c4;
+.partner-athlete-profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 18px 0 0;
+}
+
+.partner-athlete-profile-meta div {
+  display: grid;
+  gap: 4px;
+}
+
+.partner-athlete-profile-meta dt {
+  color: #f08a42;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.partner-athlete-profile-meta dd {
+  margin: 0;
+  color: #e1e1dc;
   font-size: 0.9rem;
 }
 

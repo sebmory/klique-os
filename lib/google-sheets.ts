@@ -870,6 +870,8 @@ export async function getPublicAthleteProfileFromGoogleSheets(
     return normalizedHeaders.findIndex((header) => normalizedCandidates.includes(header));
   };
   const publicNameColumn = publicColumn(["nom public", "nom affiche", "nom affiché"]);
+  const publicCityColumn = publicColumn(["ville publique", "ville public"]);
+  const publicCountryColumn = publicColumn(["pays public", "pays publique"]);
   const publicPresentationColumn = publicColumn(["presentation publique", "présentation publique", "bio publique"]);
   const publicJourneyColumn = publicColumn(["parcours sportif public", "parcours public"]);
   const publicGoalsColumn = publicColumn(["objectifs sportifs publics", "objectifs sportifs publics", "objectifs publics"]);
@@ -893,6 +895,8 @@ export async function getPublicAthleteProfileFromGoogleSheets(
     name,
     sport: normalizePublicSportLabel(read(row, column.sport)),
     club: read(row, column.club),
+    city: read(row, publicCityColumn),
+    country: read(row, publicCountryColumn),
     portraitUrl: read(row, column.profilePortraitUrl),
     presentation: read(row, publicPresentationColumn),
     journey: read(row, publicJourneyColumn),
