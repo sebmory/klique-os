@@ -813,6 +813,7 @@ const athleteColumns = (headers: string[]) => ({
 const athleteSheetRange = "'02_Athlètes'!A3:AI200";
 const athleteSheetHeaderRange = "'02_Athlètes'!A3:AI3";
 const athleteSheetAppendRange = "'02_Athlètes'!A:AI";
+const athleteAdhesionSyncAppendRange = "'02_Athlètes'!A:G";
 
 const isPublicDirectoryAthleteStatus = (value: unknown): boolean => {
   const status = normalize(value);
@@ -1312,7 +1313,6 @@ export async function syncAthleteAdhesionsToGoogleSheets(): Promise<AthleteAdhes
   const existingNames = new Set(
     athleteRows.slice(1).map((row) => normalizeNameKey(row[athleteColumn.name])).filter(Boolean),
   );
-  const rowLength = getAthleteRowLength(athleteColumn);
   const read = (row: unknown[], columnIndex: number): string =>
     columnIndex >= 0 ? String(row[columnIndex] ?? "").trim() : "";
 
@@ -1337,23 +1337,29 @@ export async function syncAthleteAdhesionsToGoogleSheets(): Promise<AthleteAdhes
       continue;
     }
 
-    const newRow = Array.from({ length: rowLength }, () => "");
-    newRow[athleteColumn.name] = name;
-    newRow[athleteColumn.sport] = read(adhesionRow, adhesionColumn.sport);
-    newRow[athleteColumn.club] = read(adhesionRow, adhesionColumn.club);
-    newRow[athleteColumn.instagram] = read(adhesionRow, adhesionColumn.instagram);
-    newRow[athleteColumn.phone] = read(adhesionRow, adhesionColumn.phone);
-    newRow[athleteColumn.email] = email;
-    newRow[athleteColumn.status] = "Actif";
+    const newRow = [
+      name,
+      read(adhesionRow, adhesionColumn.sport),
+      read(adhesionRow, adhesionColumn.club),
+      read(adhesionRow, adhesionColumn.instagram),
+      read(adhesionRow, adhesionColumn.phone),
+      email,
+      "Actif",
+    ];
 
     try {
-      await sheets.spreadsheets.values.append({
+      const appendResponse = await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: athleteSheetAppendRange,
+        range: athleteAdhesionSyncAppendRange,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
         requestBody: { values: [newRow] },
       });
+      const updatedRange = appendResponse.data.updates?.updatedRange ?? "";
+      const updatedCells = updatedRange.split("!").pop()?.replaceAll("$", "") ?? "";
+      if (!/^A\d+(?::[A-Z]+\d+)?$/i.test(updatedCells)) {
+        throw new Error("Google Sheets a renvoyé une destination d'ajout invalide.");
+      }
       result.created += 1;
       if (normalizedEmail) existingEmails.add(normalizedEmail);
       if (normalizedName) existingNames.add(normalizedName);

@@ -28,7 +28,7 @@ vi.mock("googleapis", () => ({
 import { syncAthleteAdhesionsToGoogleSheets } from "@/lib/google-sheets";
 
 const ATHLETES_RANGE = "'02_Athlètes'!A3:AI200";
-const ATHLETES_APPEND_RANGE = "'02_Athlètes'!A:AI";
+const ATHLETES_APPEND_RANGE = "'02_Athlètes'!A:G";
 const ADHESIONS_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
 
 const athleteHeaders = [
@@ -81,7 +81,8 @@ const installSheetMocks = () => {
   });
   valuesAppendMock.mockImplementation(async ({ requestBody }: { requestBody: { values: string[][] } }) => {
     athleteRows.push(requestBody.values[0]);
-    return { data: {} };
+    const appendedRow = athleteRows.length + 3;
+    return { data: { updates: { updatedRange: `'02_Athlètes'!A${appendedRow}:G${appendedRow}` } } };
   });
 };
 
@@ -116,7 +117,7 @@ describe("syncAthleteAdhesionsToGoogleSheets", () => {
       insertDataOption: "INSERT_ROWS",
     }));
     const appendedRow = valuesAppendMock.mock.calls[0][0].requestBody.values[0] as string[];
-    expect(appendedRow.slice(0, 7)).toEqual([
+    expect(appendedRow).toEqual([
       "Nina Laurent",
       "Football",
       "FC Lausanne",
@@ -125,7 +126,7 @@ describe("syncAthleteAdhesionsToGoogleSheets", () => {
       "NINA@EXAMPLE.COM",
       "Actif",
     ]);
-    expect(appendedRow.slice(7).every((value) => value === "")).toBe(true);
+    expect(appendedRow).toHaveLength(7);
     expect(valuesUpdateMock).not.toHaveBeenCalled();
     expect(athleteRows[0][7]).toBe("Suivi à préserver");
     expect(athleteRows[1][7]).toBe("Autre suivi");
@@ -153,7 +154,8 @@ describe("syncAthleteAdhesionsToGoogleSheets", () => {
       const row = requestBody.values[0];
       if (row[0] === "Append Failure") throw new Error("Google append failed");
       athleteRows.push(row);
-      return { data: {} };
+      const appendedRow = athleteRows.length + 3;
+      return { data: { updates: { updatedRange: `'02_Athlètes'!A${appendedRow}:G${appendedRow}` } } };
     });
 
     const result = await syncAthleteAdhesionsToGoogleSheets();
@@ -169,5 +171,20 @@ describe("syncAthleteAdhesionsToGoogleSheets", () => {
     expect(valuesAppendMock).toHaveBeenCalledTimes(2);
     expect(athleteRows.some((row) => row[0] === "Valid Athlete")).toBe(true);
     expect(valuesUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("classifies an append outside column A as an error", async () => {
+    formRows = [adhesionRow({ name: "Shifted Athlete", email: "shifted@example.com" })];
+    valuesAppendMock.mockResolvedValue({
+      data: { updates: { updatedRange: "'02_Athlètes'!AD21:AJ21" } },
+    });
+
+    const result = await syncAthleteAdhesionsToGoogleSheets();
+
+    expect(result).toEqual({
+      created: 0,
+      skipped: 0,
+      errors: [{ sourceRow: 2, message: "Google Sheets a renvoyé une destination d'ajout invalide." }],
+    });
   });
 });
