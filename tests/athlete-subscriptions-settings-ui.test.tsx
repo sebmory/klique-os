@@ -180,7 +180,60 @@ describe("Athlete subscriptions settings page", () => {
     expect(container.textContent).toContain("inactive@example.com");
     expect(container.textContent).toContain("invited@example.com");
     expect(container.textContent).toContain("accepted@example.com");
-    expect([...container.querySelectorAll("button")].some((button) => /inviter/i.test(button.textContent ?? ""))).toBe(false);
+    expect([...container.querySelectorAll("button")].filter((button) => button.textContent === "Inviter")).toHaveLength(1);
+    expect([...container.querySelectorAll("button")].filter((button) => button.textContent === "Renvoyer l’invitation")).toHaveLength(1);
+    const activeCard = [...container.querySelectorAll('[data-ds="Card"]')]
+      .find((card) => card.querySelector("h3")?.textContent === "Accès Actif")!;
+    expect([...activeCard.querySelectorAll("button")].some((button) => /invitation|inviter/i.test(button.textContent ?? ""))).toBe(false);
+  });
+
+  it("invites a non-invited Founder from its server subscription and refreshes its access state", async () => {
+    const initialSubscription = founderSubscription("athlete-1", "not_invited", null);
+    const refreshedSubscription = founderSubscription("athlete-1", "invited", "lina@example.com");
+    fetchMock
+      .mockResolvedValueOnce(response({ athletes: [athlete], source: "google-sheets" }))
+      .mockResolvedValueOnce(response({ subscriptions: [initialSubscription] }))
+      .mockResolvedValueOnce(response({ requests: [] }))
+      .mockResolvedValueOnce(response({ ok: true, invitation: { athleteId: "athlete-1" } }))
+      .mockResolvedValueOnce(response({ subscriptions: [refreshedSubscription] }));
+
+    await mount();
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Inviter")!);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/athletes/invite", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscriptionId: initialSubscription.id, resend: false }),
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/admin/athlete-subscriptions", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    expect(container.textContent).toContain("Invitation envoyée à Lina Morel.");
+    expect(container.textContent).toContain("lina@example.com");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Renvoyer l’invitation")).toBe(true);
+  });
+
+  it("resends a pending invitation and displays an athlete-scoped error", async () => {
+    const invitedSubscription = founderSubscription("athlete-1", "invited", "lina@example.com");
+    fetchMock
+      .mockResolvedValueOnce(response({ athletes: [athlete], source: "google-sheets" }))
+      .mockResolvedValueOnce(response({ subscriptions: [invitedSubscription] }))
+      .mockResolvedValueOnce(response({ requests: [] }))
+      .mockResolvedValueOnce(response({ error: "Échec de l’invitation Clerk." }, 502));
+
+    await mount();
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Renvoyer l’invitation")!);
+
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      subscriptionId: invitedSubscription.id,
+      resend: true,
+    });
+    const athleteCard = [...container.querySelectorAll('[data-ds="Card"]')]
+      .find((card) => card.querySelector("h3")?.textContent === "Lina Morel")!;
+    expect(athleteCard.querySelector('[role="alert"]')?.textContent).toBe("Échec de l’invitation Clerk.");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("filters the subscription list by Founder platform access", async () => {

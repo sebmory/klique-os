@@ -10,6 +10,7 @@ import {
   cancelAthleteSubscription,
   getActiveAthleteSubscription,
   listAthleteSubscriptions,
+  resolveActiveFounderAthleteId,
   type AthleteSubscriptionRepository,
 } from "@/lib/athlete-subscriptions/service";
 
@@ -41,6 +42,7 @@ const repository = (overrides: Partial<AthleteSubscriptionRepository> = {}) => {
   const value: AthleteSubscriptionRepository = {
     list: vi.fn().mockResolvedValue([]),
     getActive: vi.fn().mockResolvedValue(null),
+    getActiveFounderById: vi.fn().mockResolvedValue(null),
     create: vi.fn(async (record) => {
       createdRecords.push(record);
       return neonRow({
@@ -203,6 +205,37 @@ describe("Athlete subscriptions service", () => {
 
     expect(result?.id).toBe("49c345aa-fb6e-46e8-83ef-1e07d7b69192");
     expect(serviceRepository.getActive).toHaveBeenCalledWith("workspace-1", "athlete-1");
+  });
+
+  it("resolves a Founder athlete from a server-trusted subscription in the workspace", async () => {
+    const serviceRepository = repository({
+      getActiveFounderById: vi.fn().mockResolvedValue(neonRow({
+        plan_code: "founder",
+        athlete_id: "athlete-founder",
+      })),
+    }).value;
+
+    const athleteId = await resolveActiveFounderAthleteId(
+      " workspace-1 ",
+      " 49c345aa-fb6e-46e8-83ef-1e07d7b69192 ",
+      serviceRepository,
+    );
+
+    expect(athleteId).toBe("athlete-founder");
+    expect(serviceRepository.getActiveFounderById).toHaveBeenCalledWith(
+      "workspace-1",
+      "49c345aa-fb6e-46e8-83ef-1e07d7b69192",
+    );
+  });
+
+  it("returns null when the subscription is not an active Founder in the workspace", async () => {
+    const serviceRepository = repository().value;
+
+    await expect(resolveActiveFounderAthleteId(
+      "workspace-1",
+      "49c345aa-fb6e-46e8-83ef-1e07d7b69192",
+      serviceRepository,
+    )).resolves.toBeNull();
   });
 
   it.each([

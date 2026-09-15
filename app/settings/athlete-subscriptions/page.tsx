@@ -47,6 +47,12 @@ type BulkFounderDraft = {
   endsOn: string;
 };
 
+type FounderInviteFeedback = {
+  pending: boolean;
+  error: string | null;
+  success: string | null;
+};
+
 type PlatformAccessFilter =
   | "all"
   | "without_active_access"
@@ -210,6 +216,7 @@ export default function AthleteSubscriptionsSettingsPage() {
   const [contentActionError, setContentActionError] = useState<string | null>(null);
   const [contentSuccessMessage, setContentSuccessMessage] = useState<string | null>(null);
   const [platformAccessFilter, setPlatformAccessFilter] = useState<PlatformAccessFilter>("all");
+  const [founderInviteFeedback, setFounderInviteFeedback] = useState<Record<string, FounderInviteFeedback>>({});
 
   useEffect(() => {
     let active = true;
@@ -360,6 +367,61 @@ export default function AthleteSubscriptionsSettingsPage() {
       setActionError(error instanceof Error ? error.message : "L’abonnement n’a pas pu être annulé.");
     } finally {
       setCancellingId(null);
+    }
+  };
+
+  const handleFounderInvite = async (subscription: AthleteSubscription, resend: boolean) => {
+    const athleteName = athleteNames.get(subscription.athleteId) ?? subscription.athleteId;
+    setFounderInviteFeedback((current) => ({
+      ...current,
+      [subscription.id]: { pending: true, error: null, success: null },
+    }));
+
+    try {
+      const response = await fetch("/api/athletes/invite", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionId: subscription.id, resend }),
+      });
+      if (!response.ok) {
+        throw new Error(await errorMessageFrom(
+          response,
+          resend ? "Impossible de renvoyer l’invitation." : "Impossible d’envoyer l’invitation.",
+        ));
+      }
+
+      const subscriptionsResponse = await fetch("/api/admin/athlete-subscriptions", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!subscriptionsResponse.ok) {
+        throw new Error(await errorMessageFrom(subscriptionsResponse, "L’état d’accès n’a pas pu être actualisé."));
+      }
+      const payload = (await subscriptionsResponse.json()) as SubscriptionsResponse;
+      if (!Array.isArray(payload.subscriptions)) {
+        throw new Error("L’état d’accès n’a pas pu être actualisé.");
+      }
+      setSubscriptions(payload.subscriptions);
+      setFounderInviteFeedback((current) => ({
+        ...current,
+        [subscription.id]: {
+          pending: false,
+          error: null,
+          success: resend
+            ? `Invitation renvoyée à ${athleteName}.`
+            : `Invitation envoyée à ${athleteName}.`,
+        },
+      }));
+    } catch (error) {
+      setFounderInviteFeedback((current) => ({
+        ...current,
+        [subscription.id]: {
+          pending: false,
+          error: error instanceof Error ? error.message : "L’invitation n’a pas pu être envoyée.",
+          success: null,
+        },
+      }));
     }
   };
 
@@ -718,6 +780,9 @@ export default function AthleteSubscriptionsSettingsPage() {
             : ATHLETE_SUBSCRIPTION_PLANS.find(({ code }) => code === subscription.planCode);
           const active = subscription.status === "active";
           const platformAccess = getFounderPlatformAccess(subscription);
+          const inviteFeedback = founderInviteFeedback[subscription.id];
+          const canInvite = platformAccess?.status === "not_invited";
+          const canResendInvite = platformAccess?.status === "invited";
           return (
             <Card key={subscription.id} style={{ padding: "1rem", border: "1px solid #e5e7eb", boxShadow: "none", display: "grid", gap: "0.85rem" }}>
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
@@ -745,13 +810,31 @@ export default function AthleteSubscriptionsSettingsPage() {
               </dl>
 
               {platformAccess ? (
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.55rem 0.8rem", padding: "0.7rem 0.8rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "#f9fafb" }}>
-                  <strong style={{ color: platformAccess.status === "active" ? "#047857" : "#92400e", fontSize: "0.88rem" }}>
-                    {platformAccessLabels[platformAccess.status]}
-                  </strong>
-                  {platformAccess.email ? (
-                    <span style={{ color: "#4b5563", fontSize: "0.88rem", overflowWrap: "anywhere" }}>{platformAccess.email}</span>
-                  ) : null}
+                <div style={{ display: "grid", gap: "0.6rem", padding: "0.7rem 0.8rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "#f9fafb" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.55rem 0.8rem" }}>
+                    <strong style={{ color: platformAccess.status === "active" ? "#047857" : "#92400e", fontSize: "0.88rem" }}>
+                      {platformAccessLabels[platformAccess.status]}
+                    </strong>
+                    {platformAccess.email ? (
+                      <span style={{ color: "#4b5563", fontSize: "0.88rem", overflowWrap: "anywhere" }}>{platformAccess.email}</span>
+                    ) : null}
+                    {canInvite || canResendInvite ? (
+                      <Button
+                        type="button"
+                        onClick={() => void handleFounderInvite(subscription, canResendInvite)}
+                        disabled={inviteFeedback?.pending === true}
+                        style={{ marginLeft: "auto", borderRadius: "8px", padding: "0.45rem 0.7rem", border: "1px solid #111827", background: "#111827", color: "#fff", fontWeight: 700, opacity: inviteFeedback?.pending ? 0.65 : 1 }}
+                      >
+                        {inviteFeedback?.pending
+                          ? "Envoi en cours…"
+                          : canResendInvite
+                            ? "Renvoyer l’invitation"
+                            : "Inviter"}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {inviteFeedback?.error ? <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{inviteFeedback.error}</p> : null}
+                  {inviteFeedback?.success ? <p role="status" style={{ margin: 0, color: "#166534", fontSize: "0.85rem" }}>{inviteFeedback.success}</p> : null}
                 </div>
               ) : null}
 

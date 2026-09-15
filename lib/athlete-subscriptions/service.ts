@@ -134,6 +134,7 @@ type AthleteSubscriptionCreateRecord = {
 export type AthleteSubscriptionRepository = {
   list: (workspaceId: string) => Promise<AthleteSubscriptionRow[]>;
   getActive: (workspaceId: string, athleteId: string) => Promise<AthleteSubscriptionRow | null>;
+  getActiveFounderById: (workspaceId: string, subscriptionId: string) => Promise<AthleteSubscriptionRow | null>;
   create: (record: AthleteSubscriptionCreateRecord) => Promise<AthleteSubscriptionRow>;
   bulkCreateFounder: (
     records: readonly AthleteSubscriptionCreateRecord[],
@@ -329,6 +330,18 @@ const createRepository = (): AthleteSubscriptionRepository => {
       `;
       return (rows[0] as AthleteSubscriptionRow | undefined) ?? null;
     },
+    async getActiveFounderById(workspaceId, subscriptionId) {
+      const rows = await sql`
+        SELECT id, workspace_id, athlete_id, plan_code, status
+        FROM athlete_subscriptions
+        WHERE workspace_id = ${workspaceId}
+          AND id = ${subscriptionId}::uuid
+          AND plan_code = 'founder'
+          AND status = 'active'
+        LIMIT 1
+      `;
+      return (rows[0] as AthleteSubscriptionRow | undefined) ?? null;
+    },
     async create(record) {
       const rows = await sql`
         INSERT INTO athlete_subscriptions (
@@ -430,6 +443,17 @@ export const getActiveAthleteSubscription = async (
   const normalizedAthleteId = requireText(athleteId, "athleteId");
   const row = await repository.getActive(normalizedWorkspaceId, normalizedAthleteId);
   return row ? mapSubscriptionRow(row) : null;
+};
+
+export const resolveActiveFounderAthleteId = async (
+  workspaceId: string,
+  subscriptionId: string,
+  repository: AthleteSubscriptionRepository = createRepository(),
+): Promise<string | null> => {
+  const normalizedWorkspaceId = requireText(workspaceId, "workspaceId");
+  const normalizedSubscriptionId = requireUuid(subscriptionId, "subscriptionId");
+  const row = await repository.getActiveFounderById(normalizedWorkspaceId, normalizedSubscriptionId);
+  return row ? requireText(row.athlete_id, "athlete_id") : null;
 };
 
 export const assignAthleteSubscription = async (
