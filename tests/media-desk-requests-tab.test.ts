@@ -55,10 +55,10 @@ const freeMediaRequest = {
 };
 
 const directoryAthlete = {
-  athleteId: "athlete-1",
-  name: "Mila Benjak",
-  sport: "Tennis",
-  club: "TC Fribourg",
+  athleteId: "aggee-wenzi",
+  name: "Aggee Wenzi",
+  sport: "Football",
+  club: "FC Breitenrain",
   portraitUrl: "",
 };
 
@@ -194,7 +194,7 @@ describe("MediaDeskMediaScreen requests tab", () => {
 
     expect(athleteCalls()).toHaveLength(1);
     expect(container.querySelector("#free-media-request-form")).not.toBeNull();
-    expect(container.textContent).toContain("Mila Benjak");
+    expect(container.textContent).toContain("Aggee Wenzi");
 
     const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
@@ -223,7 +223,7 @@ describe("MediaDeskMediaScreen requests tab", () => {
       origin: "free",
       title: "Portrait de la relève",
       requestType: "interview",
-      athleteIds: ["athlete-1"],
+      athleteIds: ["aggee-wenzi"],
       message: "Nous préparons un portrait.",
       deadline: null,
     });

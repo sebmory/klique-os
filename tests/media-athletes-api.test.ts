@@ -33,6 +33,29 @@ const publicProfile = {
 };
 
 describe("media athletes API", () => {
+  it("preserves Aggee Wenzi canonical athlete id from Google Sheets", async () => {
+    const response = await createMediaAthleteDirectoryHandlers({
+      getAccess: vi.fn().mockResolvedValue(activeMediaAccess),
+      listAthletes: vi.fn().mockResolvedValue([{
+        athleteId: "aggee-wenzi",
+        name: "Aggee Wenzi",
+        sport: "Football",
+        club: "FC Breitenrain",
+        city: "",
+        country: "Suisse",
+        portraitUrl: "",
+        presentation: "",
+      }]),
+    }).GET(new Request("http://localhost/api/media/athletes"));
+
+    const payload = await response.json();
+
+    expect(payload.athletes[0]).toMatchObject({
+      athleteId: "aggee-wenzi",
+      name: "Aggee Wenzi",
+    });
+  });
+
   it("returns only public directory fields for an active linked media access", async () => {
     const handlers = createMediaAthleteDirectoryHandlers({
       getAccess: vi.fn().mockResolvedValue(activeMediaAccess),

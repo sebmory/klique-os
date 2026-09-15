@@ -235,7 +235,7 @@ describe("media requests API validation", () => {
   it("creates a free request with a nullable subject and a normalized title", async () => {
     asRole("media");
     installSqlMock({
-      athleteRows: [{ athlete_id: "athlete-1" }],
+      athleteRows: [{ athlete_id: "aggee-wenzi" }],
       requestRows: [{
         ...requestRow,
         origin: "free",
@@ -251,7 +251,7 @@ describe("media requests API validation", () => {
       requestType: "interview",
       message: "  Nous préparons un portrait.  ",
       deadline: "2026-10-01",
-      athleteIds: ["athlete-1"],
+      athleteIds: ["aggee-wenzi"],
     }));
     const payload = (await response.json()) as {
       ok: boolean;
@@ -266,6 +266,8 @@ describe("media requests API validation", () => {
     });
     expect(findCall("from media_subjects s")).toBeUndefined();
     expect(findCall("from user_access")?.values).toContain("klique-os");
+    expect(findCall("from user_access")?.values).toContainEqual(["aggee-wenzi"]);
+    expect(findCall("from user_access")?.text).toContain("from athlete_invitations");
     expect(findCall("insert into media_requests")?.values).toEqual(expect.arrayContaining([
       "free",
       null,

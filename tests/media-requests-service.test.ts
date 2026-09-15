@@ -472,7 +472,7 @@ describe("media requests creation is reserved to the media role", () => {
 
   it("creates a normalized free request without loading a subject", async () => {
     installSqlMock({
-      athleteRows: [{ athlete_id: "athlete-1" }],
+      athleteRows: [{ athlete_id: "aggee-wenzi" }],
       requestRows: [requestRow({
         origin: "free",
         subject_id: null,
@@ -487,15 +487,17 @@ describe("media requests creation is reserved to the media role", () => {
       requestType: "interview",
       message: "  Nous préparons un portrait.  ",
       deadline: "2026-10-01",
-      athleteIds: ["athlete-1"],
+      athleteIds: ["aggee-wenzi"],
     });
 
     expect(findCall("from media_subjects s")).toBeUndefined();
     const athleteSelect = findCall("from user_access");
     expect(athleteSelect?.text).toContain("workspace_id =");
     expect(athleteSelect?.text).toContain("role = 'athlete'");
+    expect(athleteSelect?.text).toContain("from athlete_invitations");
+    expect(athleteSelect?.text).toContain("status in ('invited', 'accepted')");
     expect(athleteSelect?.values).toContain("klique-os");
-    expect(athleteSelect?.values).toContainEqual(["athlete-1"]);
+    expect(athleteSelect?.values).toContainEqual(["aggee-wenzi"]);
 
     const insert = findCall("insert into media_requests");
     expect(insert?.values).toEqual(expect.arrayContaining([

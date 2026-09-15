@@ -442,11 +442,20 @@ const loadWorkspaceAthleteIds = async (workspaceId: string, athleteIds: string[]
 
   const sql = getSql();
   const rows = await sql`
-    SELECT DISTINCT athlete_id
-    FROM user_access
-    WHERE workspace_id = ${workspaceId}
-      AND role = 'athlete'
-      AND athlete_id = ANY(${athleteIds}::text[])
+    SELECT DISTINCT scoped.athlete_id
+    FROM (
+      SELECT athlete_id
+      FROM user_access
+      WHERE workspace_id = ${workspaceId}
+        AND role = 'athlete'
+        AND athlete_id = ANY(${athleteIds}::text[])
+      UNION
+      SELECT athlete_id
+      FROM athlete_invitations
+      WHERE workspace_id = ${workspaceId}
+        AND status IN ('invited', 'accepted')
+        AND athlete_id = ANY(${athleteIds}::text[])
+    ) scoped
   `;
 
   return normalizeAthleteIds(rows.map((row) => (row as Record<string, unknown>).athlete_id));
