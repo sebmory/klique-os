@@ -109,8 +109,10 @@ describe("Sidebar responsive scrolling", () => {
   it("shows the personal contact requests entry only in partner navigation", async () => {
     await mount({ userRole: "partner_expert", userIsPartner: true });
 
-    const link = container.querySelector('a[href="/partner/contact-requests"]');
-    expect(link?.textContent).toContain("Mes mises en relation");
+    const link = Array.from(container.querySelectorAll("a"))
+      .find((candidate) => candidate.textContent?.includes("Mes mises en relation"));
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe("/partner/contact-requests");
   });
 
   it("limits the panels to the visible viewport height", () => {
