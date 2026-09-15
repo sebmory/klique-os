@@ -1,4 +1,5 @@
 import type { ContentVariant } from "@/types/content-variant";
+import { canUseLocalContentStorage } from "@/services/content-storage-access";
 
 const STORAGE_KEY = "klique.contents.variants.v1";
 
@@ -152,6 +153,14 @@ class BrowserStorageContentVariantRepository implements ContentVariantRepository
   }
 
   async save(variant: ContentVariant): Promise<void> {
+    if (!canUseLocalContentStorage()) {
+      const cloud = await this.readCloudVariantById(variant.id);
+      if (cloud.status === "missing") {
+        await this.createCloudVariant(variant);
+      }
+      return;
+    }
+
     const existingLocal = this.upsertLocal(variant);
 
     if (typeof window === "undefined" || typeof fetch === "undefined") {
@@ -174,6 +183,12 @@ class BrowserStorageContentVariantRepository implements ContentVariantRepository
 
   async listBySourceDocument(sourceDocumentId: string): Promise<ContentVariant[]> {
     const cloud = await this.readCloudVariants(sourceDocumentId);
+    if (!canUseLocalContentStorage()) {
+      return cloud.status === "ok"
+        ? this.uniqueById(cloud.value.filter((item) => item.sourceDocumentId === sourceDocumentId))
+        : [];
+    }
+
     if (cloud.status === "ok") {
       if (cloud.value.length > 0) {
         return this.uniqueById(cloud.value.filter((item) => item.sourceDocumentId === sourceDocumentId));
@@ -201,6 +216,8 @@ class BrowserStorageContentVariantRepository implements ContentVariantRepository
     if (cloud.status === "ok") {
       return cloud.value;
     }
+
+    if (!canUseLocalContentStorage()) return null;
 
     const all = this.readAll();
     return all.find((item) => item.id === id) ?? null;

@@ -6,6 +6,7 @@ export type ContentAccessRole = "admin" | "media";
 export type ContentAccessContext = {
   clerkUserId: string;
   workspaceId: string;
+  mediaId?: string | null;
   role: ContentAccessRole;
   isAdmin: boolean;
 };
@@ -28,15 +29,22 @@ export const requireContentAccess = async (request: Request): Promise<ContentAcc
 
   const access = profile?.userAccess ?? null;
   const workspaceId = access?.workspaceId?.trim() ?? "";
+  const mediaId = access?.mediaId?.trim() ?? "";
   const role = access?.role ?? "";
 
-  if (access?.status !== "active" || !workspaceId || (role !== "admin" && role !== "media")) {
+  if (
+    access?.status !== "active"
+    || !workspaceId
+    || (role !== "admin" && role !== "media")
+    || (role === "media" && !mediaId)
+  ) {
     throw new ContentAccessError("FORBIDDEN");
   }
 
   return {
     clerkUserId,
     workspaceId,
+    mediaId: role === "media" ? mediaId : null,
     role,
     isAdmin: role === "admin",
   };

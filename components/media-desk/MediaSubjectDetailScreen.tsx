@@ -179,11 +179,12 @@ export function MediaSubjectDetailScreen({ subjectId }: { subjectId: string }) {
 
           <div style={{ display: "grid", gap: "0.9rem", alignContent: "start", flex: "1 1 300px", minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
-              {subject.sport ? (
-                <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{subject.sport}</Badge>
-              ) : (
-                <span />
-              )}
+              <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                <Badge style={{ background: "#fff7ed", color: "#b45309", padding: "0.35rem 0.65rem" }}>Proposé par KLIQUE</Badge>
+                {subject.sport ? (
+                  <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{subject.sport}</Badge>
+                ) : null}
+              </div>
               <div style={{ color: "#6b7280", fontSize: "0.8rem", fontWeight: 600 }}>{formatSubjectDateLabel(subject.date)}</div>
             </div>
 
@@ -369,7 +370,7 @@ export function MediaSubjectDetailScreen({ subjectId }: { subjectId: string }) {
                         cursor: submitting ? "not-allowed" : "pointer",
                       }}
                     >
-                      {submitting ? "Envoi en cours…" : "Envoyer la demande"}
+                      {submitting ? "Envoi en cours…" : "Faire une demande pour ce sujet"}
                     </Button>
                     <Button
                       type="button"

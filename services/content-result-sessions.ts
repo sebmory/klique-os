@@ -1,4 +1,5 @@
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
+import { canUseLocalContentStorage } from "@/services/content-storage-access";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import type {
   ArticleFinalResult,
@@ -191,7 +192,7 @@ export const buildResultUrl = (sessionId: string, documentId: string): string =>
 export const saveInterviewResultSession = async (record: StoredInterviewResult): Promise<StoredSessionRecord> => {
   const sessionId = record.sessionId || createResultSessionId();
   const storedRecord: StoredSessionRecord = { ...record, sessionId };
-  writeStoredSession(storedRecord);
+  if (canUseLocalContentStorage()) writeStoredSession(storedRecord);
 
   const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -251,7 +252,7 @@ export const restoreInterviewResultSession = async (sessionId: string, documentI
     try {
       const cloud = await readCloudSession(normalizedSessionId);
       if (cloud) {
-        writeStoredSession(cloud);
+        if (canUseLocalContentStorage()) writeStoredSession(cloud);
         return { source: "cloud", result: cloud };
       }
     } catch {
@@ -259,9 +260,11 @@ export const restoreInterviewResultSession = async (sessionId: string, documentI
     }
   }
 
-  const local = readStoredSessionFromWindow();
-  if (local) {
-    return { source: "sessionStorage", result: local };
+  if (canUseLocalContentStorage()) {
+    const local = readStoredSessionFromWindow();
+    if (local) {
+      return { source: "sessionStorage", result: local };
+    }
   }
 
   if (normalizedDocumentId) {
@@ -277,7 +280,7 @@ export const restoreInterviewResultSession = async (sessionId: string, documentI
 export const saveArticleResultSession = async (record: StoredArticleResult): Promise<StoredArticleSessionRecord> => {
   const sessionId = record.sessionId || createResultSessionId();
   const storedRecord: StoredArticleSessionRecord = { ...record, sessionId };
-  writeStoredArticleSession(storedRecord);
+  if (canUseLocalContentStorage()) writeStoredArticleSession(storedRecord);
 
   const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -306,7 +309,7 @@ export const restoreArticleResultSession = async (sessionId: string): Promise<Re
       const payload = (await response.json().catch(() => null)) as { sessionId?: string; session?: unknown } | null;
       if (payload?.sessionId === normalizedSessionId && isStoredArticleResult(payload.session)) {
         const restored = { ...payload.session, sessionId: normalizedSessionId };
-        writeStoredArticleSession(restored);
+        if (canUseLocalContentStorage()) writeStoredArticleSession(restored);
         return restored;
       }
     }
@@ -314,7 +317,8 @@ export const restoreArticleResultSession = async (sessionId: string): Promise<Re
     // Fall through to the matching local Article session.
   }
 
-  return readStoredArticleSession(normalizedSessionId);
+  return canUseLocalContentStorage() ? readStoredArticleSession(normalizedSessionId) : null;
 };
 
-export const restoreLegacyArticlePreviewSession = (): StoredArticlePreviewResult | null => readLegacyArticlePreviewSession();
+export const restoreLegacyArticlePreviewSession = (): StoredArticlePreviewResult | null =>
+  canUseLocalContentStorage() ? readLegacyArticlePreviewSession() : null;

@@ -136,7 +136,7 @@ describe("Media bank tab", () => {
     expect(bankCalls()).toHaveLength(1);
     expect(bankCalls()[0]?.[1]).toMatchObject({ credentials: "include", cache: "no-store" });
 
-    await click(tab("Sujets"));
+    await click(tab("Propositions KLIQUE"));
     await click(tab("Banque d’images"));
     await click(tab("Mes demandes"));
     await click(tab("Banque d’images"));

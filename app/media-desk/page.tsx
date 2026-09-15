@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Card, Input, Textarea } from "@/src/design-system/components";
+import { EditorialIdeasCatalog, type EditorialIdea } from "@/components/media-desk/EditorialIdeasCatalog";
 import { MediaDeskMediaScreen } from "@/components/media-desk/MediaDeskMediaScreen";
 import { MediaRequestsAdminSection } from "@/components/media-desk/MediaRequestsAdminSection";
 
@@ -286,6 +287,29 @@ export default function MediaDeskPage() {
     setIsComposerOpen(true);
   };
 
+  const useEditorialIdea = (idea: EditorialIdea) => {
+    const profileNames = new Set(idea.profiles.map((profile) => profile.trim().toLocaleLowerCase("fr")));
+    const athleteIds = athletes
+      .filter((athlete) => profileNames.has(athlete.name.trim().toLocaleLowerCase("fr")))
+      .map((athlete) => athlete.key);
+
+    setActionError(null);
+    setFormError(null);
+    setAthleteQuery("");
+    setEditingSubjectId(null);
+    setForm({
+      ...createEmptyForm(),
+      title: idea.title,
+      summary: idea.whyNow,
+      angle: idea.angle,
+      sport: idea.sport,
+      availableRequestTypes: [...idea.formats],
+      athleteIds,
+      status: "draft",
+    });
+    setIsComposerOpen(true);
+  };
+
   const closeComposer = () => {
     setIsComposerOpen(false);
     setEditingSubjectId(null);
@@ -417,6 +441,14 @@ export default function MediaDeskPage() {
     }
   };
 
+  if (isAdmin === null) {
+    return (
+      <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
+        <p style={{ margin: 0, color: "#6b7280" }}>Chargement du Media Desk…</p>
+      </Card>
+    );
+  }
+
   if (isActiveMedia) {
     return <MediaDeskMediaScreen />;
   }
@@ -464,6 +496,8 @@ export default function MediaDeskPage() {
             Ajouter un sujet
           </Button>
         </div>
+
+        <EditorialIdeasCatalog onUseIdea={useEditorialIdea} />
 
         {isComposerOpen ? (
           <Card style={{ padding: "1rem", display: "grid", gap: "0.9rem", border: "1px solid #f0e2d0" }}>
@@ -638,7 +672,7 @@ export default function MediaDeskPage() {
         </Card>
       ) : null}
 
-      {loading || isAdmin === null ? (
+      {loading ? (
         <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
           <p style={{ margin: 0, color: "#6b7280" }}>Chargement des sujets…</p>
         </Card>

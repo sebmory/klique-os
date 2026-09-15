@@ -5,6 +5,7 @@ import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { Header } from "@/components/app-shell/Header";
 import { Sidebar } from "@/components/app-shell/Sidebar";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 
 type AppShellProps = {
   children: ReactNode;
@@ -61,6 +62,7 @@ export function AppShell({ children }: AppShellProps) {
 
     const loadUserAccess = async () => {
       setAccessLoadStatus("loading");
+      setAuthenticatedContentStorageRole(null);
 
       const denyAccess = () => {
         if (cancelled) return;
@@ -94,6 +96,8 @@ export function AppShell({ children }: AppShellProps) {
           denyAccess();
           return;
         }
+
+        setAuthenticatedContentStorageRole(access.role);
 
         const resolvedDisplayName =
           user?.fullName ||
@@ -143,6 +147,7 @@ export function AppShell({ children }: AppShellProps) {
 
     return () => {
       cancelled = true;
+      setAuthenticatedContentStorageRole(null);
     };
   }, [isAccessPendingRoute, isPublicAuthRoute, router, user?.id]);
 

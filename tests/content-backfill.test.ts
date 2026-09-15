@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runContentsBackfill } from "@/services/content-backfill";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
 
@@ -153,6 +154,7 @@ describe("content backfill", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setAuthenticatedContentStorageRole("admin");
     localStorage = new MemoryStorage();
     sessionStorage = new MemoryStorage();
     fetchMock = vi.fn();
@@ -162,6 +164,7 @@ describe("content backfill", () => {
   });
 
   afterEach(() => {
+    setAuthenticatedContentStorageRole(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -237,5 +240,26 @@ describe("content backfill", () => {
     expect(JSON.parse(localStorage.getItem("klique.contents.backfill.v1") as string)).toMatchObject({
       sessions: { "content-session-fixed": expect.any(String) },
     });
+  });
+
+  it("does not inspect or backfill unscoped browser storage for media", async () => {
+    setAuthenticatedContentStorageRole("media");
+    localStorage.setItem("klique.contents.document-editor.draft.v1:document-1", JSON.stringify(baseDocument));
+    localStorage.setItem("klique.contents.variants.v1", JSON.stringify([baseVariant]));
+    sessionStorage.setItem("klique.contents.creation-assistant.interview-result.v1", JSON.stringify(baseSession));
+    const localGetItem = vi.spyOn(localStorage, "getItem");
+    const sessionGetItem = vi.spyOn(sessionStorage, "getItem");
+
+    const result = await runContentsBackfill();
+
+    expect(result).toEqual({ draftsCreated: 0, variantsCreated: 0, sessionsCreated: 0, failures: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localGetItem).not.toHaveBeenCalled();
+    expect(sessionGetItem).not.toHaveBeenCalled();
+    localGetItem.mockRestore();
+    sessionGetItem.mockRestore();
+    expect(localStorage.getItem("klique.contents.document-editor.draft.v1:document-1")).not.toBeNull();
+    expect(localStorage.getItem("klique.contents.variants.v1")).not.toBeNull();
+    expect(sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1")).not.toBeNull();
   });
 });

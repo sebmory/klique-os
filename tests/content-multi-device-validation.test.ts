@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 import {
   restoreInterviewResultSession,
   saveInterviewResultSession,
@@ -226,11 +227,13 @@ describe("content multi-device validation", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setAuthenticatedContentStorageRole("admin");
     cloud = createCloud();
     fetchMock = installCloudFetch(cloud);
   });
 
   afterEach(() => {
+    setAuthenticatedContentStorageRole(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

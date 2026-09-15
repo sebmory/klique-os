@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Badge, Card, Input } from "@/src/design-system/components";
+import { Plus, X } from "lucide-react";
+import { Badge, Button, Card, Input, Textarea } from "@/src/design-system/components";
+import type { MediaAthleteDirectoryEntry } from "@/types/athlete";
 import { MediaBankPanel } from "./MediaBankPanel";
 import {
   MEDIA_REQUEST_TYPE_LABELS,
@@ -37,9 +39,13 @@ type MediaRequestStatus =
   | "completed"
   | "cancelled";
 
+type MediaRequestOrigin = "klique_proposal" | "free";
+
 type MediaRequestItem = {
   id: string;
-  subjectId: string;
+  origin: MediaRequestOrigin;
+  subjectId: string | null;
+  title: string | null;
   subjectTitle: string | null;
   requestType: MediaRequestType;
   message: string;
@@ -141,6 +147,19 @@ export function MediaDeskMediaScreen() {
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState<string | null>(null);
   const [requestsLoaded, setRequestsLoaded] = useState(false);
+  const [freeRequestOpen, setFreeRequestOpen] = useState(false);
+  const [freeRequestTitle, setFreeRequestTitle] = useState("");
+  const [freeRequestType, setFreeRequestType] = useState<MediaRequestType>("interview");
+  const [freeRequestAthleteIds, setFreeRequestAthleteIds] = useState<string[]>([]);
+  const [freeRequestMessage, setFreeRequestMessage] = useState("");
+  const [freeRequestDeadline, setFreeRequestDeadline] = useState("");
+  const [freeRequestSubmitting, setFreeRequestSubmitting] = useState(false);
+  const [freeRequestError, setFreeRequestError] = useState<string | null>(null);
+  const [freeRequestSuccess, setFreeRequestSuccess] = useState<string | null>(null);
+  const [athletes, setAthletes] = useState<MediaAthleteDirectoryEntry[]>([]);
+  const [athletesLoading, setAthletesLoading] = useState(false);
+  const [athletesError, setAthletesError] = useState<string | null>(null);
+  const [athletesLoaded, setAthletesLoaded] = useState(false);
   // La banque reste montee apres sa premiere ouverture : ses lots ne sont charges qu une fois.
   const [bankOpened, setBankOpened] = useState(false);
 
@@ -205,7 +224,10 @@ export function MediaDeskMediaScreen() {
           return;
         }
 
-        setRequests(payload.requests);
+        setRequests((current) => {
+          const loadedIds = new Set(payload.requests!.map((mediaRequest) => mediaRequest.id));
+          return [...current.filter((mediaRequest) => !loadedIds.has(mediaRequest.id)), ...payload.requests!];
+        });
         setRequestsLoaded(true);
       } catch {
         if (active) {
@@ -223,45 +245,261 @@ export function MediaDeskMediaScreen() {
     };
   }, [activeTab, requestsLoaded]);
 
+  useEffect(() => {
+    if (!freeRequestOpen || athletesLoaded) return;
+    let active = true;
+
+    const loadAthletes = async () => {
+      setAthletesLoading(true);
+      setAthletesError(null);
+      try {
+        const response = await fetch("/api/media/athletes", { credentials: "include", cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { athletes?: MediaAthleteDirectoryEntry[]; error?: string }
+          | null;
+
+        if (!active) return;
+        if (!response.ok || !Array.isArray(payload?.athletes)) {
+          setAthletesError(payload?.error || "Les athlètes n’ont pas pu être chargés.");
+          setAthletes([]);
+          return;
+        }
+
+        setAthletes(payload.athletes);
+        setAthletesLoaded(true);
+      } catch {
+        if (active) {
+          setAthletesError("Les athlètes n’ont pas pu être chargés. Vérifiez votre connexion.");
+          setAthletes([]);
+        }
+      } finally {
+        if (active) setAthletesLoading(false);
+      }
+    };
+
+    void loadAthletes();
+    return () => {
+      active = false;
+    };
+  }, [athletesLoaded, freeRequestOpen]);
+
   const visibleSubjects = useMemo(
     () => filterMediaSubjects(subjects, { query, sport, requestType }),
     [query, requestType, sport, subjects],
   );
 
+  const canSubmitFreeRequest =
+    freeRequestTitle.trim().length > 0
+    && freeRequestMessage.trim().length > 0
+    && (freeRequestType === "images" || freeRequestAthleteIds.length > 0)
+    && !freeRequestSubmitting;
+
+  const toggleFreeRequestAthlete = (athleteId: string) => {
+    setFreeRequestAthleteIds((current) =>
+      current.includes(athleteId)
+        ? current.filter((entry) => entry !== athleteId)
+        : [...current, athleteId],
+    );
+  };
+
+  const submitFreeRequest = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSubmitFreeRequest) return;
+
+    setFreeRequestSubmitting(true);
+    setFreeRequestError(null);
+    setFreeRequestSuccess(null);
+
+    try {
+      const response = await fetch("/api/media-requests", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: "free",
+          title: freeRequestTitle.trim(),
+          requestType: freeRequestType,
+          athleteIds: freeRequestAthleteIds,
+          message: freeRequestMessage.trim(),
+          deadline: freeRequestDeadline || null,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; request?: MediaRequestItem; message?: string }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.request) {
+        throw new Error(payload?.message || "La demande libre n’a pas pu être envoyée.");
+      }
+
+      setRequests((current) => [payload.request!, ...current.filter((entry) => entry.id !== payload.request!.id)]);
+      setFreeRequestTitle("");
+      setFreeRequestType("interview");
+      setFreeRequestAthleteIds([]);
+      setFreeRequestMessage("");
+      setFreeRequestDeadline("");
+      setFreeRequestOpen(false);
+      setFreeRequestSuccess("Votre demande libre a été envoyée.");
+      setActiveTab("requests");
+    } catch (error) {
+      setFreeRequestError(error instanceof Error ? error.message : "La demande libre n’a pas pu être envoyée.");
+    } finally {
+      setFreeRequestSubmitting(false);
+    }
+  };
+
   return (
     <div style={{ display: "grid", gap: "1rem" }}>
-      <div role="tablist" aria-label="Media Desk" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        <button
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="Media Desk" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "subjects"}
+            onClick={() => setActiveTab("subjects")}
+            style={tabStyle(activeTab === "subjects")}
+          >
+            Propositions KLIQUE
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "requests"}
+            onClick={() => setActiveTab("requests")}
+            style={tabStyle(activeTab === "requests")}
+          >
+            Mes demandes
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "bank"}
+            onClick={() => {
+              setActiveTab("bank");
+              setBankOpened(true);
+            }}
+            style={tabStyle(activeTab === "bank")}
+          >
+            Banque d’images
+          </button>
+        </div>
+
+        <Button
           type="button"
-          role="tab"
-          aria-selected={activeTab === "subjects"}
-          onClick={() => setActiveTab("subjects")}
-          style={tabStyle(activeTab === "subjects")}
-        >
-          Sujets
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "requests"}
-          onClick={() => setActiveTab("requests")}
-          style={tabStyle(activeTab === "requests")}
-        >
-          Mes demandes
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "bank"}
+          aria-expanded={freeRequestOpen}
+          aria-controls="free-media-request-form"
           onClick={() => {
-            setActiveTab("bank");
-            setBankOpened(true);
+            setFreeRequestOpen((current) => !current);
+            setFreeRequestError(null);
+            setFreeRequestSuccess(null);
           }}
-          style={tabStyle(activeTab === "bank")}
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
         >
-          Banque d’images
-        </button>
+          {freeRequestOpen ? <X size={17} aria-hidden /> : <Plus size={17} aria-hidden />}
+          {freeRequestOpen ? "Fermer" : "Faire une demande libre"}
+        </Button>
       </div>
+
+      {freeRequestOpen ? (
+        <Card
+          id="free-media-request-form"
+          style={{ padding: "1.15rem", border: "1px solid #f0e2d0", boxShadow: "0 12px 28px rgba(17, 24, 39, 0.04)" }}
+        >
+          <form onSubmit={submitFreeRequest} aria-busy={freeRequestSubmitting} style={{ display: "grid", gap: "1rem" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "#b45309" }}>
+                Demande libre
+              </p>
+              <h2 style={{ margin: "0.25rem 0 0", fontSize: "1.15rem", color: "#111827" }}>Transmettre votre propre demande</h2>
+            </div>
+
+            <div style={{ display: "grid", gap: "0.9rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+              <label htmlFor="free-request-title" style={{ display: "grid", gap: "0.4rem", fontWeight: 700, color: "#374151" }}>
+                Titre
+                <Input
+                  id="free-request-title"
+                  required
+                  value={freeRequestTitle}
+                  onChange={(event) => setFreeRequestTitle(event.target.value)}
+                  style={inputStyle}
+                />
+              </label>
+
+              <label htmlFor="free-request-type" style={{ display: "grid", gap: "0.4rem", fontWeight: 700, color: "#374151" }}>
+                Type
+                <select
+                  id="free-request-type"
+                  value={freeRequestType}
+                  onChange={(event) => setFreeRequestType(event.target.value as MediaRequestType)}
+                  style={selectStyle}
+                >
+                  {MEDIA_REQUEST_TYPE_ORDER.map((type) => (
+                    <option key={type} value={type}>{MEDIA_REQUEST_TYPE_LABELS[type]}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label htmlFor="free-request-deadline" style={{ display: "grid", gap: "0.4rem", fontWeight: 700, color: "#374151" }}>
+                Date souhaitée <span style={{ fontWeight: 400, color: "#6b7280" }}>(facultative)</span>
+                <Input
+                  id="free-request-deadline"
+                  type="date"
+                  value={freeRequestDeadline}
+                  onChange={(event) => setFreeRequestDeadline(event.target.value)}
+                  style={inputStyle}
+                />
+              </label>
+            </div>
+
+            <fieldset style={{ margin: 0, padding: "0.9rem", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
+              <legend style={{ padding: "0 0.35rem", fontWeight: 700, color: "#374151" }}>
+                Athlètes {freeRequestType === "images" ? "(facultatif)" : "(au moins un)"}
+              </legend>
+              {athletesLoading ? <p role="status" style={{ margin: 0, color: "#6b7280" }}>Chargement des athlètes…</p> : null}
+              {athletesError ? <p role="alert" style={{ margin: 0, color: "#b91c1c" }}>{athletesError}</p> : null}
+              {!athletesLoading && !athletesError ? (
+                <div style={{ display: "grid", gap: "0.55rem", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+                  {athletes.map((athlete) => (
+                    <label key={athlete.athleteId} style={{ display: "flex", alignItems: "flex-start", gap: "0.55rem", color: "#374151" }}>
+                      <input
+                        type="checkbox"
+                        checked={freeRequestAthleteIds.includes(athlete.athleteId)}
+                        onChange={() => toggleFreeRequestAthlete(athlete.athleteId)}
+                      />
+                      <span>
+                        <strong style={{ display: "block", color: "#111827" }}>{athlete.name}</strong>
+                        {[athlete.sport, athlete.club].filter(Boolean).join(" · ")}
+                      </span>
+                    </label>
+                  ))}
+                  {athletes.length === 0 ? <p style={{ margin: 0, color: "#6b7280" }}>Aucun athlète disponible.</p> : null}
+                </div>
+              ) : null}
+            </fieldset>
+
+            <label htmlFor="free-request-message" style={{ display: "grid", gap: "0.4rem", fontWeight: 700, color: "#374151" }}>
+              Message
+              <Textarea
+                id="free-request-message"
+                required
+                rows={5}
+                value={freeRequestMessage}
+                onChange={(event) => setFreeRequestMessage(event.target.value)}
+                style={{ width: "100%", resize: "vertical" }}
+              />
+            </label>
+
+            {freeRequestError ? <p role="alert" style={{ margin: 0, color: "#b91c1c" }}>{freeRequestError}</p> : null}
+            {freeRequestSubmitting ? <p role="status" style={{ margin: 0, color: "#6b7280" }}>Envoi de la demande…</p> : null}
+
+            <Button type="submit" disabled={!canSubmitFreeRequest} style={{ justifySelf: "start" }}>
+              {freeRequestSubmitting ? "Envoi en cours…" : "Envoyer la demande libre"}
+            </Button>
+          </form>
+        </Card>
+      ) : null}
+
+      {freeRequestSuccess ? <p role="status" style={{ margin: 0, color: "#15803d", fontWeight: 700 }}>{freeRequestSuccess}</p> : null}
 
       {activeTab === "requests" ? (
         <div style={{ display: "grid", gap: "1rem" }}>
@@ -289,9 +527,9 @@ export function MediaDeskMediaScreen() {
             </Card>
           ) : null}
 
-          {requestsLoading ? (
+          {requestsLoading && requests.length === 0 ? (
             <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
-              <p style={{ margin: 0, color: "#6b7280" }}>Chargement de vos demandes…</p>
+              <p role="status" style={{ margin: 0, color: "#6b7280" }}>Chargement de vos demandes…</p>
             </Card>
           ) : requests.length === 0 && !requestsError ? (
             <Card style={{ padding: "1rem", border: "1px solid #efe3d4" }}>
@@ -299,8 +537,10 @@ export function MediaDeskMediaScreen() {
             </Card>
           ) : (
             <div style={{ display: "grid", gap: "1rem" }}>
+              {requestsLoading ? <p role="status" style={{ margin: 0, color: "#6b7280" }}>Actualisation de vos demandes…</p> : null}
               {requests.map((mediaRequest) => {
                 const statusColors = getRequestStatusColors(mediaRequest.status);
+                const isFreeRequest = mediaRequest.origin === "free";
 
                 return (
                   <Card
@@ -316,13 +556,20 @@ export function MediaDeskMediaScreen() {
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
-                      <Badge style={{ background: "#f3f4f6", color: "#374151", padding: "0.35rem 0.65rem" }}>
-                        {MEDIA_REQUEST_TYPE_LABELS[mediaRequest.requestType]}
-                      </Badge>
+                      <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                        <Badge style={{ background: isFreeRequest ? "#ecfdf5" : "#fff7ed", color: isFreeRequest ? "#047857" : "#b45309", padding: "0.35rem 0.65rem" }}>
+                          {isFreeRequest ? "Demande libre" : "Proposition KLIQUE"}
+                        </Badge>
+                        <Badge style={{ background: "#f3f4f6", color: "#374151", padding: "0.35rem 0.65rem" }}>
+                          {MEDIA_REQUEST_TYPE_LABELS[mediaRequest.requestType]}
+                        </Badge>
+                      </div>
                       <Badge style={{ ...statusColors, padding: "0.35rem 0.65rem" }}>
                         {getRequestStatusLabel(mediaRequest.status)}
                       </Badge>
                     </div>
+
+                    {mediaRequest.title ? <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#111827" }}>{mediaRequest.title}</h2> : null}
 
                     <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{mediaRequest.message}</p>
 
@@ -337,12 +584,14 @@ export function MediaDeskMediaScreen() {
                       </div>
                     </div>
 
-                    <Link
-                      href={`/media-desk/${mediaRequest.subjectId}`}
-                      style={{ color: "#b45309", fontWeight: 700, textDecoration: "none", justifySelf: "start" }}
-                    >
-                      {mediaRequest.subjectTitle ? `Voir le sujet : ${mediaRequest.subjectTitle}` : "Voir le sujet"} →
-                    </Link>
+                    {!isFreeRequest && mediaRequest.subjectId ? (
+                      <Link
+                        href={`/media-desk/${mediaRequest.subjectId}`}
+                        style={{ color: "#b45309", fontWeight: 700, textDecoration: "none", justifySelf: "start" }}
+                      >
+                        {mediaRequest.subjectTitle ? `Voir le sujet : ${mediaRequest.subjectTitle}` : "Voir le sujet"} →
+                      </Link>
+                    ) : null}
                   </Card>
                 );
               })}
@@ -364,9 +613,9 @@ export function MediaDeskMediaScreen() {
           <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" }}>
             MEDIA DESK
           </p>
-          <h1 style={{ margin: "0.3rem 0 0.35rem", fontSize: "1.35rem", color: "#111827" }}>Sujets disponibles</h1>
+          <h1 style={{ margin: "0.3rem 0 0.35rem", fontSize: "1.35rem", color: "#111827" }}>Propositions de sujets KLIQUE</h1>
           <p style={{ margin: 0, color: "#6b7280", maxWidth: "760px", lineHeight: 1.6 }}>
-            Découvrez les sujets proposés par KLIQUE, les athlètes concernés et les types de demandes ouvertes pour chacun.
+            Choisissez une proposition KLIQUE pour faciliter les liens avec son écosystème, ou transmettez votre propre demande libre. Les propositions KLIQUE sont sans engagement pour les médias.
           </p>
         </div>
 
@@ -444,11 +693,12 @@ export function MediaDeskMediaScreen() {
 
                   <div style={{ display: "grid", gap: "0.7rem", alignContent: "start", flex: "1 1 280px", minWidth: 0 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.6rem", flexWrap: "wrap" }}>
-                      {subject.sport ? (
-                        <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{subject.sport}</Badge>
-                      ) : (
-                        <span />
-                      )}
+                      <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+                        <Badge style={{ background: "#fff7ed", color: "#b45309", padding: "0.35rem 0.65rem" }}>Proposé par KLIQUE</Badge>
+                        {subject.sport ? (
+                          <Badge style={{ background: "#eff6ff", color: "#1d4ed8", padding: "0.35rem 0.65rem" }}>{subject.sport}</Badge>
+                        ) : null}
+                      </div>
                       <div style={{ color: "#6b7280", fontSize: "0.8rem", fontWeight: 600 }}>
                         {formatSubjectDateLabel(subject.date)}
                       </div>
@@ -472,6 +722,18 @@ export function MediaDeskMediaScreen() {
                     </div>
 
                     <RequestTypeChips types={subject.availableRequestTypes} />
+                    <span
+                      style={{
+                        justifySelf: "start",
+                        borderRadius: "999px",
+                        padding: "0.65rem 0.9rem",
+                        background: "#f59e0b",
+                        color: "#fff",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Découvrir le sujet
+                    </span>
                   </div>
                 </Card>
               </Link>

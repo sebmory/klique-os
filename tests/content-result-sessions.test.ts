@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildResultUrl,
+  restoreLegacyArticlePreviewSession,
   restoreInterviewResultSession,
   saveInterviewResultSession,
   type StoredInterviewResult,
 } from "@/services/content-result-sessions";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 import type { ContentDocument } from "@/types/content-document";
 
 const draftServiceMock = vi.hoisted(() => ({
@@ -122,6 +124,7 @@ describe("result session helper", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setAuthenticatedContentStorageRole("admin");
     sessionStorage = createMemorySessionStorage();
     fetchMock = vi.fn();
     draftServiceMock.loadDraft.mockReset();
@@ -133,6 +136,7 @@ describe("result session helper", () => {
   });
 
   afterEach(() => {
+    setAuthenticatedContentStorageRole(null);
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -218,5 +222,32 @@ describe("result session helper", () => {
     const restored = await restoreInterviewResultSession("content-session-fixed", "document-1");
 
     expect(restored.source).toBe("missing");
+  });
+
+  it("ignores and preserves unscoped session storage for media", async () => {
+    setAuthenticatedContentStorageRole("media");
+    const record = createStoredResult("content-session-fixed");
+    const serialized = JSON.stringify(record);
+    sessionStorage.setItem("klique.contents.creation-assistant.interview-result.v1", serialized);
+    sessionStorage.setItem("klique.contents.creation-assistant.article-result.v1", serialized);
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: false, message: "Session introuvable." }, 404));
+
+    const restored = await restoreInterviewResultSession("content-session-fixed", "");
+
+    expect(restored.source).toBe("missing");
+    expect(restoreLegacyArticlePreviewSession()).toBeNull();
+    expect(sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1")).toBe(serialized);
+    expect(sessionStorage.getItem("klique.contents.creation-assistant.article-result.v1")).toBe(serialized);
+  });
+
+  it("saves media sessions through cloud without writing session storage", async () => {
+    setAuthenticatedContentStorageRole("media");
+    const record = createStoredResult("content-session-fixed");
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, sessionId: record.sessionId }, 201));
+
+    await saveInterviewResultSession(record);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem("klique.contents.creation-assistant.interview-result.v1")).toBeNull();
   });
 });

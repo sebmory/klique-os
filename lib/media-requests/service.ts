@@ -47,6 +47,13 @@ const MEDIA_REQUEST_TYPE_LABELS: Record<MediaRequestType, string> = {
 
 export type MediaRequestConsentStatus = "pending" | "approved" | "declined";
 
+export type MediaRequestOrigin = "klique_proposal" | "free";
+
+export const MEDIA_REQUEST_ORIGINS: readonly MediaRequestOrigin[] = Object.freeze([
+  "klique_proposal",
+  "free",
+]);
+
 // Une demande d images peut ne cibler aucun athlete : tous les autres types en exigent au moins un.
 const REQUEST_TYPES_WITHOUT_ATHLETE: readonly MediaRequestType[] = Object.freeze(["images"]);
 
@@ -59,7 +66,9 @@ export type MediaRequestAthlete = {
 export type MediaRequestRecord = {
   id: string;
   workspaceId: string;
-  subjectId: string;
+  origin: MediaRequestOrigin;
+  subjectId: string | null;
+  title: string | null;
   subjectTitle: string | null;
   requestedByClerkUserId: string;
   requesterEmail: string;
@@ -76,7 +85,9 @@ export type MediaRequestRecord = {
 };
 
 export type MediaRequestInput = {
+  origin?: unknown;
   subjectId?: unknown;
+  title?: unknown;
   requestType?: unknown;
   message?: unknown;
   deadline?: unknown;
@@ -137,6 +148,13 @@ export const normalizeMediaRequestType = (value: unknown): MediaRequestType | nu
     : null;
 };
 
+export const normalizeMediaRequestOrigin = (value: unknown): MediaRequestOrigin | null => {
+  const normalized = normalizeText(value).toLowerCase();
+  return MEDIA_REQUEST_ORIGINS.includes(normalized as MediaRequestOrigin)
+    ? (normalized as MediaRequestOrigin)
+    : null;
+};
+
 const normalizeConsentStatus = (value: unknown): MediaRequestConsentStatus => {
   const normalized = normalizeText(value).toLowerCase();
   return normalized === "approved" || normalized === "declined" ? normalized : "pending";
@@ -186,7 +204,11 @@ const ensureMediaRequestTables = async () => {
     CREATE TABLE IF NOT EXISTS media_requests (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
-      subject_id TEXT NOT NULL REFERENCES media_subjects (id) ON DELETE CASCADE,
+      origin TEXT NOT NULL DEFAULT 'klique_proposal' CHECK (
+        origin IN ('klique_proposal', 'free')
+      ),
+      subject_id TEXT NULL REFERENCES media_subjects (id) ON DELETE RESTRICT,
+      title TEXT NULL,
       requested_by_clerk_user_id TEXT NOT NULL,
       requester_email TEXT NOT NULL,
       media_id TEXT NULL,
@@ -203,7 +225,18 @@ const ensureMediaRequestTables = async () => {
       ),
       admin_note TEXT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT media_requests_title_not_blank CHECK (
+        title IS NULL OR NULLIF(btrim(title), '') IS NOT NULL
+      ),
+      CONSTRAINT media_requests_origin_subject_check CHECK (
+        (origin = 'klique_proposal' AND subject_id IS NOT NULL)
+        OR (
+          origin = 'free'
+          AND subject_id IS NULL
+          AND NULLIF(btrim(title), '') IS NOT NULL
+        )
+      )
     )
   `;
 
@@ -265,7 +298,9 @@ const mapRow = (row: Record<string, unknown>): MediaRequestRecord => {
   return {
     id: String(row.id ?? ""),
     workspaceId: String(row.workspace_id ?? ""),
-    subjectId: String(row.subject_id ?? ""),
+    origin: normalizeMediaRequestOrigin(row.origin) ?? "klique_proposal",
+    subjectId: normalizeOptionalText(row.subject_id),
+    title: normalizeOptionalText(row.title),
     subjectTitle: normalizeOptionalText(row.subject_title),
     requestedByClerkUserId: String(row.requested_by_clerk_user_id ?? ""),
     requesterEmail: String(row.requester_email ?? ""),
@@ -402,6 +437,21 @@ type SubjectContext = {
   athleteIds: string[];
 };
 
+const loadWorkspaceAthleteIds = async (workspaceId: string, athleteIds: string[]): Promise<string[]> => {
+  if (athleteIds.length === 0) return [];
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT DISTINCT athlete_id
+    FROM user_access
+    WHERE workspace_id = ${workspaceId}
+      AND role = 'athlete'
+      AND athlete_id = ANY(${athleteIds}::text[])
+  `;
+
+  return normalizeAthleteIds(rows.map((row) => (row as Record<string, unknown>).athlete_id));
+};
+
 // Seul un sujet publie du meme workspace peut recevoir une demande.
 const loadPublishedSubject = async (workspaceId: string, subjectId: string): Promise<SubjectContext | null> => {
   const sql = getSql();
@@ -446,7 +496,9 @@ export const listMediaRequests = async (access: MediaRequestAccessContext): Prom
 
   const rows = await sql`
     SELECT
-      r.id, r.workspace_id, r.subject_id, r.requested_by_clerk_user_id, r.requester_email,
+      r.id, r.workspace_id, r.origin, r.subject_id,
+      COALESCE(r.title, s.title) AS title,
+      r.requested_by_clerk_user_id, r.requester_email,
       r.media_id, r.request_type, r.message, r.deadline, r.status, r.admin_note,
       r.created_at, r.updated_at,
       s.title AS subject_title,
@@ -493,7 +545,9 @@ export const getMediaRequestById = async (
 
   const rows = await sql`
     SELECT
-      r.id, r.workspace_id, r.subject_id, r.requested_by_clerk_user_id, r.requester_email,
+      r.id, r.workspace_id, r.origin, r.subject_id,
+      COALESCE(r.title, s.title) AS title,
+      r.requested_by_clerk_user_id, r.requester_email,
       r.media_id, r.request_type, r.message, r.deadline, r.status, r.admin_note,
       r.created_at, r.updated_at,
       s.title AS subject_title,
@@ -540,9 +594,24 @@ export const createMediaRequest = async (
     throw new MediaRequestValidationError("L e-mail du compte media est indisponible.");
   }
 
-  const subjectId = normalizeText(input.subjectId);
-  if (!subjectId) {
+  const origin = input.origin === undefined || input.origin === null
+    ? "klique_proposal"
+    : normalizeMediaRequestOrigin(input.origin);
+  if (!origin) {
+    throw new MediaRequestValidationError("L origine de la demande est invalide.");
+  }
+
+  const subjectId = normalizeOptionalText(input.subjectId);
+  const title = normalizeOptionalText(input.title);
+
+  if (origin === "klique_proposal" && !subjectId) {
     throw new MediaRequestValidationError("Le sujet est obligatoire.");
+  }
+  if (origin === "free" && subjectId) {
+    throw new MediaRequestValidationError("Une demande libre ne peut pas etre liee a un sujet.");
+  }
+  if (origin === "free" && !title) {
+    throw new MediaRequestValidationError("Le titre est obligatoire pour une demande libre.");
   }
 
   const requestType = normalizeMediaRequestType(input.requestType);
@@ -555,19 +624,28 @@ export const createMediaRequest = async (
     throw new MediaRequestValidationError("Le message est obligatoire.");
   }
 
-  const subject = await loadPublishedSubject(access.workspaceId, subjectId);
-  if (!subject) {
-    throw new MediaRequestNotFoundError("Sujet introuvable ou non publie.");
-  }
-
-  if (!subject.availableRequestTypes.includes(requestType)) {
-    throw new MediaRequestValidationError("Ce type de demande n est pas propose par le sujet.");
-  }
-
   const athleteIds = normalizeAthleteIds(input.athleteIds);
-  const unknownAthlete = athleteIds.find((athleteId) => !subject.athleteIds.includes(athleteId));
-  if (unknownAthlete) {
-    throw new MediaRequestValidationError("Un athlete cible n est pas associe au sujet.");
+
+  if (origin === "klique_proposal") {
+    const subject = await loadPublishedSubject(access.workspaceId, subjectId!);
+    if (!subject) {
+      throw new MediaRequestNotFoundError("Sujet introuvable ou non publie.");
+    }
+
+    if (!subject.availableRequestTypes.includes(requestType)) {
+      throw new MediaRequestValidationError("Ce type de demande n est pas propose par le sujet.");
+    }
+
+    const unknownAthlete = athleteIds.find((athleteId) => !subject.athleteIds.includes(athleteId));
+    if (unknownAthlete) {
+      throw new MediaRequestValidationError("Un athlete cible n est pas associe au sujet.");
+    }
+  } else {
+    const workspaceAthleteIds = await loadWorkspaceAthleteIds(access.workspaceId, athleteIds);
+    const unknownAthlete = athleteIds.find((athleteId) => !workspaceAthleteIds.includes(athleteId));
+    if (unknownAthlete) {
+      throw new MediaRequestValidationError("Un athlete cible n appartient pas au workspace.");
+    }
   }
 
   if (athleteIds.length === 0 && !REQUEST_TYPES_WITHOUT_ATHLETE.includes(requestType)) {
@@ -579,12 +657,14 @@ export const createMediaRequest = async (
 
   await sql`
     INSERT INTO media_requests (
-      id, workspace_id, subject_id, requested_by_clerk_user_id, requester_email,
+      id, workspace_id, origin, subject_id, title, requested_by_clerk_user_id, requester_email,
       media_id, request_type, message, deadline, status, admin_note
     ) VALUES (
       ${id},
       ${access.workspaceId},
-      ${subject.id},
+      ${origin},
+      ${subjectId},
+      ${origin === "free" ? title : null},
       ${access.clerkUserId},
       ${requesterEmail},
       ${mediaId},

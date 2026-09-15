@@ -19,6 +19,7 @@ const repo = vi.hoisted(() => ({
   getVariant: vi.fn(),
   listVariantsBySourceDocumentId: vi.fn(),
 }));
+const requireContentAccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/content-storage/repository", () => ({
   ContentStorageRepository: repo,
@@ -28,12 +29,7 @@ vi.mock("@/lib/content-storage/access", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/content-storage/access")>();
   return {
     ...actual,
-    requireContentAccess: vi.fn().mockResolvedValue({
-      clerkUserId: "user-1",
-      workspaceId: "klique-os",
-      role: "admin",
-      isAdmin: true,
-    }),
+    requireContentAccess: requireContentAccessMock,
   };
 });
 
@@ -177,6 +173,14 @@ describe("content storage API routes", () => {
   const futureSessionExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   beforeEach(() => {
+    requireContentAccessMock.mockReset();
+    requireContentAccessMock.mockResolvedValue({
+      clerkUserId: "user-1",
+      workspaceId: "klique-os",
+      mediaId: null,
+      role: "admin",
+      isAdmin: true,
+    });
     repo.createDraft.mockReset();
     repo.getDraft.mockReset();
     repo.updateDraft.mockReset();
@@ -236,6 +240,26 @@ describe("content storage API routes", () => {
 
     const getResponse = await getVariant(new Request("http://localhost") as Request, { params: Promise.resolve({ id: "variant-1" }) });
     expect(getResponse.status).toBe(200);
+  });
+
+  it("uses the session mediaId to verify the source document before creating a variant", async () => {
+    const mediaAccess = {
+      clerkUserId: "user-media",
+      workspaceId: "klique-os",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      role: "media",
+      isAdmin: false,
+    };
+    requireContentAccessMock.mockResolvedValue(mediaAccess);
+
+    const response = await postVariants(makeJsonRequest({
+      variant: validVariant,
+      mediaId: "22222222-2222-4222-8222-222222222222",
+    }));
+
+    expect(response.status).toBe(201);
+    expect(repo.getDraft).toHaveBeenCalledWith(validVariant.sourceDocumentId, mediaAccess);
+    expect(repo.createVariant).toHaveBeenCalledWith(validVariant, mediaAccess);
   });
 
   it("rejects invalid payloads", async () => {

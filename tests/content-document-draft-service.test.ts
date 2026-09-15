@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 import type { ContentDocument } from "@/types/content-document";
 
 type MemoryStorage = {
@@ -106,6 +107,7 @@ describe("ContentDocumentDraftService", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setAuthenticatedContentStorageRole("admin");
     storage = createMemoryStorage();
     fetchMock = vi.fn();
     vi.stubGlobal("window", { localStorage: storage });
@@ -113,6 +115,7 @@ describe("ContentDocumentDraftService", () => {
   });
 
   afterEach(() => {
+    setAuthenticatedContentStorageRole(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -124,7 +127,7 @@ describe("ContentDocumentDraftService", () => {
     const document = await ContentDocumentDraftService.loadDraft("document-1");
 
     expect(document).toEqual(cloudDocument);
-    expect(fetchMock).toHaveBeenCalledWith("/api/contents/storage/drafts/document-1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/contents/storage/drafts/document-1", { credentials: "include" });
     expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: cloudDocument, cloudVersion: 4 });
   });
 
@@ -141,11 +144,11 @@ describe("ContentDocumentDraftService", () => {
     const document = await ContentDocumentDraftService.loadDraft("document-1");
 
     expect(document).toEqual(localDocument);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/contents/storage/drafts/document-1");
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/contents/storage/drafts/document-1", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/contents/storage/drafts",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST", credentials: "include" })
     );
     expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: localDocument, cloudVersion: 2 });
   });
@@ -160,7 +163,7 @@ describe("ContentDocumentDraftService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/contents/storage/drafts",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST", credentials: "include" })
     );
     expect(readStoredDraft(storage, "document-new")).toMatchObject({ document: newDocument, cloudVersion: 3 });
   });
@@ -178,7 +181,7 @@ describe("ContentDocumentDraftService", () => {
     expect(result.cloud).toEqual({ status: "updated", version: 8 });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/contents/storage/drafts/document-1",
-      expect.objectContaining({ method: "PATCH" })
+      expect.objectContaining({ method: "PATCH", credentials: "include" })
     );
     expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: existingDocument, cloudVersion: 8 });
   });
@@ -209,5 +212,34 @@ describe("ContentDocumentDraftService", () => {
 
     expect(result.cloud.status).toBe("unavailable");
     expect(readStoredDraft(storage, "document-unavailable")).toMatchObject({ document: localDocument });
+  });
+
+  it("uses only the cloud and preserves unscoped local drafts for media", async () => {
+    setAuthenticatedContentStorageRole("media");
+    storage.setItem(
+      "klique.contents.document-editor.draft.v2:document-1",
+      JSON.stringify({ document: { ...baseDocument, sections: { title: "Admin local" } } }),
+    );
+    const preserved = storage.getItem("klique.contents.document-editor.draft.v2:document-1");
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: false, message: "Brouillon introuvable." }, 404));
+
+    const loaded = await ContentDocumentDraftService.loadDraft("document-1");
+
+    expect(loaded).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(storage.getItem("klique.contents.document-editor.draft.v2:document-1")).toBe(preserved);
+  });
+
+  it("saves media drafts through cloud without writing browser storage", async () => {
+    setAuthenticatedContentStorageRole("media");
+    fetchMock
+      .mockResolvedValueOnce(createResponse({ ok: false, message: "Brouillon introuvable." }, 404))
+      .mockResolvedValueOnce(createResponse({ ok: true, version: 1, document: baseDocument }, 201));
+
+    const result = await ContentDocumentDraftService.saveDraft(baseDocument);
+
+    expect(result.local.status).toBe("skipped");
+    expect(result.cloud).toEqual({ status: "created", version: 1 });
+    expect(readStoredDraft(storage, "document-1")).toBeNull();
   });
 });

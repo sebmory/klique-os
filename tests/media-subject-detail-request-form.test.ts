@@ -98,11 +98,14 @@ afterEach(async () => {
 describe("MediaSubjectDetailScreen request form", () => {
   it("opens the form with the request type of the clicked button", async () => {
     expect(messageField()).toBeNull();
+    expect(container.textContent).toContain("Proposé par KLIQUE");
+    expect(container.textContent?.toLowerCase()).not.toContain("demande libre");
 
     await click(findButton("Demander une interview"));
 
     expect(messageField()).not.toBeNull();
     expect(container.textContent).toContain("Demander une interview");
+    expect(submitButton().textContent).toBe("Faire une demande pour ce sujet");
     expect(container.textContent).toContain("Mila Benjak");
     expect(postCalls()).toHaveLength(0);
   });

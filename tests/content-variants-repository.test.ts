@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
+import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 import type { ContentVariant } from "@/types/content-variant";
 
 type MemoryStorage = {
@@ -81,6 +82,7 @@ describe("ContentVariantRepositoryService", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setAuthenticatedContentStorageRole("admin");
     storage = createMemoryStorage();
     fetchMock = vi.fn();
     vi.stubGlobal("window", { localStorage: storage });
@@ -88,6 +90,7 @@ describe("ContentVariantRepositoryService", () => {
   });
 
   afterEach(() => {
+    setAuthenticatedContentStorageRole(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -176,5 +179,41 @@ describe("ContentVariantRepositoryService", () => {
     expect(first).toEqual([localVariant]);
     expect(second).toEqual([localVariant]);
     expect(new Set(second.map((item) => item.id)).size).toBe(second.length);
+  });
+
+  it("ignores and preserves unscoped local variants for media", async () => {
+    setAuthenticatedContentStorageRole("media");
+    const localVariant = { ...baseVariant, title: "Admin local" };
+    storage.setItem("klique.contents.variants.v1", JSON.stringify([localVariant]));
+    fetchMock.mockRejectedValueOnce(new Error("Network down"));
+
+    const items = await ContentVariantRepositoryService.listBySourceDocument("document-1");
+
+    expect(items).toEqual([]);
+    expect(readLocalVariants(storage)).toEqual([localVariant]);
+  });
+
+  it("saves media variants through cloud without writing browser storage", async () => {
+    setAuthenticatedContentStorageRole("media");
+    fetchMock
+      .mockResolvedValueOnce(createResponse({ ok: false, message: "Variante introuvable." }, 404))
+      .mockResolvedValueOnce(createResponse({ ok: true, variant: baseVariant }, 201));
+
+    await ContentVariantRepositoryService.save(baseVariant);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(readLocalVariants(storage)).toEqual([]);
+  });
+
+  it("does not fall back to an unscoped local variant for media", async () => {
+    setAuthenticatedContentStorageRole("media");
+    storage.setItem("klique.contents.variants.v1", JSON.stringify([baseVariant]));
+    const preserved = storage.getItem("klique.contents.variants.v1");
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: false, message: "Variante introuvable." }, 404));
+
+    const item = await ContentVariantRepositoryService.getById("variant-1");
+
+    expect(item).toBeNull();
+    expect(storage.getItem("klique.contents.variants.v1")).toBe(preserved);
   });
 });

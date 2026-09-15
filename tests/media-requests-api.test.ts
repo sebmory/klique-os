@@ -26,7 +26,9 @@ const subjectRow = {
 const requestRow = {
   id: "request-1",
   workspace_id: "klique-os",
+  origin: "klique_proposal",
   subject_id: "subject-1",
+  title: "Retour de blessure",
   subject_title: "Retour de blessure",
   requested_by_clerk_user_id: "user_media",
   requester_email: "media@example.com",
@@ -48,20 +50,28 @@ let calls: SqlCall[] = [];
 const installSqlMock = (
   options: {
     subjectRows?: Array<Record<string, unknown>>;
+    requestRows?: Array<Record<string, unknown>>;
+    athleteRows?: Array<Record<string, unknown>>;
     updateRows?: Array<Record<string, unknown>>;
     linkRows?: Array<Record<string, unknown>>;
   } = {},
 ) => {
-  const { subjectRows = [subjectRow], updateRows = [{ id: "request-1" }], linkRows = [{ status: "awaiting_athlete" }] } =
-    options;
+  const {
+    subjectRows = [subjectRow],
+    requestRows = [requestRow],
+    athleteRows = [{ athlete_id: "athlete-1" }, { athlete_id: "athlete-2" }],
+    updateRows = [{ id: "request-1" }],
+    linkRows = [{ status: "awaiting_athlete" }],
+  } = options;
   calls = [];
   sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join(" ").toLowerCase();
     calls.push({ text, values });
 
     if (text.includes("from media_subjects s")) return subjectRows;
+  if (text.includes("from user_access") && text.includes("role = 'athlete'")) return athleteRows;
     if (text.includes("select r.status")) return linkRows;
-    if (text.includes("from media_requests r")) return [requestRow];
+  if (text.includes("from media_requests r")) return requestRows;
     if (text.includes("update media_request_athletes")) return [{ request_id: "request-1" }];
     if (text.includes("update media_requests")) return updateRows;
     return [];
@@ -220,6 +230,126 @@ describe("media requests API validation", () => {
 
     expect((await POST(jsonRequest({ ...createBody, athleteIds: [] }))).status).toBe(400);
     expect((await POST(jsonRequest({ ...createBody, requestType: "images", athleteIds: [] }))).status).toBe(201);
+  });
+
+  it("creates a free request with a nullable subject and a normalized title", async () => {
+    asRole("media");
+    installSqlMock({
+      athleteRows: [{ athlete_id: "athlete-1" }],
+      requestRows: [{
+        ...requestRow,
+        origin: "free",
+        subject_id: null,
+        title: "Portrait de la relève",
+        subject_title: null,
+      }],
+    });
+
+    const response = await POST(jsonRequest({
+      origin: "free",
+      title: "  Portrait de la relève  ",
+      requestType: "interview",
+      message: "  Nous préparons un portrait.  ",
+      deadline: "2026-10-01",
+      athleteIds: ["athlete-1"],
+    }));
+    const payload = (await response.json()) as {
+      ok: boolean;
+      request: { origin: string; subjectId: string | null; title: string | null };
+    };
+
+    expect(response.status).toBe(201);
+    expect(payload.request).toMatchObject({
+      origin: "free",
+      subjectId: null,
+      title: "Portrait de la relève",
+    });
+    expect(findCall("from media_subjects s")).toBeUndefined();
+    expect(findCall("from user_access")?.values).toContain("klique-os");
+    expect(findCall("insert into media_requests")?.values).toEqual(expect.arrayContaining([
+      "free",
+      null,
+      "Portrait de la relève",
+      "Nous préparons un portrait.",
+    ]));
+  });
+
+  it("returns 400 for an inconsistent or incomplete free request", async () => {
+    asRole("media");
+
+    expect((await POST(jsonRequest({
+      ...createBody,
+      origin: "free",
+      title: "Demande libre",
+    }))).status).toBe(400);
+    expect((await POST(jsonRequest({
+      ...createBody,
+      origin: "free",
+      subjectId: undefined,
+      title: "   ",
+    }))).status).toBe(400);
+    expect((await POST(jsonRequest({
+      ...createBody,
+      origin: "free",
+      subjectId: undefined,
+      title: "Demande libre",
+      message: "   ",
+    }))).status).toBe(400);
+    expect((await POST(jsonRequest({
+      ...createBody,
+      origin: "free",
+      subjectId: undefined,
+      title: "Demande libre",
+      requestType: "tribune",
+    }))).status).toBe(400);
+    expect((await POST(jsonRequest({ ...createBody, origin: "unknown" }))).status).toBe(400);
+  });
+
+  it("requires an athlete for free requests except images", async () => {
+    asRole("media");
+
+    expect((await POST(jsonRequest({
+      origin: "free",
+      title: "Interview libre",
+      requestType: "interview",
+      message: "Demande d'interview.",
+      athleteIds: [],
+    }))).status).toBe(400);
+
+    installSqlMock({
+      requestRows: [{
+        ...requestRow,
+        origin: "free",
+        subject_id: null,
+        title: "Banque images",
+        subject_title: null,
+        request_type: "images",
+        athletes: [],
+      }],
+    });
+    expect((await POST(jsonRequest({
+      origin: "free",
+      title: "Banque images",
+      requestType: "images",
+      message: "Besoin de visuels.",
+      athleteIds: [],
+    }))).status).toBe(201);
+  });
+
+  it("returns 400 when a free request targets an athlete outside the workspace", async () => {
+    asRole("media");
+    installSqlMock({ athleteRows: [] });
+
+    const response = await POST(jsonRequest({
+      origin: "free",
+      title: "Portrait",
+      requestType: "interview",
+      message: "Demande de portrait.",
+      athleteIds: ["athlete-other-workspace"],
+    }));
+
+    expect(response.status).toBe(400);
+    expect(findCall("insert into media_requests")).toBeUndefined();
   });
 
   it("ignores any identity sent in the body", async () => {

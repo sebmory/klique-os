@@ -11,6 +11,7 @@ import type {
   StoryGenerationResult,
 } from "@/types/content-generation";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
+import { canUseLocalContentStorage } from "@/services/content-storage-access";
 
 type StoredDraftRecordV2 = {
   document: ContentDocument;
@@ -338,7 +339,7 @@ const backfillSession = async (): Promise<{ created: number; failures: number }>
 };
 
 export const runContentsBackfill = async (): Promise<BackfillResult> => {
-  if (!hasWindow()) {
+  if (!canUseLocalContentStorage() || !hasWindow()) {
     return { draftsCreated: 0, variantsCreated: 0, sessionsCreated: 0, failures: 0 };
   }
 

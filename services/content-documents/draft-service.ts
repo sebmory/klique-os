@@ -1,4 +1,5 @@
 import type { ContentDocument } from "@/types/content-document";
+import { canUseLocalContentStorage } from "@/services/content-storage-access";
 
 const STORAGE_KEY_PREFIX = "klique.contents.document-editor.draft.v2";
 
@@ -7,7 +8,7 @@ export type ContentDocumentDraftCloudStatus = "created" | "updated" | "conflict"
 export type ContentDocumentDraftSaveResult = {
   document: ContentDocument;
   local: {
-    status: "saved";
+    status: "saved" | "skipped";
     storageKey: string;
   };
   cloud: {
@@ -190,6 +191,16 @@ export const ContentDocumentDraftService = {
     const normalizedDocumentId = normalizeDocumentId(documentId);
     if (!normalizedDocumentId) return null;
 
+    const useLocalStorage = canUseLocalContentStorage();
+    if (!useLocalStorage) {
+      try {
+        const cloud = await fetchCloudDraft(normalizedDocumentId);
+        return cloud.status === "ok" ? cloud.document : null;
+      } catch {
+        return null;
+      }
+    }
+
     const localDraft = getStoredDraftDocument(normalizedDocumentId);
 
     try {
@@ -225,6 +236,47 @@ export const ContentDocumentDraftService = {
   async saveDraft(document: ContentDocument): Promise<ContentDocumentDraftSaveResult> {
     const normalizedDocumentId = normalizeDocumentId(document.id);
     const storageKey = getStorageKey(normalizedDocumentId);
+    const useLocalStorage = canUseLocalContentStorage();
+
+    if (!useLocalStorage) {
+      try {
+        const cloud = await fetchCloudDraft(normalizedDocumentId);
+        if (cloud.status === "ok") {
+          const updated = await updateCloudDraft(document, cloud.version);
+          return {
+            document,
+            local: { status: "skipped", storageKey },
+            cloud: updated.status === "updated"
+              ? { status: "updated", version: updated.version }
+              : {
+                  status: updated.status,
+                  currentVersion: updated.currentVersion,
+                  message: updated.message,
+                },
+          };
+        }
+
+        if (cloud.status === "missing") {
+          const created = await createCloudDraft(document);
+          return {
+            document,
+            local: { status: "skipped", storageKey },
+            cloud: created.status === "created"
+              ? { status: "created", version: created.version }
+              : { status: created.status, message: created.message },
+          };
+        }
+      } catch {
+        // The media path is cloud-only and must never fall back to browser storage.
+      }
+
+      return {
+        document,
+        local: { status: "skipped", storageKey },
+        cloud: { status: "unavailable", message: "Synchronisation cloud indisponible." },
+      };
+    }
+
     const existingDraft = readStoredDraft(normalizedDocumentId);
     const cloudVersion = existingDraft?.cloudVersion;
     writeStoredDraft(document, cloudVersion, existingDraft?.lastCloudStatus, existingDraft?.lastCloudMessage);

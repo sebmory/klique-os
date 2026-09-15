@@ -88,7 +88,9 @@ export async function POST(request: Request) {
     }
 
     const mediaRequest = await createMediaRequest(access, {
+      origin: body.origin,
       subjectId: body.subjectId,
+      title: body.title,
       requestType: body.requestType,
       message: body.message,
       deadline: body.deadline,
