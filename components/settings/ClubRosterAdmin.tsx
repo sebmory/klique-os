@@ -46,7 +46,7 @@ type ClubRosterAdminProps = {
 };
 
 type Feedback = {
-  kind: "success" | "error";
+  kind: "success" | "neutral" | "error";
   message: string;
 };
 
@@ -194,6 +194,14 @@ export function ClubRosterAdmin({ clubs }: ClubRosterAdminProps) {
         body: JSON.stringify({ workspaceId, teamId, athleteId }),
       });
       const payload = response.status === 204 ? null : await readPayload(response);
+      if (method === "POST" && response.status === 409) {
+        await refreshRoster();
+        setFeedback({
+          kind: "neutral",
+          message: `${athleteName} était déjà ajouté à l’équipe.`,
+        });
+        return;
+      }
       if (!response.ok) throw new Error(payload?.error || "Le roster n’a pas pu être modifié.");
 
       await refreshRoster();
@@ -276,14 +284,14 @@ export function ClubRosterAdmin({ clubs }: ClubRosterAdminProps) {
           {loadError ? <p role="alert" data-roster-state="error" style={{ margin: 0, color: "#b91c1c" }}>{loadError}</p> : null}
           {feedback ? (
             <p
-              role={feedback.kind === "success" ? "status" : "alert"}
+              role={feedback.kind === "error" ? "alert" : "status"}
               data-roster-state={feedback.kind}
               style={{
                 margin: 0,
                 padding: "0.7rem 0.85rem",
-                border: `1px solid ${feedback.kind === "success" ? "#bbf7d0" : "#fecaca"}`,
-                background: feedback.kind === "success" ? "#f0fdf4" : "#fef2f2",
-                color: feedback.kind === "success" ? "#166534" : "#b91c1c",
+                border: `1px solid ${feedback.kind === "success" ? "#bbf7d0" : feedback.kind === "neutral" ? "#d1d5db" : "#fecaca"}`,
+                background: feedback.kind === "success" ? "#f0fdf4" : feedback.kind === "neutral" ? "#f9fafb" : "#fef2f2",
+                color: feedback.kind === "success" ? "#166534" : feedback.kind === "neutral" ? "#374151" : "#b91c1c",
                 borderRadius: "8px",
               }}
             >

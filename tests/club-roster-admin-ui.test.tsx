@@ -214,15 +214,28 @@ describe("Club roster Admin UI", () => {
     expect(container.querySelector('[data-roster-state="error"]')?.textContent).toBe("Accès refusé.");
   });
 
-  it("shows empty roster lists and mutation errors", async () => {
+  it("refreshes a stale roster and shows neutral feedback after a POST conflict", async () => {
+    const staleMila = {
+      athleteId: "athlete-1",
+      name: "Mila Benjak",
+      sport: "Basketball",
+      status: "Actif",
+    };
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ teams: [teamOne], roster: [], availableAthletes: [] }))
-      .mockResolvedValueOnce(jsonResponse({ teams: [teamOne], roster: [], availableAthletes: [availableAthlete] }))
-      .mockResolvedValueOnce(jsonResponse({ error: "Cet Athlète est déjà membre." }, 409));
+      .mockResolvedValueOnce(jsonResponse({ teams: [teamOne], roster: [], availableAthletes: [staleMila] }))
+      .mockResolvedValueOnce(jsonResponse({ error: "Cet Athlète est déjà membre." }, 409))
+      .mockResolvedValueOnce(jsonResponse({ teams: [teamOne], roster: [member], availableAthletes: [] }));
     await mount();
 
     expect(container.querySelector('[data-roster-empty="members"]')).not.toBeNull();
-    await click('[aria-label="Ajouter Zoé Dupont"]');
-    expect(container.querySelector('[data-roster-state="error"]')?.textContent).toBe("Cet Athlète est déjà membre.");
+    expect(container.querySelector('[data-available-athlete="athlete-1"]')).not.toBeNull();
+    await click('[aria-label="Ajouter Mila Benjak"]');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(container.querySelector('[data-roster-member="athlete-1"]')?.textContent).toContain("Mila Benjak");
+    expect(container.querySelector('[data-available-athlete="athlete-1"]')).toBeNull();
+    expect(container.querySelector('[data-roster-state="neutral"]')?.textContent)
+      .toBe("Mila Benjak était déjà ajouté à l’équipe.");
   });
 });
