@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Card, Input } from "@/src/design-system/components";
+import { ClubRosterAdmin } from "@/components/settings/ClubRosterAdmin";
 
 type ProvisionedClub = {
   workspaceId: string;
@@ -282,6 +283,8 @@ export function ClubAdminSection() {
           </div>
         ) : null}
       </div>
+
+      <ClubRosterAdmin clubs={clubs} />
     </Card>
   );
 }
