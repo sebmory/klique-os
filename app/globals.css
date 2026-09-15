@@ -628,14 +628,24 @@ button {
   background: transparent;
 }
 
-.command-group a {
+.command-group a,
+.command-group button {
   display: block;
+  width: 100%;
   border-radius: var(--kl-radius-md);
   padding: var(--kl-spacing-2) var(--kl-spacing-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .command-group a:hover,
-.command-group a.is-selected {
+.command-group a.is-selected,
+.command-group button:hover,
+.command-group button.is-selected {
   background: var(--kl-color-surfaceSecondary);
 }
 
@@ -6599,6 +6609,102 @@ button {
   background: #ffffff;
   color: #5f5f5b;
   text-align: center;
+}
+
+.partner-contact-requests-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.partner-contact-requests-list article {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #e2e2de;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(21, 21, 21, 0.045);
+}
+
+.partner-contact-requests-list article > header {
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.partner-contact-requests-list article > header span:first-child,
+.partner-contact-requests-list h3 {
+  color: #858580;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.partner-contact-requests-list h2,
+.partner-contact-requests-list h3,
+.partner-contact-requests-list p {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.partner-contact-requests-list h2 {
+  margin-top: 3px;
+  color: #171717;
+  font-size: 1.08rem;
+}
+
+.partner-contact-requests-list article > time {
+  color: #73736e;
+  font-size: 0.78rem;
+}
+
+.partner-contact-requests-list article > section {
+  display: grid;
+  gap: 5px;
+}
+
+.partner-contact-requests-list article > section p {
+  color: #4f4f4b;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.partner-contact-request-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f0f0ec;
+  color: #5f5f5b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.partner-contact-request-status.is-open,
+.partner-contact-request-status.is-pending {
+  background: #fff0e5;
+  color: #9c4914;
+}
+
+.partner-contact-request-status.is-in_progress {
+  background: #e8f0fb;
+  color: #28568a;
+}
+
+.partner-contact-request-status.is-resolved {
+  background: #e8f6ec;
+  color: #24623a;
+}
+
+.partner-contact-request-reply {
+  padding: 12px;
+  border-left: 3px solid #d96f27;
+  background: #faf7f3;
 }
 
 .partner-athletes-tools {

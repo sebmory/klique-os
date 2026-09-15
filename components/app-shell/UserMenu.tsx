@@ -6,10 +6,33 @@ import { ChevronDown, CircleUserRound } from "./icons";
 
 const mainMenuItems = ["Mon profil", "Préférences", "Changer de workspace"];
 
-export function UserMenu() {
+type UserMenuProps = {
+  userName?: string | null;
+  userRole?: string | null;
+};
+
+const accessLabel = (role: string | null | undefined): string => {
+  if (role === "admin") return "Administrateur";
+  if (role === "athlete") return "Athlète";
+  if (role === "partner_expert") return "Partenaire / Expert";
+  if (role === "media") return "Média";
+  return "Compte utilisateur";
+};
+
+const userInitials = (name: string): string => {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length > 1) {
+    return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+  }
+  return name.slice(0, 2).toUpperCase();
+};
+
+export function UserMenu({ userName, userRole }: UserMenuProps) {
   const { signOut } = useClerk();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const profileName = userName?.trim() || "Compte Clerk";
+  const profileAccessLabel = accessLabel(userRole);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -39,11 +62,11 @@ export function UserMenu() {
         aria-expanded={open}
       >
         <span className="user-avatar" aria-hidden>
-          SM
+          {userInitials(profileName)}
         </span>
         <span className="user-meta">
-          <strong>Sebastien Mory</strong>
-          <small>Administrateur</small>
+          <strong>{profileName}</strong>
+          <small>{profileAccessLabel}</small>
         </span>
         <ChevronDown className="app-icon" />
       </button>
@@ -53,8 +76,8 @@ export function UserMenu() {
           <div className="user-menu-head">
             <CircleUserRound className="app-icon" />
             <div>
-              <strong>Sebastien Mory</strong>
-              <small>Administrateur</small>
+              <strong>{profileName}</strong>
+              <small>{profileAccessLabel}</small>
             </div>
           </div>
           <ul>

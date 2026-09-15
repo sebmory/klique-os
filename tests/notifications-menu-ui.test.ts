@@ -21,6 +21,7 @@ vi.mock("@/components/app-shell/icons", () => ({
 }));
 
 import { NotificationsMenu } from "@/components/app-shell/NotificationsMenu";
+import { openNotificationsEvent } from "@/components/app-shell/data";
 
 const personalNotification = {
   id: "notification-1",
@@ -107,6 +108,16 @@ afterEach(async () => {
 });
 
 describe("NotificationsMenu", () => {
+  it("opens from the global search command", async () => {
+    await mount();
+
+    await act(async () => {
+      window.dispatchEvent(new Event(openNotificationsEvent));
+    });
+
+    expect(container.querySelector('[role="menu"][aria-label="Mes notifications"]')).not.toBeNull();
+  });
+
   it("loads and displays personal notifications with unread state, date, title and body", async () => {
     await mount();
     await openMenu();

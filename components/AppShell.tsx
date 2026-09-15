@@ -191,6 +191,8 @@ export function AppShell({ children }: AppShellProps) {
           }
           isAdmin={userAccess.role === "admin"}
           isAthlete={userAccess.role === "athlete"}
+          userName={userAccess.clerkDisplayName}
+          userRole={userAccess.role}
         />
         <main className="klique-main-content">{children}</main>
       </div>

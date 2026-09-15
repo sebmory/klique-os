@@ -4,11 +4,51 @@ import {
   contactRequestMessageMaxLength,
   contactRequestSubjectMaxLength,
   createPartnerAthleteIntroduction,
+  listPartnerAthleteIntroductions,
 } from "@/lib/contact-requests/service";
-import { getEcosystemPartnersFrom06Partenaires, getPublicAthleteProfileFromGoogleSheets } from "@/lib/google-sheets";
+import {
+  getEcosystemPartnersFrom06Partenaires,
+  getPublicAthleteDirectoryFromGoogleSheets,
+  getPublicAthleteProfileFromGoogleSheets,
+} from "@/lib/google-sheets";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+export async function GET(request: NextRequest) {
+  try {
+    const profile = await getCurrentUserAccessProfile(request);
+    const access = profile?.userAccess ?? null;
+    const partnerId = access?.partnerId?.trim() ?? "";
+    const workspaceId = access?.workspaceId?.trim() ?? "";
+
+    if (access?.role !== "partner_expert" || access.status !== "active" || !partnerId || !workspaceId) {
+      return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    }
+
+    const [records, athletes] = await Promise.all([
+      listPartnerAthleteIntroductions(workspaceId, partnerId),
+      getPublicAthleteDirectoryFromGoogleSheets(),
+    ]);
+    const athleteNames = new Map(athletes.map((athlete) => [athlete.athleteId, athlete.name]));
+    const contactRequests = records.map((record) => ({
+      id: record.id,
+      athleteId: record.athleteId,
+      athleteName: athleteNames.get(record.athleteId) || record.athleteId,
+      subject: record.subject,
+      message: record.message,
+      status: record.status,
+      createdAt: record.createdAt,
+    }));
+
+    return NextResponse.json({ contactRequests });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Impossible de récupérer les mises en relation." },
+      { status: 500 },
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {

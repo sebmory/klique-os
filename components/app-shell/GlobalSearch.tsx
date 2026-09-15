@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { commandEntries } from "./data";
+import { commandEntries, openNotificationsEvent, partnerCommandEntries } from "./data";
 import { Search } from "./icons";
 
 const groupedOrder = ["Personnes", "Organisations", "Projets", "Medias", "Actions rapides"] as const;
@@ -15,13 +15,15 @@ const isMac = () => {
 
 type GlobalSearchProps = {
   compact?: boolean;
+  userRole?: string | null;
 };
 
-export function GlobalSearch({ compact = false }: GlobalSearchProps) {
+export function GlobalSearch({ compact = false, userRole }: GlobalSearchProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const availableEntries = userRole === "partner_expert" ? partnerCommandEntries : commandEntries;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -41,9 +43,9 @@ export function GlobalSearch({ compact = false }: GlobalSearchProps) {
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return commandEntries;
-    return commandEntries.filter((entry) => entry.label.toLowerCase().includes(keyword));
-  }, [query]);
+    if (!keyword) return availableEntries;
+    return availableEntries.filter((entry) => entry.label.toLowerCase().includes(keyword));
+  }, [availableEntries, query]);
 
   const grouped = useMemo(() => {
     return groupedOrder
@@ -73,7 +75,11 @@ export function GlobalSearch({ compact = false }: GlobalSearchProps) {
         const entry = flatEntries[activeIndex];
         if (!entry) return;
         event.preventDefault();
-        router.push(entry.href);
+        if (entry.action === "open-notifications") {
+          window.dispatchEvent(new Event(openNotificationsEvent));
+        } else if (entry.href) {
+          router.push(entry.href);
+        }
         setOpen(false);
       }
     };
@@ -147,15 +153,30 @@ export function GlobalSearch({ compact = false }: GlobalSearchProps) {
                     <ul role="listbox" aria-label={group.category}>
                       {group.entries.map((entry) => (
                         <li key={entry.id}>
-                          <Link
-                            href={entry.href}
-                            onClick={() => setOpen(false)}
-                            className={flatEntries[activeIndex]?.id === entry.id ? "is-selected" : undefined}
-                            role="option"
-                            aria-selected={flatEntries[activeIndex]?.id === entry.id}
-                          >
-                            {entry.label}
-                          </Link>
+                          {entry.href ? (
+                            <Link
+                              href={entry.href}
+                              onClick={() => setOpen(false)}
+                              className={flatEntries[activeIndex]?.id === entry.id ? "is-selected" : undefined}
+                              role="option"
+                              aria-selected={flatEntries[activeIndex]?.id === entry.id}
+                            >
+                              {entry.label}
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.dispatchEvent(new Event(openNotificationsEvent));
+                                setOpen(false);
+                              }}
+                              className={flatEntries[activeIndex]?.id === entry.id ? "is-selected" : undefined}
+                              role="option"
+                              aria-selected={flatEntries[activeIndex]?.id === entry.id}
+                            >
+                              {entry.label}
+                            </button>
+                          )}
                         </li>
                       ))}
                     </ul>

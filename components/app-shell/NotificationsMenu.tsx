@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { openNotificationsEvent } from "./data";
 import { Bell } from "./icons";
 
 type ContactRequest = {
@@ -113,6 +114,13 @@ export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete 
       window.removeEventListener("keydown", onEscape);
     };
   }, []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const openNotifications = () => setOpen(true);
+    window.addEventListener(openNotificationsEvent, openNotifications);
+    return () => window.removeEventListener(openNotificationsEvent, openNotifications);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;

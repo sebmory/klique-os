@@ -165,6 +165,22 @@ export const hasPendingPartnerAthleteIntroduction = async (
   return Boolean(rows[0]);
 };
 
+export const listPartnerAthleteIntroductions = async (
+  workspaceId: string,
+  partnerId: string,
+): Promise<ContactRequestRecord[]> => {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
+    FROM contact_requests
+    WHERE workspace_id = ${normalize(workspaceId)}
+      AND partner_id = ${normalize(partnerId)}
+      AND request_kind = 'partner_athlete_introduction'
+    ORDER BY created_at DESC
+  `;
+  return rows.map((row) => mapRow(row as Record<string, unknown>));
+};
+
 export const createPartnerAthleteIntroduction = async (input: {
   workspaceId: string;
   partnerId: string;

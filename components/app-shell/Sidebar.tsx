@@ -123,6 +123,7 @@ export function Sidebar({
         ? [
             { id: "today", label: "Aujourd’hui", href: "/partner", icon: "house" as const },
             { id: "athletes", label: "Athlètes", href: "/partner/athletes", icon: "users" as const },
+            { id: "contact-requests", label: "Mes mises en relation", href: "/partner/contact-requests", icon: "messages" as const },
           ]
         : mainNavigation;
 

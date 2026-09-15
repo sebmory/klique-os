@@ -93,6 +93,8 @@ describe("AppShell notifications", () => {
         notificationsEnabled: true,
         isAdmin: role === "admin",
         isAthlete: role === "athlete",
+        userName: "KLIQUE User",
+        userRole: role,
       }));
     },
   );

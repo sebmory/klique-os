@@ -106,6 +106,13 @@ describe("Sidebar responsive scrolling", () => {
     expect(drawer.querySelector(":scope > header .klique-logo")).not.toBeNull();
   });
 
+  it("shows the personal contact requests entry only in partner navigation", async () => {
+    await mount({ userRole: "partner_expert", userIsPartner: true });
+
+    const link = container.querySelector('a[href="/partner/contact-requests"]');
+    expect(link?.textContent).toContain("Mes mises en relation");
+  });
+
   it("limits the panels to the visible viewport height", () => {
     expect(rule(".klique-sidebar")).toContain("height: 100dvh");
     expect(rule(".klique-sidebar")).toContain("max-height: 100dvh");

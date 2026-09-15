@@ -19,8 +19,11 @@ export type SearchEntry = {
   id: string;
   label: string;
   category: "Personnes" | "Organisations" | "Projets" | "Medias" | "Actions rapides";
-  href: string;
+  href?: string;
+  action?: "open-notifications";
 };
+
+export const openNotificationsEvent = "klique:open-notifications";
 
 export const workspaces: Workspace[] = [
   { id: "klique-os", name: "KLIQUE OS", description: "Workspace principal", monogram: "KO" },
@@ -64,4 +67,13 @@ export const commandEntries: SearchEntry[] = [
   { id: "media-1", label: "Portraits Premium Avril", category: "Medias", href: "/media" },
   { id: "action-1", label: "Creer une personne", category: "Actions rapides", href: "/crm" },
   { id: "action-2", label: "Creer un projet", category: "Actions rapides", href: "/projects" },
+];
+
+export const partnerCommandEntries: SearchEntry[] = [
+  { id: "partner-home", label: "Accueil Partenaire", category: "Actions rapides", href: "/partner" },
+  { id: "partner-athletes", label: "Annuaire des athlètes", category: "Personnes", href: "/partner/athletes" },
+  { id: "partner-athlete-profiles", label: "Fiches Athlètes publiques", category: "Personnes", href: "/partner/athletes" },
+  { id: "partner-contact-requests", label: "Mes mises en relation", category: "Actions rapides", href: "/partner/contact-requests" },
+  { id: "partner-notifications", label: "Notifications", category: "Actions rapides", action: "open-notifications" },
+  { id: "partner-profile", label: "Mon espace / profil", category: "Actions rapides", href: "/partner" },
 ];

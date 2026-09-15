@@ -12,6 +12,8 @@ type HeaderProps = {
   notificationsEnabled?: boolean;
   isAdmin?: boolean;
   isAthlete?: boolean;
+  userName?: string | null;
+  userRole?: string | null;
 };
 
 export function Header({
@@ -20,6 +22,8 @@ export function Header({
   notificationsEnabled = false,
   isAdmin = false,
   isAthlete = false,
+  userName,
+  userRole,
 }: HeaderProps) {
   return (
     <header className="klique-header">
@@ -36,15 +40,15 @@ export function Header({
       </div>
 
       <div className="header-center">
-        <GlobalSearch />
+        <GlobalSearch userRole={userRole} />
       </div>
 
       <div className="header-right">
         <div className="desktop-hidden">
-          <GlobalSearch compact />
+          <GlobalSearch compact userRole={userRole} />
         </div>
         <NotificationsMenu enabled={notificationsEnabled} isAdmin={isAdmin} isAthlete={isAthlete} />
-        <UserMenu />
+        <UserMenu userName={userName} userRole={userRole} />
       </div>
     </header>
   );
