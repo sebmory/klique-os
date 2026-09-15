@@ -117,6 +117,7 @@ export function Sidebar({
     : isMedia
       ? [
           { id: "media-desk", label: "Media Desk", href: "/media-desk", icon: "newspaper" as const },
+          { id: "athletes", label: "Athlètes", href: "/media/athletes", icon: "users" as const },
           { id: "contents", label: "Contenus", href: "/contents", icon: "contents" as const },
         ]
       : isPartner

@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
 import { getAthletesFromGoogleSheets, getMediaFromGoogleSheets, getPartnersFromGoogleSheets } from "@/lib/google-sheets";
+import {
+  getActiveMediaOrganization,
+  MediaOrganizationError,
+} from "@/lib/media-organizations/service";
 
 const getBootstrapAdminEmail = (): string | null => {
   const configuredEmail = process.env.KLIQUE_BOOTSTRAP_ADMIN_EMAIL?.trim();
@@ -153,8 +157,9 @@ const createMediaInvitationsTable = async () => {
   const sql = getSql();
   await sql`
     CREATE TABLE IF NOT EXISTS media_invitations (
-      id TEXT PRIMARY KEY,
+      id UUID PRIMARY KEY,
       workspace_id TEXT NOT NULL,
+      media_id UUID NULL,
       email TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'accepted', 'revoked')),
       invited_by_clerk_user_id TEXT NOT NULL,
@@ -687,6 +692,18 @@ const linkMediaAccessFromInvitation = async (
   userId: string,
   clerkUser: LinkableClerkUser,
 ): Promise<ClerkUserAccessRecord | null> => {
+  const metadata = clerkUser.publicMetadata ?? {};
+  const metadataRole = typeof metadata.role === "string" ? metadata.role : null;
+  const metadataWorkspaceId = typeof metadata.workspaceId === "string" ? metadata.workspaceId.trim() : "";
+  const metadataMediaId = typeof metadata.mediaId === "string" ? metadata.mediaId.trim().toLowerCase() : "";
+  if (
+    metadataRole !== "media"
+    || !metadataWorkspaceId
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metadataMediaId)
+  ) {
+    return null;
+  }
+
   const verifiedEmails = (clerkUser.emailAddresses ?? [])
     .filter((entry) => entry.verification?.status === "verified")
     .map((entry) => entry.emailAddress.trim().toLowerCase())
@@ -702,9 +719,12 @@ const linkMediaAccessFromInvitation = async (
   // Instruction unique donc transaction implicite : reservation, creation d acces et acceptation reussissent ou echouent ensemble.
   const rows = await sql`
     WITH claimed AS (
-      SELECT id, workspace_id, btrim(email) AS email
+      SELECT id, workspace_id, media_id, btrim(email) AS email
       FROM media_invitations
-      WHERE status = 'invited' AND lower(btrim(email)) = ANY(${verifiedEmails})
+      WHERE status = 'invited'
+        AND lower(btrim(email)) = ANY(${verifiedEmails})
+        AND workspace_id = ${metadataWorkspaceId}
+        AND media_id = ${metadataMediaId}::uuid
       ORDER BY created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -729,16 +749,12 @@ const linkMediaAccessFromInvitation = async (
         claimed.workspace_id,
         NULL,
         NULL,
-        NULL,
+        claimed.media_id::text,
         'active',
         NOW(),
         NOW()
       FROM claimed
-      ON CONFLICT (clerk_user_id) DO UPDATE SET
-        email = EXCLUDED.email,
-        status = 'active',
-        updated_at = NOW()
-      WHERE user_access.role = 'media' AND user_access.workspace_id = EXCLUDED.workspace_id
+      ON CONFLICT (clerk_user_id) DO NOTHING
       RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
     ),
     accepted AS (
@@ -869,11 +885,19 @@ const getAppOrigin = (): string => {
 };
 
 export type InviteMediaResult =
-  | { ok: true; invitationId: string; email: string }
-  | { ok: false; reason: "forbidden" | "invalid_email" | "already_invited" | "already_active" | "clerk_error"; message?: string };
+  | { ok: true; invitationId: string; email: string; mediaId: string }
+  | {
+      ok: false;
+      reason: "forbidden" | "invalid_email" | "invalid_media" | "media_not_found" | "already_invited" | "already_active" | "clerk_error";
+      message?: string;
+    };
 
 // L invitation Clerk est la seule voie d entree : aucun signup public n est ouvert.
-export const inviteMediaToKlique = async (request: Request, rawEmail: string): Promise<InviteMediaResult> => {
+export const inviteMediaToKlique = async (
+  request: Request,
+  rawEmail: string,
+  rawMediaId?: unknown,
+): Promise<InviteMediaResult> => {
   const profile = await getCurrentUserAccessProfile(request);
   const access = profile?.userAccess ?? null;
   const inviterId = profile?.clerkUser?.id?.trim() ?? "";
@@ -886,6 +910,23 @@ export const inviteMediaToKlique = async (request: Request, rawEmail: string): P
   const email = String(rawEmail ?? "").trim().toLowerCase();
   if (!email || !isValidEmail(email)) {
     return { ok: false, reason: "invalid_email" };
+  }
+
+  const mediaId = typeof rawMediaId === "string" ? rawMediaId.trim().toLowerCase() : "";
+  if (!mediaId) {
+    return { ok: false, reason: "invalid_media" };
+  }
+
+  try {
+    await getActiveMediaOrganization(workspaceId, mediaId);
+  } catch (error) {
+    if (error instanceof MediaOrganizationError) {
+      return {
+        ok: false,
+        reason: error.code === "not_found" ? "media_not_found" : "invalid_media",
+      };
+    }
+    throw error;
   }
 
   await createUserAccessTable();
@@ -916,8 +957,9 @@ export const inviteMediaToKlique = async (request: Request, rawEmail: string): P
       publicMetadata: {
         role: "media",
         workspaceId,
+        mediaId,
       },
-      redirectUrl: `${getAppOrigin()}/sign-up`,
+      redirectUrl: `${getAppOrigin()}/sign-up?portal=media`,
       notify: true,
     });
     clerkInvitationId = invitation.id;
@@ -935,6 +977,7 @@ export const inviteMediaToKlique = async (request: Request, rawEmail: string): P
     INSERT INTO media_invitations (
       id,
       workspace_id,
+      media_id,
       email,
       status,
       invited_by_clerk_user_id,
@@ -944,13 +987,14 @@ export const inviteMediaToKlique = async (request: Request, rawEmail: string): P
     VALUES (
       ${id},
       ${workspaceId},
+      ${mediaId}::uuid,
       ${email},
       'invited',
       ${inviterId},
       ${clerkInvitationId},
       NOW()
     )
-    RETURNING id, email
+    RETURNING id, email, media_id
   `;
 
   const created = rows[0] as Record<string, unknown> | undefined;
@@ -958,7 +1002,12 @@ export const inviteMediaToKlique = async (request: Request, rawEmail: string): P
     return { ok: false, reason: "already_invited" };
   }
 
-  return { ok: true, invitationId: String(created.id ?? ""), email: String(created.email ?? "") };
+  return {
+    ok: true,
+    invitationId: String(created.id ?? ""),
+    email: String(created.email ?? ""),
+    mediaId: String(created.media_id ?? ""),
+  };
 };
 
 export const getAthleteAccessState = async (athleteId: string): Promise<{ state: AthleteAccessState; email: string | null }> => {  const trimmedAthleteId = athleteId.trim();

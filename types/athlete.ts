@@ -158,3 +158,26 @@ export type PublicAthleteProfile = {
   distinctions: PublicAthleteDistinction[];
   socialLinks: PublicAthleteSocialLink[];
 };
+
+export type MediaAthleteDirectoryEntry = Pick<
+  PublicAthleteDirectoryEntry,
+  "athleteId" | "name" | "sport" | "club" | "portraitUrl"
+>;
+
+export type MediaAthletePublicProfile = Pick<
+  PublicAthleteProfile,
+  | "name"
+  | "sport"
+  | "club"
+  | "age"
+  | "nationality"
+  | "position"
+  | "palmares"
+  | "shortTermGoals"
+  | "longTermGoals"
+  | "portraitUrl"
+  | "journey"
+  | "goals"
+> & {
+  instagram: string | null;
+};

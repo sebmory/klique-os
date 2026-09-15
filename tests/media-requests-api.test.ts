@@ -69,7 +69,13 @@ const installSqlMock = (
   createContentStorageClientMock.mockReturnValue(sqlMock);
 };
 
-const asRole = (role: string, status = "active", workspaceId = "klique-os", athleteId: string | null = null) => {
+const asRole = (
+  role: string,
+  status = "active",
+  workspaceId = "klique-os",
+  athleteId: string | null = null,
+  mediaId: string | null = role === "media" ? "media-1" : null,
+) => {
   getCurrentUserAccessProfileMock.mockResolvedValue({
     clerkUser: { id: `user_${role}`, email: `${role}@example.com` },
     userAccess: {
@@ -80,7 +86,7 @@ const asRole = (role: string, status = "active", workspaceId = "klique-os", athl
       workspaceId,
       athleteId: role === "athlete" ? (athleteId ?? "athlete-1") : null,
       partnerId: null,
-      mediaId: role === "media" ? "media-1" : null,
+      mediaId,
     },
   });
 };
@@ -110,7 +116,7 @@ describe("media requests API authorization", () => {
     installSqlMock();
   });
 
-  it("lets an active media user create and read its own requests", async () => {
+  it("lets an active media user create and read its organization requests", async () => {
     asRole("media");
 
     const created = await POST(jsonRequest(createBody));
@@ -122,7 +128,22 @@ describe("media requests API authorization", () => {
     expect(response.status).toBe(200);
     expect(payload.ok).toBe(true);
     expect(payload.requests[0]).toMatchObject({ id: "request-1", status: "submitted" });
-    expect(findCall("from media_requests r")?.values).toContain("user_media");
+    expect(findCall("from media_requests r")?.text).toContain("r.media_id =");
+    expect(findCall("from media_requests r")?.values).toContain("media-1");
+    expect(findCall("from media_requests r")?.values).not.toContain("user_media");
+  });
+
+  it("returns a generic access error and creates nothing for a media user without mediaId", async () => {
+    asRole("media", "active", "klique-os", null, null);
+
+    const listResponse = await GET(listRequest());
+    const createResponse = await POST(jsonRequest(createBody));
+
+    expect(listResponse.status).toBe(403);
+    expect(await listResponse.json()).toEqual({ ok: false, message: "Acces refuse." });
+    expect(createResponse.status).toBe(403);
+    expect(await createResponse.json()).toEqual({ ok: false, message: "Acces refuse." });
+    expect(findCall("insert into media_requests")).toBeUndefined();
   });
 
   it("lets an admin read the whole workspace and update a request", async () => {
@@ -220,9 +241,11 @@ describe("media requests API validation", () => {
     const insert = findCall("insert into media_requests");
     expect(insert?.values).toContain("user_media");
     expect(insert?.values).toContain("media@example.com");
+    expect(insert?.values).toContain("media-1");
     expect(insert?.values).toContain("klique-os");
     expect(insert?.values).not.toContain("user_usurpateur");
     expect(insert?.values).not.toContain("pirate@example.com");
+    expect(insert?.values).not.toContain("media-pirate");
     expect(insert?.values).not.toContain("autre-workspace");
     expect(insert?.values).not.toContain("note injectee");
   });

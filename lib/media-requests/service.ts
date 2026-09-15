@@ -288,10 +288,12 @@ const requireAdmin = (access: MediaRequestAccessContext) => {
   }
 };
 
-const requireMedia = (access: MediaRequestAccessContext) => {
-  if (access.role !== "media") {
+const requireMedia = (access: MediaRequestAccessContext): string => {
+  const mediaId = normalizeText(access.mediaId);
+  if (access.role !== "media" || !mediaId) {
     throw new MediaRequestForbiddenError();
   }
+  return mediaId;
 };
 
 const notifyMediaRequestStatusChange = async (
@@ -437,6 +439,7 @@ const loadPublishedSubject = async (workspaceId: string, subjectId: string): Pro
 };
 
 export const listMediaRequests = async (access: MediaRequestAccessContext): Promise<MediaRequestRecord[]> => {
+  const scopedMediaId = access.role === "media" ? requireMedia(access) : null;
   await ensureMediaRequestTables();
   const sql = getSql();
   const scopedAthleteId = getScopedAthleteId(access);
@@ -462,7 +465,7 @@ export const listMediaRequests = async (access: MediaRequestAccessContext): Prom
     WHERE r.workspace_id = ${access.workspaceId}
       AND (
         ${access.isAdmin}::boolean
-        OR r.requested_by_clerk_user_id = ${access.clerkUserId}
+        OR r.media_id = ${scopedMediaId}
         OR EXISTS (
           SELECT 1 FROM media_request_athletes link
           WHERE link.request_id = r.id
@@ -480,6 +483,7 @@ export const getMediaRequestById = async (
   access: MediaRequestAccessContext,
   requestId: string,
 ): Promise<MediaRequestRecord | null> => {
+  const scopedMediaId = access.role === "media" ? requireMedia(access) : null;
   await ensureMediaRequestTables();
   const sql = getSql();
   const scopedAthleteId = getScopedAthleteId(access);
@@ -509,7 +513,7 @@ export const getMediaRequestById = async (
       AND r.id = ${id}
       AND (
         ${access.isAdmin}::boolean
-        OR r.requested_by_clerk_user_id = ${access.clerkUserId}
+        OR r.media_id = ${scopedMediaId}
         OR EXISTS (
           SELECT 1 FROM media_request_athletes link
           WHERE link.request_id = r.id
@@ -528,7 +532,7 @@ export const createMediaRequest = async (
   access: MediaRequestAccessContext,
   input: MediaRequestInput,
 ): Promise<MediaRequestRecord> => {
-  requireMedia(access);
+  const mediaId = requireMedia(access);
   await ensureMediaRequestTables();
 
   const requesterEmail = normalizeText(access.email);
@@ -583,7 +587,7 @@ export const createMediaRequest = async (
       ${subject.id},
       ${access.clerkUserId},
       ${requesterEmail},
-      ${normalizeOptionalText(access.mediaId)},
+      ${mediaId},
       ${requestType},
       ${message},
       ${normalizeMediaRequestDeadline(input.deadline)},

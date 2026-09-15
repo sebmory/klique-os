@@ -2,36 +2,88 @@ import { describe, expect, it } from "vitest";
 import { isAthleteAllowedRoute, isMediaAllowedApi, isMediaAllowedRoute } from "@/proxy";
 
 describe("media desk proxy access", () => {
-  it("opens the Media Desk pages to the media role", () => {
-    expect(isMediaAllowedRoute("/media-desk")).toBe(true);
-    expect(isMediaAllowedRoute("/media-desk/subject-1")).toBe(true);
+  it.each([
+    "/media-desk",
+    "/media-desk/subject-1",
+    "/contents",
+    "/contents/create",
+    "/contents/create/result",
+    "/media/athletes",
+    "/media/athletes/athlete-1",
+  ])("allows the media page %s", (pathname) => {
+    expect(isMediaAllowedRoute(pathname)).toBe(true);
   });
 
-  it("keeps Contents accessible to the media role", () => {
-    expect(isMediaAllowedRoute("/contents")).toBe(true);
-    expect(isMediaAllowedRoute("/contents/create")).toBe(true);
+  it.each([
+    "/crm",
+    "/hub",
+    "/settings",
+    "/media-deskoups",
+    "/media-desk/subject-1/edit",
+    "/contents/archive",
+    "/contents/create/result/extra",
+    "/media/athletes/athlete-1/private",
+    "/media/athletes-admin",
+  ])("denies the media page %s", (pathname) => {
+    expect(isMediaAllowedRoute(pathname)).toBe(false);
   });
 
-  it("keeps the admin pages closed to the media role", () => {
-    expect(isMediaAllowedRoute("/crm")).toBe(false);
-    expect(isMediaAllowedRoute("/hub")).toBe(false);
-    expect(isMediaAllowedRoute("/settings")).toBe(false);
-    expect(isMediaAllowedRoute("/media-deskoups")).toBe(false);
+  it.each([
+    ["/api/clerk/access", "GET"],
+    ["/api/notifications", "GET"],
+    ["/api/notifications", "PATCH"],
+    ["/api/media-subjects", "GET"],
+    ["/api/media-subjects/subject-1", "GET"],
+    ["/api/media-requests", "GET"],
+    ["/api/media-requests", "POST"],
+    ["/api/media-bank", "GET"],
+    ["/api/ai-credits/balance", "GET"],
+    ["/api/media-subscriptions", "GET"],
+    ["/api/media/athletes", "GET"],
+    ["/api/media/athletes/athlete-1", "GET"],
+    ["/api/athletes", "GET"],
+    ["/api/content/generate", "POST"],
+    ["/api/context/collect", "POST"],
+    ["/api/contents/generate/article", "POST"],
+    ["/api/contents/storage/drafts", "GET"],
+    ["/api/contents/storage/drafts", "POST"],
+    ["/api/contents/storage/drafts/draft-1", "GET"],
+    ["/api/contents/storage/drafts/draft-1", "PATCH"],
+    ["/api/contents/storage/variants", "GET"],
+    ["/api/contents/storage/variants", "POST"],
+    ["/api/contents/storage/variants/variant-1", "GET"],
+    ["/api/contents/storage/sessions", "POST"],
+    ["/api/contents/storage/sessions/session-1", "GET"],
+  ])("allows the media API %s with %s", (pathname, method) => {
+    expect(isMediaAllowedApi(pathname, method)).toBe(true);
   });
 
-  it("allows the media role to read subjects only", () => {
-    expect(isMediaAllowedApi("/api/media-subjects", "GET")).toBe(true);
-    expect(isMediaAllowedApi("/api/media-subjects/subject-1", "GET")).toBe(true);
-
-    for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
-      expect(isMediaAllowedApi("/api/media-subjects", method)).toBe(false);
-      expect(isMediaAllowedApi("/api/media-subjects/subject-1", method)).toBe(false);
-    }
-  });
-
-  it("leaves the other API routes to their own controls", () => {
-    expect(isMediaAllowedApi("/api/clerk/access", "GET")).toBe(true);
-    expect(isMediaAllowedApi("/api/contents/storage/drafts", "POST")).toBe(true);
+  it.each([
+    ["/api/clerk/access", "POST"],
+    ["/api/media-subjects", "POST"],
+    ["/api/media-subjects", "PATCH"],
+    ["/api/media-subjects/subject-1", "DELETE"],
+    ["/api/media-subjects/subject-1/history", "GET"],
+    ["/api/media-requests", "PATCH"],
+    ["/api/media-requests", "DELETE"],
+    ["/api/media-requests/request-1", "GET"],
+    ["/api/media-bank", "POST"],
+    ["/api/media-days", "GET"],
+    ["/api/admin/media-organizations", "GET"],
+    ["/api/admin/media-invitations", "POST"],
+    ["/api/ai-credits/periods", "POST"],
+    ["/api/media-subscriptions/manual", "POST"],
+    ["/api/media/athletes", "POST"],
+    ["/api/media/athletes/athlete-1", "PATCH"],
+    ["/api/media/athletes/athlete-1/private", "GET"],
+    ["/api/athletes", "PATCH"],
+    ["/api/contents/storage/drafts/draft-1", "DELETE"],
+    ["/api/contents/storage/drafts/draft-1/history", "GET"],
+    ["/api/contents/storage/variants/variant-1", "PATCH"],
+    ["/api/contents/storage/sessions/session-1", "POST"],
+    ["/api/unknown", "GET"],
+  ])("denies the media API %s with %s", (pathname, method) => {
+    expect(isMediaAllowedApi(pathname, method)).toBe(false);
   });
 
   it("keeps the Media Desk closed to the athlete role", () => {
@@ -52,8 +104,4 @@ describe("media desk proxy access", () => {
     expect(isAthleteAllowedRoute("/api/media-requestsoups", "GET")).toBe(false);
   });
 
-  it("leaves the media requests API to its own controls for the media role", () => {
-    expect(isMediaAllowedApi("/api/media-requests", "GET")).toBe(true);
-    expect(isMediaAllowedApi("/api/media-requests", "POST")).toBe(true);
-  });
 });

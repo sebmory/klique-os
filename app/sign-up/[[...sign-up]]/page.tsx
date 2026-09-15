@@ -4,10 +4,16 @@ type SignUpPageProps = {
   searchParams: Promise<{ portal?: string | string[] }>;
 };
 
+export const getSignUpRedirectUrl = (portal: string | undefined): string => {
+  if (portal === "partner") return "/partner";
+  if (portal === "media") return "/media-desk";
+  return "/athlete";
+};
+
 export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   const params = await searchParams;
   const portal = Array.isArray(params.portal) ? params.portal[0] : params.portal;
-  const redirectUrl = portal === "partner" ? "/partner" : "/athlete";
+  const redirectUrl = getSignUpRedirectUrl(portal);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_45%),linear-gradient(135deg,_#020617_0%,_#0f172a_100%)] px-6 py-12">

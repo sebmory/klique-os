@@ -186,15 +186,47 @@ describe("media requests read isolation", () => {
     installSqlMock();
   });
 
-  it("restricts a media user to its own requests inside its workspace", async () => {
+  it("restricts a media user to its organization inside its workspace", async () => {
     await listMediaRequests(mediaAccess);
 
     const select = findCall("from media_requests r");
     expect(select?.text).toContain("r.workspace_id =");
-    expect(select?.text).toContain("r.requested_by_clerk_user_id =");
+    expect(select?.text).toContain("r.media_id =");
+    expect(select?.text).not.toContain("r.requested_by_clerk_user_id =");
     expect(select?.values).toContain("klique-os");
-    expect(select?.values).toContain("user_media");
+    expect(select?.values).toContain("media-1");
+    expect(select?.values).not.toContain("user_media");
     expect(select?.values).toContain(false);
+  });
+
+  it("uses the same organization scope for another individual media account", async () => {
+    await getMediaRequestById({ ...mediaAccess, clerkUserId: "user_media_colleague" }, "request-1");
+
+    const select = findCall("from media_requests r");
+    expect(select?.text).toContain("r.media_id =");
+    expect(select?.values).toContain("media-1");
+    expect(select?.values).not.toContain("user_media_colleague");
+  });
+
+  it("never uses another media organization when listing or reading details", async () => {
+    const otherOrganizationAccess = { ...mediaAccess, mediaId: "media-2" };
+
+    await listMediaRequests(otherOrganizationAccess);
+    expect(findCall("from media_requests r")?.values).toContain("media-2");
+    expect(findCall("from media_requests r")?.values).not.toContain("media-1");
+
+    installSqlMock();
+    await getMediaRequestById(otherOrganizationAccess, "request-1");
+    expect(findCall("from media_requests r")?.values).toContain("media-2");
+    expect(findCall("from media_requests r")?.values).not.toContain("media-1");
+  });
+
+  it("refuses media reads without an organization", async () => {
+    const legacyAccess = { ...mediaAccess, mediaId: null };
+
+    await expect(listMediaRequests(legacyAccess)).rejects.toBeInstanceOf(MediaRequestForbiddenError);
+    await expect(getMediaRequestById(legacyAccess, "request-1")).rejects.toBeInstanceOf(MediaRequestForbiddenError);
+    expect(findCall("from media_requests r")).toBeUndefined();
   });
 
   it("lets an admin read every request of its own workspace", async () => {
@@ -327,6 +359,13 @@ describe("media requests creation is reserved to the media role", () => {
     expect(insert?.values).not.toContain("accepted");
     expect(insert?.values).not.toContain("note injectee");
     expect(insert?.text).toContain("'submitted'");
+  });
+
+  it("refuses creation without a media organization", async () => {
+    await expect(createMediaRequest({ ...mediaAccess, mediaId: null }, validInput)).rejects.toBeInstanceOf(
+      MediaRequestForbiddenError,
+    );
+    expect(findCall("insert into media_requests")).toBeUndefined();
   });
 
   it("creates the athlete links as pending inside the workspace", async () => {

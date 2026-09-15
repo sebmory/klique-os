@@ -28,9 +28,12 @@ const requireMediaRequestAccess = async (request: Request): Promise<MediaRequest
   const workspaceId = access?.workspaceId?.trim() ?? "";
   const role = access?.role ?? "";
   const athleteId = access?.athleteId?.trim() || null;
+  const mediaId = access?.mediaId?.trim() || null;
 
   const isAllowedRole =
-    role === "admin" || role === "media" || (role === "athlete" && Boolean(athleteId));
+    role === "admin"
+    || (role === "media" && Boolean(mediaId))
+    || (role === "athlete" && Boolean(athleteId));
 
   if (access?.status !== "active" || !workspaceId || !isAllowedRole) {
     throw new ContentAccessError("FORBIDDEN");
@@ -42,7 +45,7 @@ const requireMediaRequestAccess = async (request: Request): Promise<MediaRequest
     role: role as MediaRequestAccessContext["role"],
     isAdmin: role === "admin",
     email: access.email?.trim() || profile?.clerkUser?.email?.trim() || null,
-    mediaId: access.mediaId?.trim() || null,
+    mediaId,
     athleteId,
   };
 };

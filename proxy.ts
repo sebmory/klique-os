@@ -99,41 +99,41 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
   return false;
 };
 
-export const isMediaAllowedRoute = (pathname: string): boolean => {
-  if (pathname === "/contents" || pathname.startsWith("/contents/")) {
-    return true;
-  }
-
-  if (pathname === "/media-desk" || pathname.startsWith("/media-desk/")) {
-    return true;
-  }
-
-  return false;
-};
-
-const isMediaSubjectsApi = (pathname: string): boolean =>
-  pathname === "/api/media-subjects" || pathname.startsWith("/api/media-subjects/");
+export const isMediaAllowedRoute = (pathname: string): boolean =>
+  pathname === "/contents"
+  || pathname === "/contents/create"
+  || pathname === "/contents/create/result"
+  || pathname === "/media-desk"
+  || /^\/media-desk\/[^/]+$/.test(pathname)
+  || pathname === "/media/athletes"
+  || /^\/media\/athletes\/[^/]+$/.test(pathname);
 
 // Le media consulte les sujets en lecture seule : toute ecriture reste reservee a l Admin.
 export const isMediaAllowedApi = (pathname: string, method: string): boolean => {
-  if (pathname === "/api/notifications") {
+  if (pathname === "/api/clerk/access") return method === "GET";
+  if (pathname === "/api/notifications") return method === "GET" || method === "PATCH";
+  if (pathname === "/api/media-subjects") return method === "GET";
+  if (/^\/api\/media-subjects\/[^/]+$/.test(pathname)) return method === "GET";
+  if (pathname === "/api/media-requests") return method === "GET" || method === "POST";
+  if (pathname === "/api/media-bank") return method === "GET";
+  if (pathname === "/api/ai-credits/balance") return method === "GET";
+  if (pathname === "/api/media-subscriptions") return method === "GET";
+  if (pathname === "/api/media/athletes") return method === "GET";
+  if (/^\/api\/media\/athletes\/[^/]+$/.test(pathname)) return method === "GET";
+  if (pathname === "/api/athletes") return method === "GET";
+  if (pathname === "/api/content/generate") return method === "POST";
+  if (pathname === "/api/context/collect") return method === "POST";
+  if (pathname === "/api/contents/generate/article") return method === "POST";
+  if (pathname === "/api/contents/storage/drafts") return method === "GET" || method === "POST";
+  if (/^\/api\/contents\/storage\/drafts\/[^/]+$/.test(pathname)) {
     return method === "GET" || method === "PATCH";
   }
+  if (pathname === "/api/contents/storage/variants") return method === "GET" || method === "POST";
+  if (/^\/api\/contents\/storage\/variants\/[^/]+$/.test(pathname)) return method === "GET";
+  if (pathname === "/api/contents/storage/sessions") return method === "POST";
+  if (/^\/api\/contents\/storage\/sessions\/[^/]+$/.test(pathname)) return method === "GET";
 
-  if (isMediaSubjectsApi(pathname)) {
-    return method === "GET";
-  }
-
-  if (pathname === "/api/media-bank") {
-    return method === "GET";
-  }
-
-  // Les journees media restent internes a l Admin et aux athletes invites.
-  if (pathname === "/api/media-days") {
-    return false;
-  }
-
-  return true;
+  return false;
 };
 
 export const isPartnerAllowedPage = (pathname: string): boolean => {
@@ -202,12 +202,21 @@ export default clerkMiddleware(
 
       // Les routes API conservent leurs propres controles : jamais de redirection HTML.
       if (access.role === "media") {
+        const isMediaAthleteDirectory = pathname === "/media/athletes"
+          || /^\/media\/athletes\/[^/]+$/.test(pathname)
+          || pathname === "/api/media/athletes"
+          || /^\/api\/media\/athletes\/[^/]+$/.test(pathname);
+        if (isMediaAthleteDirectory && !access.mediaId?.trim()) {
+          return isApiRoute(pathname)
+            ? apiAccessDenied()
+            : NextResponse.redirect(new URL(accessPendingPath, request.url));
+        }
         if (isApiRoute(pathname)) {
           if (!isMediaAllowedApi(pathname, request.method)) {
             return apiAccessDenied();
           }
         } else if (!isMediaAllowedRoute(pathname)) {
-          return NextResponse.redirect(new URL("/contents", request.url));
+          return NextResponse.redirect(new URL("/media-desk", request.url));
         }
       }
     } catch {
