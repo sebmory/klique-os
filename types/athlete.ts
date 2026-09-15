@@ -143,6 +143,12 @@ export type PublicAthleteProfile = {
   name: string;
   sport: string;
   club: string;
+  age?: number;
+  nationality?: string;
+  position?: string;
+  palmares?: string;
+  shortTermGoals?: string;
+  longTermGoals?: string;
   city: string;
   country: string;
   portraitUrl: string;

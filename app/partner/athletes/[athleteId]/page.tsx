@@ -123,6 +123,9 @@ export default function PartnerAthleteProfilePage() {
           <dl className="partner-athlete-profile-meta">
             {athlete.sport ? <div><dt>Sport</dt><dd>{athlete.sport}</dd></div> : null}
             {athlete.club ? <div><dt>Club / équipe</dt><dd>{athlete.club}</dd></div> : null}
+            {athlete.age !== undefined ? <div><dt>Âge</dt><dd>{athlete.age} ans</dd></div> : null}
+            {athlete.nationality ? <div><dt>Nationalité</dt><dd>{athlete.nationality}</dd></div> : null}
+            {athlete.position ? <div><dt>Poste / spécialité</dt><dd>{athlete.position}</dd></div> : null}
             {location ? <div><dt>Localisation</dt><dd>{location}</dd></div> : null}
           </dl>
           <button
@@ -146,6 +149,9 @@ export default function PartnerAthleteProfilePage() {
         {athlete.presentation ? <section><span>Présentation</span><p>{athlete.presentation}</p></section> : null}
         {athlete.journey ? <section><span>Parcours sportif</span><p>{athlete.journey}</p></section> : null}
         {athlete.goals ? <section><span>Objectifs sportifs</span><p>{athlete.goals}</p></section> : null}
+        {athlete.palmares ? <section><span>Palmarès</span><p>{athlete.palmares}</p></section> : null}
+        {athlete.shortTermGoals ? <section><span>Objectifs à court terme</span><p>{athlete.shortTermGoals}</p></section> : null}
+        {athlete.longTermGoals ? <section><span>Objectifs à long terme</span><p>{athlete.longTermGoals}</p></section> : null}
 
         {athlete.distinctions.length > 0 ? (
           <section className="partner-athlete-profile-wide">

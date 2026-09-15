@@ -17,15 +17,22 @@ vi.mock("@/components/ui/Modal", () => ({
 }));
 
 import PartnerAthleteProfilePage from "@/app/partner/athletes/[athleteId]/page";
+import type { PublicAthleteProfile } from "@/types/athlete";
 
 const fetchMock = vi.fn();
 let container: HTMLElement;
 let root: Root;
 
-const athlete = {
+const athlete: PublicAthleteProfile = {
   name: "Mila Martin",
   sport: "Football",
   club: "FC Lausanne",
+  age: 25,
+  nationality: "Suisse",
+  position: "Attaquante",
+  palmares: "Championne régionale",
+  shortTermGoals: "Intégrer la sélection",
+  longTermGoals: "Passer professionnelle",
   city: "Lausanne",
   country: "Suisse",
   portraitUrl: "",
@@ -72,11 +79,19 @@ describe("PartnerAthleteProfilePage", () => {
     expect(content).toContain("Football");
     expect(content).toContain("Club / équipe");
     expect(content).toContain("FC Lausanne");
+    expect(content).toContain("Âge");
+    expect(content).toContain("25 ans");
+    expect(content).toContain("Nationalité");
+    expect(content).toContain("Poste / spécialité");
+    expect(content).toContain("Attaquante");
     expect(content).toContain("Localisation");
     expect(content).toContain("Lausanne, Suisse");
     expect(content).toContain("Présentation");
     expect(content).toContain("Parcours sportif");
     expect(content).toContain("Objectifs sportifs");
+    expect(content).toContain("Palmarès");
+    expect(content).toContain("Objectifs à court terme");
+    expect(content).toContain("Objectifs à long terme");
     expect(content).toContain("Distinctions KLIQUE");
     expect(content).toContain("Réseaux publics");
     expect(content).toContain("Demander une mise en relation");
@@ -87,6 +102,12 @@ describe("PartnerAthleteProfilePage", () => {
       ...athlete,
       sport: "",
       club: "",
+      age: undefined,
+      nationality: "",
+      position: "",
+      palmares: "",
+      shortTermGoals: "",
+      longTermGoals: "",
       city: "",
       country: "",
       presentation: "",
@@ -99,10 +120,16 @@ describe("PartnerAthleteProfilePage", () => {
     const content = container.textContent ?? "";
     expect(content).not.toContain("Sport");
     expect(content).not.toContain("Club / équipe");
+    expect(content).not.toContain("Âge");
+    expect(content).not.toContain("Nationalité");
+    expect(content).not.toContain("Poste / spécialité");
     expect(content).not.toContain("Localisation");
     expect(content).not.toContain("Présentation");
     expect(content).not.toContain("Parcours sportif");
     expect(content).not.toContain("Objectifs sportifs");
+    expect(content).not.toContain("Palmarès");
+    expect(content).not.toContain("Objectifs à court terme");
+    expect(content).not.toContain("Objectifs à long terme");
     expect(content).not.toContain("Distinctions KLIQUE");
     expect(content).not.toContain("Réseaux publics");
     expect(content).toContain("Demander une mise en relation");

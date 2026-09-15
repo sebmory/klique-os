@@ -67,6 +67,34 @@ const normalizeAdhesionDate = (value: unknown): string => {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 };
 
+const ageFromBirthDate = (value: unknown, today = new Date()): number | undefined => {
+  const cleaned = cleanAthleteDateValue(value);
+  const isoMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(cleaned);
+  const europeanMatch = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+.*)?$/.exec(cleaned);
+  const parts = isoMatch
+    ? { year: Number(isoMatch[1]), month: Number(isoMatch[2]), day: Number(isoMatch[3]) }
+    : europeanMatch
+      ? { year: Number(europeanMatch[3]), month: Number(europeanMatch[2]), day: Number(europeanMatch[1]) }
+      : null;
+  if (!parts) return undefined;
+
+  const parsed = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  if (parsed.getUTCFullYear() !== parts.year
+    || parsed.getUTCMonth() !== parts.month - 1
+    || parsed.getUTCDate() !== parts.day) {
+    return undefined;
+  }
+
+  const currentYear = today.getUTCFullYear();
+  const currentMonth = today.getUTCMonth() + 1;
+  const currentDay = today.getUTCDate();
+  let age = currentYear - parts.year;
+  if (currentMonth < parts.month || (currentMonth === parts.month && currentDay < parts.day)) {
+    age -= 1;
+  }
+  return age >= 0 ? age : undefined;
+};
+
 const toneFromCoverage = (coverage: number): Athlete["tone"] => {
   if (coverage >= 75) return "solid";
   if (coverage >= 55) return "correct";
@@ -95,6 +123,9 @@ const findColumnExact = (headers: string[], candidate: string, fallback = -1): n
 type FormEnrichment = {
   name: string;
   rawEmail: string;
+  sport: string;
+  club: string;
+  instagram: string;
   palmares: string;
   objective: string;
   longTerm: string;
@@ -572,6 +603,9 @@ async function buildFormAdhesionMap(
       const entry: FormEnrichment = {
         name: rawName,
         rawEmail,
+        sport:            col.sport            >= 0 ? String(row[col.sport]            ?? "") : "",
+        club:             col.club             >= 0 ? String(row[col.club]             ?? "") : "",
+        instagram:        col.instagram        >= 0 ? String(row[col.instagram]        ?? "") : "",
         palmares:         col.palmares         >= 0 ? String(row[col.palmares]         ?? "") : "",
         objective:        col.objective        >= 0 ? String(row[col.objective]        ?? "") : "",
         longTerm:         col.longTerm         >= 0 ? String(row[col.longTerm]         ?? "") : "",
@@ -866,10 +900,14 @@ export async function getPublicAthleteProfileFromGoogleSheets(
   if (!athleteId) return null;
 
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: getSpreadsheetId(),
-    range: athleteSheetRange,
-  });
+  const spreadsheetId = getSpreadsheetId();
+  const [response, formMap] = await Promise.all([
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: athleteSheetRange,
+    }),
+    buildFormAdhesionMap(sheets, spreadsheetId),
+  ]);
   const rows = response.data.values ?? [];
   if (rows.length < 2) return null;
 
@@ -902,19 +940,41 @@ export async function getPublicAthleteProfileFromGoogleSheets(
   if (!row) return null;
 
   const name = read(row, publicNameColumn >= 0 ? publicNameColumn : column.name);
+  const sourceName = read(row, column.name);
+  const athleteEmail = normalize(read(row, column.email));
+  const form = formMap.get(athleteEmail) ?? formMap.get(normalizeNameKey(sourceName));
+  const sport = read(row, column.sport) || form?.sport.trim() || "";
+  const club = read(row, column.club) || form?.club.trim() || "";
+  const publicSocialLinks = socialColumns
+    .map(({ label, column: socialColumn }) => ({ label, url: read(row, socialColumn) }))
+    .filter((link) => Boolean(link.url));
+  const socialLinks = publicSocialLinks.some((link) => link.label === "Instagram") || !form?.instagram.trim()
+    ? publicSocialLinks
+    : [{ label: "Instagram", url: form.instagram.trim() }, ...publicSocialLinks];
+  const age = ageFromBirthDate(form?.birthDate);
+  const nationality = form?.nationality.trim() ?? "";
+  const position = form?.position.trim() ?? "";
+  const palmares = form?.palmares.trim() ?? "";
+  const shortTermGoals = form?.objective.trim() ?? "";
+  const longTermGoals = form?.longTerm.trim() ?? "";
+
   return {
     name,
-    sport: normalizePublicSportLabel(read(row, column.sport)),
-    club: read(row, column.club),
+    sport: normalizePublicSportLabel(sport),
+    club,
+    ...(age !== undefined ? { age } : {}),
+    ...(nationality ? { nationality } : {}),
+    ...(position ? { position } : {}),
+    ...(palmares ? { palmares } : {}),
+    ...(shortTermGoals ? { shortTermGoals } : {}),
+    ...(longTermGoals ? { longTermGoals } : {}),
     city: read(row, publicCityColumn),
     country: read(row, publicCountryColumn),
     portraitUrl: read(row, column.profilePortraitUrl),
     presentation: read(row, publicPresentationColumn),
     journey: read(row, publicJourneyColumn),
     goals: read(row, publicGoalsColumn),
-    socialLinks: socialColumns
-      .map(({ label, column: socialColumn }) => ({ label, url: read(row, socialColumn) }))
-      .filter((link) => Boolean(link.url)),
+    socialLinks,
   };
 }
 
