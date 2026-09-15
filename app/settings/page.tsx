@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ClubAdminSection } from "@/components/settings/ClubAdminSection";
 import { MediaCreditsSection } from "@/components/settings/MediaCreditsSection";
 import { MediaInviteSection } from "@/components/settings/MediaInviteSection";
 
@@ -55,6 +56,7 @@ export default function SettingsPage() {
         </span>
       </Link>
 
+      <ClubAdminSection />
       <MediaInviteSection />
       <MediaCreditsSection />
     </section>

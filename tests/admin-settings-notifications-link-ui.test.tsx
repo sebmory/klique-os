@@ -16,6 +16,10 @@ vi.mock("@/components/settings/MediaCreditsSection", () => ({
   MediaCreditsSection: () => createElement("div", { "data-testid": "media-credits" }),
 }));
 
+vi.mock("@/components/settings/ClubAdminSection", () => ({
+  ClubAdminSection: () => createElement("div", { "data-testid": "club-admin" }),
+}));
+
 import SettingsPage from "@/app/settings/page";
 
 let container: HTMLElement;
@@ -38,6 +42,10 @@ afterEach(async () => {
 });
 
 describe("Admin settings navigation", () => {
+  it("renders Club provisioning in settings", () => {
+    expect(container.querySelector('[data-testid="club-admin"]')).not.toBeNull();
+  });
+
   it("links to Athlete subscription management", () => {
     const link = container.querySelector('a[href="/settings/athlete-subscriptions"]');
 
