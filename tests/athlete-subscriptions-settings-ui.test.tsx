@@ -2,6 +2,7 @@
 import { act, createElement, type AnchorHTMLAttributes, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AthletePlatformAccessStatus } from "@/lib/athlete-subscriptions/service";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; children: ReactNode }) =>
@@ -32,6 +33,23 @@ const subscription = {
 };
 
 const athlete = { key: "athlete-1", name: "Lina Morel", adhesionDate: "14.09.2026" };
+const founderSubscription = (
+  athleteId: string,
+  status: AthletePlatformAccessStatus,
+  email: string | null,
+) => ({
+  ...subscription,
+  id: `subscription-${athleteId}`,
+  athleteId,
+  planCode: "founder",
+  priceChf: 0,
+  discountPercent: 0,
+  photoSessionsIncluded: 0,
+  mediaDaysIncluded: 0,
+  competitionSessionsIncluded: 0,
+  customContentsIncluded: 0,
+  platformAccess: { status, email },
+});
 const contentRequest = (overrides: Record<string, unknown> = {}) => ({
   id: "91d272d1-1a5b-4486-bbc0-69b1ce747e4d",
   workspaceId: "workspace-1",
@@ -122,6 +140,99 @@ describe("Athlete subscriptions settings page", () => {
     expect(container.textContent).toContain("Offert");
     expect(container.textContent).toContain("CHF");
     expect(container.textContent).toContain("Actif");
+  });
+
+  it("displays every Founder platform access state, email, and summary count", async () => {
+    const accessCases = [
+      ["active-athlete", "Accès Actif", "active", "active@example.com"],
+      ["inactive-athlete", "Accès Inactif", "inactive", "inactive@example.com"],
+      ["invited-athlete", "Invitation Envoyée", "invited", "invited@example.com"],
+      ["accepted-athlete", "Invitation Acceptée", "accepted_without_access", "accepted@example.com"],
+      ["not-invited-athlete", "Sans Invitation", "not_invited", null],
+    ] as const;
+    fetchMock
+      .mockResolvedValueOnce(response({
+        athletes: accessCases.map(([key, name]) => ({ key, name, adhesionDate: "14.09.2026" })),
+        source: "google-sheets",
+      }))
+      .mockResolvedValueOnce(response({
+        subscriptions: accessCases.map(([athleteId, , status, email]) => (
+          founderSubscription(athleteId, status, email)
+        )),
+      }))
+      .mockResolvedValueOnce(response({ requests: [] }));
+
+    await mount();
+
+    const summary = container.querySelector('[aria-label="Récapitulatif des accès plateforme"]')!;
+    [
+      "Accès actif",
+      "Accès inactif",
+      "Invitation envoyée",
+      "Invitation acceptée — accès manquant",
+      "Non invité",
+    ].forEach((label) => {
+      const item = [...summary.querySelectorAll("div")].find((element) => element.querySelector("dt")?.textContent === label);
+      expect(item?.querySelector("dd")?.textContent).toBe("1");
+      expect(container.textContent).toContain(label);
+    });
+    expect(container.textContent).toContain("active@example.com");
+    expect(container.textContent).toContain("inactive@example.com");
+    expect(container.textContent).toContain("invited@example.com");
+    expect(container.textContent).toContain("accepted@example.com");
+    expect([...container.querySelectorAll("button")].some((button) => /inviter/i.test(button.textContent ?? ""))).toBe(false);
+  });
+
+  it("filters the subscription list by Founder platform access", async () => {
+    const accessCases = [
+      ["active-athlete", "Accès Actif", "active"],
+      ["inactive-athlete", "Accès Inactif", "inactive"],
+      ["invited-athlete", "Invitation Envoyée", "invited"],
+      ["accepted-athlete", "Invitation Acceptée", "accepted_without_access"],
+      ["not-invited-athlete", "Sans Invitation", "not_invited"],
+    ] as const;
+    const commercialAthlete = { key: "commercial-athlete", name: "Offre Impact", adhesionDate: "14.09.2026" };
+    fetchMock
+      .mockResolvedValueOnce(response({
+        athletes: [
+          ...accessCases.map(([key, name]) => ({ key, name, adhesionDate: "14.09.2026" })),
+          commercialAthlete,
+        ],
+        source: "google-sheets",
+      }))
+      .mockResolvedValueOnce(response({
+        subscriptions: [
+          ...accessCases.map(([athleteId, , status]) => founderSubscription(athleteId, status, null)),
+          { ...subscription, id: "commercial-subscription", athleteId: commercialAthlete.key },
+        ],
+      }))
+      .mockResolvedValueOnce(response({ requests: [] }));
+
+    await mount();
+
+    const subscriptionSection = container.querySelector('[aria-labelledby="subscriptions-title"]')!;
+    const filterGroup = container.querySelector('[aria-label="Filtrer les abonnements par accès plateforme"]')!;
+    const filterButton = (label: string) => [...filterGroup.querySelectorAll("button")]
+      .find((button) => button.textContent === label)!;
+
+    expect(subscriptionSection.textContent).toContain("Offre Impact");
+    await click(filterButton("Sans accès actif"));
+    expect(subscriptionSection.textContent).not.toContain("Accès Actif");
+    expect(subscriptionSection.textContent).not.toContain("Offre Impact");
+    expect(subscriptionSection.textContent).toContain("Accès Inactif");
+    expect(subscriptionSection.textContent).toContain("Invitation Envoyée");
+    expect(subscriptionSection.textContent).toContain("Invitation Acceptée");
+    expect(subscriptionSection.textContent).toContain("Sans Invitation");
+
+    await click(filterButton("Invitations en attente"));
+    expect(subscriptionSection.textContent).toContain("Invitation Envoyée");
+    expect(subscriptionSection.textContent).not.toContain("Accès Inactif");
+    expect(subscriptionSection.textContent).not.toContain("Sans Invitation");
+
+    await click(filterButton("Tous"));
+    expect(subscriptionSection.textContent).toContain("Accès Actif");
+    expect(subscriptionSection.textContent).toContain("Offre Impact");
+    expect(filterButton("Tous").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("shows an accessible loading state before responses resolve", async () => {

@@ -151,6 +151,45 @@ describe("Athlete subscriptions service", () => {
     });
   });
 
+  it.each([
+    ["active", "active@example.com"],
+    ["inactive", "inactive@example.com"],
+    ["invited", "invited@example.com"],
+    ["accepted_without_access", "accepted@example.com"],
+    ["not_invited", null],
+  ] as const)("enriches an active Founder subscription with %s platform access", async (status, email) => {
+    const serviceRepository = repository({
+      list: vi.fn().mockResolvedValue([neonRow({
+        plan_code: "founder",
+        is_founder: true,
+        is_complimentary: true,
+        platform_access_status: status,
+        platform_access_email: email,
+      })]),
+    }).value;
+
+    const [result] = await listAthleteSubscriptions("workspace-1", serviceRepository);
+
+    expect(result.platformAccess).toEqual({ status, email });
+  });
+
+  it.each([
+    { plan_code: "essentiel" },
+    { plan_code: "founder", status: "cancelled", is_founder: true },
+  ])("does not enrich a non-active-Founder subscription", async (overrides) => {
+    const serviceRepository = repository({
+      list: vi.fn().mockResolvedValue([neonRow({
+        platform_access_status: "active",
+        platform_access_email: "athlete@example.com",
+        ...overrides,
+      })]),
+    }).value;
+
+    const [result] = await listAthleteSubscriptions("workspace-1", serviceRepository);
+
+    expect(result).not.toHaveProperty("platformAccess");
+  });
+
   it("scopes the active lookup to the normalized workspace and athlete", async () => {
     const serviceRepository = repository({
       getActive: vi.fn().mockResolvedValue(neonRow()),
@@ -352,6 +391,19 @@ describe("Athlete subscriptions service", () => {
 
     expect(source).toContain("const results = await sql.transaction(queries)");
     expect(source).toContain("ON CONFLICT (workspace_id, athlete_id) WHERE status = 'active' DO NOTHING");
+  });
+
+  it("resolves Founder platform access read-only within the subscription workspace", () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "lib/athlete-subscriptions/service.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("access.workspace_id = subscription.workspace_id");
+    expect(source).toContain("access.athlete_id = subscription.athlete_id");
+    expect(source).toContain("invitation.workspace_id = subscription.workspace_id");
+    expect(source).toContain("invitation.athlete_id = subscription.athlete_id");
+    expect(source).not.toMatch(/UPDATE user_access|UPDATE athlete_invitations/);
   });
 
   it("rejects invalid identity, plan, dates, and flags with validation errors", async () => {

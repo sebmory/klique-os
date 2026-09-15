@@ -43,7 +43,7 @@ const subjectRow = {
 
 let calls: string[] = [];
 
-const installSqlMock = () => {
+const installSqlMock = (rows: Array<Record<string, unknown>> = [subjectRow]) => {
   calls = [];
   getAthletesFromGoogleSheetsMock.mockResolvedValue([
     { key: "athlete-1", name: "Mila Benjak" },
@@ -52,7 +52,7 @@ const installSqlMock = () => {
   sqlMock.mockImplementation(async (strings: TemplateStringsArray) => {
     const text = strings.join(" ").toLowerCase();
     calls.push(text);
-    if (text.includes("from media_subjects s")) return [subjectRow];
+    if (text.includes("from media_subjects s")) return rows;
     if (text.includes("update media_subjects") || text.includes("delete from media_subjects")) {
       return [{ id: "subject-1" }];
     }
@@ -64,7 +64,14 @@ const installSqlMock = () => {
 const asRole = (role: string, status = "active", workspaceId = "klique-os") => {
   getCurrentUserAccessProfileMock.mockResolvedValue({
     clerkUser: { id: `user_${role}` },
-    userAccess: { role, status, workspaceId, athleteId: null, partnerId: null, mediaId: null },
+    userAccess: {
+      role,
+      status,
+      workspaceId,
+      athleteId: null,
+      partnerId: null,
+      mediaId: role === "media" ? "media-1" : null,
+    },
   });
 };
 
@@ -112,16 +119,41 @@ describe("media subjects API authorization", () => {
     expect(JSON.stringify(payload)).not.toContain("Athlete Confidentiel");
   });
 
-  it("lets an admin read and write", async () => {
+  it("lets an admin read, create and update", async () => {
     asRole("admin");
 
     expect((await GET(new Request("http://localhost/api/media-subjects"))).status).toBe(200);
     expect((await POST(jsonRequest(body))).status).toBe(201);
     expect((await PATCH(jsonRequest({ ...body, subjectId: "subject-1" }))).status).toBe(200);
-    expect(
-      (await DELETE(new Request("http://localhost/api/media-subjects?subjectId=subject-1", { method: "DELETE" })))
-        .status,
-    ).toBe(200);
+  });
+
+  it("deletes only a draft without a request", async () => {
+    asRole("admin");
+    installSqlMock([{ ...subjectRow, status: "draft", published_at: null, has_requests: false }]);
+
+    const response = await DELETE(
+      new Request("http://localhost/api/media-subjects?subjectId=subject-1", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls.some((text) => text.includes("delete from media_subjects"))).toBe(true);
+  });
+
+  it.each([
+    [{ status: "published", has_requests: false }, "Archivez"],
+    [{ status: "draft", published_at: null, has_requests: true }, "historique des demandes"],
+  ])("returns 409 without deleting a protected subject", async (overrides, expectedMessage) => {
+    asRole("admin");
+    installSqlMock([{ ...subjectRow, ...overrides }]);
+
+    const response = await DELETE(
+      new Request("http://localhost/api/media-subjects?subjectId=subject-1", { method: "DELETE" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.message).toContain(expectedMessage);
+    expect(calls.some((text) => text.includes("delete from media_subjects"))).toBe(false);
   });
 
   it("refuses every write for an active media user", async () => {

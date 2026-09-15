@@ -71,12 +71,24 @@ const assignmentBody = {
 
 describe("Admin athlete subscriptions API", () => {
   it("lists only subscriptions from the authenticated workspace", async () => {
-    const mocks = dependencies();
+    const founderSubscription = subscription({
+      planCode: "founder",
+      isFounder: true,
+      isComplimentary: true,
+      priceChf: 0,
+      platformAccess: {
+        status: "invited",
+        email: "athlete@example.com",
+      },
+    });
+    const mocks = dependencies({
+      listSubscriptions: vi.fn().mockResolvedValue([founderSubscription]),
+    });
 
     const response = await createAdminAthleteSubscriptionHandlers(mocks).GET(request("GET"));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ subscriptions: [subscription()] });
+    await expect(response.json()).resolves.toEqual({ subscriptions: [founderSubscription] });
     expect(mocks.listSubscriptions).toHaveBeenCalledWith("workspace-session");
   });
 

@@ -35,6 +35,7 @@ export type MediaSubjectRecord = {
   athletes: MediaSubjectAthlete[];
   status: MediaSubjectStatus;
   publishedAt: string | null;
+  hasRequests: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -56,6 +57,13 @@ export class MediaSubjectValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "MediaSubjectValidationError";
+  }
+}
+
+export class MediaSubjectDeletionBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MediaSubjectDeletionBlockedError";
   }
 }
 
@@ -181,6 +189,7 @@ const mapRow = (row: Record<string, unknown>): MediaSubjectRecord => ({
   athletes: [],
   status: normalizeMediaSubjectStatus(row.status),
   publishedAt: row.published_at ? String(row.published_at) : null,
+  hasRequests: row.has_requests === true,
   createdAt: String(row.created_at ?? ""),
   updatedAt: String(row.updated_at ?? ""),
 });
@@ -285,7 +294,13 @@ export const listMediaSubjects = async (access: ContentAccessContext): Promise<M
          FROM media_subject_athletes a
          WHERE a.subject_id = s.id AND a.workspace_id = s.workspace_id),
         ARRAY[]::TEXT[]
-      ) AS athlete_ids
+      ) AS athlete_ids,
+      EXISTS (
+        SELECT 1
+        FROM media_requests request
+        WHERE request.subject_id = s.id
+          AND request.workspace_id = s.workspace_id
+      ) AS has_requests
     FROM media_subjects s
     WHERE s.workspace_id = ${access.workspaceId}
       AND (${access.isAdmin}::boolean OR s.status = 'published')
@@ -312,7 +327,13 @@ export const getMediaSubjectById = async (
          FROM media_subject_athletes a
          WHERE a.subject_id = s.id AND a.workspace_id = s.workspace_id),
         ARRAY[]::TEXT[]
-      ) AS athlete_ids
+      ) AS athlete_ids,
+      EXISTS (
+        SELECT 1
+        FROM media_requests request
+        WHERE request.subject_id = s.id
+          AND request.workspace_id = s.workspace_id
+      ) AS has_requests
     FROM media_subjects s
     WHERE s.workspace_id = ${access.workspaceId}
       AND s.id = ${normalizeText(subjectId)}
@@ -423,13 +444,63 @@ export const deleteMediaSubject = async (access: ContentAccessContext, subjectId
   await ensureMediaSubjectTables();
 
   const sql = getSql();
-  const rows = await sql`
-    DELETE FROM media_subjects
-    WHERE id = ${normalizeText(subjectId)} AND workspace_id = ${access.workspaceId}
-    RETURNING id
+  const id = normalizeText(subjectId);
+  const subjects = await sql`
+    SELECT
+      s.status,
+      EXISTS (
+        SELECT 1
+        FROM media_requests request
+        WHERE request.subject_id = s.id
+          AND request.workspace_id = s.workspace_id
+      ) AS has_requests
+    FROM media_subjects s
+    WHERE s.id = ${id} AND s.workspace_id = ${access.workspaceId}
+    LIMIT 1
   `;
 
-  if (!rows[0]) {
+  if (!subjects[0]) {
     throw new Error("NotFound");
+  }
+
+  const subject = subjects[0] as Record<string, unknown>;
+  if (subject.has_requests === true) {
+    throw new MediaSubjectDeletionBlockedError(
+      "Ce sujet est lié à une demande et ne peut pas être supprimé. Archivez-le pour conserver l’historique des demandes.",
+    );
+  }
+  if (normalizeMediaSubjectStatus(subject.status) !== "draft") {
+    throw new MediaSubjectDeletionBlockedError(
+      "Seul un brouillon sans demande peut être supprimé. Archivez ce sujet pour conserver son historique.",
+    );
+  }
+
+  try {
+    const rows = await sql`
+    DELETE FROM media_subjects
+    WHERE id = ${id}
+      AND workspace_id = ${access.workspaceId}
+      AND status = 'draft'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM media_requests request
+        WHERE request.subject_id = media_subjects.id
+          AND request.workspace_id = media_subjects.workspace_id
+      )
+    RETURNING id
+    `;
+
+    if (!rows[0]) {
+      throw new MediaSubjectDeletionBlockedError(
+        "Ce sujet ne peut plus être supprimé. Archivez-le pour conserver son historique.",
+      );
+    }
+  } catch (error) {
+    if ((error as { code?: string })?.code === "23503") {
+      throw new MediaSubjectDeletionBlockedError(
+        "Ce sujet est lié à une demande et ne peut pas être supprimé. Archivez-le pour conserver l’historique des demandes.",
+      );
+    }
+    throw error;
   }
 };

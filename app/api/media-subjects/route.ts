@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
 import {
+  MediaSubjectDeletionBlockedError,
   MediaSubjectValidationError,
   createMediaSubject,
   deleteMediaSubject,
@@ -17,6 +18,9 @@ const errorResponse = (error: unknown) => {
 
   if (error instanceof MediaSubjectValidationError) {
     return NextResponse.json({ ok: false, message: error.message }, { status: 400 });
+  }
+  if (error instanceof MediaSubjectDeletionBlockedError) {
+    return NextResponse.json({ ok: false, message: error.message }, { status: 409 });
   }
 
   const message = error instanceof Error ? error.message : String(error);

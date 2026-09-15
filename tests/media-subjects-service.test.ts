@@ -23,6 +23,7 @@ vi.mock("@/lib/clerk-access/service", () => ({
 
 import type { ContentAccessContext } from "@/lib/content-storage/access";
 import {
+  MediaSubjectDeletionBlockedError,
   MediaSubjectValidationError,
   createMediaSubject,
   deleteMediaSubject,
@@ -287,9 +288,34 @@ describe("media subjects writes are admin only", () => {
     expect(findCall("update media_subjects")?.text).toContain("workspace_id =");
     expect(findCall("update media_subjects")?.values).toContain("klique-os");
 
-    installSqlMock();
+    installSqlMock([subjectRow({ status: "draft", published_at: null, has_requests: false })]);
     await deleteMediaSubject(adminAccess, "subject-1");
-    expect(findCall("delete from media_subjects")?.values).toContain("klique-os");
+    const deletion = findCall("delete from media_subjects");
+    expect(deletion?.values).toContain("klique-os");
+    expect(deletion?.text).toContain("status = 'draft'");
+    expect(deletion?.text).toContain("not exists");
+  });
+
+  it("refuses to delete a published subject and proposes archiving", async () => {
+    await expect(deleteMediaSubject(adminAccess, "subject-1")).rejects.toEqual(
+      expect.objectContaining({
+        name: "MediaSubjectDeletionBlockedError",
+        message: expect.stringContaining("Archivez"),
+      }),
+    );
+    expect(findCall("delete from media_subjects")).toBeUndefined();
+  });
+
+  it("refuses to delete a draft linked to a request and preserves its history", async () => {
+    installSqlMock([subjectRow({ status: "draft", published_at: null, has_requests: true })]);
+
+    await expect(deleteMediaSubject(adminAccess, "subject-1")).rejects.toBeInstanceOf(
+      MediaSubjectDeletionBlockedError,
+    );
+    await expect(deleteMediaSubject(adminAccess, "subject-1")).rejects.toThrow(
+      "conserver l’historique des demandes",
+    );
+    expect(findCall("delete from media_subjects")).toBeUndefined();
   });
 });
 

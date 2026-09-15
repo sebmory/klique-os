@@ -12,6 +12,18 @@ export type AthleteSubscriptionAssignmentPlanCode =
   | AthleteSubscriptionPlanCode
   | AthleteSubscriptionInternalPlanCode;
 
+export type AthletePlatformAccessStatus =
+  | "active"
+  | "inactive"
+  | "invited"
+  | "accepted_without_access"
+  | "not_invited";
+
+export type AthletePlatformAccess = {
+  status: AthletePlatformAccessStatus;
+  email: string | null;
+};
+
 export type AthleteSubscription = {
   id: string;
   workspaceId: string;
@@ -31,6 +43,7 @@ export type AthleteSubscription = {
   createdByClerkUserId: string;
   createdAt: string;
   updatedAt: string;
+  platformAccess?: AthletePlatformAccess;
 };
 
 export type AssignAthleteSubscriptionInput = {
@@ -210,29 +223,42 @@ const normalizeStatus = (value: unknown): AthleteSubscriptionStatus => {
   return normalized;
 };
 
-const mapSubscriptionRow = (row: AthleteSubscriptionRow): AthleteSubscription => ({
-  id: requireText(row.id, "id"),
-  workspaceId: requireText(row.workspace_id, "workspace_id"),
-  athleteId: requireText(row.athlete_id, "athlete_id"),
-  planCode: normalizePlanCode(row.plan_code),
-  status: normalizeStatus(row.status),
-  startsOn: normalizeDate(row.starts_on, "starts_on"),
-  endsOn: normalizeDate(row.ends_on, "ends_on"),
-  isFounder: row.is_founder === true,
-  isComplimentary: row.is_complimentary === true,
-  priceChf: normalizeNumber(row.price_chf, "price_chf"),
-  discountPercent: normalizeNumber(row.discount_percent, "discount_percent"),
-  photoSessionsIncluded: normalizeNumber(row.photo_sessions_included, "photo_sessions_included"),
-  mediaDaysIncluded: normalizeNumber(row.media_days_included, "media_days_included"),
-  competitionSessionsIncluded: normalizeNumber(
-    row.competition_sessions_included,
-    "competition_sessions_included",
-  ),
-  customContentsIncluded: normalizeNumber(row.custom_contents_included, "custom_contents_included"),
-  createdByClerkUserId: requireText(row.created_by_clerk_user_id, "created_by_clerk_user_id"),
-  createdAt: normalizeTimestamp(row.created_at, "created_at"),
-  updatedAt: normalizeTimestamp(row.updated_at, "updated_at"),
-});
+const mapSubscriptionRow = (row: AthleteSubscriptionRow): AthleteSubscription => {
+  const planCode = normalizePlanCode(row.plan_code);
+  const status = normalizeStatus(row.status);
+  const platformAccessStatus = normalizeText(row.platform_access_status) as AthletePlatformAccessStatus;
+  const platformAccess = planCode === "founder" && status === "active"
+    ? {
+        status: platformAccessStatus || "not_invited",
+        email: normalizeText(row.platform_access_email) || null,
+      }
+    : undefined;
+
+  return {
+    id: requireText(row.id, "id"),
+    workspaceId: requireText(row.workspace_id, "workspace_id"),
+    athleteId: requireText(row.athlete_id, "athlete_id"),
+    planCode,
+    status,
+    startsOn: normalizeDate(row.starts_on, "starts_on"),
+    endsOn: normalizeDate(row.ends_on, "ends_on"),
+    isFounder: row.is_founder === true,
+    isComplimentary: row.is_complimentary === true,
+    priceChf: normalizeNumber(row.price_chf, "price_chf"),
+    discountPercent: normalizeNumber(row.discount_percent, "discount_percent"),
+    photoSessionsIncluded: normalizeNumber(row.photo_sessions_included, "photo_sessions_included"),
+    mediaDaysIncluded: normalizeNumber(row.media_days_included, "media_days_included"),
+    competitionSessionsIncluded: normalizeNumber(
+      row.competition_sessions_included,
+      "competition_sessions_included",
+    ),
+    customContentsIncluded: normalizeNumber(row.custom_contents_included, "custom_contents_included"),
+    createdByClerkUserId: requireText(row.created_by_clerk_user_id, "created_by_clerk_user_id"),
+    createdAt: normalizeTimestamp(row.created_at, "created_at"),
+    updatedAt: normalizeTimestamp(row.updated_at, "updated_at"),
+    ...(platformAccess ? { platformAccess } : {}),
+  };
+};
 
 const toDatabasePlanCode = (
   planCode: AthleteSubscriptionAssignmentPlanCode,
@@ -243,13 +269,50 @@ const createRepository = (): AthleteSubscriptionRepository => {
   return {
     async list(workspaceId) {
       return await sql`
-        SELECT id, workspace_id, athlete_id, plan_code, status, starts_on, ends_on,
-               is_founder, is_complimentary, price_chf, discount_percent,
-               photo_sessions_included, media_days_included, competition_sessions_included,
-               custom_contents_included, created_by_clerk_user_id, created_at, updated_at
-        FROM athlete_subscriptions
-        WHERE workspace_id = ${workspaceId}
-        ORDER BY starts_on DESC, created_at DESC
+        SELECT subscription.id, subscription.workspace_id, subscription.athlete_id,
+               subscription.plan_code, subscription.status, subscription.starts_on, subscription.ends_on,
+               subscription.is_founder, subscription.is_complimentary, subscription.price_chf,
+               subscription.discount_percent, subscription.photo_sessions_included,
+               subscription.media_days_included, subscription.competition_sessions_included,
+               subscription.custom_contents_included, subscription.created_by_clerk_user_id,
+               subscription.created_at, subscription.updated_at,
+               CASE
+                 WHEN subscription.plan_code <> 'founder' OR subscription.status <> 'active' THEN NULL
+                 WHEN active_access.email IS NOT NULL THEN 'active'
+                 WHEN inactive_access.email IS NOT NULL THEN 'inactive'
+                 WHEN invitation.status = 'invited' THEN 'invited'
+                 WHEN invitation.status = 'accepted' THEN 'accepted_without_access'
+                 ELSE 'not_invited'
+               END AS platform_access_status,
+               COALESCE(active_access.email, inactive_access.email, invitation.email) AS platform_access_email
+        FROM athlete_subscriptions subscription
+        LEFT JOIN LATERAL (
+          SELECT btrim(access.email) AS email
+          FROM user_access access
+          WHERE access.workspace_id = subscription.workspace_id
+            AND access.athlete_id = subscription.athlete_id
+            AND access.role = 'athlete'
+            AND access.status = 'active'
+          ORDER BY access.updated_at DESC
+          LIMIT 1
+        ) active_access ON subscription.plan_code = 'founder' AND subscription.status = 'active'
+        LEFT JOIN LATERAL (
+          SELECT btrim(access.email) AS email
+          FROM user_access access
+          WHERE access.workspace_id = subscription.workspace_id
+            AND access.athlete_id = subscription.athlete_id
+            AND access.role = 'athlete'
+            AND access.status <> 'active'
+          ORDER BY access.updated_at DESC
+          LIMIT 1
+        ) inactive_access ON subscription.plan_code = 'founder' AND subscription.status = 'active'
+        LEFT JOIN athlete_invitations invitation
+          ON invitation.workspace_id = subscription.workspace_id
+         AND invitation.athlete_id = subscription.athlete_id
+         AND subscription.plan_code = 'founder'
+         AND subscription.status = 'active'
+        WHERE subscription.workspace_id = ${workspaceId}
+        ORDER BY subscription.starts_on DESC, subscription.created_at DESC
       ` as AthleteSubscriptionRow[];
     },
     async getActive(workspaceId, athleteId) {

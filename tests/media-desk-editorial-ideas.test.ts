@@ -24,6 +24,24 @@ const IDEA_TITLES = [
   "Dans les coulisses d’un Media Day KLIQUE.",
 ];
 
+const mediaSubject = (overrides: Record<string, unknown> = {}) => ({
+  id: "subject-draft",
+  title: "Brouillon libre",
+  summary: "Résumé du sujet",
+  angle: "Angle éditorial",
+  sport: "Tennis",
+  location: null,
+  date: "2026-09-15",
+  coverImageUrl: null,
+  availableRequestTypes: ["interview"],
+  athleteIds: [],
+  status: "draft",
+  publishedAt: null,
+  hasRequests: false,
+  updatedAt: "2026-09-15T10:00:00.000Z",
+  ...overrides,
+});
+
 const fetchMock = vi.fn();
 let container: HTMLElement;
 let root: Root;
@@ -52,7 +70,7 @@ const click = async (element: Element | undefined) => {
 const useIdeaButtons = () =>
   [...container.querySelectorAll("button")].filter((button) => button.textContent?.trim() === "Utiliser cette idée");
 
-const installAccess = (role: "admin" | "media") => {
+const installAccess = (role: "admin" | "media", subjects: unknown[] = []) => {
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/clerk/access") {
       return jsonResponse({
@@ -64,7 +82,10 @@ const installAccess = (role: "admin" | "media") => {
       });
     }
     if (url === "/api/media-subjects" && !init?.method) {
-      return jsonResponse({ ok: true, subjects: [] });
+      return jsonResponse({ ok: true, subjects });
+    }
+    if (url.startsWith("/api/media-subjects?") && init?.method === "DELETE") {
+      return jsonResponse({ ok: true });
     }
     if (url === "/api/athletes") {
       return jsonResponse({
@@ -143,5 +164,45 @@ describe("Media Desk editorial ideas", () => {
     expect(container.textContent).not.toContain("Boîte à idées éditoriales");
     expect(useIdeaButtons()).toHaveLength(0);
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/media-subjects" || url === "/api/athletes")).toBe(false);
+  });
+
+  it("shows delete only for an unlinked draft and proposes archiving protected subjects", async () => {
+    const subjects = [
+      mediaSubject(),
+      mediaSubject({ id: "subject-linked", title: "Brouillon lié", hasRequests: true }),
+      mediaSubject({ id: "subject-published", title: "Sujet publié", status: "published", publishedAt: "2026-09-15T10:00:00.000Z" }),
+      mediaSubject({ id: "subject-archived", title: "Sujet archivé", status: "archived" }),
+    ];
+    installAccess("admin", subjects);
+    await mount();
+
+    const subjectCard = (title: string) => [...container.querySelectorAll('[data-ds="Card"]')]
+      .find((card) => card.querySelector("h3")?.textContent === title)!;
+    const buttons = (title: string) => [...subjectCard(title).querySelectorAll("button")]
+      .map((button) => button.textContent?.trim());
+
+    expect(buttons("Brouillon libre")).toContain("Supprimer");
+    expect(buttons("Brouillon lié")).not.toContain("Supprimer");
+    expect(buttons("Brouillon lié")).toContain("Archiver");
+    expect(subjectCard("Brouillon lié").textContent).toContain("conserver l’historique des demandes");
+    expect(buttons("Sujet publié")).not.toContain("Supprimer");
+    expect(buttons("Sujet publié")).toContain("Archiver");
+    expect(subjectCard("Sujet publié").textContent).toContain("Un sujet publié ne peut pas être supprimé");
+    expect(buttons("Sujet archivé")).not.toContain("Supprimer");
+    expect(buttons("Sujet archivé")).not.toContain("Archiver");
+  });
+
+  it("deletes an unlinked draft after confirmation", async () => {
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+    installAccess("admin", [mediaSubject()]);
+    await mount();
+
+    await click([...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Supprimer"));
+
+    expect(window.confirm).toHaveBeenCalledWith("Supprimer définitivement le sujet « Brouillon libre » ?");
+    expect(fetchMock).toHaveBeenCalledWith("/api/media-subjects?subjectId=subject-draft", {
+      method: "DELETE",
+      credentials: "include",
+    });
   });
 });

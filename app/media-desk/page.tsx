@@ -23,6 +23,7 @@ type MediaSubject = {
   athleteIds: string[];
   status: MediaSubjectStatus;
   publishedAt: string | null;
+  hasRequests: boolean;
   updatedAt: string;
 };
 
@@ -419,6 +420,10 @@ export default function MediaDeskPage() {
   };
 
   const handleDelete = async (subject: MediaSubject) => {
+    if (subject.status !== "draft" || subject.hasRequests !== false) {
+      setActionError("Seul un brouillon sans demande peut être supprimé. Archivez le sujet pour conserver son historique.");
+      return;
+    }
     if (!window.confirm(`Supprimer définitivement le sujet « ${subject.title} » ?`)) return;
 
     setActionError(null);
@@ -685,6 +690,14 @@ export default function MediaDeskPage() {
           {visibleSubjects.map((subject) => {
             const statusStyle = STATUS_STYLE[subject.status];
             const isPending = pendingSubjectId === subject.id;
+            const canDelete = subject.status === "draft" && subject.hasRequests === false;
+            const deletionGuidance = subject.hasRequests
+              ? "Ce sujet est lié à une demande et ne peut pas être supprimé. Archivez-le pour conserver l’historique des demandes."
+              : subject.status === "published"
+                ? "Un sujet publié ne peut pas être supprimé. Archivez-le pour conserver son historique."
+                : subject.status === "archived"
+                  ? "Ce sujet est archivé et son historique est conservé."
+                  : null;
 
             return (
               <Card
@@ -753,15 +766,22 @@ export default function MediaDeskPage() {
                     <button type="button" onClick={() => openComposer(subject)} disabled={isPending} style={secondaryButtonStyle}>
                       Modifier
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(subject)}
-                      disabled={isPending}
-                      style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "999px", padding: "0.55rem 0.8rem", cursor: "pointer", fontWeight: 700 }}
-                    >
-                      Supprimer
-                    </button>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(subject)}
+                        disabled={isPending}
+                        style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", borderRadius: "999px", padding: "0.55rem 0.8rem", cursor: "pointer", fontWeight: 700 }}
+                      >
+                        Supprimer
+                      </button>
+                    ) : null}
                   </div>
+                  {deletionGuidance ? (
+                    <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                      {deletionGuidance}
+                    </p>
+                  ) : null}
                 </div>
               </Card>
             );

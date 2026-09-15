@@ -13,6 +13,8 @@ import type {
   AthleteSubscriptionContentRequestStatus,
 } from "@/lib/athlete-subscription-content-requests/service";
 import type {
+  AthletePlatformAccess,
+  AthletePlatformAccessStatus,
   AthleteSubscription,
   AthleteSubscriptionAssignmentPlanCode,
   BulkFounderAssignmentResult,
@@ -44,6 +46,13 @@ type BulkFounderDraft = {
   startsOn: string;
   endsOn: string;
 };
+
+type PlatformAccessFilter =
+  | "all"
+  | "without_active_access"
+  | "not_invited"
+  | "invited"
+  | "active";
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
@@ -108,6 +117,29 @@ const statusLabels: Record<AthleteSubscription["status"], string> = {
   expired: "Expiré",
   cancelled: "Annulé",
 };
+
+const platformAccessLabels: Record<AthletePlatformAccessStatus, string> = {
+  active: "Accès actif",
+  inactive: "Accès inactif",
+  invited: "Invitation envoyée",
+  accepted_without_access: "Invitation acceptée — accès manquant",
+  not_invited: "Non invité",
+};
+
+const platformAccessFilters: ReadonlyArray<{ value: PlatformAccessFilter; label: string }> = [
+  { value: "all", label: "Tous" },
+  { value: "without_active_access", label: "Sans accès actif" },
+  { value: "not_invited", label: "Non invités" },
+  { value: "invited", label: "Invitations en attente" },
+  { value: "active", label: "Accès actifs" },
+];
+
+const fallbackPlatformAccess: AthletePlatformAccess = { status: "not_invited", email: null };
+
+const getFounderPlatformAccess = (subscription: AthleteSubscription): AthletePlatformAccess | null =>
+  subscription.planCode === ATHLETE_SUBSCRIPTION_FOUNDER_PLAN.code && subscription.status === "active"
+    ? subscription.platformAccess ?? fallbackPlatformAccess
+    : null;
 
 const contentRequestStatusLabels: Record<AthleteSubscriptionContentRequestStatus, string> = {
   requested: "Demandé",
@@ -177,6 +209,7 @@ export default function AthleteSubscriptionsSettingsPage() {
   const [bulkResult, setBulkResult] = useState<BulkFounderAssignmentResult | null>(null);
   const [contentActionError, setContentActionError] = useState<string | null>(null);
   const [contentSuccessMessage, setContentSuccessMessage] = useState<string | null>(null);
+  const [platformAccessFilter, setPlatformAccessFilter] = useState<PlatformAccessFilter>("all");
 
   useEffect(() => {
     let active = true;
@@ -229,6 +262,29 @@ export default function AthleteSubscriptionsSettingsPage() {
     [activeAthleteIds, athletes],
   );
   const founderSelected = form.planCode === ATHLETE_SUBSCRIPTION_FOUNDER_PLAN.code;
+  const founderAccessCounts = useMemo(() => {
+    const counts: Record<AthletePlatformAccessStatus, number> = {
+      active: 0,
+      inactive: 0,
+      invited: 0,
+      accepted_without_access: 0,
+      not_invited: 0,
+    };
+    subscriptions.forEach((subscription) => {
+      const access = getFounderPlatformAccess(subscription);
+      if (access) counts[access.status] += 1;
+    });
+    return counts;
+  }, [subscriptions]);
+  const visibleSubscriptions = useMemo(() => {
+    if (platformAccessFilter === "all") return subscriptions;
+    return subscriptions.filter((subscription) => {
+      const access = getFounderPlatformAccess(subscription);
+      if (!access) return false;
+      if (platformAccessFilter === "without_active_access") return access.status !== "active";
+      return access.status === platformAccessFilter;
+    });
+  }, [platformAccessFilter, subscriptions]);
 
   const setStartDate = (startsOn: string) => {
     setForm((current) => ({ ...current, startsOn, endsOn: addOneYear(startsOn) }));
@@ -609,6 +665,39 @@ export default function AthleteSubscriptionsSettingsPage() {
           <h2 id="subscriptions-title" style={{ margin: 0, fontSize: "1.15rem", color: "#111827" }}>Abonnements du workspace</h2>
         </div>
 
+        {!loading && !loadError && subscriptions.length > 0 ? (
+          <div style={{ display: "grid", gap: "0.85rem" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "0.95rem", color: "#111827" }}>Accès plateforme des membres Founder actifs</h3>
+              <dl aria-label="Récapitulatif des accès plateforme" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.6rem", margin: "0.65rem 0 0" }}>
+                {(Object.keys(platformAccessLabels) as AthletePlatformAccessStatus[]).map((status) => (
+                  <div key={status} style={{ padding: "0.7rem 0.8rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "#fff" }}>
+                    <dt style={{ color: "#6b7280", fontSize: "0.75rem", fontWeight: 700 }}>{platformAccessLabels[status]}</dt>
+                    <dd style={{ margin: "0.2rem 0 0", color: "#111827", fontSize: "1.1rem", fontWeight: 800 }}>{founderAccessCounts[status]}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div role="group" aria-label="Filtrer les abonnements par accès plateforme" style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+              {platformAccessFilters.map((filter) => {
+                const selected = platformAccessFilter === filter.value;
+                return (
+                  <Button
+                    key={filter.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setPlatformAccessFilter(filter.value)}
+                    style={{ padding: "0.45rem 0.7rem", borderRadius: "8px", border: `1px solid ${selected ? "#111827" : "#d1d5db"}`, background: selected ? "#111827" : "#fff", color: selected ? "#fff" : "#374151", fontWeight: 700 }}
+                  >
+                    {filter.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         {loading ? <p role="status" aria-live="polite" style={{ color: "#6b7280", margin: 0 }}>Chargement des abonnements…</p> : null}
         {loadError ? <p role="alert" style={{ margin: 0, padding: "0.8rem", border: "1px solid #fecaca", borderRadius: "8px", background: "#fef2f2", color: "#b91c1c" }}>{loadError}</p> : null}
         {!loading && !loadError && subscriptions.length === 0 ? (
@@ -617,11 +706,18 @@ export default function AthleteSubscriptionsSettingsPage() {
           </div>
         ) : null}
 
-        {!loading && !loadError ? subscriptions.map((subscription) => {
+        {!loading && !loadError && subscriptions.length > 0 && visibleSubscriptions.length === 0 ? (
+          <div style={{ padding: "1.25rem", border: "1px dashed #d1d5db", borderRadius: "8px", color: "#6b7280", background: "#fff" }}>
+            Aucun abonnement ne correspond à ce filtre.
+          </div>
+        ) : null}
+
+        {!loading && !loadError ? visibleSubscriptions.map((subscription) => {
           const plan = subscription.planCode === ATHLETE_SUBSCRIPTION_FOUNDER_PLAN.code
             ? ATHLETE_SUBSCRIPTION_FOUNDER_PLAN
             : ATHLETE_SUBSCRIPTION_PLANS.find(({ code }) => code === subscription.planCode);
           const active = subscription.status === "active";
+          const platformAccess = getFounderPlatformAccess(subscription);
           return (
             <Card key={subscription.id} style={{ padding: "1rem", border: "1px solid #e5e7eb", boxShadow: "none", display: "grid", gap: "0.85rem" }}>
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
@@ -647,6 +743,17 @@ export default function AthleteSubscriptionsSettingsPage() {
                   </div>
                 ))}
               </dl>
+
+              {platformAccess ? (
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.55rem 0.8rem", padding: "0.7rem 0.8rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "#f9fafb" }}>
+                  <strong style={{ color: platformAccess.status === "active" ? "#047857" : "#92400e", fontSize: "0.88rem" }}>
+                    {platformAccessLabels[platformAccess.status]}
+                  </strong>
+                  {platformAccess.email ? (
+                    <span style={{ color: "#4b5563", fontSize: "0.88rem", overflowWrap: "anywhere" }}>{platformAccess.email}</span>
+                  ) : null}
+                </div>
+              ) : null}
 
               {active ? (
                 <div>
