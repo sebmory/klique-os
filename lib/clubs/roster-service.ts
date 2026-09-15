@@ -153,6 +153,20 @@ const normalizeDate = (value: unknown, fieldName: string): string => {
   return normalized;
 };
 
+const normalizeSqlDate = (value: unknown, fieldName: string): string => {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new ClubRosterValidationError(`${fieldName} Neon est invalide.`);
+    }
+    return value.toISOString().slice(0, 10);
+  }
+
+  const normalized = normalizeText(value);
+  const date = normalized.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/)?.[1];
+  if (!date) throw new ClubRosterValidationError(`${fieldName} Neon est invalide.`);
+  return normalizeDate(date, `${fieldName} Neon`);
+};
+
 const normalizeTeamStatus = (value: unknown): ClubTeamStatus => {
   const status = normalizeText(value).toLowerCase();
   if (status !== "active" && status !== "inactive") {
@@ -185,7 +199,7 @@ const mapRosterRow = (
     athleteId,
     athleteName: athlete.name,
     sport: athlete.sport,
-    joinedOn: normalizeDate(row.joined_on, "joined_on"),
+    joinedOn: normalizeSqlDate(row.joined_on, "joined_on"),
   };
 };
 
@@ -255,7 +269,7 @@ const createRepository = (): ClubRosterRepository => {
 
     async listActiveRoster(workspaceId, teamId) {
       return await sql`
-        SELECT id, workspace_id, team_id, athlete_id, joined_on
+        SELECT id, workspace_id, team_id, athlete_id, joined_on::text AS joined_on
         FROM team_athletes
         WHERE workspace_id = ${workspaceId}
           AND team_id = ${teamId}::uuid
@@ -309,7 +323,7 @@ const createRepository = (): ClubRosterRepository => {
         )
         ON CONFLICT (workspace_id, team_id, athlete_id) WHERE status = 'active'
         DO NOTHING
-        RETURNING id, workspace_id, team_id, athlete_id, joined_on
+        RETURNING id, workspace_id, team_id, athlete_id, joined_on::text AS joined_on
       `;
       const results = await sql.transaction([teamQuery, insertQuery], { isolationLevel: "Serializable" });
       const teamRows = results[0] as RosterRow[];
@@ -335,7 +349,8 @@ const createRepository = (): ClubRosterRepository => {
           AND athlete_id = ${record.athleteId}
           AND status = 'active'
           AND joined_on <= ${record.leftOn}::date
-        RETURNING id, workspace_id, team_id, athlete_id, joined_on, left_on, status
+        RETURNING id, workspace_id, team_id, athlete_id,
+          joined_on::text AS joined_on, left_on::text AS left_on, status
       `;
       const results = await sql.transaction([teamQuery, updateQuery], { isolationLevel: "Serializable" });
       const teamRows = results[0] as RosterRow[];
@@ -488,4 +503,6 @@ export const removeAthleteFromTeam = async (
   if (!row) {
     throw new ClubRosterNotFoundError("Appartenance active introuvable ou date de sortie invalide.");
   }
+  normalizeSqlDate(row.joined_on, "joined_on");
+  normalizeSqlDate(row.left_on, "left_on");
 };

@@ -110,7 +110,13 @@ describe("Club roster Admin service", () => {
   });
 
   it("lists the active roster with canonical KLIQUE Athlete data", async () => {
-    const { dependencies, repository } = createDependencies();
+    const { dependencies, repository } = createDependencies({
+      repository: {
+        listActiveRoster: vi.fn().mockResolvedValue([
+          rosterRow({ joined_on: new Date("2026-09-15T00:00:00.000Z") }),
+        ]),
+      },
+    });
 
     await expect(listActiveTeamRoster(
       request,
@@ -150,7 +156,13 @@ describe("Club roster Admin service", () => {
   });
 
   it("adds a canonical Athlete to the verified active team", async () => {
-    const { dependencies, repository } = createDependencies();
+    const { dependencies, repository } = createDependencies({
+      repository: {
+        addActive: vi.fn().mockResolvedValue(
+          rosterRow({ joined_on: "2026-09-15T00:00:00.000Z" }),
+        ),
+      },
+    });
 
     const member = await addAthleteToTeam(request, {
       workspaceId: " ELFIC-FRIBOURG ",
@@ -167,6 +179,7 @@ describe("Club roster Admin service", () => {
       joinedOn: "2026-09-15",
     });
     expect(member.athleteId).toBe("athlete-1");
+    expect(member.joinedOn).toBe("2026-09-15");
   });
 
   it("uses the server date when entry and exit dates are omitted", async () => {
@@ -193,7 +206,15 @@ describe("Club roster Admin service", () => {
   });
 
   it("retires an Athlete through repository history preservation instead of deletion", async () => {
-    const { dependencies, repository } = createDependencies();
+    const { dependencies, repository } = createDependencies({
+      repository: {
+        removeActive: vi.fn().mockResolvedValue({
+          ...rosterRow({ joined_on: new Date("2026-09-15T00:00:00.000Z") }),
+          status: "inactive",
+          left_on: new Date("2026-09-21T00:00:00.000Z"),
+        }),
+      },
+    });
 
     await expect(removeAthleteFromTeam(request, {
       workspaceId: "elfic-fribourg",
