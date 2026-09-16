@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import { getPublicAthleteDirectoryFromGoogleSheets } from "@/lib/google-sheets";
+import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,13 +33,15 @@ export const createMediaAthleteDirectoryHandlers = (
         return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
       }
 
-      const athletes = (await dependencies.listAthletes()).map((athlete) => ({
-        athleteId: athlete.athleteId,
-        name: athlete.name,
-        sport: athlete.sport,
-        club: athlete.club,
-        portraitUrl: athlete.portraitUrl,
-      }));
+      const athletes = (await dependencies.listAthletes())
+        .filter((athlete) => isAthleteVisibleToExternalRoles(athlete.athleteId))
+        .map((athlete) => ({
+          athleteId: athlete.athleteId,
+          name: athlete.name,
+          sport: athlete.sport,
+          club: athlete.club,
+          portraitUrl: athlete.portraitUrl,
+        }));
 
       return NextResponse.json({ athletes, source: "google-sheets" });
     } catch (error) {

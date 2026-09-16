@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isAthleteAllowedRoute, isMediaAllowedApi, isMediaAllowedRoute } from "@/proxy";
+import {
+  isAthleteAllowedRoute,
+  isHiddenExternalAthleteProfileRoute,
+  isMediaAllowedApi,
+  isMediaAllowedRoute,
+} from "@/proxy";
 
 describe("media desk proxy access", () => {
   it.each([
@@ -41,7 +46,6 @@ describe("media desk proxy access", () => {
     ["/api/media-subscriptions", "GET"],
     ["/api/media/athletes", "GET"],
     ["/api/media/athletes/athlete-1", "GET"],
-    ["/api/athletes", "GET"],
     ["/api/content/generate", "POST"],
     ["/api/context/collect", "POST"],
     ["/api/contents/generate/article", "POST"],
@@ -76,6 +80,7 @@ describe("media desk proxy access", () => {
     ["/api/media/athletes", "POST"],
     ["/api/media/athletes/athlete-1", "PATCH"],
     ["/api/media/athletes/athlete-1/private", "GET"],
+    ["/api/athletes", "GET"],
     ["/api/athletes", "PATCH"],
     ["/api/contents/storage/drafts/draft-1", "DELETE"],
     ["/api/contents/storage/drafts/draft-1/history", "GET"],
@@ -90,6 +95,11 @@ describe("media desk proxy access", () => {
     expect(isAthleteAllowedRoute("/media-desk", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/media-desk/subject-1", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/api/media-subjects", "GET")).toBe(false);
+  });
+
+  it("identifies the hidden media athlete profile route", () => {
+    expect(isHiddenExternalAthleteProfileRoute("/media/athletes/seb-mory")).toBe(true);
+    expect(isHiddenExternalAthleteProfileRoute("/media/athletes/athlete-1")).toBe(false);
   });
 
   it("opens the media requests API to the athlete in read and consent only", () => {

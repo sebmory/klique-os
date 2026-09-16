@@ -17,7 +17,10 @@ vi.mock("googleapis", () => ({
   },
 }));
 
-import { getPublicAthleteProfileFromGoogleSheets } from "@/lib/google-sheets";
+import {
+  getPublicAthleteDirectoryFromGoogleSheets,
+  getPublicAthleteProfileFromGoogleSheets,
+} from "@/lib/google-sheets";
 
 const ATHLETES_RANGE = "'02_Athlètes'!A3:AI200";
 const FORMS_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
@@ -177,5 +180,27 @@ describe("getPublicAthleteProfileFromGoogleSheets", () => {
     expect(profile).not.toHaveProperty("palmares");
     expect(profile).not.toHaveProperty("shortTermGoals");
     expect(profile).not.toHaveProperty("longTermGoals");
+  });
+
+  it("excludes seb-mory from the public directory by canonical athleteId", async () => {
+    mockSheets(
+      [
+        ["Athlete ID", "Nom", "Sport", "Club", "Statut"],
+        ["seb-mory", "Séb Mory", "Test", "", "Actif"],
+        ["athlete-1", "Mila Martin", "Football", "FC Lausanne", "Actif"],
+      ],
+      [],
+    );
+
+    const athletes = await getPublicAthleteDirectoryFromGoogleSheets();
+
+    expect(athletes.map((athlete) => athlete.athleteId)).toEqual(["athlete-1"]);
+  });
+
+  it("does not read Google Sheets for the hidden seb-mory public profile", async () => {
+    const profile = await getPublicAthleteProfileFromGoogleSheets("seb-mory");
+
+    expect(profile).toBeNull();
+    expect(valuesGetMock).not.toHaveBeenCalled();
   });
 });

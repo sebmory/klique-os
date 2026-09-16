@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import { getPublicAthleteDirectoryFromGoogleSheets } from "@/lib/google-sheets";
+import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,7 +13,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
-    const athletes = await getPublicAthleteDirectoryFromGoogleSheets();
+    const athletes = (await getPublicAthleteDirectoryFromGoogleSheets())
+      .filter((athlete) => isAthleteVisibleToExternalRoles(athlete.athleteId));
     return NextResponse.json({ athletes, source: "google-sheets" });
   } catch (error) {
     return NextResponse.json(

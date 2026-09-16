@@ -3,6 +3,7 @@ import { listAthleteDistinctions } from "@/lib/athlete-distinctions/service";
 import { getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import { hasPendingPartnerAthleteIntroduction } from "@/lib/contact-requests/service";
 import { getPublicAthleteProfileFromGoogleSheets } from "@/lib/google-sheets";
+import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 import type { PublicAthleteProfile } from "@/types/athlete";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function GET(
 
     const { athleteId } = await params;
     const requestedAthleteId = athleteId.trim();
-    if (!requestedAthleteId) {
+    if (!requestedAthleteId || !isAthleteVisibleToExternalRoles(requestedAthleteId)) {
       return NextResponse.json({ error: "Athlète introuvable." }, { status: 404 });
     }
 

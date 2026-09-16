@@ -7,6 +7,7 @@ import {
   addAthleteToGoogleSheets,
   rejectFormEntry,
 } from "@/lib/google-sheets";
+import { canViewAthleteById } from "@/lib/public-athletes";
 import type { Athlete, AthletesResponse, AthleteUpdate } from "@/types/athlete";
 
 export const dynamic = "force-dynamic";
@@ -35,12 +36,15 @@ export async function GET(request: NextRequest) {
       ? athletes.findIndex((athlete) => athlete.key === requestedMemberId)
       : -1;
 
-    let visibleAthletes = athletes;
+    let visibleAthletes = athletes.filter((athlete) => canViewAthleteById(athlete.key, {
+      role,
+      athleteId,
+    }));
 
     if (requestedMemberId) {
-      visibleAthletes = athletes.filter((athlete) => athlete.key === requestedMemberId);
+      visibleAthletes = visibleAthletes.filter((athlete) => athlete.key === requestedMemberId);
     } else if (role === "athlete" && athleteId) {
-      visibleAthletes = athletes.filter((athlete) => athlete.key === athleteId);
+      visibleAthletes = visibleAthletes.filter((athlete) => athlete.key === athleteId);
     }
 
     const response: AthletesResponse & { memberIndex?: number | null } = {

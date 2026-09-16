@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import { getPublicAthleteProfileFromGoogleSheets } from "@/lib/google-sheets";
+import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 import type { MediaAthletePublicProfile } from "@/types/athlete";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export const createMediaAthleteProfileHandlers = (
 
       const { athleteId } = await params;
       const requestedAthleteId = athleteId.trim();
-      if (!requestedAthleteId) {
+      if (!requestedAthleteId || !isAthleteVisibleToExternalRoles(requestedAthleteId)) {
         return NextResponse.json({ error: "Athlète introuvable." }, { status: 404 });
       }
 

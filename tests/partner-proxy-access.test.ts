@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPartnerAllowedApi, isPartnerAllowedPage } from "@/proxy";
+import { isHiddenExternalAthleteProfileRoute, isPartnerAllowedApi, isPartnerAllowedPage } from "@/proxy";
 
 describe("partner proxy access", () => {
   it("allows the personal contact requests page", () => {
@@ -8,6 +8,11 @@ describe("partner proxy access", () => {
 
   it("allows GET on the personal contact requests API", () => {
     expect(isPartnerAllowedApi("/api/partner/contact-requests", "GET")).toBe(true);
+  });
+
+  it("identifies the hidden partner athlete profile route", () => {
+    expect(isHiddenExternalAthleteProfileRoute("/partner/athletes/seb-mory")).toBe(true);
+    expect(isHiddenExternalAthleteProfileRoute("/partner/athletes/athlete-1")).toBe(false);
   });
 
   it("keeps the existing request creation POST while refusing unsupported write methods", () => {

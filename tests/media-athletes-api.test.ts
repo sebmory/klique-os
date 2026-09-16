@@ -88,6 +88,20 @@ describe("media athletes API", () => {
     expect(JSON.stringify(payload)).not.toContain("+41 79");
   });
 
+  it("excludes seb-mory from the media directory", async () => {
+    const response = await createMediaAthleteDirectoryHandlers({
+      getAccess: vi.fn().mockResolvedValue(activeMediaAccess),
+      listAthletes: vi.fn().mockResolvedValue([
+        { athleteId: "seb-mory", name: "Séb Mory", sport: "Test", club: "", portraitUrl: "" },
+        { athleteId: "athlete-1", name: "Mila Martin", sport: "Football", club: "FC Lausanne", portraitUrl: "" },
+      ]),
+    }).GET(new Request("http://localhost/api/media/athletes"));
+
+    await expect(response.json()).resolves.toMatchObject({
+      athletes: [expect.objectContaining({ athleteId: "athlete-1" })],
+    });
+  });
+
   it.each([
     { ...activeMediaAccess, isMedia: false },
     { ...activeMediaAccess, isActive: false },
@@ -148,5 +162,19 @@ describe("media athletes API", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "Athlète public introuvable ou non visible." });
+  });
+
+  it("returns 404 for a direct seb-mory profile request", async () => {
+    const getAthlete = vi.fn().mockResolvedValue(publicProfile);
+    const response = await createMediaAthleteProfileHandlers({
+      getAccess: vi.fn().mockResolvedValue(activeMediaAccess),
+      getAthlete,
+    }).GET(
+      new Request("http://localhost/api/media/athletes/seb-mory"),
+      { params: Promise.resolve({ athleteId: "seb-mory" }) },
+    );
+
+    expect(response.status).toBe(404);
+    expect(getAthlete).not.toHaveBeenCalled();
   });
 });

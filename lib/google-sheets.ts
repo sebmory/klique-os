@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import path from "path";
 import type { Athlete, AthleteUpdate, PublicAthleteDirectoryEntry, PublicAthleteProfile } from "@/types/athlete";
-import { normalizePublicSportLabel } from "@/lib/public-athletes";
+import { isAthleteVisibleToExternalRoles, normalizePublicSportLabel } from "@/lib/public-athletes";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
@@ -890,14 +890,14 @@ export async function getPublicAthleteDirectoryFromGoogleSheets(): Promise<Publi
         presentation: read(row, publicPresentationColumn),
       };
     })
-    .filter((athlete) => Boolean(athlete.athleteId && athlete.name));
+    .filter((athlete) => Boolean(athlete.athleteId && athlete.name) && isAthleteVisibleToExternalRoles(athlete.athleteId));
 }
 
 export async function getPublicAthleteProfileFromGoogleSheets(
   requestedAthleteId: string,
 ): Promise<Omit<PublicAthleteProfile, "distinctions"> | null> {
   const athleteId = requestedAthleteId.trim();
-  if (!athleteId) return null;
+  if (!athleteId || !isAthleteVisibleToExternalRoles(athleteId)) return null;
 
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const spreadsheetId = getSpreadsheetId();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
+import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
@@ -120,7 +121,6 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
   if (pathname === "/api/media-subscriptions") return method === "GET";
   if (pathname === "/api/media/athletes") return method === "GET";
   if (/^\/api\/media\/athletes\/[^/]+$/.test(pathname)) return method === "GET";
-  if (pathname === "/api/athletes") return method === "GET";
   if (pathname === "/api/content/generate") return method === "POST";
   if (pathname === "/api/context/collect") return method === "POST";
   if (pathname === "/api/contents/generate/article") return method === "POST";
@@ -150,6 +150,17 @@ export const isPartnerAllowedApi = (pathname: string, method: string): boolean =
     || (pathname === "/api/partner/contact-requests" && (method === "GET" || method === "POST"))
     || pathname === "/api/partner/athletes"
     || /^\/api\/partner\/athletes\/[^/]+$/.test(pathname);
+};
+
+export const isHiddenExternalAthleteProfileRoute = (pathname: string): boolean => {
+  const match = /^\/(?:partner|media)\/athletes\/([^/]+)$/.exec(pathname);
+  if (!match) return false;
+
+  try {
+    return !isAthleteVisibleToExternalRoles(decodeURIComponent(match[1]));
+  } catch {
+    return false;
+  }
 };
 
 const apiAccessDenied = () => NextResponse.json({ error: "Accès refusé." }, { status: 403 });
@@ -192,6 +203,9 @@ export default clerkMiddleware(
       }
 
       if (access.role === "partner_expert") {
+        if (isHiddenExternalAthleteProfileRoute(pathname)) {
+          return new NextResponse(null, { status: 404 });
+        }
         if (isApiRoute(pathname) && !isPartnerAllowedApi(pathname, request.method)) {
           return apiAccessDenied();
         }
@@ -202,6 +216,9 @@ export default clerkMiddleware(
 
       // Les routes API conservent leurs propres controles : jamais de redirection HTML.
       if (access.role === "media") {
+        if (isHiddenExternalAthleteProfileRoute(pathname)) {
+          return new NextResponse(null, { status: 404 });
+        }
         const isMediaAthleteDirectory = pathname === "/media/athletes"
           || /^\/media\/athletes\/[^/]+$/.test(pathname)
           || pathname === "/api/media/athletes"

@@ -1,3 +1,21 @@
+const externallyHiddenAthleteIds = new Set(["seb-mory"]);
+
+const normalizeAthleteId = (athleteId: unknown): string =>
+  String(athleteId ?? "").trim().toLowerCase();
+
+export const isAthleteVisibleToExternalRoles = (athleteId: unknown): boolean =>
+  !externallyHiddenAthleteIds.has(normalizeAthleteId(athleteId));
+
+export const canViewAthleteById = (
+  athleteId: unknown,
+  viewer: { role?: string | null; athleteId?: string | null },
+): boolean => {
+  const normalizedAthleteId = normalizeAthleteId(athleteId);
+  if (!externallyHiddenAthleteIds.has(normalizedAthleteId)) return true;
+  if (viewer.role === "admin") return true;
+  return viewer.role === "athlete" && normalizeAthleteId(viewer.athleteId) === normalizedAthleteId;
+};
+
 export const normalizePublicSportLabel = (value: unknown): string => {
   const label = String(value ?? "").trim().replace(/\s+/g, " ");
   const key = label
