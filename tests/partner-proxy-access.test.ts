@@ -2,12 +2,55 @@ import { describe, expect, it } from "vitest";
 import { isHiddenExternalAthleteProfileRoute, isPartnerAllowedApi, isPartnerAllowedPage } from "@/proxy";
 
 describe("partner proxy access", () => {
+  it("allows the read-only community page", () => {
+    expect(isPartnerAllowedPage("/partner/community")).toBe(true);
+    expect(isPartnerAllowedPage("/partner/community/")).toBe(false);
+  });
+
   it("allows the personal contact requests page", () => {
     expect(isPartnerAllowedPage("/partner/contact-requests")).toBe(true);
   });
 
   it("allows GET on the personal contact requests API", () => {
     expect(isPartnerAllowedApi("/api/partner/contact-requests", "GET")).toBe(true);
+  });
+
+  it("allows only GET on the partner community API", () => {
+    expect(isPartnerAllowedApi("/api/partner/community", "GET")).toBe(true);
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(isPartnerAllowedApi("/api/partner/community", method)).toBe(false);
+    }
+  });
+
+  it("allows only GET on the partner opportunities API", () => {
+    expect(isPartnerAllowedApi("/api/partner/opportunities", "GET")).toBe(true);
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(isPartnerAllowedApi("/api/partner/opportunities", method)).toBe(false);
+    }
+    expect(isPartnerAllowedApi("/api/hub-opportunity-slots", "GET")).toBe(false);
+  });
+
+  it("allows only GET on the partner benefits API", () => {
+    expect(isPartnerAllowedApi("/api/partner/benefits", "GET")).toBe(true);
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(isPartnerAllowedApi("/api/partner/benefits", method)).toBe(false);
+    }
+    expect(isPartnerAllowedApi("/api/partner/benefits/partner-1", "GET")).toBe(false);
+  });
+
+  it("allows only GET on partner resource list and detail APIs", () => {
+    for (const pathname of ["/api/partner/resources", "/api/partner/resources/resource-1"]) {
+      expect(isPartnerAllowedApi(pathname, "GET")).toBe(true);
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        expect(isPartnerAllowedApi(pathname, method)).toBe(false);
+      }
+    }
+
+    expect(isPartnerAllowedApi("/api/partner/resources/", "GET")).toBe(false);
+    expect(isPartnerAllowedApi("/api/partner/resources/resource-1/edit", "GET")).toBe(false);
   });
 
   it("identifies the hidden partner athlete profile route", () => {

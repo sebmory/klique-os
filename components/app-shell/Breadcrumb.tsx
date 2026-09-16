@@ -19,7 +19,7 @@ const segmentLabelMap: Record<string, string> = {
   projects: "Projets",
   media: "Medias",
   "ai-studio": "AI Studio",
-  hub: "Hub",
+  hub: "Communauté",
   calendar: "Calendrier",
   analytics: "Analytics",
   visibilite: "Visibilité",

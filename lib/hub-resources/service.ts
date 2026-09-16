@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
-import { createContentStorageClient } from "@/lib/content-storage/db";
+import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
 
 export type HubResourceStatus = "draft" | "published";
 
@@ -32,6 +32,11 @@ export type HubResourceCreateInput = {
   date: string;
   coverImageUrl?: string | null;
 };
+
+export type PartnerCommunityResource = Pick<
+  HubResourceRecord,
+  "id" | "title" | "category" | "author" | "type" | "description" | "content" | "url" | "coverImageUrl" | "date"
+>;
 
 const getSql = () => createContentStorageClient();
 
@@ -107,6 +112,7 @@ const ensureHubResourceTables = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS hub_resources (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
       title TEXT NOT NULL,
       category TEXT NOT NULL,
       author TEXT NOT NULL,
@@ -132,6 +138,7 @@ const seedHubResourcesIfEmpty = async (sql: ReturnType<typeof getSql>) => {
   }
 
   const now = new Date().toISOString();
+  const workspaceId = getDefaultWorkspaceId();
   for (const seed of initialSeedResources) {
     const normalizedStatus = normalizeStatus(seed.status);
     const seedId = randomUUID();
@@ -141,6 +148,7 @@ const seedHubResourcesIfEmpty = async (sql: ReturnType<typeof getSql>) => {
     await sql`
       INSERT INTO hub_resources (
         id,
+        workspace_id,
         title,
         category,
         author,
@@ -155,6 +163,7 @@ const seedHubResourcesIfEmpty = async (sql: ReturnType<typeof getSql>) => {
       )
       VALUES (
         ${seedId},
+        ${workspaceId},
         ${seed.title},
         ${seed.category},
         ${seed.author},
@@ -202,10 +211,12 @@ export const loadHubResources = async (request: Request, currentUserId: string |
 
   const accessProfile = await getCurrentUserAccessProfile(request);
   const isAdmin = accessProfile?.userAccess?.role === "admin";
+  const workspaceId = accessProfile?.userAccess?.workspaceId?.trim() || getDefaultWorkspaceId();
 
   const rows = await sql`
     SELECT id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
     FROM hub_resources
+    WHERE workspace_id = ${workspaceId}
     ORDER BY created_at DESC, id DESC
   `;
 
@@ -225,11 +236,13 @@ export const getHubResourceById = async (request: Request, resourceId: string, c
 
   const accessProfile = await getCurrentUserAccessProfile(request);
   const isAdmin = accessProfile?.userAccess?.role === "admin";
+  const workspaceId = accessProfile?.userAccess?.workspaceId?.trim() || getDefaultWorkspaceId();
 
   const rows = await sql`
     SELECT id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
     FROM hub_resources
     WHERE id = ${resourceId}
+      AND workspace_id = ${workspaceId}
     LIMIT 1
   `;
 
@@ -245,6 +258,80 @@ export const getHubResourceById = async (request: Request, resourceId: string, c
   return resource;
 };
 
+const resolvePartnerResourceAccess = async (request: Request): Promise<{ workspaceId: string }> => {
+  const profile = await getCurrentUserAccessProfile(request);
+  if (!profile?.clerkUser?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const access = profile.userAccess;
+  const workspaceId = access?.workspaceId?.trim() ?? "";
+  if (access?.role !== "partner_expert" || access.status !== "active" || !workspaceId) {
+    throw new Error("Forbidden");
+  }
+
+  return { workspaceId };
+};
+
+const mapPartnerResourceRow = (row: Record<string, unknown>): PartnerCommunityResource => {
+  const resource = mapResourceRow(row);
+  return {
+    id: resource.id,
+    title: resource.title,
+    category: resource.category,
+    author: resource.author,
+    type: resource.type,
+    description: resource.description,
+    content: resource.content,
+    url: resource.url,
+    coverImageUrl: resource.coverImageUrl,
+    date: resource.date,
+  };
+};
+
+export const loadPartnerCommunityResources = async (request: Request): Promise<PartnerCommunityResource[]> => {
+  const { workspaceId } = await resolvePartnerResourceAccess(request);
+  await ensureHubResourceTables();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, title, category, author, type, description, content, url, cover_image_url, published_at
+    FROM hub_resources
+    WHERE workspace_id = ${workspaceId}
+      AND status = 'published'
+    ORDER BY created_at DESC, id DESC
+  `;
+
+  return rows.map((row) => mapPartnerResourceRow(row as Record<string, unknown>));
+};
+
+export const getPartnerCommunityResourceById = async (
+  request: Request,
+  resourceId: string,
+): Promise<PartnerCommunityResource> => {
+  const { workspaceId } = await resolvePartnerResourceAccess(request);
+  const normalizedResourceId = resourceId.trim();
+  if (!normalizedResourceId) {
+    throw new Error("NotFound");
+  }
+
+  await ensureHubResourceTables();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, title, category, author, type, description, content, url, cover_image_url, published_at
+    FROM hub_resources
+    WHERE id = ${normalizedResourceId}
+      AND workspace_id = ${workspaceId}
+      AND status = 'published'
+    LIMIT 1
+  `;
+
+  if (!rows[0]) {
+    throw new Error("NotFound");
+  }
+
+  return mapPartnerResourceRow(rows[0] as Record<string, unknown>);
+};
+
 export const createHubResource = async (request: Request, input: HubResourceCreateInput, currentUserId: string | null) => {
   const accessProfile = await getCurrentUserAccessProfile(request);
   const role = accessProfile?.userAccess?.role ?? null;
@@ -255,6 +342,7 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
 
   await ensureHubResourceTables();
   const sql = getSql();
+  const workspaceId = accessProfile.userAccess?.workspaceId?.trim() || getDefaultWorkspaceId();
   const now = new Date().toISOString();
   const id = randomUUID();
   const normalizedStatus = normalizeStatus(input.status);
@@ -266,6 +354,7 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
   const rows = await sql`
     INSERT INTO hub_resources (
       id,
+      workspace_id,
       title,
       category,
       author,
@@ -281,6 +370,7 @@ export const createHubResource = async (request: Request, input: HubResourceCrea
     )
     VALUES (
       ${id},
+      ${workspaceId},
       ${input.title},
       ${input.category},
       ${input.author},
@@ -310,6 +400,7 @@ export const updateHubResource = async (request: Request, resourceId: string, in
 
   await ensureHubResourceTables();
   const sql = getSql();
+  const workspaceId = accessProfile.userAccess?.workspaceId?.trim() || getDefaultWorkspaceId();
   const normalizedStatus = normalizeStatus(input.status);
   const now = new Date().toISOString();
   const resolvedUrl = isUrlLike(input.content) ? input.content : null;
@@ -331,6 +422,7 @@ export const updateHubResource = async (request: Request, resourceId: string, in
         published_at = ${publishedAt},
         updated_at = ${now}
     WHERE id = ${resourceId}
+      AND workspace_id = ${workspaceId}
     RETURNING id, title, category, author, type, description, content, url, cover_image_url, status, published_at, created_at, updated_at
   `;
 
@@ -351,6 +443,7 @@ export const deleteHubResource = async (request: Request, resourceId: string, cu
 
   await ensureHubResourceTables();
   const sql = getSql();
-  await sql`DELETE FROM hub_resources WHERE id = ${resourceId}`;
+  const workspaceId = accessProfile.userAccess?.workspaceId?.trim() || getDefaultWorkspaceId();
+  await sql`DELETE FROM hub_resources WHERE id = ${resourceId} AND workspace_id = ${workspaceId}`;
   return { success: true };
 };

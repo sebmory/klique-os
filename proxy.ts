@@ -139,6 +139,7 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
 export const isPartnerAllowedPage = (pathname: string): boolean => {
   return pathname === "/partner"
     || pathname === "/partner/athletes"
+    || pathname === "/partner/community"
     || pathname === "/partner/contact-requests"
     || /^\/partner\/athletes\/[^/]+$/.test(pathname);
 };
@@ -147,6 +148,11 @@ export const isPartnerAllowedApi = (pathname: string, method: string): boolean =
   return (pathname === "/api/notifications" && (method === "GET" || method === "PATCH"))
     || pathname === "/api/clerk/access"
     || pathname === "/api/partners"
+    || (pathname === "/api/partner/community" && method === "GET")
+    || (pathname === "/api/partner/opportunities" && method === "GET")
+    || (pathname === "/api/partner/benefits" && method === "GET")
+    || (pathname === "/api/partner/resources" && method === "GET")
+    || (/^\/api\/partner\/resources\/[^/]+$/.test(pathname) && method === "GET")
     || (pathname === "/api/partner/contact-requests" && (method === "GET" || method === "POST"))
     || pathname === "/api/partner/athletes"
     || /^\/api\/partner\/athletes\/[^/]+$/.test(pathname);

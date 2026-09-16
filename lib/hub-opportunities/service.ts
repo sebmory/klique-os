@@ -47,10 +47,27 @@ export type HubOpportunityCreateInput = {
   status: string;
 };
 
+export type PartnerCommunityOpportunity = Pick<
+  HubOpportunityRecord,
+  | "id"
+  | "title"
+  | "type"
+  | "organization"
+  | "sportOrDomain"
+  | "location"
+  | "date"
+  | "deadline"
+  | "description"
+  | "requirements"
+  | "practicalInfo"
+  | "status"
+>;
+
 const getSql = () => createContentStorageClient();
 
 // Toute valeur de statut differente de "Brouillon" est consideree comme publiee.
 const publishedStatuses: HubOpportunityStatus[] = ["Ouverte", "Bientôt", "Fermée"];
+const partnerExpertAudience = "partner_expert";
 
 type ActiveAccess = {
   role: string;
@@ -196,6 +213,40 @@ export const loadHubOpportunities = async (request: Request, currentUserId: stri
     opportunities,
     currentUserInterestIds,
   };
+};
+
+export const loadPartnerCommunityOpportunities = async (request: Request): Promise<PartnerCommunityOpportunity[]> => {
+  const access = await resolveActiveAccess(request);
+  if (access.role !== "partner_expert") {
+    throw new Error("Forbidden");
+  }
+
+  await ensureHubOpportunityTables();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT o.id, o.title, o.type, o.organization, o.sport_or_domain, o.location, o.date, o.deadline,
+      o.description, o.requirements, o.practical_info, o.status
+    FROM hub_opportunities o
+    WHERE o.workspace_id = ${access.workspaceId}
+      AND o.status = ANY(${publishedStatuses})
+      AND o.target_audience = ${partnerExpertAudience}
+    ORDER BY o.created_at DESC, o.id DESC
+  `;
+
+  return rows.map((row) => ({
+    id: String(row.id ?? ""),
+    title: String(row.title ?? ""),
+    type: normalizeCategory(row.type),
+    organization: String(row.organization ?? ""),
+    sportOrDomain: String(row.sport_or_domain ?? ""),
+    location: String(row.location ?? ""),
+    date: String(row.date ?? ""),
+    deadline: String(row.deadline ?? ""),
+    description: String(row.description ?? ""),
+    requirements: String(row.requirements ?? ""),
+    practicalInfo: String(row.practical_info ?? ""),
+    status: normalizeStatus(row.status),
+  }));
 };
 
 export const createHubOpportunity = async (request: Request, input: HubOpportunityCreateInput, currentUserId: string | null) => {

@@ -42,7 +42,7 @@ export const mainNavigation: NavItem[] = [
   { id: "projects", label: "Projets", href: "/projects", icon: "folder" },
   { id: "media", label: "Medias", href: "/media", icon: "image" },
   { id: "ai-studio", label: "AI Studio", href: "/ai-studio", icon: "sparkles", badge: "IA" },
-  { id: "hub", label: "HUB", href: "/hub", icon: "messages" },
+  { id: "hub", label: "Communauté", href: "/hub", icon: "messages" },
   { id: "media-desk", label: "Media Desk", href: "/media-desk", icon: "newspaper" },
   { id: "media-days", label: "Media Days", href: "/media-days", icon: "calendar" },
   { id: "calendar", label: "Calendrier", href: "/calendar", icon: "calendar" },
@@ -71,6 +71,7 @@ export const commandEntries: SearchEntry[] = [
 
 export const partnerCommandEntries: SearchEntry[] = [
   { id: "partner-home", label: "Accueil Partenaire", category: "Actions rapides", href: "/partner" },
+  { id: "partner-community", label: "Communauté", category: "Actions rapides", href: "/partner/community" },
   { id: "partner-athletes", label: "Annuaire des athlètes", category: "Personnes", href: "/partner/athletes" },
   { id: "partner-athlete-profiles", label: "Fiches Athlètes publiques", category: "Personnes", href: "/partner/athletes" },
   { id: "partner-contact-requests", label: "Mes mises en relation", category: "Actions rapides", href: "/partner/contact-requests" },

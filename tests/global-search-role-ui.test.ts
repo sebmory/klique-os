@@ -54,6 +54,7 @@ describe("GlobalSearch role filtering", () => {
 
     const content = container.textContent ?? "";
     expect(content).toContain("Accueil Partenaire");
+    expect(content).toContain("Communauté");
     expect(content).toContain("Annuaire des athlètes");
     expect(content).toContain("Fiches Athlètes publiques");
     expect(content).toContain("Mes mises en relation");
@@ -63,9 +64,11 @@ describe("GlobalSearch role filtering", () => {
     expect(content).not.toContain("Creer un projet");
     expect(content).not.toContain("Portraits Premium Avril");
     expect(content).not.toContain("Elfic Fribourg");
+    expect(content).not.toMatch(/\bHUB\b|\bHub\b/);
 
     const hrefs = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
-    expect(hrefs.every((href) => href === "/partner" || href === "/partner/athletes" || href === "/partner/contact-requests")).toBe(true);
+    expect(hrefs).toContain("/partner/community");
+    expect(hrefs.every((href) => href === "/partner" || href === "/partner/community" || href === "/partner/athletes" || href === "/partner/contact-requests")).toBe(true);
   });
 
   it.each(["admin", "athlete", "media"])("keeps the existing catalog for the %s role", async (userRole) => {

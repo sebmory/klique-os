@@ -50,6 +50,11 @@ export type CommunityPublicationRecord = {
   comments: CommunityCommentRecord[];
 };
 
+export type PartnerCommunityPublication = Pick<
+  CommunityPublicationRecord,
+  "id" | "type" | "title" | "content" | "createdAt" | "authorDisplayName" | "authorRole" | "authorSpecialty"
+>;
+
 const getSql = () => createContentStorageClient();
 
 const createCommunityTables = async () => {
@@ -58,6 +63,7 @@ const createCommunityTables = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS community_publications (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
       author_clerk_user_id TEXT NOT NULL,
       author_role TEXT NOT NULL CHECK (author_role IN ('admin', 'athlete', 'partner_expert', 'media')),
       type TEXT NOT NULL,
@@ -296,7 +302,12 @@ export const loadCommunityPublications = async (currentUserId: string | null, re
 
   await createCommunityTables();
   const sql = getSql();
-  const rows = await sql`SELECT id, author_clerk_user_id, author_role, author_name, author_specialty, type, title, content, created_at FROM community_publications ORDER BY created_at DESC, id DESC`;
+  const rows = await sql`
+    SELECT id, author_clerk_user_id, author_role, author_name, author_specialty, type, title, content, created_at
+    FROM community_publications
+    WHERE workspace_id = ${access.workspaceId}
+    ORDER BY created_at DESC, id DESC
+  `;
 
   const publications = [] as CommunityPublicationRecord[];
   for (const row of rows) {
@@ -304,6 +315,39 @@ export const loadCommunityPublications = async (currentUserId: string | null, re
   }
 
   return publications;
+};
+
+export const loadPartnerCommunityPublications = async (request: Request): Promise<PartnerCommunityPublication[]> => {
+  const profile = await getCurrentUserAccessProfile(request);
+  if (!profile?.clerkUser?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const access = profile.userAccess ?? null;
+  const workspaceId = access?.workspaceId?.trim() ?? "";
+  if (access?.role !== "partner_expert" || access.status !== "active" || !workspaceId || !access.partnerId?.trim()) {
+    throw new Error("Forbidden");
+  }
+
+  await createCommunityTables();
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, author_role, author_name, author_specialty, type, title, content, created_at
+    FROM community_publications
+    WHERE workspace_id = ${workspaceId}
+    ORDER BY created_at DESC, id DESC
+  `;
+
+  return rows.map((row) => ({
+    id: String(row.id ?? ""),
+    type: String(row.type ?? "publication"),
+    title: typeof row.title === "string" ? row.title : null,
+    content: String(row.content ?? ""),
+    createdAt: String(row.created_at ?? ""),
+    authorDisplayName: String(row.author_name ?? "KLIQUE OS"),
+    authorRole: normalizeRole(row.author_role),
+    authorSpecialty: typeof row.author_specialty === "string" ? row.author_specialty : null,
+  }));
 };
 
 export const createCommunityPublication = async (
@@ -319,6 +363,7 @@ export const createCommunityPublication = async (
   if (access?.role !== "admin" || access.status !== "active" || !access.workspaceId?.trim()) {
     throw new Error("Forbidden");
   }
+  const workspaceId = access.workspaceId.trim();
 
   await createCommunityTables();
   const sql = getSql();
@@ -334,6 +379,7 @@ export const createCommunityPublication = async (
   await sql`
     INSERT INTO community_publications (
       id,
+      workspace_id,
       author_clerk_user_id,
       author_name,
       author_role,
@@ -345,6 +391,7 @@ export const createCommunityPublication = async (
     )
     VALUES (
       ${publicationId},
+      ${workspaceId},
       ${profile.clerkUser.id},
       ${authorName},
       ${role},
