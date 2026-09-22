@@ -11,6 +11,12 @@ describe("partner proxy access", () => {
     expect(isPartnerAllowedPage("/partner/contact-requests")).toBe(true);
   });
 
+  it("allows the benefit reservations page exactly", () => {
+    expect(isPartnerAllowedPage("/partner/benefit-reservations")).toBe(true);
+    expect(isPartnerAllowedPage("/partner/benefit-reservations/")).toBe(false);
+    expect(isPartnerAllowedPage("/partner/benefit-reservations/history")).toBe(false);
+  });
+
   it("allows GET on the personal contact requests API", () => {
     expect(isPartnerAllowedApi("/api/partner/contact-requests", "GET")).toBe(true);
   });
@@ -72,6 +78,8 @@ describe("partner proxy access", () => {
       "/partner/contact-requests/",
       "/partner/contact-requests/request-1",
       "/partner/contact-requests-admin",
+      "/partner/benefit-reservation",
+      "/partner/benefit-reservations/history",
     ]) {
       expect(isPartnerAllowedPage(pathname)).toBe(false);
     }

@@ -38,6 +38,24 @@ export type CurrentAthleteMembership = {
   endsAt: string | null;
 };
 
+export type AthleteMembershipPlatformAccessStatus =
+  | "active"
+  | "inactive"
+  | "invited"
+  | "accepted_without_access"
+  | "not_invited";
+
+export type AdminAthleteMembership = AthleteMembership & {
+  effectiveStatus: AthleteMembershipStatus;
+  isActive: boolean;
+  plan: AthleteMembershipPlan | null;
+  balance: { production: number; customContent: number };
+  platformAccess: {
+    status: AthleteMembershipPlatformAccessStatus;
+    email: string | null;
+  } | null;
+};
+
 export type HistoricalMembershipInput = {
   startDate?: string | null;
   athleteIndex: number | null;
@@ -57,6 +75,22 @@ type AthleteMembershipRow = {
   source: string;
   created_at: string | Date;
   updated_at: string | Date;
+};
+
+type AdminAthleteMembershipRow = AthleteMembershipRow & {
+  plan_name: string | null;
+  plan_active: boolean | null;
+  duration_months: number | null;
+  annual_price_chf: string | number | null;
+  monthly_installment_chf: string | number | null;
+  production_credits: number | null;
+  custom_content_credits: number | null;
+  video_allowed: boolean | null;
+  plan_metadata: Record<string, unknown> | null;
+  production_balance: string | number;
+  custom_content_balance: string | number;
+  platform_access_status: AthleteMembershipPlatformAccessStatus | null;
+  platform_access_email: string | null;
 };
 
 export type AthleteMembershipReader = (workspaceId: string, athleteId: string) => Promise<AthleteMembership[]>;
@@ -232,6 +266,107 @@ export const readAthleteMembershipsFromNeon: AthleteMembershipReader = async (wo
   `;
 
   return (rows as AthleteMembershipRow[]).map(mapMembershipRow);
+};
+
+export const listAdminAthleteMemberships = async (
+  workspaceId: string,
+  now = new Date(),
+): Promise<AdminAthleteMembership[]> => {
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) throw new AthleteMembershipValidationError("workspaceId est requis.");
+  const databaseUrl = process.env.POSTGRES_DATABASE_URL?.trim();
+  if (!databaseUrl) throw new Error("POSTGRES_DATABASE_URL absente.");
+  const sql = neon(databaseUrl);
+  const rows = await sql`
+    SELECT membership.*,
+           plan.name AS plan_name,
+           plan.active AS plan_active,
+           plan.duration_months,
+           plan.annual_price_chf,
+           plan.monthly_installment_chf,
+           plan.production_credits,
+           plan.custom_content_credits,
+           plan.video_allowed,
+           plan.metadata AS plan_metadata,
+           COALESCE(credit_balance.production, 0) AS production_balance,
+           COALESCE(credit_balance.custom_content, 0) AS custom_content_balance,
+           CASE
+             WHEN membership.membership_kind <> 'founder' OR membership.status <> 'active' THEN NULL
+             WHEN active_access.email IS NOT NULL THEN 'active'
+             WHEN inactive_access.email IS NOT NULL THEN 'inactive'
+             WHEN invitation.status = 'invited' THEN 'invited'
+             WHEN invitation.status = 'accepted' THEN 'accepted_without_access'
+             ELSE 'not_invited'
+           END AS platform_access_status,
+           COALESCE(active_access.email, inactive_access.email, invitation.email) AS platform_access_email
+    FROM athlete_memberships membership
+    LEFT JOIN membership_plans plan ON plan.code = membership.plan_code
+    LEFT JOIN LATERAL (
+      SELECT
+        COALESCE(SUM(movement.quantity) FILTER (WHERE movement.credit_type = 'production'), 0) AS production,
+        COALESCE(SUM(movement.quantity) FILTER (WHERE movement.credit_type = 'custom_content'), 0) AS custom_content
+      FROM athlete_credit_movements movement
+      WHERE movement.membership_id = membership.id
+        AND (movement.expires_at IS NULL OR movement.expires_at > ${now.toISOString()}::timestamptz)
+    ) credit_balance ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT btrim(access.email) AS email
+      FROM user_access access
+      WHERE access.workspace_id = membership.workspace_id
+        AND access.athlete_id = membership.athlete_id
+        AND access.role = 'athlete'
+        AND access.status = 'active'
+      ORDER BY access.updated_at DESC
+      LIMIT 1
+    ) active_access ON membership.membership_kind = 'founder' AND membership.status = 'active'
+    LEFT JOIN LATERAL (
+      SELECT btrim(access.email) AS email
+      FROM user_access access
+      WHERE access.workspace_id = membership.workspace_id
+        AND access.athlete_id = membership.athlete_id
+        AND access.role = 'athlete'
+        AND access.status <> 'active'
+      ORDER BY access.updated_at DESC
+      LIMIT 1
+    ) inactive_access ON membership.membership_kind = 'founder' AND membership.status = 'active'
+    LEFT JOIN athlete_invitations invitation
+      ON invitation.workspace_id = membership.workspace_id
+     AND invitation.athlete_id = membership.athlete_id
+     AND membership.membership_kind = 'founder'
+     AND membership.status = 'active'
+    WHERE membership.workspace_id = ${normalizedWorkspaceId}
+    ORDER BY membership.starts_at DESC, membership.created_at DESC
+  `;
+  const at = now.getTime();
+  return (rows as AdminAthleteMembershipRow[]).map((row) => {
+    const membership = mapMembershipRow(row);
+    const isActive = isMembershipActiveAt(membership, at);
+    return {
+      ...membership,
+      effectiveStatus: effectiveStatus(membership, at),
+      isActive,
+      plan: row.plan_code ? {
+        code: row.plan_code,
+        name: row.plan_name ?? row.plan_code,
+        active: row.plan_active === true,
+        durationMonths: row.duration_months,
+        annualPriceChf: row.annual_price_chf === null ? null : Number(row.annual_price_chf),
+        monthlyInstallmentChf: row.monthly_installment_chf === null ? null : Number(row.monthly_installment_chf),
+        productionCredits: row.production_credits,
+        customContentCredits: row.custom_content_credits,
+        videoAllowed: row.video_allowed,
+        metadata: row.plan_metadata ?? {},
+      } : null,
+      balance: {
+        production: Number(row.production_balance) || 0,
+        customContent: Number(row.custom_content_balance) || 0,
+      },
+      platformAccess: isActive && row.platform_access_status ? {
+        status: row.platform_access_status,
+        email: row.platform_access_email?.trim() || null,
+      } : null,
+    };
+  });
 };
 
 const createAdminRepository = (): AthleteMembershipAdminRepository => {

@@ -4,7 +4,11 @@ import {
   getPartnerAccessState,
   invitePartnerToKlique,
 } from "@/lib/clerk-access/service";
-import { getEcosystemPartnersFrom06Partenaires } from "@/lib/google-sheets";
+import {
+  getEcosystemPartnersFrom06Partenaires,
+  isPartnerUuid,
+  resolvePartnerReference,
+} from "@/lib/google-sheets";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,31 +33,23 @@ const messageByReason: Record<string, string> = {
   clerk_error: "Échec de l'invitation Clerk.",
 };
 
-const parsePartnerRow = (value: unknown): number | null => {
-  const text = String(value ?? "").trim();
-  const match = text.match(/^(?:row-)?(\d+)$/);
-  if (!match) return null;
-  const row = Number(match[1]);
-  return Number.isInteger(row) && row >= 4 ? row : null;
-};
-
-const resolvePartnerByRow = async (value: unknown) => {
-  const row = parsePartnerRow(value);
-  if (row === null) {
-    throw new Error(`Numéro de ligne partenaire invalide : ${String(value ?? "").trim() || "absent"}.`);
-  }
-
+const resolvePartnerIdentity = async (value: unknown) => {
   const partners = await getEcosystemPartnersFrom06Partenaires();
-  const partner = partners.find((candidate) => candidate.row === row);
+  const partner = resolvePartnerReference(partners, value);
   if (!partner) {
-    throw new Error(`Fiche partenaire introuvable dans 06_Partenaires à la ligne ${row}.`);
+    throw new Error(`Fiche partenaire introuvable dans 06_Partenaires : ${String(value ?? "").trim() || "référence absente"}.`);
   }
+  const row = partner.row ?? null;
 
   return {
     row,
     identity: {
-      partnerId: `row-${row}`,
+      partnerId: partner.id,
       email: partner.email.trim(),
+      legacyPartnerIds: [
+        ...(row === null ? [] : [`row-${row}`, String(row)]),
+        partner.name,
+      ],
     },
   };
 };
@@ -74,19 +70,13 @@ export async function GET(request: NextRequest) {
 
     const rowReference = request.nextUrl.searchParams.get("row") ?? request.nextUrl.searchParams.get("partnerId");
     if (!rowReference) {
-      return NextResponse.json({ error: "Le numéro de ligne partenaire est obligatoire." }, { status: 400 });
+      return NextResponse.json({ error: "La référence partenaire est obligatoire." }, { status: 400 });
     }
 
-    searchedRow = parsePartnerRow(rowReference);
-    if (searchedRow === null) {
-      return NextResponse.json(
-        { error: `Numéro de ligne partenaire invalide : ${rowReference}.` },
-        { status: 400 },
-      );
-    }
-    const { identity } = await resolvePartnerByRow(rowReference);
+    const { row, identity } = await resolvePartnerIdentity(rowReference);
+    searchedRow = row;
     const state = await getPartnerAccessState(identity);
-    return NextResponse.json({ ok: true, ...state });
+    return NextResponse.json({ ok: true, partnerId: identity.partnerId, ...state });
   } catch (error) {
     return NextResponse.json(
       {
@@ -103,7 +93,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { row?: unknown; partnerId?: unknown; resend?: unknown };
     const rowReference = body.row ?? body.partnerId;
     if (rowReference === undefined || rowReference === null || String(rowReference).trim() === "") {
-      return NextResponse.json({ error: "Le numéro de ligne partenaire est obligatoire." }, { status: 400 });
+      return NextResponse.json({ error: "La référence partenaire est obligatoire." }, { status: 400 });
     }
 
     const accessCheck = await evaluateBusinessAccess(request, { action: "write:crm" });
@@ -111,14 +101,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
-    searchedRow = parsePartnerRow(rowReference);
-    if (searchedRow === null) {
+    const { row, identity } = await resolvePartnerIdentity(rowReference);
+    searchedRow = row;
+    if (!isPartnerUuid(identity.partnerId)) {
       return NextResponse.json(
-        { error: `Numéro de ligne partenaire invalide : ${String(rowReference)}.` },
-        { status: 400 },
+        { error: `Partner ID UUID manquant dans 06_Partenaires${row === null ? "." : ` à la ligne ${row}.`}` },
+        { status: 409 },
       );
     }
-    const { identity } = await resolvePartnerByRow(rowReference);
     const result = await invitePartnerToKlique(request, identity, { resend: body.resend === true });
     if (!result.ok) {
       const message = result.message || messageByReason[result.reason];

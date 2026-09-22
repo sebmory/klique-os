@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClubAdminSection } from "@/components/settings/ClubAdminSection";
 import { MediaCreditsSection } from "@/components/settings/MediaCreditsSection";
 import { MediaInviteSection } from "@/components/settings/MediaInviteSection";
+import { PartnerBenefitUsageSection } from "@/components/settings/PartnerBenefitUsageSection";
 
 export default function SettingsPage() {
   return (
@@ -56,6 +57,7 @@ export default function SettingsPage() {
         </span>
       </Link>
 
+      <PartnerBenefitUsageSection />
       <ClubAdminSection />
       <MediaInviteSection />
       <MediaCreditsSection />

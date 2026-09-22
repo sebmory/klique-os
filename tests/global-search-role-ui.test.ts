@@ -58,6 +58,7 @@ describe("GlobalSearch role filtering", () => {
     expect(content).toContain("Annuaire des athlètes");
     expect(content).toContain("Fiches Athlètes publiques");
     expect(content).toContain("Mes mises en relation");
+    expect(content).toContain("Réservations d’avantages");
     expect(content).toContain("Notifications");
     expect(content).toContain("Mon espace / profil");
     expect(content).not.toContain("Creer une personne");
@@ -68,7 +69,8 @@ describe("GlobalSearch role filtering", () => {
 
     const hrefs = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
     expect(hrefs).toContain("/partner/community");
-    expect(hrefs.every((href) => href === "/partner" || href === "/partner/community" || href === "/partner/athletes" || href === "/partner/contact-requests")).toBe(true);
+    expect(hrefs).toContain("/partner/benefit-reservations");
+    expect(hrefs.every((href) => href === "/partner" || href === "/partner/community" || href === "/partner/athletes" || href === "/partner/contact-requests" || href === "/partner/benefit-reservations")).toBe(true);
   });
 
   it.each(["admin", "athlete", "media"])("keeps the existing catalog for the %s role", async (userRole) => {

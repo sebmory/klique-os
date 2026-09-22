@@ -21,7 +21,6 @@ vi.mock("googleapis", () => ({
 
 import { getPartnersFromGoogleSheets } from "@/lib/google-sheets";
 
-const PARTNERS_RANGE = "'20_Partenaires'!A1:AZ300";
 const LEGACY_PARTNERS_RANGE = "'06_Partenaires'!A1:AZ300";
 const FORMS_PARTNERS_RANGE = "'Forms_Partenaires_Responses'!A1:N500";
 
@@ -32,16 +31,12 @@ describe("getPartnersFromGoogleSheets 06_Partenaires parsing", () => {
     process.env.GOOGLE_SHEET_ID = "test-sheet";
 
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
-      if (range === PARTNERS_RANGE) {
-        return { data: { values: [] } };
-      }
-
       if (range === LEGACY_PARTNERS_RANGE) {
         return {
           data: {
             values: [
-              ["Nom", "Type de relation", "Catégorie", "Contact principal", "Fonction", "E-mail", "Téléphone", "Site", "Offre / avantage membres", "Athlètes concernés", "Statut"],
-              ["Klyo Massage", "Partenaire", "Bien-être", "Mila Benjak", "Fondatrice", "klyomassage@gmail.com", "+41 79 111 11 11", "klyo-massage.ch", "Massage sportif", "", "Actif"],
+              ["Nom", "Type de relation", "Catégorie", "Contact principal", "Fonction", "E-mail", "Téléphone", "Site", "Offre / avantage membres", "Athlètes concernés", "Statut", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "Partner ID"],
+              ["Klyo Massage", "Partenaire", "Bien-être", "Mila Benjak", "Fondatrice", "klyomassage@gmail.com", "+41 79 111 11 11", "klyo-massage.ch", "Massage sportif", "", "Actif", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "3d216a5b-4594-4c5a-b66b-1338b982a95f"],
               ["Avec Rachel", "Partenaire", "Bien-être", "Rachel Meconi", "Coach", "contact@avec-rachel.com", "+41 79 412 12 15", "avec-rachel.com", "Préparation mentale", "", "Actif"],
             ],
           },
@@ -63,12 +58,14 @@ describe("getPartnersFromGoogleSheets 06_Partenaires parsing", () => {
     const avecRachel = partners.find((partner) => partner.name === "Avec Rachel");
 
     expect(klyo).toMatchObject({
+      id: "3d216a5b-4594-4c5a-b66b-1338b982a95f",
       email: "klyomassage@gmail.com",
       phone: "+41 79 111 11 11",
       website: "klyo-massage.ch",
     });
 
     expect(avecRachel).toMatchObject({
+      id: "Avec Rachel",
       email: "contact@avec-rachel.com",
       phone: "+41 79 412 12 15",
       website: "avec-rachel.com",

@@ -28,7 +28,7 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
     process.env.GOOGLE_SHEET_ID = "test-sheet";
 
     valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
-      if (range === "'06_Partenaires'!A4:Y") {
+      if (range === "'06_Partenaires'!A4:Z") {
         return {
           data: {
             values: [
@@ -53,6 +53,12 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
                 "",
                 "",
                 "Massage sportif et récupération pour athlètes.",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "3d216a5b-4594-4c5a-b66b-1338b982a95f",
               ],
               [
                 "Avec Rachel",
@@ -90,7 +96,7 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
 
     expect(valuesGetMock).toHaveBeenCalledTimes(1);
     expect(valuesGetMock).toHaveBeenCalledWith(
-      expect.objectContaining({ range: "'06_Partenaires'!A4:Y" })
+      expect.objectContaining({ range: "'06_Partenaires'!A4:Z" })
     );
 
     expect(partners).toHaveLength(2);
@@ -99,6 +105,7 @@ describe("getAthleteEcosystemPartnersFromGoogleSheets", () => {
 
     const klyo = partners.find((partner) => partner.name === "Klyo Massage");
     expect(klyo).toMatchObject({
+      id: "3d216a5b-4594-4c5a-b66b-1338b982a95f",
       category: "Bien-etre",
       contactName: "Mila Benjak",
       contact: "Mila Benjak",

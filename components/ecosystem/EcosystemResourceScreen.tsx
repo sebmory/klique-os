@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { EcosystemService } from "@/services/ecosystem.service";
+import { AdminPartnerBenefitsPanel } from "@/components/ecosystem/AdminPartnerBenefitsPanel";
 import type { EcosystemListResponse, EcosystemResource } from "@/types/ecosystem";
 
 type EcosystemResourceScreenProps = {
@@ -215,6 +216,25 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
   const [isInvitingPartner, setIsInvitingPartner] = useState(false);
   const [partnerInviteError, setPartnerInviteError] = useState<string | null>(null);
   const [partnerInviteSuccess, setPartnerInviteSuccess] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const loadAccess = async () => {
+      try {
+        const response = await fetch("/api/clerk/access", { credentials: "include", cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active) setIsAdmin(Boolean(payload?.permissions?.isAdmin && payload?.permissions?.isActive));
+      } catch {
+        if (active) setIsAdmin(false);
+      }
+    };
+    void loadAccess();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -458,6 +478,8 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
       </header>
 
       <section className="crm-partner-layout">
+        {isAdmin ? <AdminPartnerBenefitsPanel partnerId={resource.id} /> : null}
+
         <article className="crm-person-card-shell crm-partner-span-two crm-partner-offer-card">
           <header><h2>Ce que cette ressource apporte</h2></header>
 

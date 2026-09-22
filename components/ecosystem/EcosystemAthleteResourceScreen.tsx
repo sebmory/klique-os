@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Globe, Mail } from "lucide-react";
+import { AthletePartnerBenefits } from "@/components/ecosystem/AthletePartnerBenefits";
 import { EcosystemService } from "@/services/ecosystem.service";
 import type { EcosystemListResponse, EcosystemResource } from "@/types/ecosystem";
 
@@ -168,14 +169,7 @@ export function EcosystemAthleteResourceScreen({ id }: EcosystemAthleteResourceS
             </div>
           </header>
 
-          {benefitText ? (
-            <section style={{ border: "1px solid #f6d4b0", background: "#fff7ed", borderRadius: "14px", padding: "0.9rem" }}>
-              <h2 style={{ margin: "0 0 0.45rem", fontSize: "0.95rem", color: "#9a3412", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                Avantage KLIQUE
-              </h2>
-              <p style={{ margin: 0, color: "#c2410c", lineHeight: 1.7, fontSize: "1.03rem", fontWeight: 700 }}>{benefitText}</p>
-            </section>
-          ) : null}
+          <AthletePartnerBenefits mode="partner" partnerId={resource.id} />
 
           <section style={{ display: "grid", gap: "0.55rem" }}>
             <h2 style={{ margin: 0, fontSize: "1rem" }}>Contact</h2>

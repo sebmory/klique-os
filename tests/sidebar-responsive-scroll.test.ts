@@ -115,6 +115,15 @@ describe("Sidebar responsive scrolling", () => {
     expect(link?.getAttribute("href")).toBe("/partner/contact-requests");
   });
 
+  it("shows benefit reservations only in partner navigation", async () => {
+    await mount({ userRole: "partner_expert", userIsPartner: true, pathname: "/partner/benefit-reservations" });
+
+    const link = Array.from(container.querySelectorAll("a"))
+      .find((candidate) => candidate.textContent?.includes("Réservations d’avantages"));
+    expect(link?.getAttribute("href")).toBe("/partner/benefit-reservations");
+    expect(link?.className).toContain("is-active");
+  });
+
   it("limits the panels to the visible viewport height", () => {
     expect(rule(".klique-sidebar")).toContain("height: 100dvh");
     expect(rule(".klique-sidebar")).toContain("max-height: 100dvh");

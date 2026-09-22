@@ -1,45 +1,49 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { BadgeCheck, CalendarDays, Check, Clapperboard, Gift, Images, Send, Sparkles } from "lucide-react";
+import { BadgeCheck, CalendarDays, Check, Clapperboard, Send, Sparkles } from "lucide-react";
 import type {
   AthleteContentFormat,
   AthleteContentMediaType,
   AthleteSubscriptionBenefit,
   AthleteSubscriptionInternalPlanCode,
   AthleteSubscriptionPlanCode,
-  AthleteSubscriptionProductionInclusion,
 } from "@/lib/athlete-subscription-catalog";
 import type {
   AthleteSubscriptionContentRequest,
   AthleteSubscriptionContentRequestStatus,
 } from "@/lib/athlete-subscription-content-requests/service";
 import { Button, Input, Select, Textarea } from "@/src/design-system/components";
+import { AthletePartnerBenefits } from "@/components/ecosystem/AthletePartnerBenefits";
 
-type PublicAthleteSubscription = {
+type PublicAthletePass = {
   id: string;
+  contentRequestSubscriptionId: string | null;
+  membershipKind: "founder" | "subscription" | "trial" | "manual";
   planCode: AthleteSubscriptionPlanCode | AthleteSubscriptionInternalPlanCode;
-  status: "active" | "expired" | "cancelled";
-  startsOn: string;
-  endsOn: string;
+  status: "active" | "scheduled" | "expired" | "cancelled" | "past_due";
+  startsAt: string;
+  endsAt: string | null;
+  autoRenew: boolean;
   isFounder: boolean;
-  isComplimentary: boolean;
-  priceChf: number;
-  discountPercent: number;
   catalog: {
     code: AthleteSubscriptionPlanCode | AthleteSubscriptionInternalPlanCode;
     name: string;
     annualPriceChf: number;
-    includedProductions: readonly AthleteSubscriptionProductionInclusion[];
+    productionCreditCount: number;
     customContentCount: number;
-    aLaCarteDiscountPercent: number;
+    videoAllowed: boolean;
     commonBenefits: readonly AthleteSubscriptionBenefit[];
     contentFormats: readonly AthleteContentFormat[];
+  };
+  credits: {
+    production: { included: number; available: number };
+    customContent: { included: number; available: number };
   };
 };
 
 type AthleteSubscriptionPayload = {
-  subscription: PublicAthleteSubscription | null;
+  pass: PublicAthletePass | null;
   error?: string;
 };
 
@@ -80,31 +84,21 @@ const mediaLabels: Record<AthleteContentMediaType, string> = {
   partner_assets: "Éléments du partenaire",
 };
 
-const formatDate = (value: string): string => {
-  const parsed = new Date(`${value}T00:00:00.000Z`);
+const formatDate = (value: string | null): string => {
+  if (!value) return "Sans échéance";
+  const parsed = new Date(value.includes("T") ? value : `${value}T00:00:00.000Z`);
   return Number.isNaN(parsed.getTime())
     ? value
     : parsed.toLocaleDateString("fr-CH", {
         day: "2-digit",
         month: "long",
         year: "numeric",
-        timeZone: "UTC",
+        timeZone: "Europe/Zurich",
       });
 };
 
 const formatCatalogValue = (value: number): string =>
   `CHF ${new Intl.NumberFormat("fr-CH", { maximumFractionDigits: 0 }).format(value)}`;
-
-const productionLabel = (production: AthleteSubscriptionProductionInclusion): string => {
-  if (production.kind === "photo_session") {
-    return `Séance photo · ${production.imageCount} images`;
-  }
-  if (production.kind === "media_day") {
-    const [minimum, maximum] = production.interviewDurationMinutes;
-    return `Media Day · ${production.portraitCount} portraits et interview de ${minimum}–${maximum} minutes`;
-  }
-  return `Séance match ou compétition · ${production.imageCount} images`;
-};
 
 const sectionStyle: CSSProperties = {
   display: "grid",
@@ -140,7 +134,7 @@ const errorMessageFrom = async (response: Response, fallback: string): Promise<s
 };
 
 export default function AthletePassPage() {
-  const [subscription, setSubscription] = useState<PublicAthleteSubscription | null>(null);
+  const [pass, setPass] = useState<PublicAthletePass | null>(null);
   const [contentRequests, setContentRequests] = useState<AthleteSubscriptionContentRequest[]>([]);
   const [formatCode, setFormatCode] = useState("");
   const [athleteNote, setAthleteNote] = useState("");
@@ -175,11 +169,11 @@ export default function AthletePassPage() {
         }
         const subscriptionPayload = (await subscriptionResponse.json()) as AthleteSubscriptionPayload;
         const requestsPayload = (await requestsResponse.json()) as ContentRequestsPayload;
-        if (!("subscription" in subscriptionPayload) || !Array.isArray(requestsPayload.requests)) {
+        if (!("pass" in subscriptionPayload) || !Array.isArray(requestsPayload.requests)) {
           throw new Error("Réponse du Pass KLIQUE incomplète.");
         }
         if (active) {
-          setSubscription(subscriptionPayload.subscription);
+          setPass(subscriptionPayload.pass);
           setContentRequests(requestsPayload.requests);
         }
       } catch (error) {
@@ -196,24 +190,27 @@ export default function AthletePassPage() {
   }, []);
 
   const selectedFormat = useMemo(
-    () => subscription?.catalog.contentFormats.find(({ code }) => code === formatCode) ?? null,
-    [formatCode, subscription],
+    () => pass?.catalog.contentFormats.find(({ code }) => code === formatCode) ?? null,
+    [formatCode, pass],
   );
 
-  const occupiedPlaces = subscription
+  const occupiedPlaces = pass
     ? contentRequests.filter((request) => (
-        request.subscriptionId === subscription.id && occupyingStatuses.has(request.status)
+        request.subscriptionId === pass.contentRequestSubscriptionId && occupyingStatuses.has(request.status)
       )).length
     : 0;
-  const availablePlaces = subscription
-    ? Math.max(0, subscription.catalog.customContentCount - occupiedPlaces)
+  const availablePlaces = pass
+    ? Math.max(0, Math.min(
+        pass.credits.customContent.available,
+        pass.credits.customContent.included - occupiedPlaces,
+      ))
     : 0;
 
   const handleContentRequestSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
     setSuccessMessage(null);
-    if (!subscription || availablePlaces <= 0) {
+    if (!pass || availablePlaces <= 0) {
       setFormError("Aucune place n’est disponible pour une nouvelle demande.");
       return;
     }
@@ -273,7 +270,7 @@ export default function AthletePassPage() {
     );
   }
 
-  if (!subscription) {
+  if (!pass) {
     return (
       <main style={pageStyle}>
         <header>
@@ -290,13 +287,11 @@ export default function AthletePassPage() {
     );
   }
 
-  const founderPlan = subscription.planCode === "founder";
-  const catalogValue = formatCatalogValue(subscription.catalog.annualPriceChf);
+  const founderPlan = pass.planCode === "founder";
+  const catalogValue = formatCatalogValue(pass.catalog.annualPriceChf);
   const priceLabel = founderPlan
     ? "Accès plateforme offert pendant un an"
-    : subscription.isComplimentary
-      ? `Offert — valeur ${catalogValue}`
-      : `Valeur catalogue ${catalogValue}/an`;
+    : `${catalogValue}/an`;
 
   return (
     <main style={pageStyle}>
@@ -311,10 +306,10 @@ export default function AthletePassPage() {
             <span style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", opacity: 0.76 }}>
               {founderPlan ? "Accès membre actif" : "Offre active"}
             </span>
-            <h2 style={{ margin: 0, fontSize: "1.65rem" }}>{subscription.catalog.name}</h2>
+            <h2 style={{ margin: 0, fontSize: "1.65rem" }}>{pass.catalog.name}</h2>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", fontWeight: 600 }}>
               <CalendarDays size={16} aria-hidden="true" />
-              Du {formatDate(subscription.startsOn)} au {formatDate(subscription.endsOn)}
+              Du {formatDate(pass.startsAt)} au {formatDate(pass.endsAt)}
             </span>
           </div>
           <div style={{ display: "grid", justifyItems: "end", gap: "0.45rem" }}>
@@ -328,15 +323,11 @@ export default function AthletePassPage() {
         <div style={{ padding: "1.25rem", display: "grid", gap: "1.1rem" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
             <span style={{ padding: "0.35rem 0.65rem", borderRadius: "999px", background: "#f5f5f4", color: "#44403c", fontWeight: 700, fontSize: "0.82rem" }}>
-              Membre fondateur : {subscription.isFounder ? "Oui" : "Non"}
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", padding: "0.35rem 0.65rem", borderRadius: "999px", background: subscription.isComplimentary ? "#fff7d6" : "#f5f5f4", color: "#44403c", fontWeight: 700, fontSize: "0.82rem" }}>
-              {subscription.isComplimentary ? <Gift size={14} aria-hidden="true" /> : null}
-              Offert : {subscription.isComplimentary ? "Oui" : "Non"}
+              Membre fondateur : {pass.isFounder ? "Oui" : "Non"}
             </span>
             {!founderPlan ? (
               <span style={{ padding: "0.35rem 0.65rem", borderRadius: "999px", background: "#f5f5f4", color: "#44403c", fontWeight: 700, fontSize: "0.82rem" }}>
-                Remise à la carte : −{subscription.catalog.aLaCarteDiscountPercent} %
+                Renouvellement : {pass.autoRenew ? "automatique" : "non automatique"}
               </span>
             ) : null}
           </div>
@@ -344,17 +335,14 @@ export default function AthletePassPage() {
           {!founderPlan ? (
             <section style={sectionStyle} aria-labelledby="productions-title">
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Images size={19} color="#9a6a22" aria-hidden="true" />
-                <h3 id="productions-title" style={{ margin: 0, fontSize: "1.05rem", color: "#1c1917" }}>Productions incluses</h3>
+                <Sparkles size={19} color="#9a6a22" aria-hidden="true" />
+                <h3 id="productions-title" style={{ margin: 0, fontSize: "1.05rem", color: "#1c1917" }}>Crédits de l’offre</h3>
               </div>
               <ul style={{ margin: 0, paddingLeft: "1.2rem", color: "#44403c", display: "grid", gap: "0.45rem" }}>
-                {subscription.catalog.includedProductions.map((production) => (
-                  <li key={production.kind}>{productionLabel(production)}</li>
-                ))}
+                <li>Production : <strong>{pass.credits.production.available}</strong> disponible(s) sur {pass.credits.production.included}</li>
+                <li>Contenu personnalisé : <strong>{pass.credits.customContent.available}</strong> disponible(s) sur {pass.credits.customContent.included}</li>
+                <li>Vidéo : <strong>{pass.catalog.videoAllowed ? "incluse" : "non incluse"}</strong></li>
               </ul>
-              <p style={{ margin: 0, padding: "0.8rem", borderRadius: "8px", background: "#f5f5f4", color: "#1c1917" }}>
-                Contenus personnalisés inclus par an : <strong>{subscription.catalog.customContentCount}</strong>
-              </p>
             </section>
           ) : null}
 
@@ -364,7 +352,7 @@ export default function AthletePassPage() {
               <h3 id="benefits-title" style={{ margin: 0, fontSize: "1.05rem", color: "#1c1917" }}>Avantages communs</h3>
             </div>
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "0.65rem" }}>
-              {subscription.catalog.commonBenefits.map((benefit) => (
+              {pass.catalog.commonBenefits.map((benefit) => (
                 <li key={benefit.code} style={{ display: "grid", gridTemplateColumns: "18px 1fr", gap: "0.45rem", alignItems: "start", color: "#44403c" }}>
                   <Check size={16} color="#17735f" aria-hidden="true" style={{ marginTop: 2 }} />
                   <span><strong style={{ color: "#1c1917" }}>{benefit.name}</strong><br /><small style={{ lineHeight: 1.5 }}>{benefit.description}</small></span>
@@ -380,7 +368,7 @@ export default function AthletePassPage() {
                 <h3 id="formats-title" style={{ margin: 0, fontSize: "1.05rem", color: "#1c1917" }}>Formats disponibles</h3>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                {subscription.catalog.contentFormats.map((format) => (
+                {pass.catalog.contentFormats.map((format) => (
                   <span key={format.code} title={format.description} style={{ padding: "0.45rem 0.65rem", border: "1px solid #e7e5e4", borderRadius: "6px", background: "#fafaf9", color: "#292524", fontSize: "0.84rem", fontWeight: 650 }}>
                     {format.name}
                   </span>
@@ -390,6 +378,8 @@ export default function AthletePassPage() {
           ) : null}
         </div>
       </article>
+
+      <AthletePartnerBenefits mode="summary" />
 
       {!founderPlan ? <section aria-labelledby="custom-contents-title" style={{ borderTop: "1px solid #dedbd5", paddingTop: "1.25rem", display: "grid", gap: "1rem" }}>
         <header style={{ display: "grid", gap: "0.35rem" }}>
@@ -403,7 +393,7 @@ export default function AthletePassPage() {
 
         <div aria-label="Quota de contenus personnalisés" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", border: "1px solid #e7e5e4", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
           {[
-            ["Quota annuel", subscription.catalog.customContentCount],
+            ["Crédits inclus", pass.credits.customContent.included],
             ["Places occupées", occupiedPlaces],
             ["Places disponibles", availablePlaces],
           ].map(([label, value]) => (
@@ -426,7 +416,7 @@ export default function AthletePassPage() {
               style={controlStyle}
             >
               <option value="">Sélectionner un format</option>
-              {subscription.catalog.contentFormats.map((format) => (
+              {pass.catalog.contentFormats.map((format) => (
                 <option key={format.code} value={format.code}>{format.name}</option>
               ))}
             </Select>
@@ -490,7 +480,7 @@ export default function AthletePassPage() {
           ) : (
             <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.55rem" }}>
               {contentRequests.map((request) => {
-                const format = subscription.catalog.contentFormats.find(({ code }) => code === request.formatCode);
+                const format = pass.catalog.contentFormats.find(({ code }) => code === request.formatCode);
                 return (
                   <li key={request.id} style={{ border: "1px solid #e7e5e4", borderRadius: "8px", padding: "0.85rem", background: "#fff", display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: "0.7rem" }}>
                     <div style={{ display: "grid", gap: "0.2rem" }}>

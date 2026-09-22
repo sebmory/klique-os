@@ -23,6 +23,7 @@ const segmentLabelMap: Record<string, string> = {
   calendar: "Calendrier",
   analytics: "Analytics",
   visibilite: "Visibilité",
+  "benefit-reservations": "Réservations d’avantages",
   integrations: "Integrations",
   settings: "Parametres",
 };

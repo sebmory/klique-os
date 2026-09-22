@@ -85,6 +85,7 @@ export type PartnerAccessState = "none" | "invited" | "active";
 export type PartnerInvitationIdentity = {
   partnerId: string;
   email: string;
+  legacyPartnerIds?: string[];
 };
 
 export type InviteAthleteResult =
@@ -362,11 +363,13 @@ export const resolveCurrentUserBusinessLink = async (request?: Request): Promise
     const partners = await getPartnersFromGoogleSheets();
     const rowPartnerIdMatch = /^row-(\d+)$/.exec(partnerId);
     const rowPartnerId = rowPartnerIdMatch ? Number(rowPartnerIdMatch[1]) : null;
-    const activePartner = partners.find((partner) =>
-      partner.id === partnerId
-      || partner.row?.toString() === partnerId
-      || (rowPartnerId !== null && partner.row === rowPartnerId)
-    );
+    const activePartner = partners.find((partner) => {
+      const normalizedPartnerName = normalizeBusinessValue(partner.name);
+      return partner.id === partnerId
+        || (normalizedPartnerName !== null && normalizedPartnerName.toLowerCase() === partnerId.toLowerCase())
+        || partner.row?.toString() === partnerId
+        || (rowPartnerId !== null && partner.row === rowPartnerId);
+    });
     if (!activePartner) {
       return {
         businessType: "invalid",
@@ -1036,16 +1039,20 @@ export const getAthleteAccessState = async (athleteId: string): Promise<{ state:
   return { state: "none", email: null };
 };
 
-export const getPartnerAccessState = async ({ partnerId }: PartnerInvitationIdentity): Promise<{ state: PartnerAccessState; email: string | null }> => {
+export const getPartnerAccessState = async ({ partnerId, legacyPartnerIds = [] }: PartnerInvitationIdentity): Promise<{ state: PartnerAccessState; email: string | null }> => {
   const trimmedPartnerId = partnerId.trim();
   if (!trimmedPartnerId) return { state: "none", email: null };
+  const [legacyPartnerId1 = "", legacyPartnerId2 = "", legacyPartnerId3 = ""] = legacyPartnerIds
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   await createUserAccessTable();
   await createPartnerInvitationsTable();
   const sql = getSql();
   const activeRows = await sql`
     SELECT email FROM user_access
-    WHERE partner_id = ${trimmedPartnerId} AND role = 'partner_expert' AND status = 'active'
+    WHERE partner_id IN (${trimmedPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
+      AND role = 'partner_expert' AND status = 'active'
   `;
   if (activeRows[0]) {
     return { state: "active", email: String((activeRows[0] as Record<string, unknown>).email ?? "") || null };
@@ -1053,7 +1060,7 @@ export const getPartnerAccessState = async ({ partnerId }: PartnerInvitationIden
 
   const invitationRows = await sql`
     SELECT email FROM partner_invitations
-    WHERE partner_id = ${trimmedPartnerId}
+    WHERE partner_id IN (${trimmedPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
       AND status = 'invited'
       AND NULLIF(btrim(clerk_invitation_id), '') IS NOT NULL
   `;
@@ -1079,6 +1086,9 @@ export const invitePartnerToKlique = async (
   if (!authResult) return { ok: false, reason: "forbidden" };
 
   const exactPartnerId = trimmedPartnerId;
+  const [legacyPartnerId1 = "", legacyPartnerId2 = "", legacyPartnerId3 = ""] = (partner.legacyPartnerIds ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
   const email = partner.email.trim();
   if (!email) return { ok: false, reason: "missing_email" };
   if (!isValidEmail(email)) return { ok: false, reason: "invalid_email" };
@@ -1092,7 +1102,10 @@ export const invitePartnerToKlique = async (
 
   const activeRows = await sql`
     SELECT clerk_user_id FROM user_access
-    WHERE (partner_id = ${exactPartnerId} OR lower(btrim(email)) = ${normalizedEmail}) AND status = 'active'
+    WHERE (
+      partner_id IN (${exactPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
+      OR lower(btrim(email)) = ${normalizedEmail}
+    ) AND status = 'active'
   `;
   if (activeRows[0]) return { ok: false, reason: "already_active" };
 
@@ -1100,11 +1113,16 @@ export const invitePartnerToKlique = async (
     SELECT partner_id, email, clerk_invitation_id FROM partner_invitations
     WHERE status = 'invited'
       AND NULLIF(btrim(clerk_invitation_id), '') IS NOT NULL
-      AND (partner_id = ${exactPartnerId} OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail}))
+      AND (
+        partner_id IN (${exactPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
+        OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail})
+      )
   `;
   const pending = pendingRows[0] as { partner_id?: string; email?: string; clerk_invitation_id?: string } | undefined;
   const isResend = options?.resend === true;
-  if (pending && (!isResend || pending.partner_id !== exactPartnerId || pending.email?.trim().toLowerCase() !== normalizedEmail)) {
+  const acceptedPartnerIds = new Set([exactPartnerId, legacyPartnerId1, legacyPartnerId2, legacyPartnerId3].filter(Boolean));
+  const pendingPartnerId = pending?.partner_id?.trim() ?? "";
+  if (pending && (!isResend || !acceptedPartnerIds.has(pendingPartnerId) || pending.email?.trim().toLowerCase() !== normalizedEmail)) {
     return { ok: false, reason: "already_invited" };
   }
 
@@ -1112,17 +1130,22 @@ export const invitePartnerToKlique = async (
     SELECT partner_id FROM partner_invitations
     WHERE status = 'invited'
       AND NULLIF(btrim(clerk_invitation_id), '') IS NULL
-      AND (partner_id = ${exactPartnerId} OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail}))
+      AND (
+        partner_id IN (${exactPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
+        OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail})
+      )
     LIMIT 1
   `;
-  const hasIncompleteInvitation = Boolean(incompleteRows[0]);
+  const incompletePartnerId = String((incompleteRows[0] as { partner_id?: unknown } | undefined)?.partner_id ?? "").trim();
+  const hasIncompleteInvitation = Boolean(incompletePartnerId);
+  const storedPartnerId = pendingPartnerId || (acceptedPartnerIds.has(incompletePartnerId) ? incompletePartnerId : exactPartnerId);
 
   let clerkInvitationId = "";
   try {
     const client = await clerkClient();
     const invitation = await client.invitations.createInvitation({
       emailAddress: email,
-      publicMetadata: { role: "partner_expert", workspaceId, partnerId: exactPartnerId },
+      publicMetadata: { role: "partner_expert", workspaceId, partnerId: storedPartnerId },
       redirectUrl: `${getAppOrigin()}/sign-up?portal=partner`,
       notify: true,
       ignoreExisting: isResend || hasIncompleteInvitation,
@@ -1140,7 +1163,7 @@ export const invitePartnerToKlique = async (
     INSERT INTO partner_invitations (
       partner_id, workspace_id, email, clerk_invitation_id, status, invited_by_clerk_user_id, created_at, updated_at
     ) VALUES (
-      ${exactPartnerId}, ${workspaceId}, ${email}, ${clerkInvitationId}, 'invited', ${authResult.userId}, NOW(), NOW()
+      ${storedPartnerId}, ${workspaceId}, ${email}, ${clerkInvitationId}, 'invited', ${authResult.userId}, NOW(), NOW()
     )
     ON CONFLICT (partner_id) DO UPDATE SET
       workspace_id = EXCLUDED.workspace_id,

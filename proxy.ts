@@ -8,12 +8,19 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/api/auth/login",
   "/api/auth/logout",
+  "/api/internal/partner-application-sync",
   "/__clerk/(.*)",
 ]);
 
 const accessPendingPath = "/access-pending";
 
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
+
+export const isAdminPartnerBenefitReservationAuditApi = (pathname: string, method: string): boolean =>
+  pathname === "/api/admin/partner-benefit-reservations" && method === "GET";
+
+export const isPartnerApplicationSyncWebhook = (pathname: string, method: string): boolean =>
+  pathname === "/api/internal/partner-application-sync" && method === "POST";
 
 export const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
   if (pathname === "/api/notifications") {
@@ -46,6 +53,14 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
 
   if (pathname === "/api/athlete/subscription/content-requests") {
     return method === "GET" || method === "POST";
+  }
+
+  if (pathname === "/api/athlete/partner-benefits") {
+    return method === "GET" || method === "POST";
+  }
+
+  if (/^\/api\/athlete\/partner-benefit-reservations\/[^/]+$/.test(pathname)) {
+    return method === "PATCH";
   }
 
   if (
@@ -139,6 +154,7 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
 export const isPartnerAllowedPage = (pathname: string): boolean => {
   return pathname === "/partner"
     || pathname === "/partner/athletes"
+    || pathname === "/partner/benefit-reservations"
     || pathname === "/partner/community"
     || pathname === "/partner/contact-requests"
     || /^\/partner\/athletes\/[^/]+$/.test(pathname);
@@ -151,6 +167,8 @@ export const isPartnerAllowedApi = (pathname: string, method: string): boolean =
     || (pathname === "/api/partner/community" && method === "GET")
     || (pathname === "/api/partner/opportunities" && method === "GET")
     || (pathname === "/api/partner/benefits" && method === "GET")
+    || (pathname === "/api/partner/benefit-reservations" && method === "GET")
+    || (/^\/api\/partner\/benefit-reservations\/[^/]+$/.test(pathname) && method === "PATCH")
     || (pathname === "/api/partner/resources" && method === "GET")
     || (/^\/api\/partner\/resources\/[^/]+$/.test(pathname) && method === "GET")
     || (pathname === "/api/partner/contact-requests" && (method === "GET" || method === "POST"))
@@ -200,6 +218,15 @@ export default clerkMiddleware(
         return isApiRoute(pathname)
           ? NextResponse.next()
           : NextResponse.redirect(new URL(accessPendingPath, request.url));
+      }
+
+      const adminAuditPath = "/api/admin/partner-benefit-reservations";
+      if (
+        access.role === "admin"
+        && (pathname === adminAuditPath || pathname.startsWith(`${adminAuditPath}/`))
+        && !isAdminPartnerBenefitReservationAuditApi(pathname, request.method)
+      ) {
+        return apiAccessDenied();
       }
 
       if (access.role === "athlete" && !isAthleteAllowedRoute(pathname, request.method)) {

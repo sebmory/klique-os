@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clerkClient } from "@clerk/nextjs/server";
 import { evaluateBusinessAccess, getCurrentUserAccessProfile, getCurrentUserPermissionContext } from "@/lib/clerk-access/service";
 import * as googleSheets from "@/lib/google-sheets";
-import { getEcosystemPartnersFrom06Partenaires } from "@/lib/google-sheets";
+import { getEcosystemPartnersFrom06Partenaires, resolvePartnerReference } from "@/lib/google-sheets";
 import {
   createNotificationsForRecipients,
   findActiveAdminClerkUserIds,
@@ -181,14 +181,8 @@ export async function GET(request: NextRequest) {
 
     if (canReadAsPartner) {
       const partnerId = permissionContext.partnerId?.trim() ?? "";
-      const rowMatch = partnerId.match(/^row-(\d+)$/);
-      if (!rowMatch) {
-        return NextResponse.json({ partners: [], source: "google-sheets" });
-      }
-
-      const partnerRow = Number(rowMatch[1]);
       const partners = await getEcosystemPartnersFrom06Partenaires();
-      const ownPartner = partners.find((partner) => partner.row === partnerRow);
+      const ownPartner = resolvePartnerReference(partners, partnerId);
 
       return NextResponse.json({
         partners: ownPartner ? [toPartnerPortalProfile(ownPartner)] : [],

@@ -20,6 +20,10 @@ vi.mock("@/components/settings/ClubAdminSection", () => ({
   ClubAdminSection: () => createElement("div", { "data-testid": "club-admin" }),
 }));
 
+vi.mock("@/components/settings/PartnerBenefitUsageSection", () => ({
+  PartnerBenefitUsageSection: () => createElement("div", { "data-testid": "partner-benefit-usage" }),
+}));
+
 import SettingsPage from "@/app/settings/page";
 
 let container: HTMLElement;
@@ -44,6 +48,10 @@ afterEach(async () => {
 describe("Admin settings navigation", () => {
   it("renders Club provisioning in settings", () => {
     expect(container.querySelector('[data-testid="club-admin"]')).not.toBeNull();
+  });
+
+  it("renders Partner benefit usage in settings", () => {
+    expect(container.querySelector('[data-testid="partner-benefit-usage"]')).not.toBeNull();
   });
 
   it("links to Athlete subscription management", () => {

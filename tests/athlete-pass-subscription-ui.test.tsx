@@ -10,56 +10,61 @@ import {
 
 type SubscriptionContentFormats = readonly AthleteContentFormat[];
 
-const subscription = {
-  id: "49c345aa-fb6e-46e8-83ef-1e07d7b69192",
+const pass = {
+  id: "membership-impact",
+  contentRequestSubscriptionId: "49c345aa-fb6e-46e8-83ef-1e07d7b69192",
+  membershipKind: "subscription",
   planCode: "impact",
   status: "active",
-  startsOn: "2026-09-14",
-  endsOn: "2027-09-14",
-  isFounder: true,
-  isComplimentary: true,
-  priceChf: 549,
-  discountPercent: 20,
+  startsAt: "2026-09-14T08:00:00.000Z",
+  endsAt: "2027-09-14T08:00:00.000Z",
+  autoRenew: true,
+  isFounder: false,
   catalog: {
     code: "impact",
     name: "Impact",
     annualPriceChf: 549,
-    includedProductions: [
-      { kind: "photo_session", imageCount: 20 },
-      { kind: "media_day", portraitCount: 35, interviewDurationMinutes: [5, 6] },
-    ],
+    productionCreditCount: 2,
     customContentCount: 4,
-    aLaCarteDiscountPercent: 20,
+    videoAllowed: true,
     commonBenefits: [
       { code: "platform", name: "Plateforme KLIQUE", description: "Accès à l’espace Athlète KLIQUE." },
       { code: "media_requests", name: "Demandes médias", description: "Envoi et suivi des demandes médias." },
     ],
     contentFormats: ATHLETE_CONTENT_FORMATS as SubscriptionContentFormats,
   },
+  credits: {
+    production: { included: 2, available: 1 },
+    customContent: { included: 4, available: 4 },
+  },
 };
 
 const founderSubscription = {
-  ...subscription,
+  ...pass,
+  id: "membership-founder",
+  membershipKind: "founder",
   planCode: "founder",
   isFounder: true,
-  isComplimentary: true,
-  priceChf: 0,
-  discountPercent: 0,
+  autoRenew: false,
   catalog: {
-    ...subscription.catalog,
+    ...pass.catalog,
     code: "founder",
     name: "Membre fondateur",
     annualPriceChf: 0,
-    includedProductions: [],
+    productionCreditCount: 0,
     customContentCount: 0,
-    aLaCarteDiscountPercent: 0,
+    videoAllowed: false,
     contentFormats: [] as SubscriptionContentFormats,
+  },
+  credits: {
+    production: { included: 0, available: 0 },
+    customContent: { included: 0, available: 0 },
   },
 };
 
 const contentRequest = (overrides: Record<string, unknown> = {}) => ({
   id: "91d272d1-1a5b-4486-bbc0-69b1ce747e4d",
-  subscriptionId: subscription.id,
+  subscriptionId: pass.contentRequestSubscriptionId,
   formatCode: "portrait",
   status: "requested",
   athleteNote: "Portrait pour une annonce.",
@@ -83,12 +88,13 @@ const response = (payload: unknown, status = 200) => ({
 }) as unknown as Response;
 
 const mockInitialLoad = (
-  currentSubscription: typeof subscription | null = subscription,
+  currentPass: typeof pass | null = pass,
   requests: Array<ReturnType<typeof contentRequest>> = [],
 ) => {
   fetchMock
-    .mockResolvedValueOnce(response({ subscription: currentSubscription }))
-    .mockResolvedValueOnce(response({ requests }));
+    .mockResolvedValueOnce(response({ pass: currentPass }))
+    .mockResolvedValueOnce(response({ requests }))
+    .mockResolvedValueOnce(response({ benefits: [] }));
 };
 
 const mount = async () => {
@@ -141,10 +147,14 @@ describe("Athlete KLIQUE Pass subscription view", () => {
       credentials: "include",
       cache: "no-store",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/athlete/partner-benefits", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("displays the offer, validity, flags, catalog value and discount", async () => {
+  it("displays the canonical offer, validity and annual catalog price", async () => {
     mockInitialLoad();
 
     await mount();
@@ -152,21 +162,20 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     expect(container.textContent).toContain("Impact");
     expect(container.textContent).toContain("14 septembre 2026");
     expect(container.textContent).toContain("14 septembre 2027");
-    expect(container.textContent).toContain("Membre fondateur : Oui");
-    expect(container.textContent).toContain("Offert : Oui");
-    expect(container.textContent).toContain("Offert — valeur CHF 549");
-    expect(container.textContent).toContain("Remise à la carte : −20 %");
+    expect(container.textContent).toContain("Membre fondateur : Non");
+    expect(container.textContent).toContain("CHF 549/an");
+    expect(container.textContent).toContain("Renouvellement : automatique");
     expect(container.textContent).not.toContain("à payer");
   });
 
-  it("lists productions, annual custom content quota, benefits and formats", async () => {
+  it("lists canonical included and available credits, benefits and formats", async () => {
     mockInitialLoad();
 
     await mount();
 
-    expect(container.textContent).toContain("Séance photo · 20 images");
-    expect(container.textContent).toContain("Media Day · 35 portraits et interview de 5–6 minutes");
-    expect(container.textContent).toContain("Contenus personnalisés inclus par an : 4");
+    expect(container.textContent).toContain("Production : 1 disponible(s) sur 2");
+    expect(container.textContent).toContain("Contenu personnalisé : 4 disponible(s) sur 4");
+    expect(container.textContent).toContain("Vidéo : incluse");
     expect(container.textContent).toContain("Plateforme KLIQUE");
     expect(container.textContent).toContain("Demandes médias");
     expect(container.textContent).toContain("Portrait");
@@ -184,16 +193,15 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     expect(container.textContent).toContain("Accès plateforme offert pendant un an");
     expect(container.textContent).toContain("Plateforme KLIQUE");
     expect(container.textContent).not.toContain("Offre active");
-    expect(container.textContent).not.toContain("Productions incluses");
-    expect(container.textContent).not.toContain("Contenus personnalisés inclus par an");
+    expect(container.textContent).not.toContain("Crédits de l’offre");
     expect(container.textContent).not.toContain("Formats disponibles");
     expect(container.textContent).not.toContain("Mes contenus personnalisés");
-    expect(container.textContent).not.toContain("Remise à la carte");
+    expect(container.textContent).not.toContain("Renouvellement :");
     expect(container.querySelector("form")).toBeNull();
   });
 
   it("shows annual, occupied and available places for the current subscription", async () => {
-    mockInitialLoad(subscription, [
+    mockInitialLoad(pass, [
       contentRequest({ id: "request-1", status: "requested" }),
       contentRequest({ id: "request-2", status: "completed" }),
       contentRequest({ id: "request-3", status: "declined" }),
@@ -203,7 +211,7 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     await mount();
 
     const quota = container.querySelector('[aria-label="Quota de contenus personnalisés"]');
-    expect(quota?.textContent).toContain("Quota annuel4");
+    expect(quota?.textContent).toContain("Crédits inclus4");
     expect(quota?.textContent).toContain("Places occupées2");
     expect(quota?.textContent).toContain("Places disponibles2");
   });
@@ -225,9 +233,24 @@ describe("Athlete KLIQUE Pass subscription view", () => {
 
     await act(async () => { root.unmount(); });
     root = createRoot(container);
-    fetchMock.mockResolvedValueOnce(response({ error: "Accès refusé." }, 403));
-    fetchMock.mockResolvedValueOnce(response({ requests: [] }));
+  fetchMock.mockReset();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/athlete/subscription") {
+        return Promise.resolve(response({ error: "Accès refusé." }, 403));
+      }
+      if (url === "/api/athlete/subscription/content-requests") {
+        return Promise.resolve(response({ requests: [] }));
+      }
+      if (url === "/api/athlete/partner-benefits") {
+        return Promise.resolve(response({ benefits: [] }));
+      }
+      throw new Error(`URL inattendue : ${url}`);
+    });
     await mount();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Accès refusé.");
   });
 
@@ -254,7 +277,7 @@ describe("Athlete KLIQUE Pass subscription view", () => {
       athleteNote: "Une capsule dynamique",
       preferredDate: "2026-11-03",
     });
-    mockInitialLoad(subscription, [contentRequest({ id: "existing-request", status: "declined" })]);
+    mockInitialLoad(pass, [contentRequest({ id: "existing-request", status: "declined" })]);
     fetchMock.mockResolvedValueOnce(response({ request: createdRequest }, 201));
     await mount();
 
@@ -298,7 +321,7 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     ["declined", "Refusé"],
     ["cancelled", "Annulé"],
   ])("renders status %s in French", async (status, label) => {
-    mockInitialLoad(subscription, [contentRequest({ status })]);
+    mockInitialLoad(pass, [contentRequest({ status })]);
 
     await mount();
 
@@ -306,7 +329,7 @@ describe("Athlete KLIQUE Pass subscription view", () => {
   });
 
   it("blocks submission when every annual place is occupied", async () => {
-    mockInitialLoad(subscription, [
+    mockInitialLoad(pass, [
       contentRequest({ id: "request-1", status: "requested" }),
       contentRequest({ id: "request-2", status: "accepted" }),
       contentRequest({ id: "request-3", status: "in_progress" }),
@@ -319,6 +342,6 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     ));
     expect(submit?.disabled).toBe(true);
     expect(container.textContent).toContain("Votre quota annuel est occupé");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

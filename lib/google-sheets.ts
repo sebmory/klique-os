@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { google } from "googleapis";
 import path from "path";
 import type { Athlete, AthleteUpdate, PublicAthleteDirectoryEntry, PublicAthleteProfile } from "@/types/athlete";
@@ -21,6 +22,24 @@ const stableKey = (value: string) =>
   normalize(value)
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+
+const partnerUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const isPartnerUuid = (value: unknown): value is string =>
+  typeof value === "string" && partnerUuidPattern.test(value.trim());
+
+export const resolvePartnerReference = (partners: Partner[], value: unknown): Partner | null => {
+  const reference = String(value ?? "").trim();
+  if (!reference) return null;
+  const rowMatch = /^(?:row-)?(\d+)$/.exec(reference);
+  const row = rowMatch ? Number(rowMatch[1]) : null;
+  const normalizedReference = normalize(reference);
+  return partners.find((partner) =>
+    partner.id === reference
+    || (row !== null && partner.row === row)
+    || normalize(partner.name) === normalizedReference
+  ) ?? null;
+};
 
 const initials = (name: string) =>
   name
@@ -2239,11 +2258,14 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       const lastContactColumn = findBranchColumn("Dernier contact");
       const collaborationStartColumn = findBranchColumn("Début collaboration");
       const collaborationEndColumn = findBranchColumn("Fin collaboration");
+      const partnerIdColumn = findBranchColumn("Partner ID");
       const dateAt = (sheetRow: unknown[], index: number): string => (index >= 0 ? valueAt(sheetRow, index) : "");
 
       const toPartner = (sheetRow: unknown[], index: number): Partner => ({
         row: headerRowIndex + 2 + index,
-        id: valueAt(sheetRow, 0) || `partner-${headerRowIndex + 2 + index}`,
+        id: isPartnerUuid(valueAt(sheetRow, partnerIdColumn))
+          ? valueAt(sheetRow, partnerIdColumn)
+          : valueAt(sheetRow, 0) || `partner-${headerRowIndex + 2 + index}`,
         name: valueAt(sheetRow, 0),
         relationType: normalizeBusinessRelationType(valueAt(sheetRow, 1)),
         category: valueAt(sheetRow, 2) || "Non renseigne",
@@ -2307,7 +2329,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
     };
 
     const column = {
-      id: findPartnerColumn(["id", "identifiant", "slug"], -1),
+      id: findPartnerColumnExact(["partner id", "id partenaire", "partner uuid"], -1),
       name: findPartnerColumn(["nom", "nom partenaire"], 0),
       relationType: findPartnerColumnExact(["type de relation", "type", "relation type"], -1),
       category: findPartnerColumn(["categorie"], -1),
@@ -2383,7 +2405,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
         const instagram = instagramRaw || (combinedSiteInstagram.toLowerCase().includes("instagram") ? combinedSiteInstagram : "");
 
         const explicitId = rowFromSheet(sheetRow, column.id);
-        const resolvedId = explicitId || stableKey(name);
+        const resolvedId = isPartnerUuid(explicitId) ? explicitId : stableKey(name);
 
         const expertRaw = rowFromSheet(sheetRow, column.expert);
         const isExpert = expertRaw ? boolValue(expertRaw) : relationType === "Expert";
@@ -2436,7 +2458,7 @@ export async function getPartnersFromGoogleSheets(): Promise<Partner[]> {
       .filter((partner) => partner.name.trim().length > 0);
   };
 
-  const sheetCandidates = ["20_Partenaires", "06_Partenaires", "10_Fiche Partenaire"];
+  const sheetCandidates = ["06_Partenaires", "20_Partenaires", "10_Fiche Partenaire"];
   const diagnostics: string[] = [];
   let partners: Partner[] = [];
 
@@ -2587,7 +2609,7 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'06_Partenaires'!A4:Y",
+    range: "'06_Partenaires'!A4:Z",
   });
 
   const valueAt = (sheetRow: unknown[], index: number): string => String(sheetRow[index] ?? "").trim();
@@ -2600,7 +2622,9 @@ export async function getEcosystemPartnersFrom06Partenaires(): Promise<Partner[]
 
       return {
         row: rowNumber,
-        id: valueAt(sheetRow, 0) || `partner-${rowNumber}`,
+        id: isPartnerUuid(valueAt(sheetRow, 25))
+          ? valueAt(sheetRow, 25)
+          : valueAt(sheetRow, 0) || `partner-${rowNumber}`,
         name: valueAt(sheetRow, 0),
         relationType,
         type: relationType,
@@ -2946,10 +2970,11 @@ export async function rejectPartnerApplication({
 export async function addPartnerToGoogleSheets(
   partner: NewPartner
 ): Promise<{ partnerId: string; row: number }> {
+  const partnerId = randomUUID();
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const headerResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: "'06_Partenaires'!A1:Y3",
+    range: "'06_Partenaires'!A1:Z3",
   });
   const headerRows = (headerResponse.data.values ?? []) as unknown[][];
   const normalizePartnerHeader = (value: unknown) => normalize(value)
@@ -2966,6 +2991,15 @@ export async function addPartnerToGoogleSheets(
   }
 
   const headerRow = headerRows[headerRowIndex];
+  const partnerIdHeaderIndex = headerRow.findIndex((value) => normalizePartnerHeader(value) === "partner id");
+  if (partnerIdHeaderIndex < 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: getSpreadsheetId(),
+      range: `'06_Partenaires'!Z${headerRowIndex + 1}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["Partner ID"]] },
+    });
+  }
   const valuesByHeader: Record<string, string> = {
     nom: partner.name,
     "nom partenaire": partner.name,
@@ -2994,8 +3028,11 @@ export async function addPartnerToGoogleSheets(
     notes: partner.notes,
     "athletes concernes": partner.athletes,
     athletes: partner.athletes,
+    "partner id": partnerId,
+    "id partenaire": partnerId,
+    "partner uuid": partnerId,
   };
-  const fixedColumnValues = Array.from({ length: 25 }, () => "");
+  const fixedColumnValues = Array.from({ length: 26 }, () => "");
   fixedColumnValues[0] = partner.name;
   fixedColumnValues[1] = partner.relationType ?? partner.type ?? (partner.expertKlique ? "Expert" : "Partenaire");
   fixedColumnValues[2] = partner.category;
@@ -3007,14 +3044,16 @@ export async function addPartnerToGoogleSheets(
   fixedColumnValues[9] = partner.athletes;
   fixedColumnValues[10] = partner.status;
   fixedColumnValues[19] = partner.benefits;
-  const appendValues = Array.from({ length: 25 }, (_, index) => {
+  fixedColumnValues[25] = partnerId;
+  const appendValues = Array.from({ length: 26 }, (_, index) => {
+    if (index === 25) return partnerId;
     const header = normalizePartnerHeader(headerRow[index]);
     return valuesByHeader[header] ?? fixedColumnValues[index];
   });
 
   const appendResponse = await sheets.spreadsheets.values.append({
     spreadsheetId: getSpreadsheetId(),
-    range: "'06_Partenaires'!A:Y",
+    range: "'06_Partenaires'!A:Z",
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -3030,12 +3069,13 @@ export async function addPartnerToGoogleSheets(
 
   const persistedRowResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `'06_Partenaires'!A${row}:Y${row}`,
+    range: `'06_Partenaires'!A${row}:Z${row}`,
   });
   const persistedRow = persistedRowResponse.data.values?.[0] ?? [];
   const persistedPartnerId = String(persistedRow[0] ?? "").trim();
   const persistedEmail = String(persistedRow[5] ?? "").trim();
-  if (!persistedPartnerId || persistedPartnerId !== partner.name.trim() || persistedEmail !== partner.email.trim()) {
+  const persistedUuid = String(persistedRow[25] ?? "").trim();
+  if (!persistedPartnerId || persistedPartnerId !== partner.name.trim() || persistedEmail !== partner.email.trim() || persistedUuid !== partnerId) {
     throw new Error("La ressource créée n’a pas pu être confirmée dans 06_Partenaires.");
   }
 
@@ -3045,7 +3085,7 @@ export async function addPartnerToGoogleSheets(
     throw new Error("La ressource créée n’est pas disponible dans la source Écosystème.");
   }
 
-  return { partnerId: createdPartner.id, row };
+  return { partnerId, row };
 }
 
 export async function updatePartnerInGoogleSheets(
@@ -3058,31 +3098,48 @@ export async function updatePartnerInGoogleSheets(
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const row = update.row;
 
+  const headerResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: "'06_Partenaires'!A1:Z3",
+  });
+  const headerRows = (headerResponse.data.values ?? []) as unknown[][];
+  const headerRow = headerRows.find((candidate) => candidate.some((value) => {
+    const header = normalize(value);
+    return header === "nom" || header === "nom partenaire";
+  })) ?? [];
+  const normalizedHeaders = headerRow.map((value) => normalize(value).replace(/[?()]/g, "").replace(/[\/|_-]/g, " ").replace(/\s+/g, " ").trim());
+  const columnFor = (names: string[], fallback: number): number => {
+    const index = normalizedHeaders.findIndex((header) => names.includes(header));
+    return index >= 0 ? index : fallback;
+  };
+
   const currentResponse = await sheets.spreadsheets.values.get({
     spreadsheetId: getSpreadsheetId(),
-    range: `'20_Partenaires'!A${row}:N${row}`,
+    range: `'06_Partenaires'!A${row}:Z${row}`,
   });
 
   const current = currentResponse.data.values?.[0] ?? [];
-  const next = Array.from({ length: 14 }, (_, index) => current[index] ?? "");
-
-  if (update.name !== undefined) next[1] = update.name;
-  if (update.category !== undefined) next[2] = update.category;
-  if (update.expertKlique !== undefined) next[3] = update.expertKlique ? "Oui" : "Non";
-  if (update.contact !== undefined) next[4] = update.contact;
-  if (update.email !== undefined) next[5] = update.email;
-  if (update.phone !== undefined) next[6] = update.phone;
-  if (update.website !== undefined) next[7] = update.website;
-  if (update.instagram !== undefined) next[8] = update.instagram;
-  if (update.description !== undefined) next[9] = update.description;
-  if (update.benefits !== undefined) next[10] = update.benefits;
-  if (update.notes !== undefined) next[11] = update.notes;
-  if (update.status !== undefined) next[12] = update.status;
-  if (update.athletes !== undefined) next[13] = update.athletes;
+  const next = Array.from({ length: 26 }, (_, index) => current[index] ?? "");
+  const set = (value: unknown, names: string[], fallback: number) => {
+    if (value !== undefined) next[columnFor(names, fallback)] = value;
+  };
+  set(update.name, ["nom", "nom partenaire"], 0);
+  set(update.expertKlique === undefined ? undefined : update.expertKlique ? "Expert" : "Partenaire", ["type", "type de relation"], 1);
+  set(update.category, ["categorie"], 2);
+  set(update.contact, ["contact principal", "contact"], 3);
+  set(update.email, ["email", "e mail"], 5);
+  set(update.phone, ["telephone", "tel"], 6);
+  set(update.website, ["site", "site web", "site internet", "website"], 7);
+  set(update.description, ["description"], 8);
+  set(update.athletes, ["athletes concernes", "athletes"], 9);
+  set(update.status, ["statut"], 10);
+  set(update.benefits, ["offre avantage membres", "avantage membres", "avantages", "benefits"], 19);
+  set(update.instagram, ["instagram"], 20);
+  set(update.notes, ["notes"], 21);
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: getSpreadsheetId(),
-    range: `'20_Partenaires'!A${row}:N${row}`,
+    range: `'06_Partenaires'!A${row}:Z${row}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [next] },
   });

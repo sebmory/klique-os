@@ -10,6 +10,7 @@ import {
   getEcosystemPartnersFrom06Partenaires,
   getPublicAthleteDirectoryFromGoogleSheets,
   getPublicAthleteProfileFromGoogleSheets,
+  resolvePartnerReference,
 } from "@/lib/google-sheets";
 
 export const dynamic = "force-dynamic";
@@ -61,14 +62,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
 
-    const partnerRowMatch = partnerId.match(/^row-(\d+)$/);
-    if (!partnerRowMatch) {
-      return NextResponse.json({ error: "Fiche partenaire active introuvable." }, { status: 403 });
-    }
-
-    const partnerRow = Number(partnerRowMatch[1]);
     const partners = await getEcosystemPartnersFrom06Partenaires();
-    const activePartner = partners.find((partner) => partner.row === partnerRow && partner.status.trim().toLowerCase() === "actif");
+    const resolvedPartner = resolvePartnerReference(partners, partnerId);
+    const activePartner = resolvedPartner?.status.trim().toLowerCase() === "actif" ? resolvedPartner : null;
     if (!activePartner) {
       return NextResponse.json({ error: "Fiche partenaire active introuvable." }, { status: 403 });
     }
@@ -94,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     const contactRequest = await createPartnerAthleteIntroduction({
       workspaceId,
-      partnerId,
+      partnerId: activePartner.id,
       athleteId,
       reason,
       message,

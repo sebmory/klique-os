@@ -70,4 +70,13 @@ describe("partner community navigation", () => {
       expect.objectContaining({ label: "Communauté", href: "/hub" }),
     ]));
   });
+
+  it("labels the Partner benefit reservations breadcrumb", () => {
+    expect(buildBreadcrumb("/partner/benefit-reservations")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "Réservations d’avantages",
+        href: "/partner/benefit-reservations",
+      }),
+    ]));
+  });
 });

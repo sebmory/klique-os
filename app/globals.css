@@ -5081,6 +5081,237 @@ button {
   gap: 16px;
 }
 
+.crm-partner-span-full {
+  grid-column: 1 / -1;
+}
+
+.partner-benefits-admin {
+  border-color: #dce7df;
+  background: #fbfdfb;
+}
+
+.partner-benefits-admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.partner-benefits-admin-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.partner-benefits-admin-head p {
+  margin: 0;
+  color: #66706a;
+  font-size: 0.86rem;
+}
+
+.partner-benefits-admin-head .crm-primary-action {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.partner-benefits-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.partner-benefits-admin-layout.has-form {
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  align-items: start;
+}
+
+.partner-benefits-admin-list {
+  display: grid;
+  gap: 10px;
+}
+
+.partner-benefits-admin-list > p,
+.partner-benefits-admin-empty {
+  margin: 0;
+  color: #66706a;
+  padding: 18px 0;
+}
+
+.partner-benefit-admin-item {
+  border-top: 1px solid #e3ebe5;
+  padding: 16px 0 6px;
+  display: grid;
+  gap: 10px;
+}
+
+.partner-benefit-admin-item:first-of-type {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.partner-benefit-admin-item > p {
+  margin: 0;
+  color: #3f4943;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.partner-benefit-admin-title,
+.partner-benefit-admin-title > div,
+.partner-benefit-admin-actions,
+.partner-benefit-admin-meta {
+  display: flex;
+  align-items: center;
+}
+
+.partner-benefit-admin-title {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.partner-benefit-admin-title > div:first-child {
+  gap: 10px;
+  min-width: 0;
+}
+
+.partner-benefit-admin-title h3 {
+  margin: 0;
+  color: #202622;
+  font-size: 0.98rem;
+}
+
+.partner-benefit-admin-status {
+  min-height: 22px;
+  border: 1px solid #d4ddd7;
+  border-radius: 999px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  color: #536159;
+  background: #f3f6f4;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.partner-benefit-admin-status.is-active {
+  color: #17643a;
+  border-color: #b9dac5;
+  background: #eef8f1;
+}
+
+.partner-benefit-admin-actions {
+  gap: 6px;
+}
+
+.partner-benefit-admin-actions button,
+.partner-benefits-admin-form header button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d7dfda;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #38433c;
+  display: grid;
+  place-items: center;
+}
+
+.partner-benefit-admin-actions button:hover,
+.partner-benefits-admin-form header button:hover {
+  background: #f0f5f2;
+}
+
+.partner-benefit-admin-meta {
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #5f6b63;
+  font-size: 0.8rem;
+}
+
+.partner-benefit-admin-meta strong,
+.partner-benefit-admin-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.partner-benefits-admin-form {
+  border-left: 1px solid #dfe7e1;
+  padding-left: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.partner-benefits-admin-form header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.partner-benefits-admin-form h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.partner-benefits-admin-form label {
+  display: grid;
+  gap: 6px;
+  color: #4f5b53;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.partner-benefits-admin-form input,
+.partner-benefits-admin-form textarea,
+.partner-benefits-admin-form select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d6ddd8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #202622;
+  padding: 10px 11px;
+  font: inherit;
+  font-weight: 500;
+}
+
+.partner-benefits-admin-form textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.partner-benefits-admin-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.partner-benefits-admin-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.partner-benefits-admin-form-actions button {
+  min-height: 38px;
+  border: 1px solid #d6ddd8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 14px;
+}
+
+.partner-benefits-admin-error {
+  margin: 0;
+  border: 1px solid #efcaca;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #9f2525;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+}
+
 .crm-partner-span-two {
   grid-column: 1;
 }
@@ -5676,6 +5907,16 @@ button {
   .crm-partner-layout {
     grid-template-columns: 1fr;
   }
+  .partner-benefits-admin-layout.has-form,
+  .partner-benefits-admin-dates {
+    grid-template-columns: 1fr;
+  }
+
+  .partner-benefits-admin-form {
+    border-left: 0;
+    border-top: 1px solid #dfe7e1;
+    padding: 16px 0 0;
+  }
 
   .crm-partner-span-two,
   .crm-partner-span-one {
@@ -5998,6 +6239,15 @@ button {
 }
 
 @media (max-width: 560px) {
+  .partner-benefits-admin-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .partner-benefit-admin-title {
+    align-items: flex-start;
+  }
+
   .klique-header {
     padding-inline: var(--kl-spacing-3);
   }
@@ -6608,6 +6858,176 @@ button {
   border-radius: 8px;
   background: #ffffff;
   color: #5f5f5b;
+  text-align: center;
+}
+
+.partner-benefit-guidance {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 16px 18px;
+  border-left: 4px solid #d56b27;
+  background: #fff7ed;
+  color: #7c2d12;
+}
+
+.partner-benefit-guidance h2,
+.partner-benefit-guidance p,
+.partner-benefit-error p {
+  margin: 0;
+}
+
+.partner-benefit-guidance h2 {
+  margin-bottom: 4px;
+  font-size: 0.98rem;
+  letter-spacing: 0;
+}
+
+.partner-benefit-guidance p {
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.partner-benefit-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #d8d8d3;
+}
+
+.partner-benefit-tabs button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 7px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #666661;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.partner-benefit-tabs button span {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #e7e7e3;
+  color: #4f4f4b;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.partner-benefit-tabs button.is-active {
+  border-bottom-color: #d56b27;
+  color: #171717;
+}
+
+.partner-benefit-tabs button.is-active span {
+  background: #252525;
+  color: #ffffff;
+}
+
+.partner-benefit-panel,
+.partner-benefit-table-wrap {
+  min-width: 0;
+}
+
+.partner-benefit-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e2de;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.partner-benefit-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #333330;
+  font-size: 0.84rem;
+}
+
+.partner-benefit-table th,
+.partner-benefit-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid #ecece8;
+  text-align: left;
+  vertical-align: top;
+}
+
+.partner-benefit-table th {
+  background: #f7f7f4;
+  color: #70706b;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.partner-benefit-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.partner-benefit-table td > strong,
+.partner-benefit-table td > small {
+  display: block;
+}
+
+.partner-benefit-table td > small {
+  max-width: 360px;
+  margin-top: 3px;
+  color: #777772;
+  line-height: 1.45;
+}
+
+.partner-benefit-table td svg {
+  vertical-align: -2px;
+}
+
+.partner-benefit-actions {
+  display: flex;
+  min-width: 230px;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.partner-benefit-actions button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.partner-benefit-success {
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid #b8dfc4;
+  border-radius: 6px;
+  background: #e8f6ec;
+  color: #24623a;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.partner-benefit-error {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  color: #a02b2b;
+}
+
+.partner-benefit-empty {
+  margin: 0;
+  padding: 28px;
+  border: 1px dashed #cecec8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #73736e;
   text-align: center;
 }
 
@@ -7260,6 +7680,61 @@ button {
   .partner-portal-overview,
   .partner-portal-contact {
     grid-column: auto;
+  }
+
+  .partner-benefit-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .partner-benefit-table,
+  .partner-benefit-table tbody,
+  .partner-benefit-table tr,
+  .partner-benefit-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .partner-benefit-table thead {
+    display: none;
+  }
+
+  .partner-benefit-table tr {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid #e2e2de;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .partner-benefit-table td {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.36fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #ecece8;
+  }
+
+  .partner-benefit-table td::before {
+    content: attr(data-label);
+    color: #777772;
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .partner-benefit-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .partner-benefit-actions {
+    min-width: 0;
+  }
+
+  .partner-benefit-actions button {
+    justify-content: center;
+    width: 100%;
   }
 
   .partner-athletes-tools,

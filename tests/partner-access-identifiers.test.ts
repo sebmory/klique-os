@@ -118,13 +118,18 @@ describe("partner business identifiers", () => {
       authenticateRequest: authenticateRequestMock,
       users: { getUser: getUserMock },
     });
-    getPartnersFromGoogleSheetsMock.mockResolvedValue([{ id: "partner-business-7", row: 7 }]);
+    getPartnersFromGoogleSheetsMock.mockResolvedValue([{
+      id: "3d216a5b-4594-4c5a-b66b-1338b982a95f",
+      name: "Studio Alpha",
+      row: 7,
+    }]);
   });
 
   it.each([
-    ["business identifier", "partner-business-7"],
+    ["business identifier", "3d216a5b-4594-4c5a-b66b-1338b982a95f"],
     ["raw row number", "7"],
     ["row-N identifier", "row-7"],
+    ["legacy partner name", "Studio Alpha"],
   ])("resolves a partner from its %s", async (_label, partnerId) => {
     createContentStorageClientMock.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join(" ").toLowerCase();
@@ -138,6 +143,9 @@ describe("partner business identifiers", () => {
     const result = await resolveCurrentUserBusinessLink(new Request("https://app.klique.ch"));
 
     expect(result.businessType).toBe("partner");
-    expect(result.businessRecord).toMatchObject({ id: "partner-business-7", row: 7 });
+    expect(result.businessRecord).toMatchObject({
+      id: "3d216a5b-4594-4c5a-b66b-1338b982a95f",
+      row: 7,
+    });
   });
 });

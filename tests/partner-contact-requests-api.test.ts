@@ -22,6 +22,7 @@ vi.mock("@/lib/google-sheets", () => ({
   getEcosystemPartnersFrom06Partenaires: vi.fn(),
   getPublicAthleteDirectoryFromGoogleSheets: listAthletesMock,
   getPublicAthleteProfileFromGoogleSheets: vi.fn(),
+  resolvePartnerReference: vi.fn(),
 }));
 
 import { GET } from "@/app/api/partner/contact-requests/route";

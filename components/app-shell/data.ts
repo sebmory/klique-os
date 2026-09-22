@@ -74,6 +74,7 @@ export const partnerCommandEntries: SearchEntry[] = [
   { id: "partner-community", label: "Communauté", category: "Actions rapides", href: "/partner/community" },
   { id: "partner-athletes", label: "Annuaire des athlètes", category: "Personnes", href: "/partner/athletes" },
   { id: "partner-athlete-profiles", label: "Fiches Athlètes publiques", category: "Personnes", href: "/partner/athletes" },
+  { id: "partner-benefit-reservations", label: "Réservations d’avantages", category: "Actions rapides", href: "/partner/benefit-reservations" },
   { id: "partner-contact-requests", label: "Mes mises en relation", category: "Actions rapides", href: "/partner/contact-requests" },
   { id: "partner-notifications", label: "Notifications", category: "Actions rapides", action: "open-notifications" },
   { id: "partner-profile", label: "Mon espace / profil", category: "Actions rapides", href: "/partner" },

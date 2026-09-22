@@ -2,14 +2,20 @@ import { NextResponse } from "next/server";
 import {
   ATHLETE_CONTENT_FORMATS,
   ATHLETE_SUBSCRIPTION_COMMON_BENEFITS,
-  ATHLETE_SUBSCRIPTION_FOUNDER_PLAN,
-  ATHLETE_SUBSCRIPTION_PLANS,
+  type AthleteSubscriptionPlanCode,
 } from "@/lib/athlete-subscription-catalog";
 import {
-  getActiveAthleteSubscription,
-  type AthleteSubscription,
-} from "@/lib/athlete-subscriptions/service";
+  getAthleteCreditBalance,
+  listActiveAthleteMembershipPlans,
+  type AthleteCreditBalance,
+  type AthleteMembershipPlan,
+} from "@/lib/athlete-credits";
+import {
+  getCurrentAthleteMembership,
+  type CurrentAthleteMembership,
+} from "@/lib/athlete-memberships";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
+import { createContentStorageClient } from "@/lib/content-storage/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,7 +29,26 @@ type AthleteAccess = {
 
 type HandlerDependencies = {
   getAccess: (request: Request) => Promise<AthleteAccess | null>;
-  getActiveSubscription: (workspaceId: string, athleteId: string) => Promise<AthleteSubscription | null>;
+  getCurrentMembership: (workspaceId: string, athleteId: string) => Promise<CurrentAthleteMembership>;
+  listPlans: () => Promise<AthleteMembershipPlan[]>;
+  getCreditBalance: (workspaceId: string, athleteId: string) => Promise<AthleteCreditBalance>;
+  getContentRequestSubscriptionId: (workspaceId: string, membershipId: string) => Promise<string | null>;
+};
+
+const getContentRequestSubscriptionId = async (
+  workspaceId: string,
+  membershipId: string,
+): Promise<string | null> => {
+  const sql = createContentStorageClient();
+  const rows = await sql`
+    SELECT id
+    FROM athlete_subscriptions
+    WHERE workspace_id = ${workspaceId}
+      AND membership_id = ${membershipId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return rows[0]?.id ? String(rows[0].id) : null;
 };
 
 const defaultDependencies: HandlerDependencies = {
@@ -31,44 +56,70 @@ const defaultDependencies: HandlerDependencies = {
     const profile = await getCurrentUserAccessProfile(request);
     return profile?.userAccess ?? null;
   },
-  getActiveSubscription: getActiveAthleteSubscription,
+  getCurrentMembership: (workspaceId, athleteId) => getCurrentAthleteMembership({
+    workspaceId,
+    athleteId,
+    historical: { athleteIndex: null },
+  }),
+  listPlans: listActiveAthleteMembershipPlans,
+  getCreditBalance: getAthleteCreditBalance,
+  getContentRequestSubscriptionId,
 };
 
-const buildPublicSubscription = (subscription: AthleteSubscription) => {
-  const plan = subscription.planCode === ATHLETE_SUBSCRIPTION_FOUNDER_PLAN.code
-    ? ATHLETE_SUBSCRIPTION_FOUNDER_PLAN
-    : ATHLETE_SUBSCRIPTION_PLANS.find(({ code }) => code === subscription.planCode);
-  if (!plan) throw new Error("Catalogue d’abonnement Athlète incohérent.");
-  const contentFormatCodes = new Set<string>(plan.contentFormatCodes);
+const commercialPlanCodes = new Set<AthleteSubscriptionPlanCode>([
+  "essential",
+  "impact",
+  "signature",
+]);
+
+const isCommercialPlanCode = (value: string | null): value is AthleteSubscriptionPlanCode =>
+  value !== null && commercialPlanCodes.has(value as AthleteSubscriptionPlanCode);
+
+const zeroBalance: AthleteCreditBalance = { production: 0, custom_content: 0 };
+
+const buildPublicPass = ({
+  membership,
+  plan,
+  balance,
+  contentRequestSubscriptionId,
+}: {
+  membership: NonNullable<CurrentAthleteMembership["membership"]>;
+  plan: AthleteMembershipPlan | null;
+  balance: AthleteCreditBalance;
+  contentRequestSubscriptionId: string | null;
+}) => {
+  const founder = membership.membershipKind === "founder";
+  if (!founder && !plan) throw new Error("Catalogue d’abonnement Athlète incohérent.");
 
   return {
-    id: subscription.id,
-    planCode: subscription.planCode,
-    status: subscription.status,
-    startsOn: subscription.startsOn,
-    endsOn: subscription.endsOn,
-    isFounder: subscription.isFounder,
-    isComplimentary: subscription.isComplimentary,
-    priceChf: subscription.priceChf,
-    discountPercent: subscription.discountPercent,
-    photoSessionsIncluded: subscription.photoSessionsIncluded,
-    mediaDaysIncluded: subscription.mediaDaysIncluded,
-    competitionSessionsIncluded: subscription.competitionSessionsIncluded,
-    customContentsIncluded: subscription.customContentsIncluded,
-    createdAt: subscription.createdAt,
-    updatedAt: subscription.updatedAt,
+    id: membership.id,
+    contentRequestSubscriptionId,
+    membershipKind: membership.membershipKind,
+    planCode: founder ? "founder" : plan!.code,
+    status: membership.status,
+    startsAt: membership.startsAt,
+    endsAt: membership.endsAt,
+    autoRenew: membership.autoRenew,
+    isFounder: founder,
     catalog: {
-      code: plan.code,
-      name: plan.name,
-      annualPriceChf: plan.annualPriceChf,
-      inheritsFrom: "inheritsFrom" in plan ? plan.inheritsFrom : null,
-      includedProductions: plan.includedProductions,
-      customContentCount: plan.customContentCount,
-      aLaCarteDiscountPercent: plan.aLaCarteDiscountPercent,
-      commonBenefits: ATHLETE_SUBSCRIPTION_COMMON_BENEFITS.filter(({ code }) => (
-        plan.commonBenefitCodes.includes(code)
-      )),
-      contentFormats: ATHLETE_CONTENT_FORMATS.filter(({ code }) => contentFormatCodes.has(code)),
+      code: founder ? "founder" : plan!.code,
+      name: founder ? "Membre fondateur" : plan!.name,
+      annualPriceChf: founder ? 0 : plan!.annualPriceChf ?? 0,
+      productionCreditCount: founder ? 0 : plan!.productionCredits ?? 0,
+      customContentCount: founder ? 0 : plan!.customContentCredits ?? 0,
+      videoAllowed: founder ? false : plan!.videoAllowed === true,
+      commonBenefits: ATHLETE_SUBSCRIPTION_COMMON_BENEFITS,
+      contentFormats: founder ? [] : ATHLETE_CONTENT_FORMATS,
+    },
+    credits: {
+      production: {
+        included: founder ? 0 : plan!.productionCredits ?? 0,
+        available: founder ? 0 : Math.max(0, balance.production),
+      },
+      customContent: {
+        included: founder ? 0 : plan!.customContentCredits ?? 0,
+        available: founder ? 0 : Math.max(0, balance.custom_content),
+      },
     },
   };
 };
@@ -85,9 +136,27 @@ export const createAthleteSubscriptionHandlers = (
         return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
       }
 
-      const subscription = await dependencies.getActiveSubscription(workspaceId, athleteId);
+      const current = await dependencies.getCurrentMembership(workspaceId, athleteId);
+      const membership = current.membership;
+      if (!membership || !current.isActive) {
+        return NextResponse.json({ pass: null });
+      }
+
+      const founder = membership.membershipKind === "founder";
+      const planCode = membership.planCode;
+      if (!founder && !isCommercialPlanCode(planCode)) {
+        throw new Error("Plan d’abonnement Athlète invalide.");
+      }
+
+      const [plans, balance, contentRequestSubscriptionId] = await Promise.all([
+        founder ? Promise.resolve([]) : dependencies.listPlans(),
+        founder ? Promise.resolve(zeroBalance) : dependencies.getCreditBalance(workspaceId, athleteId),
+        dependencies.getContentRequestSubscriptionId(workspaceId, membership.id),
+      ]);
+      const plan = founder ? null : plans.find(({ code }) => code === planCode) ?? null;
+
       return NextResponse.json({
-        subscription: subscription ? buildPublicSubscription(subscription) : null,
+        pass: buildPublicPass({ membership, plan, balance, contentRequestSubscriptionId }),
       });
     } catch {
       return NextResponse.json(

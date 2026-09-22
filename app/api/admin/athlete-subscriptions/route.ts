@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import {
-  assignAthleteSubscription,
-  AthleteSubscriptionError,
-  bulkAssignFounderSubscriptions,
-  cancelAthleteSubscription,
-  listAthleteSubscriptions,
-  type AssignAthleteSubscriptionInput,
-  type AthleteSubscription,
-  type AthleteSubscriptionAssignmentPlanCode,
-  type BulkFounderAssignmentInput,
-  type BulkFounderAssignmentResult,
-  type CancelAthleteSubscriptionInput,
-} from "@/lib/athlete-subscriptions/service";
+  listAdminAthleteMemberships,
+  type AdminAthleteMembership,
+} from "@/lib/athlete-memberships";
+import { listActiveAthleteMembershipPlans, type AthleteMembershipPlan } from "@/lib/athlete-credits";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,10 +18,8 @@ type AdminAccess = {
 
 type HandlerDependencies = {
   getAccess: (request: Request) => Promise<AdminAccess | null>;
-  listSubscriptions: (workspaceId: string) => Promise<AthleteSubscription[]>;
-  assignSubscription: (input: AssignAthleteSubscriptionInput) => Promise<AthleteSubscription>;
-  bulkAssignFounder: (input: BulkFounderAssignmentInput) => Promise<BulkFounderAssignmentResult>;
-  cancelSubscription: (input: CancelAthleteSubscriptionInput) => Promise<AthleteSubscription>;
+  listMemberships: (workspaceId: string) => Promise<AdminAthleteMembership[]>;
+  listPlans: () => Promise<AthleteMembershipPlan[]>;
 };
 
 const defaultDependencies: HandlerDependencies = {
@@ -43,10 +33,8 @@ const defaultDependencies: HandlerDependencies = {
       workspaceId: profile.userAccess?.workspaceId,
     };
   },
-  listSubscriptions: listAthleteSubscriptions,
-  assignSubscription: assignAthleteSubscription,
-  bulkAssignFounder: bulkAssignFounderSubscriptions,
-  cancelSubscription: cancelAthleteSubscription,
+  listMemberships: listAdminAthleteMemberships,
+  listPlans: listActiveAthleteMembershipPlans,
 };
 
 type AdminContextResult =
@@ -70,96 +58,10 @@ const getAdminContext = async (
   return { context: { workspaceId, clerkUserId } };
 };
 
-const respondWithError = (error: unknown): NextResponse => {
-  if (error instanceof AthleteSubscriptionError) {
-    const status = error.code === "not_found" ? 404 : error.code === "conflict" ? 409 : 400;
-    return NextResponse.json({ error: error.message, code: error.code }, { status });
-  }
-  return NextResponse.json({ error: "Impossible de gérer les abonnements Athlètes." }, { status: 500 });
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value && typeof value === "object" && !Array.isArray(value));
-
-const hasOnlyKeys = (body: Record<string, unknown>, allowedKeys: readonly string[]): boolean => {
-  const allowed = new Set(allowedKeys);
-  return Object.keys(body).every((key) => allowed.has(key));
-};
-
-const planCodes: readonly AthleteSubscriptionAssignmentPlanCode[] = [
-  "essential",
-  "impact",
-  "signature",
-  "founder",
-];
-
-const parseAssignmentBody = (value: unknown): Omit<AssignAthleteSubscriptionInput, "workspaceId" | "createdByClerkUserId"> => {
-  if (!isRecord(value) || !hasOnlyKeys(value, [
-    "athleteId",
-    "planCode",
-    "startsOn",
-    "endsOn",
-    "isFounder",
-    "isComplimentary",
-  ])) {
-    throw new AthleteSubscriptionError("validation", "Données d’attribution invalides.");
-  }
-
-  const athleteId = typeof value.athleteId === "string" ? value.athleteId.trim() : "";
-  const startsOn = typeof value.startsOn === "string" ? value.startsOn.trim() : "";
-  const endsOn = typeof value.endsOn === "string" ? value.endsOn.trim() : "";
-  if (!athleteId || !startsOn || !endsOn || !planCodes.includes(value.planCode as AthleteSubscriptionAssignmentPlanCode)) {
-    throw new AthleteSubscriptionError("validation", "Données d’attribution invalides.");
-  }
-  if (typeof value.isFounder !== "boolean" || typeof value.isComplimentary !== "boolean") {
-    throw new AthleteSubscriptionError("validation", "Les indicateurs d’abonnement sont invalides.");
-  }
-
-  return {
-    athleteId,
-    planCode: value.planCode as AthleteSubscriptionAssignmentPlanCode,
-    startsOn,
-    endsOn,
-    isFounder: value.isFounder,
-    isComplimentary: value.isComplimentary,
-  };
-};
-
-const parseCancellationBody = (value: unknown): { subscriptionId: string } => {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["action", "subscriptionId"])) {
-    throw new AthleteSubscriptionError("validation", "Données d’annulation invalides.");
-  }
-  const subscriptionId = typeof value.subscriptionId === "string" ? value.subscriptionId.trim() : "";
-  if (value.action !== "cancel" || !subscriptionId) {
-    throw new AthleteSubscriptionError("validation", "Action d’annulation invalide.");
-  }
-  return { subscriptionId };
-};
-
-const parseBulkFounderBody = (
-  value: Record<string, unknown>,
-): Pick<BulkFounderAssignmentInput, "assignments"> => {
-  if (!hasOnlyKeys(value, ["action", "assignments"])
-    || value.action !== "bulk_founder"
-    || !Array.isArray(value.assignments)) {
-    throw new AthleteSubscriptionError("validation", "Données d’attribution groupée invalides.");
-  }
-  const assignments = value.assignments.map((assignment) => {
-    if (!isRecord(assignment)
-      || !hasOnlyKeys(assignment, ["athleteId", "startsOn", "endsOn"])
-      || typeof assignment.athleteId !== "string"
-      || typeof assignment.startsOn !== "string"
-      || typeof assignment.endsOn !== "string") {
-      throw new AthleteSubscriptionError("validation", "Une attribution Founder est invalide.");
-    }
-    return {
-      athleteId: assignment.athleteId,
-      startsOn: assignment.startsOn,
-      endsOn: assignment.endsOn,
-    };
-  });
-  return { assignments };
-};
+const retiredWriteResponse = () => NextResponse.json({
+  error: "Les attributions historiques sont désactivées. Utilisez l’adhésion Athlète canonique.",
+  code: "historical_subscription_write_disabled",
+}, { status: 409 });
 
 export const createAdminAthleteSubscriptionHandlers = (
   dependencies: HandlerDependencies = defaultDependencies,
@@ -168,10 +70,13 @@ export const createAdminAthleteSubscriptionHandlers = (
     try {
       const access = await getAdminContext(request, dependencies);
       if ("response" in access) return access.response;
-      const subscriptions = await dependencies.listSubscriptions(access.context.workspaceId);
-      return NextResponse.json({ subscriptions });
-    } catch (error) {
-      return respondWithError(error);
+      const [memberships, plans] = await Promise.all([
+        dependencies.listMemberships(access.context.workspaceId),
+        dependencies.listPlans(),
+      ]);
+      return NextResponse.json({ memberships, plans });
+    } catch {
+      return NextResponse.json({ error: "Impossible de charger les adhésions Athlètes." }, { status: 500 });
     }
   },
 
@@ -179,25 +84,9 @@ export const createAdminAthleteSubscriptionHandlers = (
     try {
       const access = await getAdminContext(request, dependencies);
       if ("response" in access) return access.response;
-      const body = await request.json().catch(() => null);
-      if (isRecord(body) && body.action === "bulk_founder") {
-        const input = parseBulkFounderBody(body);
-        const result = await dependencies.bulkAssignFounder({
-          ...input,
-          workspaceId: access.context.workspaceId,
-          createdByClerkUserId: access.context.clerkUserId,
-        });
-        return NextResponse.json(result);
-      }
-      const input = parseAssignmentBody(body);
-      const subscription = await dependencies.assignSubscription({
-        ...input,
-        workspaceId: access.context.workspaceId,
-        createdByClerkUserId: access.context.clerkUserId,
-      });
-      return NextResponse.json({ subscription }, { status: 201 });
-    } catch (error) {
-      return respondWithError(error);
+      return retiredWriteResponse();
+    } catch {
+      return NextResponse.json({ error: "Impossible de vérifier les droits Admin." }, { status: 500 });
     }
   },
 
@@ -205,15 +94,9 @@ export const createAdminAthleteSubscriptionHandlers = (
     try {
       const access = await getAdminContext(request, dependencies);
       if ("response" in access) return access.response;
-      const body = await request.json().catch(() => null);
-      const { subscriptionId } = parseCancellationBody(body);
-      const subscription = await dependencies.cancelSubscription({
-        workspaceId: access.context.workspaceId,
-        subscriptionId,
-      });
-      return NextResponse.json({ subscription });
-    } catch (error) {
-      return respondWithError(error);
+      return retiredWriteResponse();
+    } catch {
+      return NextResponse.json({ error: "Impossible de vérifier les droits Admin." }, { status: 500 });
     }
   },
 });
