@@ -32,7 +32,7 @@ export type PartnerApplicationSyncResult = {
 export type PartnerApplicationSyncRepository = {
   readFormRow: (rowNumber: number) => Promise<{ headers: string[]; values: string[] } | null>;
   readCanonicalSheet: () => Promise<{ headerRowNumber: number; headers: string[]; rows: SheetRow[] }>;
-  readCanonicalSheetProperties: () => Promise<{ sheetId: number; columnCount: number }>;
+  readCanonicalSheetProperties: () => Promise<{ sheetId: unknown; columnCount: unknown }>;
   appendCanonicalColumns: (sheetId: number, columnCount: number) => Promise<void>;
   appendCanonicalHeaders: (headerRowNumber: number, startColumn: number, headers: string[]) => Promise<void>;
   updateCanonicalRow: (rowNumber: number, values: string[]) => Promise<void>;
@@ -331,9 +331,6 @@ const createRepository = (): PartnerApplicationSyncRepository => {
       const properties = response.data.sheets?.find((sheet) => sheet.properties?.title === "06_Partenaires")?.properties;
       const sheetId = properties?.sheetId;
       const columnCount = properties?.gridProperties?.columnCount;
-      if (sheetId === undefined || columnCount === undefined) {
-        throw new Error("Propriétés de la feuille 06_Partenaires introuvables.");
-      }
       return { sheetId, columnCount };
     },
     async appendCanonicalColumns(sheetId, columnCount) {
@@ -402,10 +399,24 @@ export const syncPartnerApplicationRow = async (
   const application = parseFormApplication(rowNumber, formRow.headers, formRow.values);
   const snapshot = await resolvedDependencies.repository.readCanonicalSheet();
   const sheetProperties = await resolvedDependencies.repository.readCanonicalSheetProperties();
-  if (sheetProperties.columnCount < CANONICAL_COLUMN_COUNT) {
+  const { sheetId, columnCount } = sheetProperties;
+  if (
+    typeof sheetId !== "number"
+    || !Number.isInteger(sheetId)
+    || sheetId < 0
+    || typeof columnCount !== "number"
+    || !Number.isInteger(columnCount)
+    || columnCount < 1
+  ) {
+    throw new PartnerApplicationSyncError(
+      "validation",
+      "Métadonnées de la feuille 06_Partenaires absentes ou invalides.",
+    );
+  }
+  if (columnCount < CANONICAL_COLUMN_COUNT) {
     await resolvedDependencies.repository.appendCanonicalColumns(
-      sheetProperties.sheetId,
-      CANONICAL_COLUMN_COUNT - sheetProperties.columnCount,
+      sheetId,
+      CANONICAL_COLUMN_COUNT - columnCount,
     );
   }
   const headers = await ensureCanonicalHeaders(snapshot, resolvedDependencies.repository);

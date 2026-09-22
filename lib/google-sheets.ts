@@ -1077,7 +1077,7 @@ const getAuth = () => {
     );
   }
 
-  const absoluteCredentialsPath = path.resolve(
+  const absoluteCredentialsPath = path.resolve(/* turbopackIgnore: true */
     process.cwd(),
     credentialsPath.replace(/^\.\//, "")
   );

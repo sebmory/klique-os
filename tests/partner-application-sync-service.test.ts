@@ -131,6 +131,23 @@ describe("Partner application synchronization service", () => {
     expect(state.getColumnCount()).toBe(37);
   });
 
+  it.each([
+    [null, 26],
+    [606, null],
+    [1.5, 26],
+    [606, 0],
+  ])("rejects invalid canonical sheet metadata: %o, %o", async (sheetId, columnCount) => {
+    const state = createRepository();
+    vi.mocked(state.repository.readCanonicalSheetProperties).mockResolvedValue({ sheetId, columnCount });
+
+    await expect(syncPartnerApplicationRow(5, dependencies(state.repository))).rejects.toMatchObject({
+      code: "validation",
+      message: "Métadonnées de la feuille 06_Partenaires absentes ou invalides.",
+    });
+    expect(state.repository.appendCanonicalColumns).not.toHaveBeenCalled();
+    expect(state.repository.appendCanonicalHeaders).not.toHaveBeenCalled();
+  });
+
   it("matches by normalized email first and fills only empty canonical fields", async () => {
     const adminUuid = "5e4f5ced-2aa0-4538-8e57-3e2a9f6b0833";
     const state = createRepository([{ rowNumber: 9, values: canonicalRow({
