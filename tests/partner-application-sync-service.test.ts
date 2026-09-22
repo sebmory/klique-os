@@ -65,9 +65,16 @@ const createRepository = (
     appendCanonicalColumns: vi.fn(async (_sheetId, appendedColumnCount) => {
       columnCount += appendedColumnCount;
     }),
-    appendCanonicalHeaders: vi.fn(async (_headerRowNumber, startColumn, missingHeaders) => {
+    updateCanonicalHeaders: vi.fn(async (_headerRowNumber, startColumn, canonicalTailHeaders) => {
       while (headers.length < startColumn) headers.push("");
-      headers.push(...missingHeaders);
+      headers.splice(startColumn, canonicalTailHeaders.length, ...canonicalTailHeaders);
+    }),
+    repairCanonicalPartnerId: vi.fn(async (rowNumber, partnerId) => {
+      const row = rows.find((candidate) => candidate.rowNumber === rowNumber);
+      if (row) {
+        row.values[25] = partnerId;
+        row.values[26] = "";
+      }
     }),
     updateCanonicalRow: vi.fn(async (rowNumber, values) => {
       const row = rows.find((candidate) => candidate.rowNumber === rowNumber);
@@ -109,9 +116,26 @@ describe("Partner application synchronization service", () => {
     expect(state.repository.appendCanonicalColumns).toHaveBeenCalledOnce();
     expect(state.repository.appendCanonicalColumns).toHaveBeenCalledWith(606, 11);
     expect(state.getColumnCount()).toBe(37);
-    expect(state.repository.appendCanonicalHeaders).toHaveBeenCalledWith(3, 26, expect.any(Array));
+    expect(state.repository.updateCanonicalHeaders).toHaveBeenCalledOnce();
+    expect(state.repository.updateCanonicalHeaders).toHaveBeenCalledWith(3, 25, [
+      "Partner ID",
+      "Instagram",
+      "Facebook",
+      "Description",
+      "Type d’avantage proposé",
+      "Détails de l’avantage proposé",
+      "Collaborations proposées",
+      "Consentement communication",
+      "Logo partenaire",
+      "Ligne formulaire source",
+      "Synchronisé le",
+      "",
+    ]);
     expect(state.headers.slice(0, 26)).toEqual(canonicalHeaders);
+    expect(state.headers.filter((header) => header === "Partner ID")).toEqual(["Partner ID"]);
     const createdValues = state.rows[0].values;
+    expect(createdValues[25]).toBe(created.partnerId);
+    expect(createdValues[26]).not.toBe(created.partnerId);
     expect(createdValues[state.headers.indexOf("Nom")]).toBe("Aloha Wake");
     expect(createdValues[state.headers.indexOf("Statut")]).toBe("Prospect");
     expect(createdValues[state.headers.indexOf("Offre / avantage membres")]).toBe("");
@@ -131,6 +155,44 @@ describe("Partner application synchronization service", () => {
     expect(state.getColumnCount()).toBe(37);
   });
 
+  it("preserves a historical UUID already stored in column Z", async () => {
+    const historicalPartnerId = "5e4f5ced-2aa0-4538-8e57-3e2a9f6b0833";
+    const state = createRepository([{ rowNumber: 9, values: canonicalRow({
+      0: "Aloha Wake",
+      5: "hello@alohawake.ch",
+      25: historicalPartnerId,
+    }) }], 37);
+
+    const result = await syncPartnerApplicationRow(5, dependencies(state.repository));
+
+    expect(result.partnerId).toBe(historicalPartnerId);
+    expect(state.rows[0].values[25]).toBe(historicalPartnerId);
+    expect(state.repository.repairCanonicalPartnerId).not.toHaveBeenCalled();
+  });
+
+  it("moves a shifted UUID from AA to Z once without changing AB:AK", async () => {
+    const shiftedPartnerId = "a4ed0d44-36d6-48e3-b399-28f6ac9e2538";
+    const values = Array.from({ length: 37 }, () => "");
+    values[0] = "Aloha Wake";
+    values[5] = "hello@alohawake.ch";
+    values[26] = shiftedPartnerId;
+    const preservedAdditionalValues = Array.from({ length: 10 }, (_, index) => `preserved-${index + 1}`);
+    preservedAdditionalValues.forEach((value, index) => { values[27 + index] = value; });
+    const state = createRepository([{ rowNumber: 9, values }], 37);
+    state.headers[25] = "";
+    state.headers[26] = "Partner ID";
+
+    const repaired = await syncPartnerApplicationRow(5, dependencies(state.repository));
+    const replayed = await syncPartnerApplicationRow(5, dependencies(state.repository));
+
+    expect(repaired.partnerId).toBe(shiftedPartnerId);
+    expect(replayed.partnerId).toBe(shiftedPartnerId);
+    expect(state.repository.repairCanonicalPartnerId).toHaveBeenCalledOnce();
+    expect(state.repository.repairCanonicalPartnerId).toHaveBeenCalledWith(9, shiftedPartnerId);
+    expect(state.rows[0].values[25]).toBe(shiftedPartnerId);
+    expect(state.rows[0].values.slice(27, 37)).toEqual(preservedAdditionalValues);
+  });
+
   it.each([
     [null, 26],
     [606, null],
@@ -145,7 +207,7 @@ describe("Partner application synchronization service", () => {
       message: "Métadonnées de la feuille 06_Partenaires absentes ou invalides.",
     });
     expect(state.repository.appendCanonicalColumns).not.toHaveBeenCalled();
-    expect(state.repository.appendCanonicalHeaders).not.toHaveBeenCalled();
+    expect(state.repository.updateCanonicalHeaders).not.toHaveBeenCalled();
   });
 
   it("matches by normalized email first and fills only empty canonical fields", async () => {

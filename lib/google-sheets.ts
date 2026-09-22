@@ -2991,8 +2991,7 @@ export async function addPartnerToGoogleSheets(
   }
 
   const headerRow = headerRows[headerRowIndex];
-  const partnerIdHeaderIndex = headerRow.findIndex((value) => normalizePartnerHeader(value) === "partner id");
-  if (partnerIdHeaderIndex < 0) {
+  if (normalizePartnerHeader(headerRow[25]) !== "partner id") {
     await sheets.spreadsheets.values.update({
       spreadsheetId: getSpreadsheetId(),
       range: `'06_Partenaires'!Z${headerRowIndex + 1}`,

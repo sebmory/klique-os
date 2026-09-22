@@ -34,7 +34,8 @@ export type PartnerApplicationSyncRepository = {
   readCanonicalSheet: () => Promise<{ headerRowNumber: number; headers: string[]; rows: SheetRow[] }>;
   readCanonicalSheetProperties: () => Promise<{ sheetId: unknown; columnCount: unknown }>;
   appendCanonicalColumns: (sheetId: number, columnCount: number) => Promise<void>;
-  appendCanonicalHeaders: (headerRowNumber: number, startColumn: number, headers: string[]) => Promise<void>;
+  updateCanonicalHeaders: (headerRowNumber: number, startColumn: number, headers: string[]) => Promise<void>;
+  repairCanonicalPartnerId: (rowNumber: number, partnerId: string) => Promise<void>;
   updateCanonicalRow: (rowNumber: number, values: string[]) => Promise<void>;
   appendCanonicalRow: (values: string[]) => Promise<number>;
 };
@@ -191,6 +192,20 @@ export const createStablePartnerUuid = (email: string, companyName: string): str
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CANONICAL_COLUMN_COUNT = 37;
+const PARTNER_ID_COLUMN_INDEX = 25;
+const SHIFTED_PARTNER_ID_COLUMN_INDEX = 26;
+const additionalCanonicalFields: CanonicalField[] = [
+  "instagram",
+  "facebook",
+  "description",
+  "proposedBenefitType",
+  "proposedBenefitDetails",
+  "collaboration",
+  "communicationConsent",
+  "logoUrl",
+  "sourceRow",
+  "syncedAt",
+];
 
 const resolveCanonicalIndexes = (headers: string[]): Record<CanonicalField, number> =>
   Object.fromEntries(
@@ -205,17 +220,35 @@ const ensureCanonicalHeaders = async (
   repository: PartnerApplicationSyncRepository,
 ): Promise<string[]> => {
   const headers = [...snapshot.headers];
-  const missing = (Object.keys(canonicalHeaders) as CanonicalField[])
-    .filter((field) => !headers.some((header) => canonicalHeaders[field].aliases.some(
-      (alias) => normalizeKey(header) === normalizeKey(alias),
-    )))
-    .map((field) => canonicalHeaders[field].name);
-  if (missing.length === 0) return headers;
+  const canonicalTailHeaders = [
+    canonicalHeaders.partnerId.name,
+    ...additionalCanonicalFields.map((field) => canonicalHeaders[field].name),
+    "",
+  ];
+  const currentTailHeaders = canonicalTailHeaders.map((_, offset) => headers[PARTNER_ID_COLUMN_INDEX + offset] ?? "");
+  const hasCanonicalLayout = currentTailHeaders.every(
+    (header, index) => normalizeKey(header) === normalizeKey(canonicalTailHeaders[index]),
+  );
+  if (!hasCanonicalLayout) {
+    await repository.updateCanonicalHeaders(snapshot.headerRowNumber, PARTNER_ID_COLUMN_INDEX, canonicalTailHeaders);
+  }
+  while (headers.length < PARTNER_ID_COLUMN_INDEX) headers.push("");
+  headers.splice(PARTNER_ID_COLUMN_INDEX, canonicalTailHeaders.length, ...canonicalTailHeaders);
+  return headers;
+};
 
-  const startColumn = Math.max(26, headers.length);
-  await repository.appendCanonicalHeaders(snapshot.headerRowNumber, startColumn, missing);
-  while (headers.length < startColumn) headers.push("");
-  return [...headers, ...missing];
+const repairShiftedPartnerIds = async (
+  rows: SheetRow[],
+  repository: PartnerApplicationSyncRepository,
+): Promise<void> => {
+  for (const row of rows) {
+    const canonicalPartnerId = normalizeText(row.values[PARTNER_ID_COLUMN_INDEX]);
+    const shiftedPartnerId = normalizeText(row.values[SHIFTED_PARTNER_ID_COLUMN_INDEX]);
+    if (canonicalPartnerId || !UUID_PATTERN.test(shiftedPartnerId)) continue;
+    await repository.repairCanonicalPartnerId(row.rowNumber, shiftedPartnerId);
+    row.values[PARTNER_ID_COLUMN_INDEX] = shiftedPartnerId;
+    row.values[SHIFTED_PARTNER_ID_COLUMN_INDEX] = "";
+  }
 };
 
 const selectCanonicalMatch = (
@@ -347,13 +380,21 @@ const createRepository = (): PartnerApplicationSyncRepository => {
         },
       });
     },
-    async appendCanonicalHeaders(headerRowNumber, startColumn, headers) {
+    async updateCanonicalHeaders(headerRowNumber, startColumn, headers) {
       const endColumn = startColumn + headers.length - 1;
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `'06_Partenaires'!${toColumnLetters(startColumn)}${headerRowNumber}:${toColumnLetters(endColumn)}${headerRowNumber}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [headers] },
+      });
+    },
+    async repairCanonicalPartnerId(rowNumber, partnerId) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'06_Partenaires'!Z${rowNumber}:AA${rowNumber}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[partnerId, ""]] },
       });
     },
     async updateCanonicalRow(rowNumber, values) {
@@ -419,6 +460,7 @@ export const syncPartnerApplicationRow = async (
       CANONICAL_COLUMN_COUNT - columnCount,
     );
   }
+  await repairShiftedPartnerIds(snapshot.rows, resolvedDependencies.repository);
   const headers = await ensureCanonicalHeaders(snapshot, resolvedDependencies.repository);
   const indexes = resolveCanonicalIndexes(headers);
   const existing = selectCanonicalMatch(snapshot.rows, indexes, application);
