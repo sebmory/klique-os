@@ -75,6 +75,7 @@ export class PartnerBenefitReservationAuditError extends Error {
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const POSTGRES_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const usagePolicies = ["once_lifetime", "once_per_membership", "unlimited"] as const;
 const actorRoles = ["admin", "athlete", "partner_expert", "media"] as const;
 
@@ -92,6 +93,14 @@ const requireText = (value: unknown, fieldName: string, maximumLength = 200): st
 const requireUuid = (value: unknown, fieldName: string): string => {
   const normalized = requireText(value, fieldName, 36).toLowerCase();
   if (!UUID_PATTERN.test(normalized)) {
+    throw new PartnerBenefitReservationAuditError("validation", `${fieldName} doit être un UUID valide.`);
+  }
+  return normalized;
+};
+
+const requirePostgresUuid = (value: unknown, fieldName: string): string => {
+  const normalized = requireText(value, fieldName, 36).toLowerCase();
+  if (!POSTGRES_UUID_PATTERN.test(normalized)) {
     throw new PartnerBenefitReservationAuditError("validation", `${fieldName} doit être un UUID valide.`);
   }
   return normalized;
@@ -131,7 +140,7 @@ const normalizeHistory = (value: unknown): PartnerBenefitReservationAuditEvent[]
       throw new PartnerBenefitReservationAuditError("validation", "actorRole Neon est invalide.");
     }
     return {
-      id: requireUuid(row.id, "eventId"),
+      id: requirePostgresUuid(row.id, "eventId"),
       actorClerkUserId: requireText(row.actorClerkUserId, "actorClerkUserId"),
       actorRole,
       previousStatus: row.previousStatus === null ? null : normalizeStatus(row.previousStatus, "previousStatus"),

@@ -55,7 +55,7 @@ const reservationRow = () => ({
   notes: "private notes",
   history: [
     {
-      id: "6f3f632b-4a86-4862-a87f-ff767e2f2a26",
+      id: "6f3f632b-4a86-0862-087f-ff767e2f2a26",
       actorClerkUserId: "user_athlete",
       actorRole: "athlete",
       previousStatus: null,
@@ -161,6 +161,18 @@ describe("Admin partner benefit reservation audit service", () => {
     expect(reservation).not.toHaveProperty("athlete_email");
     expect(reservation).not.toHaveProperty("notes");
     expect(reservation.history[0]).not.toHaveProperty("privateMetadata");
+  });
+
+  it("rejects an event identifier that is not a PostgreSQL UUID", async () => {
+    const dependencies = createDependencies();
+    const row = reservationRow();
+    row.history[0].id = "not-an-event-uuid";
+    vi.mocked(dependencies.repository.list).mockResolvedValue([row]);
+
+    await expect(listAdminPartnerBenefitReservationAudit(request, {}, dependencies)).rejects.toMatchObject({
+      code: "validation",
+      message: "eventId doit être un UUID valide.",
+    });
   });
 
   it("executes one read-only workspace-scoped SELECT with ordered events and all filters", async () => {
