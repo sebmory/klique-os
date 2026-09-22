@@ -48,15 +48,23 @@ const canonicalHeaders = [
   "Objectif du prochain contact", "Date arrivée KLIQUE", "Partner ID",
 ];
 
-const createRepository = (initialRows: Array<{ rowNumber: number; values: string[] }> = []) => {
+const createRepository = (
+  initialRows: Array<{ rowNumber: number; values: string[] }> = [],
+  initialColumnCount = 26,
+) => {
   const headers = [...canonicalHeaders];
   const rows = initialRows.map((row) => ({ rowNumber: row.rowNumber, values: [...row.values] }));
+  let columnCount = initialColumnCount;
   const repository: PartnerApplicationSyncRepository = {
     readFormRow: vi.fn().mockResolvedValue({
       headers: shuffledFormHeaders,
       values: shuffledFormHeaders.map((header) => formValues[header as keyof typeof formValues] ?? ""),
     }),
     readCanonicalSheet: vi.fn(async () => ({ headerRowNumber: 3, headers: [...headers], rows })),
+    readCanonicalSheetProperties: vi.fn(async () => ({ sheetId: 606, columnCount })),
+    appendCanonicalColumns: vi.fn(async (_sheetId, appendedColumnCount) => {
+      columnCount += appendedColumnCount;
+    }),
     appendCanonicalHeaders: vi.fn(async (_headerRowNumber, startColumn, missingHeaders) => {
       while (headers.length < startColumn) headers.push("");
       headers.push(...missingHeaders);
@@ -71,7 +79,7 @@ const createRepository = (initialRows: Array<{ rowNumber: number; values: string
       return rowNumber;
     }),
   };
-  return { repository, headers, rows };
+  return { repository, headers, rows, getColumnCount: () => columnCount };
 };
 
 const dependencies = (repository: PartnerApplicationSyncRepository): PartnerApplicationSyncDependencies => ({
@@ -97,6 +105,10 @@ describe("Partner application synchronization service", () => {
     expect(created.partnerId).toBe(createStablePartnerUuid("hello@alohawake.ch", "Aloha Wake"));
     expect(state.repository.appendCanonicalRow).toHaveBeenCalledOnce();
     expect(state.repository.updateCanonicalRow).not.toHaveBeenCalled();
+    expect(state.repository.readCanonicalSheetProperties).toHaveBeenCalledTimes(2);
+    expect(state.repository.appendCanonicalColumns).toHaveBeenCalledOnce();
+    expect(state.repository.appendCanonicalColumns).toHaveBeenCalledWith(606, 11);
+    expect(state.getColumnCount()).toBe(37);
     expect(state.repository.appendCanonicalHeaders).toHaveBeenCalledWith(3, 26, expect.any(Array));
     expect(state.headers.slice(0, 26)).toEqual(canonicalHeaders);
     const createdValues = state.rows[0].values;
@@ -106,6 +118,17 @@ describe("Partner application synchronization service", () => {
     expect(createdValues[state.headers.indexOf("Contenus / contreparties")]).toBe("");
     expect(createdValues[state.headers.indexOf("Type d’avantage proposé")]).toBe("Offre découverte");
     expect(createdValues[state.headers.indexOf("Détails de l’avantage proposé")]).toBe("50% sur une session par année");
+  });
+
+  it("does not extend a canonical sheet that already has 37 columns", async () => {
+    const state = createRepository([], 37);
+
+    await syncPartnerApplicationRow(5, dependencies(state.repository));
+    await syncPartnerApplicationRow(5, dependencies(state.repository));
+
+    expect(state.repository.readCanonicalSheetProperties).toHaveBeenCalledTimes(2);
+    expect(state.repository.appendCanonicalColumns).not.toHaveBeenCalled();
+    expect(state.getColumnCount()).toBe(37);
   });
 
   it("matches by normalized email first and fills only empty canonical fields", async () => {

@@ -32,6 +32,8 @@ export type PartnerApplicationSyncResult = {
 export type PartnerApplicationSyncRepository = {
   readFormRow: (rowNumber: number) => Promise<{ headers: string[]; values: string[] } | null>;
   readCanonicalSheet: () => Promise<{ headerRowNumber: number; headers: string[]; rows: SheetRow[] }>;
+  readCanonicalSheetProperties: () => Promise<{ sheetId: number; columnCount: number }>;
+  appendCanonicalColumns: (sheetId: number, columnCount: number) => Promise<void>;
   appendCanonicalHeaders: (headerRowNumber: number, startColumn: number, headers: string[]) => Promise<void>;
   updateCanonicalRow: (rowNumber: number, values: string[]) => Promise<void>;
   appendCanonicalRow: (values: string[]) => Promise<number>;
@@ -188,6 +190,7 @@ export const createStablePartnerUuid = (email: string, companyName: string): str
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CANONICAL_COLUMN_COUNT = 37;
 
 const resolveCanonicalIndexes = (headers: string[]): Record<CanonicalField, number> =>
   Object.fromEntries(
@@ -320,6 +323,33 @@ const createRepository = (): PartnerApplicationSyncRepository => {
           .filter((row) => row.values.some((value) => value.trim())),
       };
     },
+    async readCanonicalSheetProperties() {
+      const response = await sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: "sheets(properties(sheetId,title,gridProperties(columnCount)))",
+      });
+      const properties = response.data.sheets?.find((sheet) => sheet.properties?.title === "06_Partenaires")?.properties;
+      const sheetId = properties?.sheetId;
+      const columnCount = properties?.gridProperties?.columnCount;
+      if (sheetId === undefined || columnCount === undefined) {
+        throw new Error("Propriétés de la feuille 06_Partenaires introuvables.");
+      }
+      return { sheetId, columnCount };
+    },
+    async appendCanonicalColumns(sheetId, columnCount) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            appendDimension: {
+              sheetId,
+              dimension: "COLUMNS",
+              length: columnCount,
+            },
+          }],
+        },
+      });
+    },
     async appendCanonicalHeaders(headerRowNumber, startColumn, headers) {
       const endColumn = startColumn + headers.length - 1;
       await sheets.spreadsheets.values.update({
@@ -371,6 +401,13 @@ export const syncPartnerApplicationRow = async (
   if (!formRow) throw new PartnerApplicationSyncError("not_found", "Réponse partenaire introuvable.");
   const application = parseFormApplication(rowNumber, formRow.headers, formRow.values);
   const snapshot = await resolvedDependencies.repository.readCanonicalSheet();
+  const sheetProperties = await resolvedDependencies.repository.readCanonicalSheetProperties();
+  if (sheetProperties.columnCount < CANONICAL_COLUMN_COUNT) {
+    await resolvedDependencies.repository.appendCanonicalColumns(
+      sheetProperties.sheetId,
+      CANONICAL_COLUMN_COUNT - sheetProperties.columnCount,
+    );
+  }
   const headers = await ensureCanonicalHeaders(snapshot, resolvedDependencies.repository);
   const indexes = resolveCanonicalIndexes(headers);
   const existing = selectCanonicalMatch(snapshot.rows, indexes, application);
