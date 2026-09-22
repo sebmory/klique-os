@@ -33,6 +33,8 @@ type EcosystemResourceScreenProps = {
 
 type PartnerAccessState = "none" | "invited" | "active";
 
+const PARTNER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const hasRealEcosystemSource = (payload: EcosystemListResponse): boolean => {
   return payload.source === "google-sheets";
 };
@@ -279,6 +281,8 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
     }
     return resources.find((item) => item.id === key || item.slug === key) ?? null;
   }, [id, resources]);
+  const canonicalPartnerId = resource?.canonicalPartnerId?.trim() ?? "";
+  const hasCanonicalPartnerId = PARTNER_UUID_PATTERN.test(canonicalPartnerId);
 
   useEffect(() => {
     const resourceRow = Number(resource?.raw?.row);
@@ -478,7 +482,12 @@ export function EcosystemResourceScreen({ id }: EcosystemResourceScreenProps) {
       </header>
 
       <section className="crm-partner-layout">
-        {isAdmin ? <AdminPartnerBenefitsPanel partnerId={resource.id} /> : null}
+        {isAdmin && hasCanonicalPartnerId ? <AdminPartnerBenefitsPanel partnerId={canonicalPartnerId} /> : null}
+        {isAdmin && !hasCanonicalPartnerId ? (
+          <section className="crm-person-card-shell" role="alert">
+            Impossible de gérer les avantages : le Partner ID canonique est absent ou invalide.
+          </section>
+        ) : null}
 
         <article className="crm-person-card-shell crm-partner-span-two crm-partner-offer-card">
           <header><h2>Ce que cette ressource apporte</h2></header>

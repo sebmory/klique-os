@@ -19,6 +19,8 @@ const toSlug = (value: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "ressource";
 
+  const PARTNER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const isInvalidPlaceholderDate = (value: string): boolean => {
   const cleaned = normalize(value)
     .toLowerCase()
@@ -85,6 +87,7 @@ const toResource = (partner: Partner): EcosystemResource => {
   return {
     id,
     slug: normalize(partner.slug ?? "") || toSlug(name),
+    canonicalPartnerId: PARTNER_UUID_PATTERN.test(partner.id) ? partner.id : undefined,
     name,
     type,
     category,

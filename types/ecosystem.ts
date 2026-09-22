@@ -3,6 +3,7 @@ export type EcosystemRaw = Record<string, unknown>;
 export type EcosystemResource = {
   id: string;
   slug: string;
+  canonicalPartnerId?: string;
   name: string;
   type: string;
   category: string;

@@ -45,8 +45,9 @@ beforeEach(() => {
     source: "google-sheets",
     resources: [{
       id: partnerId,
-      slug: "test-expert-klique",
-      name: "Test expert Klique",
+      slug: "aloha-wake",
+      canonicalPartnerId: partnerId,
+      name: "Aloha Wake",
       type: "Expert",
       category: "Conseil",
       status: "Actif",
@@ -100,18 +101,66 @@ describe("EcosystemResourceScreen Admin benefits visibility", () => {
     expect(container.querySelector('[data-testid="admin-benefits"]')).toBeNull();
   });
 
-  it("renders the panel for an active Admin with the canonical partner UUID", async () => {
+  it("resolves a slug URL but renders the panel with the distinct canonical partner UUID", async () => {
     fetchMock.mockImplementation(async (url: string) => {
       if (url === "/api/clerk/access") return response({ permissions: { isAdmin: true, isActive: true } });
       if (url.startsWith("/api/partners/invite")) return response({ state: "active" });
       return response({}, false, 404);
     });
 
-    await act(async () => root.render(createElement(EcosystemResourceScreen, { id: partnerId })));
+    await act(async () => root.render(createElement(EcosystemResourceScreen, { id: "aloha-wake" })));
     await flush();
 
     const panel = container.querySelector('[data-testid="admin-benefits"]');
     expect(panel?.textContent).toBe("Avantages KLIQUE");
     expect(panel?.getAttribute("data-partner-id")).toBe(partnerId);
+  });
+
+  it("does not mount the benefits panel when the resolved Partner ID is invalid", async () => {
+    listMock.mockResolvedValueOnce({
+      source: "google-sheets",
+      resources: [{
+        id: "aloha-wake",
+        slug: "aloha-wake",
+        canonicalPartnerId: "aloha-wake",
+        name: "Aloha Wake",
+        type: "Partenaire",
+        category: "Non renseigne",
+        status: "Actif",
+        contactName: "",
+        contactRole: "",
+        email: "",
+        phone: "",
+        website: "",
+        instagram: "",
+        memberOffer: "",
+        expertise: "",
+        services: "",
+        nextAction: "",
+        nextFollowUp: "",
+        lastContact: "",
+        estimatedValue: "",
+        strategicPriority: "",
+        potential: "",
+        contractSigned: "",
+        collaborationStart: "",
+        collaborationEnd: "",
+        deliverables: "",
+        notes: "",
+        raw: { row: 7 },
+      }],
+    });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/clerk/access") return response({ permissions: { isAdmin: true, isActive: true } });
+      if (url.startsWith("/api/partners/invite")) return response({ state: "active" });
+      return response({}, false, 404);
+    });
+
+    await act(async () => root.render(createElement(EcosystemResourceScreen, { id: "aloha-wake" })));
+    await flush();
+
+    expect(container.querySelector('[data-testid="admin-benefits"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Partner ID canonique est absent ou invalide");
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/api/admin/partner-benefits"), expect.anything());
   });
 });
