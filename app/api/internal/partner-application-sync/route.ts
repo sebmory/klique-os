@@ -87,7 +87,12 @@ const errorResponse = (error: unknown): NextResponse => {
     const status = error.code === "not_found" ? 404 : error.code === "conflict" ? 409 : 400;
     return NextResponse.json({ ok: false, error: error.message, code: error.code }, { status });
   }
-  console.error(`[partner_application_sync] ${error instanceof Error ? error.message : String(error)}`);
+  const serverError = error instanceof Error ? error : new Error(String(error));
+  console.error("[partner-application-sync]", {
+    name: serverError.name,
+    message: serverError.message,
+    stack: serverError.stack,
+  });
   return NextResponse.json({ ok: false, error: "Synchronisation partenaire indisponible." }, { status: 500 });
 };
 

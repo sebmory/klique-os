@@ -114,7 +114,14 @@ describe("POST /api/internal/partner-application-sync", () => {
     const response = await POST(signedRequest(JSON.stringify({ rowNumber: 5 })));
 
     expect(response.status).toBe(status);
-    if (status === 500) expect(JSON.stringify(await response.json())).not.toContain("database");
+    if (status === 500) {
+      expect(JSON.stringify(await response.json())).not.toContain("database");
+      expect(consoleError).toHaveBeenCalledWith("[partner-application-sync]", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+    }
     consoleError.mockRestore();
   });
 
