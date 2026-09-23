@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import { describe, expect, it, vi } from "vitest";
 
 const scriptPath = path.resolve(
   process.cwd(),
@@ -13,7 +14,86 @@ const readmePath = path.resolve(
 const source = readFileSync(scriptPath, "utf8");
 const readme = readFileSync(readmePath, "utf8");
 
+const createAppsScriptHarness = () => {
+  const fetch = vi.fn(() => ({ getResponseCode: () => 204 }));
+  const getProperty = vi.fn((key: string) => key === "PARTNER_APPLICATION_SYNC_URL"
+    ? "https://example.test/sync"
+    : "a-secure-test-secret-with-at-least-32-characters");
+  const getScriptProperties = vi.fn(() => ({ getProperty }));
+  const computeHmacSha256Signature = vi.fn(() => [1, 2, 3]);
+  const log = vi.fn();
+  const context: Record<string, unknown> = {
+    PropertiesService: { getScriptProperties },
+    UrlFetchApp: { fetch },
+    Utilities: {
+      computeHmacSha256Signature,
+      Charset: { UTF_8: "UTF_8" },
+    },
+    console: { log },
+  };
+
+  runInNewContext(source, context);
+
+  return {
+    onFormSubmit: context.onFormSubmit as (event?: {
+      range?: {
+        getSheet: () => { getName: () => string };
+        getRow: () => number;
+      };
+    }) => void,
+    fetch,
+    getProperty,
+    getScriptProperties,
+    log,
+  };
+};
+
 describe("Partner application synchronization Apps Script", () => {
+  it("rejects an invalid form-submit event", () => {
+    const { onFormSubmit } = createAppsScriptHarness();
+
+    expect(() => onFormSubmit()).toThrow("Événement onFormSubmit invalide.");
+    expect(() => onFormSubmit({})).toThrow("Événement onFormSubmit invalide.");
+  });
+
+  it("ignores another sheet without reading secrets, logging, or making an HTTP call", () => {
+    const { onFormSubmit, fetch, getProperty, getScriptProperties, log } = createAppsScriptHarness();
+    const getRow = vi.fn(() => 2);
+
+    expect(() => onFormSubmit({
+      range: {
+        getSheet: () => ({ getName: () => "Forms_Athletes_Responses" }),
+        getRow,
+      },
+    })).not.toThrow();
+
+    expect(getRow).not.toHaveBeenCalled();
+    expect(getScriptProperties).not.toHaveBeenCalled();
+    expect(getProperty).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("continues the normal synchronization for the Partner response sheet", () => {
+    const { onFormSubmit, fetch, getScriptProperties } = createAppsScriptHarness();
+
+    onFormSubmit({
+      range: {
+        getSheet: () => ({ getName: () => "Forms_Partenaires_Responses" }),
+        getRow: () => 2,
+      },
+    });
+
+    expect(getScriptProperties).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(
+      "https://example.test/sync",
+      expect.objectContaining({
+        method: "post",
+        payload: JSON.stringify({ rowNumber: 2 }),
+      }),
+    );
+  });
+
   it("uses the installable form-submit event and reads only its row number", () => {
     expect(source).toContain("function onFormSubmit(event)");
     expect(source).toContain("event.range.getSheet()");

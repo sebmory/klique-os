@@ -9,7 +9,7 @@ function onFormSubmit(event) {
 
   var sheet = event.range.getSheet();
   if (sheet.getName() !== PARTNER_RESPONSES_SHEET) {
-    throw new Error("Le déclencheur doit cibler Forms_Partenaires_Responses.");
+    return;
   }
 
   var rowNumber = event.range.getRow();
