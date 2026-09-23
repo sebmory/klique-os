@@ -114,7 +114,8 @@ const initialResponses = (memberships: AdminAthleteMembership[] = [], requests: 
   fetchMock
     .mockResolvedValueOnce(response({ athletes: [athlete], source: "google-sheets" }))
     .mockResolvedValueOnce(response({ memberships, plans: [plan] }))
-    .mockResolvedValueOnce(response({ requests }));
+    .mockResolvedValueOnce(response({ requests }))
+    .mockResolvedValueOnce(response({ orders: [] }));
 };
 
 beforeEach(() => {
@@ -162,9 +163,9 @@ describe("Athlete memberships settings page", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock.mock.calls[3][0]).toBe("/api/admin/athletes/athlete-1/membership");
-    expect(fetchMock.mock.calls[3][1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/admin/athletes/athlete-1/membership");
+    expect(fetchMock.mock.calls[4][1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toMatchObject({
       membershipKind: "subscription",
       planCode: "impact",
       status: "active",
@@ -182,7 +183,7 @@ describe("Athlete memberships settings page", () => {
 
     await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Inviter")!);
 
-    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toEqual({
       athleteId: "athlete-1",
       resend: false,
     });
@@ -200,8 +201,8 @@ describe("Athlete memberships settings page", () => {
     await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Annuler l’adhésion")!);
 
     expect(window.confirm).toHaveBeenCalledWith("Annuler l’adhésion active de Lina Morel ?");
-    expect(fetchMock.mock.calls[3][0]).toBe("/api/admin/athletes/athlete-1/membership");
-    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/admin/athletes/athlete-1/membership");
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toMatchObject({
       membershipId: membership().id,
       status: "cancelled",
     });
@@ -216,8 +217,8 @@ describe("Athlete memberships settings page", () => {
     await setValue(container.querySelector("textarea")!, "Créneau confirmé");
     await click([...container.querySelectorAll("button")].find((button) => button.textContent === "Accepter")!);
 
-    expect(fetchMock.mock.calls[3][0]).toBe("/api/admin/athlete-subscription-content-requests");
-    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/admin/athlete-subscription-content-requests");
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toMatchObject({
       requestId: contentRequest().id,
       status: "accepted",
       adminNote: "Créneau confirmé",

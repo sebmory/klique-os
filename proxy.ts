@@ -55,6 +55,10 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return method === "GET" || method === "POST";
   }
 
+  if (pathname === "/api/athlete/membership-order") {
+    return method === "GET" || method === "POST" || method === "DELETE";
+  }
+
   if (pathname === "/api/athlete/partner-benefits") {
     return method === "GET" || method === "POST";
   }

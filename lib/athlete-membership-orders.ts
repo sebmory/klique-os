@@ -30,6 +30,9 @@ export type AthleteMembershipOrder = {
 };
 
 export type AthleteMembershipOrderView = AthleteMembershipOrder & { twintPaymentUrl: string };
+export type AthleteMembershipOrderCreation = AthleteMembershipOrderView & {
+  creationOutcome: "created" | "reused";
+};
 export type AdminAthleteMembershipOrder = AthleteMembershipOrder & { athleteName: string };
 export type AdminAthleteMembershipOrderFilters = {
   status?: AthleteMembershipOrderStatus;
@@ -444,7 +447,7 @@ export const createAthleteMembershipOrder = async (
   request: Request,
   input: { planCode: string },
   dependencies = defaultDependencies(),
-): Promise<AthleteMembershipOrderView> => {
+): Promise<AthleteMembershipOrderCreation> => {
   const identity = await requireAthlete(request, dependencies.getAccessProfile);
   const planCode = parsePlanCode(input.planCode);
   const paymentUrl = dependencies.getTwintPaymentUrl();
@@ -461,7 +464,11 @@ export const createAthleteMembershipOrder = async (
       if (result.outcome === "membership_conflict") throw new AthleteMembershipOrderError("conflict", "Une adhésion effective ou active existe déjà.");
       if (result.outcome === "plan_conflict") throw new AthleteMembershipOrderError("conflict", "Annulez la commande pending avant de changer d’offre.");
       if (result.outcome === "invalid_plan" || !result.order) throw new AthleteMembershipOrderError("validation", "Cette offre Athlète n’est pas disponible.");
-      return { ...mapOrder(result.order), twintPaymentUrl: paymentUrl };
+      return {
+        ...mapOrder(result.order),
+        twintPaymentUrl: paymentUrl,
+        creationOutcome: result.outcome,
+      };
     } catch (error) {
       if (isUniqueReferenceCollision(error) && attempt + 1 < REFERENCE_RETRY_LIMIT) continue;
       throw error;
@@ -482,12 +489,20 @@ export const getCurrentAthleteMembershipOrder = async (
 
 export const cancelAthleteMembershipOrder = async (
   request: Request,
-  orderId: string,
+  orderId?: string,
   dependencies = defaultDependencies(),
 ): Promise<AthleteMembershipOrder> => {
   const identity = await requireAthlete(request, dependencies.getAccessProfile);
-  const id = normalize(orderId);
-  if (!id) throw new AthleteMembershipOrderError("validation", "L’identifiant de commande est requis.");
+  const requestedId = normalize(orderId);
+  const current = requestedId
+    ? null
+    : await dependencies.repository.readCurrentAtomic(
+      identity.workspaceId,
+      identity.athleteId,
+      dependencies.now().toISOString(),
+    );
+  const id = requestedId || current?.id || "";
+  if (!id) throw new AthleteMembershipOrderError("conflict", "Aucune commande pending ne peut être annulée.");
   const row = await dependencies.repository.cancelAtomic(id, identity.workspaceId, identity.athleteId, dependencies.now().toISOString());
   if (!row) throw new AthleteMembershipOrderError("conflict", "Seule une commande pending non expirée peut être annulée.");
   return mapOrder(row);

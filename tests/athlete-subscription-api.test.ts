@@ -206,7 +206,17 @@ describe("Athlete subscription API", () => {
     })).GET(athleteRequest());
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ pass: null });
+    await expect(response.json()).resolves.toEqual({
+      pass: null,
+      plans: [{
+        code: "impact",
+        name: "Impact",
+        annualPriceChf: 549,
+        productionCredits: 2,
+        customContentCredits: 4,
+        videoAllowed: true,
+      }],
+    });
   });
 
   it.each([
@@ -246,5 +256,17 @@ describe("Athlete subscription proxy access", () => {
   it("does not authorize nested or lookalike subscription routes", () => {
     expect(isAthleteAllowedRoute("/api/athlete/subscription/history", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/api/athlete/subscriptions", "GET")).toBe(false);
+  });
+
+  it("allows only GET, POST and DELETE on the exact membership-order route", () => {
+    const route = "/api/athlete/membership-order";
+    for (const method of ["GET", "POST", "DELETE"]) {
+      expect(isAthleteAllowedRoute(route, method)).toBe(true);
+    }
+    for (const method of ["HEAD", "PUT", "PATCH", "OPTIONS"]) {
+      expect(isAthleteAllowedRoute(route, method)).toBe(false);
+    }
+    expect(isAthleteAllowedRoute(`${route}/history`, "GET")).toBe(false);
+    expect(isAthleteAllowedRoute("/api/athlete/membership-orders", "GET")).toBe(false);
   });
 });

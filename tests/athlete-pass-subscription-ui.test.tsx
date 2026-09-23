@@ -62,6 +62,33 @@ const founderSubscription = {
   },
 };
 
+const catalogPlans = [
+  {
+    code: "essential",
+    name: "Essentiel",
+    annualPriceChf: 249,
+    productionCredits: 1,
+    customContentCredits: 2,
+    videoAllowed: false,
+  },
+  {
+    code: "impact",
+    name: "Impact",
+    annualPriceChf: 549,
+    productionCredits: 2,
+    customContentCredits: 4,
+    videoAllowed: true,
+  },
+  {
+    code: "signature",
+    name: "Signature",
+    annualPriceChf: 999,
+    productionCredits: 3,
+    customContentCredits: 6,
+    videoAllowed: true,
+  },
+] as const;
+
 const contentRequest = (overrides: Record<string, unknown> = {}) => ({
   id: "91d272d1-1a5b-4486-bbc0-69b1ce747e4d",
   subscriptionId: pass.contentRequestSubscriptionId,
@@ -92,9 +119,12 @@ const mockInitialLoad = (
   requests: Array<ReturnType<typeof contentRequest>> = [],
 ) => {
   fetchMock
-    .mockResolvedValueOnce(response({ pass: currentPass }))
+    .mockResolvedValueOnce(response({
+      pass: currentPass,
+      ...(currentPass ? {} : { plans: catalogPlans }),
+    }))
     .mockResolvedValueOnce(response({ requests }))
-    .mockResolvedValueOnce(response({ benefits: [] }));
+    .mockResolvedValueOnce(response(currentPass ? { benefits: [] } : { order: null }));
 };
 
 const mount = async () => {
@@ -197,6 +227,8 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     expect(container.textContent).not.toContain("Formats disponibles");
     expect(container.textContent).not.toContain("Mes contenus personnalisés");
     expect(container.textContent).not.toContain("Renouvellement :");
+    expect(container.textContent).not.toContain("Choisir cette offre");
+    expect(container.textContent).not.toContain("TWINT");
     expect(container.querySelector("form")).toBeNull();
   });
 
@@ -216,13 +248,33 @@ describe("Athlete KLIQUE Pass subscription view", () => {
     expect(quota?.textContent).toContain("Places disponibles2");
   });
 
-  it("invites the athlete to contact KLIQUE without an active subscription", async () => {
+  it("shows the canonical catalog without an active subscription", async () => {
     mockInitialLoad(null);
 
     await mount();
 
-    expect(container.textContent).toContain("Aucun abonnement actif");
-    expect(container.textContent).toContain("Contactez KLIQUE");
+    expect(container.textContent).toContain("Essentiel");
+    expect(container.textContent).toContain("Impact");
+    expect(container.textContent).toContain("Signature");
+    expect(container.textContent).toContain("CHF 249.00/an");
+    expect(container.textContent).toContain("1 crédit(s) production");
+    expect(container.textContent).toContain("2 crédit(s) contenu");
+    expect(container.textContent).toContain("Vidéo : non incluse");
+    expect(container.querySelectorAll("button")).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledWith("/api/athlete/membership-order", {
+      credentials: "include",
+      cache: "no-store",
+    });
+  });
+
+  it("does not load or display membership ordering for an active commercial Pass", async () => {
+    mockInitialLoad();
+
+    await mount();
+
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/athlete/membership-order")).toBe(false);
+    expect(container.textContent).not.toContain("Choisir cette offre");
+    expect(container.textContent).not.toContain("Payer avec TWINT");
   });
 
   it("exposes accessible loading and error states", async () => {

@@ -16,6 +16,7 @@ import type {
 import type { AthleteMembershipPlan } from "@/lib/athlete-credits";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { Button, Card, Input, Select, Textarea } from "@/src/design-system/components";
+import AthleteMembershipOrdersAdminSection from "@/components/settings/AthleteMembershipOrdersAdminSection";
 
 type SubscriptionsResponse = {
   memberships?: AdminAthleteMembership[];
@@ -530,6 +531,12 @@ export default function AthleteSubscriptionsSettingsPage() {
           </div>
         </form>
       </Card>
+
+      <AthleteMembershipOrdersAdminSection
+        athletes={athletes}
+        onMembershipsRefresh={refreshMemberships}
+        enabled={!loading}
+      />
 
       <section aria-labelledby="subscriptions-title" style={{ display: "grid", gap: "0.85rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>

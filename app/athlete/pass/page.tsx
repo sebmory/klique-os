@@ -15,6 +15,9 @@ import type {
 } from "@/lib/athlete-subscription-content-requests/service";
 import { Button, Input, Select, Textarea } from "@/src/design-system/components";
 import { AthletePartnerBenefits } from "@/components/ecosystem/AthletePartnerBenefits";
+import AthleteMembershipOrderPurchase, {
+  type AthletePassCatalogPlan,
+} from "@/components/athletes/AthleteMembershipOrderPurchase";
 
 type PublicAthletePass = {
   id: string;
@@ -44,6 +47,7 @@ type PublicAthletePass = {
 
 type AthleteSubscriptionPayload = {
   pass: PublicAthletePass | null;
+  plans?: AthletePassCatalogPlan[];
   error?: string;
 };
 
@@ -135,6 +139,7 @@ const errorMessageFrom = async (response: Response, fallback: string): Promise<s
 
 export default function AthletePassPage() {
   const [pass, setPass] = useState<PublicAthletePass | null>(null);
+  const [availablePlans, setAvailablePlans] = useState<AthletePassCatalogPlan[]>([]);
   const [contentRequests, setContentRequests] = useState<AthleteSubscriptionContentRequest[]>([]);
   const [formatCode, setFormatCode] = useState("");
   const [athleteNote, setAthleteNote] = useState("");
@@ -174,6 +179,7 @@ export default function AthletePassPage() {
         }
         if (active) {
           setPass(subscriptionPayload.pass);
+          setAvailablePlans(Array.isArray(subscriptionPayload.plans) ? subscriptionPayload.plans : []);
           setContentRequests(requestsPayload.requests);
         }
       } catch (error) {
@@ -273,16 +279,7 @@ export default function AthletePassPage() {
   if (!pass) {
     return (
       <main style={pageStyle}>
-        <header>
-          <p style={{ margin: 0, fontSize: "0.78rem", fontWeight: 700, textTransform: "uppercase", color: "#78716c" }}>PASS MEMBRE</p>
-          <h1 style={{ margin: "0.3rem 0 0", fontSize: "1.45rem", color: "#1c1917" }}>Mon Pass KLIQUE</h1>
-        </header>
-        <section style={{ border: "1px solid #e7e5e4", borderRadius: "8px", padding: "1.25rem", background: "#fff", display: "grid", gap: "0.45rem" }}>
-          <h2 style={{ margin: 0, fontSize: "1.1rem", color: "#1c1917" }}>Aucun abonnement actif</h2>
-          <p style={{ margin: 0, color: "#57534e", lineHeight: 1.6 }}>
-            Contactez KLIQUE pour choisir l’offre adaptée et activer votre Pass membre.
-          </p>
-        </section>
+        <AthleteMembershipOrderPurchase plans={availablePlans} />
       </main>
     );
   }

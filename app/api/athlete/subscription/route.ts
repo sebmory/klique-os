@@ -139,7 +139,23 @@ export const createAthleteSubscriptionHandlers = (
       const current = await dependencies.getCurrentMembership(workspaceId, athleteId);
       const membership = current.membership;
       if (!membership || !current.isActive) {
-        return NextResponse.json({ pass: null });
+        const plans = (await dependencies.listPlans())
+          .filter((plan) => (
+            isCommercialPlanCode(plan.code)
+            && plan.durationMonths === 12
+            && plan.annualPriceChf !== null
+            && plan.productionCredits !== null
+            && plan.customContentCredits !== null
+          ))
+          .map((plan) => ({
+            code: plan.code,
+            name: plan.name,
+            annualPriceChf: plan.annualPriceChf!,
+            productionCredits: plan.productionCredits!,
+            customContentCredits: plan.customContentCredits!,
+            videoAllowed: plan.videoAllowed === true,
+          }));
+        return NextResponse.json({ pass: null, plans });
       }
 
       const founder = membership.membershipKind === "founder";
