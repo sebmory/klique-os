@@ -1,10 +1,13 @@
 import { SignUp } from "@clerk/nextjs";
+import { resolvePassAuthRedirect } from "@/lib/pass-navigation";
 
 type SignUpPageProps = {
-  searchParams: Promise<{ portal?: string | string[] }>;
+  searchParams: Promise<{ portal?: string | string[]; redirect?: string | string[] }>;
 };
 
-export const getSignUpRedirectUrl = (portal: string | undefined): string => {
+export const getSignUpRedirectUrl = (portal: string | undefined, redirect?: string | string[]): string => {
+  const passRedirect = resolvePassAuthRedirect(redirect);
+  if (passRedirect) return passRedirect;
   if (portal === "partner") return "/partner";
   if (portal === "media") return "/media-desk";
   return "/athlete";
@@ -13,7 +16,7 @@ export const getSignUpRedirectUrl = (portal: string | undefined): string => {
 export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   const params = await searchParams;
   const portal = Array.isArray(params.portal) ? params.portal[0] : params.portal;
-  const redirectUrl = getSignUpRedirectUrl(portal);
+  const redirectUrl = getSignUpRedirectUrl(portal, params.redirect);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_45%),linear-gradient(135deg,_#020617_0%,_#0f172a_100%)] px-6 py-12">

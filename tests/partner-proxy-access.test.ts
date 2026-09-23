@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { isHiddenExternalAthleteProfileRoute, isPartnerAllowedApi, isPartnerAllowedPage } from "@/proxy";
+import {
+  isHiddenExternalAthleteProfileRoute,
+  isPartnerAllowedApi,
+  isPartnerAllowedPage,
+  isProspectPassPage,
+  isProspectMembershipOrderApi,
+  isPublicPassPage,
+  isPublicMembershipPlansApi,
+} from "@/proxy";
 
 describe("partner proxy access", () => {
+  it("opens only the public membership plan GET and the exact authenticated pre-access order methods", () => {
+    expect(isPublicPassPage("/pass")).toBe(true);
+    expect(isPublicPassPage("/pass/details")).toBe(false);
+    expect(isProspectPassPage("/join/pass")).toBe(true);
+    expect(isProspectPassPage("/join/pass/details")).toBe(false);
+    expect(isPublicMembershipPlansApi("/api/public/membership-plans", "GET")).toBe(true);
+    expect(isProspectMembershipOrderApi("/api/join/pass/order", "GET")).toBe(true);
+    expect(isProspectMembershipOrderApi("/api/join/pass/order", "POST")).toBe(true);
+    expect(isProspectMembershipOrderApi("/api/join/pass/order", "DELETE")).toBe(true);
+
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(isPublicMembershipPlansApi("/api/public/membership-plans", method)).toBe(false);
+    }
+    for (const method of ["PUT", "PATCH"]) {
+      expect(isProspectMembershipOrderApi("/api/join/pass/order", method)).toBe(false);
+    }
+    expect(isProspectMembershipOrderApi("/api/join/pass/order/history", "GET")).toBe(false);
+    expect(isProspectMembershipOrderApi("/api/athlete/membership-order", "GET")).toBe(false);
+  });
+
   it("allows the read-only community page", () => {
     expect(isPartnerAllowedPage("/partner/community")).toBe(true);
     expect(isPartnerAllowedPage("/partner/community/")).toBe(false);

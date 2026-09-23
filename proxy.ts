@@ -16,6 +16,17 @@ const accessPendingPath = "/access-pending";
 
 const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathname.startsWith("/api/");
 
+export const isPublicMembershipPlansApi = (pathname: string, method: string): boolean =>
+  pathname === "/api/public/membership-plans" && method === "GET";
+
+export const isProspectMembershipOrderApi = (pathname: string, method: string): boolean =>
+  pathname === "/api/join/pass/order"
+  && (method === "GET" || method === "POST" || method === "DELETE");
+
+export const isPublicPassPage = (pathname: string): boolean => pathname === "/pass";
+
+export const isProspectPassPage = (pathname: string): boolean => pathname === "/join/pass";
+
 export const isAdminPartnerBenefitReservationAuditApi = (pathname: string, method: string): boolean =>
   pathname === "/api/admin/partner-benefit-reservations" && method === "GET";
 
@@ -195,13 +206,21 @@ const apiAccessDenied = () => NextResponse.json({ error: "Accès refusé." }, { 
 
 export default clerkMiddleware(
   async (auth, request: NextRequest) => {
-    if (isPublicRoute(request)) {
+    const { pathname } = request.nextUrl;
+    if (
+      isPublicRoute(request)
+      || isPublicPassPage(pathname)
+      || isPublicMembershipPlansApi(pathname, request.method)
+    ) {
       return NextResponse.next();
     }
 
     await auth.protect();
 
-    const { pathname } = request.nextUrl;
+    if (isProspectPassPage(pathname) || isProspectMembershipOrderApi(pathname, request.method)) {
+      return NextResponse.next();
+    }
+
     if (pathname === accessPendingPath) {
       return NextResponse.next();
     }

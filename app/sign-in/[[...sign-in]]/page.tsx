@@ -1,6 +1,17 @@
 import { SignIn } from "@clerk/nextjs";
+import { resolvePassAuthRedirect } from "@/lib/pass-navigation";
 
-export default function SignInPage() {
+type SignInPageProps = {
+  searchParams: Promise<{ redirect?: string | string[] }>;
+};
+
+export const getSignInRedirectUrl = (redirect?: string | string[]): string =>
+  resolvePassAuthRedirect(redirect) ?? "/";
+
+export default async function SignInPage({ searchParams }: SignInPageProps) {
+  const params = await searchParams;
+  const redirectUrl = getSignInRedirectUrl(params.redirect);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.12),_transparent_45%),linear-gradient(135deg,_#020617_0%,_#0f172a_100%)] px-6 py-12">
       <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur">
@@ -16,8 +27,8 @@ export default function SignInPage() {
           <SignIn
             path="/sign-in"
             routing="path"
-            forceRedirectUrl="/"
-            fallbackRedirectUrl="/"
+            forceRedirectUrl={redirectUrl}
+            fallbackRedirectUrl={redirectUrl}
             appearance={{
               variables: {
                 colorPrimary: "#22d3ee",

@@ -32,6 +32,7 @@ export function AppShell({ children }: AppShellProps) {
   const { user } = useUser();
   const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const isAccessPendingRoute = pathname === "/access-pending";
+  const isPassFlowRoute = pathname === "/pass" || pathname === "/join/pass";
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(sidebarStorageKey) === "true";
@@ -54,7 +55,7 @@ export function AppShell({ children }: AppShellProps) {
   }, [collapsed]);
 
   useEffect(() => {
-    if (isPublicAuthRoute || isAccessPendingRoute) {
+    if (isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
       return;
     }
 
@@ -149,7 +150,7 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
       setAuthenticatedContentStorageRole(null);
     };
-  }, [isAccessPendingRoute, isPublicAuthRoute, router, user?.id]);
+  }, [isAccessPendingRoute, isPassFlowRoute, isPublicAuthRoute, router, user?.id]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -162,7 +163,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener("keydown", onEscape);
   }, []);
 
-  if (isPublicAuthRoute || isAccessPendingRoute) {
+  if (isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
     return <>{children}</>;
   }
 
