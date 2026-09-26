@@ -16,6 +16,7 @@ import type {
 import type { AthleteMembershipPlan } from "@/lib/athlete-credits";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { Button, Card, Input, Select, Textarea } from "@/src/design-system/components";
+import AthleteMembershipProspectOrdersAdminSection from "@/components/settings/AthleteMembershipProspectOrdersAdminSection";
 import AthleteMembershipOrdersAdminSection from "@/components/settings/AthleteMembershipOrdersAdminSection";
 
 type SubscriptionsResponse = {
@@ -531,6 +532,11 @@ export default function AthleteSubscriptionsSettingsPage() {
           </div>
         </form>
       </Card>
+
+      <AthleteMembershipProspectOrdersAdminSection
+        athletes={athletes}
+        onMembershipsRefresh={refreshMemberships}
+      />
 
       <AthleteMembershipOrdersAdminSection
         athletes={athletes}

@@ -2,6 +2,9 @@ import { randomBytes, randomUUID } from "crypto";
 import { clerkClient } from "@clerk/nextjs/server";
 import { resolveTwintBusinessPaymentUrl } from "@/lib/athlete-membership-orders";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
+import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
+import type { AthleteMembership } from "@/lib/athlete-memberships";
+import type { Athlete } from "@/types/athlete";
 
 export type AthleteMembershipProspectOrderStatus =
   | "pending_payment"
@@ -66,6 +69,12 @@ export type ConfirmedAthleteMembershipProspectOrder = {
   alreadyConfirmed: boolean;
 };
 
+export type ActivatedAthleteMembershipProspectOrder = {
+  order: AdminAthleteMembershipProspectOrder;
+  membership: AthleteMembership;
+  alreadyActivated: boolean;
+};
+
 export type ProspectClerkIdentity = {
   clerkUserId: string;
   verifiedEmail: string | null;
@@ -118,6 +127,37 @@ type ConfirmResult = {
   order: ProspectOrderRow | null;
 };
 
+type MembershipRow = {
+  id: string;
+  workspace_id: string;
+  athlete_id: string;
+  membership_kind: "subscription";
+  plan_code: AthleteMembershipProspectPlanCode;
+  status: "active";
+  starts_at: string | Date;
+  ends_at: string | Date;
+  auto_renew: boolean;
+  payment_installments: number;
+  source: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
+type ActivateResult = {
+  outcome:
+    | "activated"
+    | "already_activated"
+    | "athlete_mismatch"
+    | "email_mismatch"
+    | "membership_conflict"
+    | "access_conflict"
+    | "not_paid_awaiting_form"
+    | "activation_failed"
+    | "not_found";
+  order: ProspectOrderRow | null;
+  membership: MembershipRow | null;
+};
+
 export type AthleteMembershipProspectOrderRepository = {
   findActiveAccess(clerkUserId: string): Promise<ActiveAccess | null>;
   createAtomic(input: {
@@ -142,6 +182,18 @@ export type AthleteMembershipProspectOrderRepository = {
     adminClerkUserId: string;
     now: string;
   }): Promise<ConfirmResult>;
+  findById(workspaceId: string, orderId: string): Promise<ProspectOrderRow | null>;
+  activateAtomic(input: {
+    orderId: string;
+    athleteId: string;
+    athleteEmail: string;
+    workspaceId: string;
+    adminClerkUserId: string;
+    membershipId: string;
+    productionMovementId: string;
+    customContentMovementId: string;
+    now: string;
+  }): Promise<ActivateResult>;
 };
 
 export type AthleteMembershipProspectOrderDependencies = {
@@ -152,6 +204,7 @@ export type AthleteMembershipProspectOrderDependencies = {
   createReference: () => string;
   now: () => Date;
   getTwintPaymentUrl: () => string;
+  getAthletes: () => Promise<Athlete[]>;
   termsVersion: string;
 };
 
@@ -176,10 +229,27 @@ const allowedStatuses = new Set<AthleteMembershipProspectOrderStatus>([
 const clerkAuthorizedParties = ["http://localhost:3000", "https://klique-os.vercel.app", "https://app.klique.ch"];
 const referenceAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const REFERENCE_RETRY_LIMIT = 4;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 const normalizeEmail = (value: unknown): string => normalize(value).toLowerCase();
 const iso = (value: string | Date): string => new Date(value).toISOString();
+
+const mapMembership = (row: MembershipRow): AthleteMembership => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  athleteId: row.athlete_id,
+  membershipKind: row.membership_kind,
+  planCode: row.plan_code,
+  status: row.status,
+  startsAt: iso(row.starts_at),
+  endsAt: iso(row.ends_at),
+  autoRenew: row.auto_renew,
+  paymentInstallments: row.payment_installments,
+  source: row.source,
+  createdAt: iso(row.created_at),
+  updatedAt: iso(row.updated_at),
+});
 
 const mapOrder = (row: ProspectOrderRow): AthleteMembershipProspectOrder => ({
   id: row.id,
@@ -335,6 +405,31 @@ const isReferenceCollision = (error: unknown): boolean => {
     && postgres.constraint === "athlete_membership_prospect_orders_public_reference_key";
 };
 
+const isConcurrentActivationConflict = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  return code === "40001" || code === "23505";
+};
+
+const parseActivationInput = (input: { orderId: string; athleteId: string }) => {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new AthleteMembershipProspectOrderError("validation", "La demande d’activation est invalide.");
+  }
+  const keys = Object.keys(input);
+  if (keys.length !== 2 || !keys.includes("orderId") || !keys.includes("athleteId")) {
+    throw new AthleteMembershipProspectOrderError("validation", "La demande d’activation est invalide.");
+  }
+  const orderId = normalize(input.orderId);
+  const athleteId = normalize(input.athleteId);
+  if (!uuidPattern.test(orderId)) {
+    throw new AthleteMembershipProspectOrderError("validation", "L’identifiant de commande est invalide.");
+  }
+  if (!athleteId || athleteId !== input.athleteId || athleteId.length > 200 || /[\u0000-\u001f\u007f]/.test(athleteId)) {
+    throw new AthleteMembershipProspectOrderError("validation", "L’identifiant Athlete est invalide.");
+  }
+  return { orderId, athleteId };
+};
+
 export const createAthleteMembershipProspectOrderRepository = (): AthleteMembershipProspectOrderRepository => {
   const sql = createContentStorageClient();
   const columns = sql.unsafe(`orders.id, orders.public_reference, orders.workspace_id,
@@ -479,6 +574,16 @@ export const createAthleteMembershipProspectOrderRepository = (): AthleteMembers
       return rows as ProspectOrderRow[];
     },
 
+    async findById(workspaceId, orderId) {
+      const rows = await sql`
+        SELECT ${columns}
+        FROM athlete_membership_prospect_orders orders
+        WHERE orders.id = ${orderId}::uuid AND orders.workspace_id = ${workspaceId}
+        LIMIT 1
+      `;
+      return (rows as ProspectOrderRow[])[0] ?? null;
+    },
+
     async confirmAtomic(input) {
       const query = sql`
         WITH locked AS MATERIALIZED (
@@ -529,6 +634,197 @@ export const createAthleteMembershipProspectOrderRepository = (): AthleteMembers
       if (row.order) delete row.order.outcome;
       return { outcome: row.outcome, order: row.order };
     },
+
+    async activateAtomic(input) {
+      const referenceId = `prospect-order:${input.orderId}`;
+      const query = sql`
+        WITH locked AS MATERIALIZED (
+          SELECT *
+          FROM athlete_membership_prospect_orders
+          WHERE id = ${input.orderId}::uuid AND workspace_id = ${input.workspaceId}
+          FOR UPDATE
+        ), current_membership AS MATERIALIZED (
+          SELECT membership.*
+          FROM athlete_memberships membership
+          JOIN locked
+            ON locked.membership_id = membership.id
+           AND locked.workspace_id = membership.workspace_id
+           AND locked.athlete_id = membership.athlete_id
+        ), membership_state AS (
+          SELECT EXISTS (
+            SELECT 1
+            FROM athlete_memberships membership
+            WHERE membership.workspace_id = ${input.workspaceId}
+              AND membership.athlete_id = ${input.athleteId}
+              AND membership.status = 'active'
+          ) AS has_active
+        ), access_state AS MATERIALIZED (
+          SELECT access.*
+          FROM user_access access
+          JOIN locked ON locked.clerk_user_id = access.clerk_user_id
+          FOR UPDATE OF access
+        ), other_active_access AS (
+          SELECT 1
+          FROM user_access access
+          JOIN locked ON TRUE
+          WHERE access.workspace_id = locked.workspace_id
+            AND access.athlete_id = ${input.athleteId}
+            AND access.role = 'athlete'
+            AND access.status = 'active'
+            AND access.clerk_user_id <> locked.clerk_user_id
+          LIMIT 1
+        ), created_membership AS (
+          INSERT INTO athlete_memberships (
+            id, workspace_id, athlete_id, membership_kind, plan_code, status, starts_at, ends_at,
+            auto_renew, payment_installments, source, created_at, updated_at
+          )
+          SELECT ${input.membershipId}, locked.workspace_id, ${input.athleteId}, 'subscription',
+                 locked.plan_code, 'active', ${input.now}::timestamptz,
+                 ${input.now}::timestamptz + make_interval(months => locked.duration_months_snapshot),
+                 FALSE, 1, 'twint_prospect_order', ${input.now}::timestamptz, ${input.now}::timestamptz
+          FROM locked, membership_state
+          WHERE locked.status = 'paid_awaiting_form'
+            AND lower(btrim(locked.verified_email)) = ${input.athleteEmail}
+            AND membership_state.has_active = FALSE
+            AND NOT EXISTS (SELECT 1 FROM other_active_access)
+            AND (
+              NOT EXISTS (SELECT 1 FROM access_state)
+              OR EXISTS (
+                SELECT 1 FROM access_state access
+                WHERE access.role = 'athlete'
+                  AND access.workspace_id = locked.workspace_id
+                  AND access.athlete_id = ${input.athleteId}
+              )
+            )
+          RETURNING *
+        ), credit_expectation AS (
+          SELECT
+            (CASE WHEN locked.production_credits_snapshot > 0 THEN 1 ELSE 0 END
+             + CASE WHEN locked.custom_content_credits_snapshot > 0 THEN 1 ELSE 0 END) AS expected_count
+          FROM locked
+        ), created_credits AS (
+          INSERT INTO athlete_credit_movements (
+            id, workspace_id, athlete_id, membership_id, credit_type, quantity,
+            source, reference_id, expires_at, created_at
+          )
+          SELECT credit.id, membership.workspace_id, membership.athlete_id, membership.id,
+                 credit.credit_type, credit.quantity, 'plan_grant', ${referenceId},
+                 membership.ends_at, ${input.now}::timestamptz
+          FROM created_membership membership
+          JOIN locked ON TRUE
+          CROSS JOIN LATERAL (VALUES
+            (${input.productionMovementId}::uuid, 'production'::text, locked.production_credits_snapshot),
+            (${input.customContentMovementId}::uuid, 'custom_content'::text, locked.custom_content_credits_snapshot)
+          ) AS credit(id, credit_type, quantity)
+          WHERE credit.quantity > 0
+          ON CONFLICT (workspace_id, athlete_id, membership_id, credit_type, reference_id)
+            WHERE source = 'plan_grant' AND membership_id IS NOT NULL AND reference_id IS NOT NULL
+            DO NOTHING
+          RETURNING id
+        ), credit_check AS (
+          SELECT 1 / CASE WHEN COUNT(created_credits.id) = expectation.expected_count THEN 1 ELSE 0 END AS complete
+          FROM created_membership, credit_expectation expectation
+          LEFT JOIN created_credits ON TRUE
+          GROUP BY expectation.expected_count
+        ), upserted_access AS (
+          INSERT INTO user_access (
+            clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id,
+            status, created_at, updated_at
+          )
+          SELECT locked.clerk_user_id, ${input.athleteEmail}, 'athlete', locked.workspace_id,
+                 ${input.athleteId}, NULL, NULL, 'active', ${input.now}::timestamptz,
+                 ${input.now}::timestamptz
+          FROM locked, created_membership, credit_check
+          WHERE credit_check.complete = 1
+          ON CONFLICT (clerk_user_id) DO UPDATE SET
+            email = EXCLUDED.email,
+            status = 'active',
+            updated_at = EXCLUDED.updated_at
+          WHERE user_access.role = 'athlete'
+            AND user_access.workspace_id = EXCLUDED.workspace_id
+            AND user_access.athlete_id = EXCLUDED.athlete_id
+          RETURNING clerk_user_id
+        ), activated AS (
+          UPDATE athlete_membership_prospect_orders orders
+          SET status = 'activated', athlete_id = ${input.athleteId},
+              membership_id = membership.id, activated_at = ${input.now}::timestamptz,
+              activated_by_clerk_user_id = ${input.adminClerkUserId},
+              updated_at = ${input.now}::timestamptz
+          FROM created_membership membership, upserted_access access
+          WHERE orders.id = ${input.orderId}::uuid
+            AND access.clerk_user_id = orders.clerk_user_id
+          RETURNING orders.*
+        ), resolved AS (
+          SELECT 'activated'::text AS outcome, row_to_json(activated.*) AS order,
+                 row_to_json(created_membership.*) AS membership
+          FROM activated, created_membership
+          UNION ALL
+          SELECT 'already_activated', row_to_json(locked.*), row_to_json(current_membership.*)
+          FROM locked, current_membership
+          WHERE locked.status = 'activated' AND locked.athlete_id = ${input.athleteId}
+            AND NOT EXISTS (SELECT 1 FROM activated)
+          UNION ALL
+          SELECT 'athlete_mismatch', row_to_json(locked.*), NULL::json
+          FROM locked
+          WHERE locked.status = 'activated' AND locked.athlete_id <> ${input.athleteId}
+            AND NOT EXISTS (SELECT 1 FROM activated)
+          UNION ALL
+          SELECT 'email_mismatch', row_to_json(locked.*), NULL::json
+          FROM locked
+          WHERE locked.status = 'paid_awaiting_form'
+            AND lower(btrim(locked.verified_email)) <> ${input.athleteEmail}
+            AND NOT EXISTS (SELECT 1 FROM activated)
+          UNION ALL
+          SELECT 'membership_conflict', row_to_json(locked.*), NULL::json
+          FROM locked, membership_state
+          WHERE locked.status = 'paid_awaiting_form'
+            AND lower(btrim(locked.verified_email)) = ${input.athleteEmail}
+            AND membership_state.has_active
+            AND NOT EXISTS (SELECT 1 FROM activated)
+          UNION ALL
+          SELECT 'access_conflict', row_to_json(locked.*), NULL::json
+          FROM locked
+          WHERE locked.status = 'paid_awaiting_form'
+            AND lower(btrim(locked.verified_email)) = ${input.athleteEmail}
+            AND (
+              EXISTS (SELECT 1 FROM other_active_access)
+              OR EXISTS (
+                SELECT 1 FROM access_state access
+                WHERE access.role <> 'athlete'
+                   OR access.workspace_id <> locked.workspace_id
+                   OR access.athlete_id IS DISTINCT FROM ${input.athleteId}
+              )
+            )
+            AND NOT EXISTS (SELECT 1 FROM activated)
+            AND NOT EXISTS (SELECT 1 FROM membership_state WHERE has_active)
+          UNION ALL
+          SELECT 'not_paid_awaiting_form', row_to_json(locked.*), NULL::json
+          FROM locked
+          WHERE locked.status NOT IN ('paid_awaiting_form', 'activated')
+            AND NOT EXISTS (SELECT 1 FROM activated)
+          UNION ALL
+          SELECT 'activation_failed', row_to_json(locked.*), NULL::json
+          FROM locked
+          WHERE locked.status = 'paid_awaiting_form'
+            AND NOT EXISTS (SELECT 1 FROM activated)
+            AND lower(btrim(locked.verified_email)) = ${input.athleteEmail}
+            AND NOT EXISTS (SELECT 1 FROM membership_state WHERE has_active)
+            AND NOT EXISTS (SELECT 1 FROM other_active_access)
+            AND NOT EXISTS (
+              SELECT 1 FROM access_state access
+              WHERE access.role <> 'athlete'
+                 OR access.workspace_id <> locked.workspace_id
+                 OR access.athlete_id IS DISTINCT FROM ${input.athleteId}
+            )
+        )
+        SELECT outcome, resolved.order, resolved.membership
+        FROM resolved
+        UNION ALL SELECT 'not_found', NULL::json, NULL::json WHERE NOT EXISTS (SELECT 1 FROM locked)
+        LIMIT 1
+      `;
+      const results = await sql.transaction([query], { isolationLevel: "Serializable" });
+      return (results[0] as ActivateResult[])[0];
+    },
   };
 };
 
@@ -540,6 +836,7 @@ const defaultDependencies = (): AthleteMembershipProspectOrderDependencies => ({
   createReference: generateAthleteMembershipProspectOrderReference,
   now: () => new Date(),
   getTwintPaymentUrl: resolveTwintBusinessPaymentUrl,
+  getAthletes: getAthletesFromGoogleSheets,
   termsVersion: ATHLETE_MEMBERSHIP_PROSPECT_TERMS_VERSION,
 });
 
@@ -657,4 +954,89 @@ export const confirmAthleteMembershipProspectOrderPayment = async (
     throw new AthleteMembershipProspectOrderError("conflict", "Cette commande Prospect ne peut plus être confirmée.");
   }
   return { order: mapOrder(result.order), alreadyConfirmed: result.outcome === "already_confirmed" };
+};
+
+export const activateAthleteMembershipProspectOrder = async (
+  request: Request,
+  input: { orderId: string; athleteId: string },
+  dependencies = defaultDependencies(),
+): Promise<ActivatedAthleteMembershipProspectOrder> => {
+  const admin = await requireAdmin(request, dependencies);
+  const parsed = parseActivationInput(input);
+  const order = await dependencies.repository.findById(admin.workspaceId, parsed.orderId);
+  if (!order) {
+    throw new AthleteMembershipProspectOrderError("not_found", "Commande Prospect introuvable.");
+  }
+
+  const athletes = await dependencies.getAthletes();
+  const athlete = athletes.find((candidate) => candidate.athleteId === parsed.athleteId && candidate.key === parsed.athleteId);
+  if (!athlete) {
+    throw new AthleteMembershipProspectOrderError("not_found", "Fiche Athlete canonique introuvable.");
+  }
+  if (typeof athlete.row !== "number" || athlete.row <= 0) {
+    throw new AthleteMembershipProspectOrderError(
+      "conflict",
+      "Le formulaire doit être synchronisé vers une fiche Athlete canonique avant l’activation.",
+    );
+  }
+  const athleteEmail = normalizeEmail(athlete.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(athleteEmail)) {
+    throw new AthleteMembershipProspectOrderError("conflict", "La fiche Athlete sélectionnée ne possède pas d’e-mail exploitable.");
+  }
+  if (normalizeEmail(order.verified_email) !== athleteEmail) {
+    throw new AthleteMembershipProspectOrderError(
+      "conflict",
+      "L’e-mail de la fiche Athlete ne correspond pas à l’e-mail Clerk vérifié de la commande.",
+    );
+  }
+
+  try {
+    const result = await dependencies.repository.activateAtomic({
+      ...parsed,
+      athleteEmail,
+      workspaceId: admin.workspaceId,
+      adminClerkUserId: admin.clerkUserId,
+      membershipId: dependencies.createId(),
+      productionMovementId: dependencies.createId(),
+      customContentMovementId: dependencies.createId(),
+      now: dependencies.now().toISOString(),
+    });
+    if (result.outcome === "not_found" || !result.order) {
+      throw new AthleteMembershipProspectOrderError("not_found", "Commande Prospect introuvable.");
+    }
+    if (result.outcome === "athlete_mismatch") {
+      throw new AthleteMembershipProspectOrderError("conflict", "Cette commande est déjà liée à un autre Athlete.");
+    }
+    if (result.outcome === "email_mismatch") {
+      throw new AthleteMembershipProspectOrderError(
+        "conflict",
+        "L’e-mail de la fiche Athlete ne correspond plus à l’e-mail vérifié de la commande.",
+      );
+    }
+    if (result.outcome === "membership_conflict") {
+      throw new AthleteMembershipProspectOrderError("conflict", "Cet Athlete possède déjà une adhésion active.");
+    }
+    if (result.outcome === "access_conflict") {
+      throw new AthleteMembershipProspectOrderError("conflict", "L’accès plateforme existant est incompatible avec cet Athlete.");
+    }
+    if (result.outcome === "not_paid_awaiting_form") {
+      throw new AthleteMembershipProspectOrderError("conflict", "Seule une commande payée en attente de formulaire peut être activée.");
+    }
+    if (result.outcome === "activation_failed" || !result.membership) {
+      throw new Error("L’activation transactionnelle de la commande Prospect a échoué.");
+    }
+    return {
+      order: mapOrder(result.order),
+      membership: mapMembership(result.membership),
+      alreadyActivated: result.outcome === "already_activated",
+    };
+  } catch (error) {
+    if (isConcurrentActivationConflict(error)) {
+      throw new AthleteMembershipProspectOrderError(
+        "conflict",
+        "Une activation concurrente a modifié cette commande, cette adhésion ou cet accès. Rechargez puis réessayez.",
+      );
+    }
+    throw error;
+  }
 };

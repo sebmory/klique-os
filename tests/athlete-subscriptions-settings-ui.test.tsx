@@ -9,6 +9,10 @@ vi.mock("next/link", () => ({
     createElement("a", { href, ...props }, children),
 }));
 
+vi.mock("@/components/settings/AthleteMembershipProspectOrdersAdminSection", () => ({
+  default: () => null,
+}));
+
 import AthleteSubscriptionsSettingsPage from "@/app/settings/athlete-subscriptions/page";
 
 const plan = {

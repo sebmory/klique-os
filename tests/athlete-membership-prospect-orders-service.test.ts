@@ -25,10 +25,15 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: vi.fn(),
 }));
 
+vi.mock("@/lib/google-sheets", () => ({
+  getAthletesFromGoogleSheets: vi.fn(),
+}));
+
 import {
   ATHLETE_MEMBERSHIP_PROSPECT_TERMS_VERSION,
   AthleteMembershipProspectOrderError,
   PAID_AWAITING_FORM_MESSAGE,
+  activateAthleteMembershipProspectOrder,
   cancelAthleteMembershipProspectOrder,
   confirmAthleteMembershipProspectOrderPayment,
   createAthleteMembershipProspectOrder,
@@ -40,6 +45,7 @@ import {
   type AthleteMembershipProspectOrderRepository,
   type ProspectClerkIdentity,
 } from "@/lib/athlete-membership-prospect-orders";
+import type { Athlete } from "@/types/athlete";
 
 const request = new Request("http://localhost/api/prospect-orders?email=forged@example.test&workspaceId=forged");
 const now = new Date("2026-09-23T12:00:00.000Z");
@@ -89,6 +95,30 @@ const adminIdentity: ProspectClerkIdentity = {
   verifiedEmail: "admin@example.test",
 };
 
+const canonicalAthlete = {
+  row: 12,
+  athleteId: "lina-morel",
+  key: "lina-morel",
+  name: "Lina Morel",
+  email: "prospect@example.test",
+} as Athlete;
+
+const membershipRow = {
+  id: "22222222-2222-4222-8222-222222222222",
+  workspace_id: "admin-workspace",
+  athlete_id: "lina-morel",
+  membership_kind: "subscription" as const,
+  plan_code: "essential" as const,
+  status: "active" as const,
+  starts_at: now.toISOString(),
+  ends_at: "2027-09-23T12:00:00.000Z",
+  auto_renew: false,
+  payment_installments: 1,
+  source: "twint_prospect_order",
+  created_at: now.toISOString(),
+  updated_at: now.toISOString(),
+};
+
 const repository = (
   overrides: Partial<AthleteMembershipProspectOrderRepository> = {},
 ): AthleteMembershipProspectOrderRepository => ({
@@ -108,6 +138,24 @@ const repository = (
       confirmed_by_clerk_user_id: "user-admin",
     }),
   }),
+  findById: vi.fn().mockResolvedValue(orderRow({
+    status: "paid_awaiting_form",
+    paid_at: now.toISOString(),
+    confirmed_by_clerk_user_id: "user-admin",
+  })),
+  activateAtomic: vi.fn().mockResolvedValue({
+    outcome: "activated",
+    order: orderRow({
+      status: "activated",
+      athlete_id: "lina-morel",
+      membership_id: membershipRow.id,
+      paid_at: now.toISOString(),
+      confirmed_by_clerk_user_id: "user-admin",
+      activated_by_clerk_user_id: "user-admin",
+      activated_at: now.toISOString(),
+    }),
+    membership: membershipRow,
+  }),
   ...overrides,
 });
 
@@ -123,6 +171,7 @@ const dependencies = (
   createReference: vi.fn(() => "KQ-ABCDEF123456"),
   now: vi.fn(() => now),
   getTwintPaymentUrl: vi.fn(() => "https://pay.example.test/twint"),
+  getAthletes: vi.fn().mockResolvedValue([canonicalAthlete]),
   termsVersion: ATHLETE_MEMBERSHIP_PROSPECT_TERMS_VERSION,
   ...overrides,
 });
@@ -473,6 +522,330 @@ describe("Admin prospect membership orders", () => {
       now: now.toISOString(),
     })).rejects.toBe(failure);
     expect(transactionMock).toHaveBeenCalledOnce();
+    expect(transactionMock.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" });
+  });
+});
+
+describe("Admin prospect membership order activation", () => {
+  const adminRepository = (overrides: Partial<AthleteMembershipProspectOrderRepository> = {}) => repository({
+    findActiveAccess: vi.fn().mockResolvedValue({ role: "admin", workspaceId: "admin-workspace" }),
+    ...overrides,
+  });
+
+  const activationDependencies = (
+    repo = adminRepository(),
+    overrides: Partial<AthleteMembershipProspectOrderDependencies> = {},
+  ) => dependencies(repo, adminIdentity, {
+    createId: vi.fn()
+      .mockReturnValueOnce(membershipRow.id)
+      .mockReturnValueOnce("33333333-3333-4333-8333-333333333333")
+      .mockReturnValueOnce("44444444-4444-4444-8444-444444444444"),
+    getAthletes: vi.fn().mockResolvedValue([canonicalAthlete]),
+    ...overrides,
+  });
+
+  it("requires an active Admin and uses the session workspace", async () => {
+    const unauthenticated = adminRepository({ findActiveAccess: vi.fn() });
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: canonicalAthlete.key },
+      dependencies(unauthenticated, null),
+    )).rejects.toMatchObject({ code: "unauthorized" });
+
+    const athleteAccess = adminRepository({
+      findActiveAccess: vi.fn().mockResolvedValue({ role: "athlete", workspaceId: "admin-workspace" }),
+    });
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: canonicalAthlete.key },
+      dependencies(athleteAccess, adminIdentity),
+    )).rejects.toMatchObject({ code: "forbidden" });
+
+    const repo = adminRepository();
+    await activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: canonicalAthlete.key },
+      activationDependencies(repo),
+    );
+    expect(repo.findById).toHaveBeenCalledWith("admin-workspace", orderId);
+    expect(repo.activateAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "admin-workspace",
+      adminClerkUserId: "user-admin",
+    }));
+  });
+
+  it.each([
+    [{ orderId: "not-a-uuid", athleteId: "lina-morel" }],
+    [{ orderId, athleteId: "" }],
+    [{ orderId, athleteId: " lina-morel" }],
+    [{ orderId, athleteId: "lina-morel", workspaceId: "forged" }],
+  ])("rejects strict invalid activation input %j", async (input) => {
+    const repo = adminRepository();
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      input as { orderId: string; athleteId: string },
+      activationDependencies(repo),
+    )).rejects.toMatchObject({ code: "validation" });
+    expect(repo.findById).not.toHaveBeenCalled();
+    expect(repo.activateAtomic).not.toHaveBeenCalled();
+  });
+
+  it("accepts a real canonical row and a normalized matching email", async () => {
+    const repo = adminRepository({
+      findById: vi.fn().mockResolvedValue(orderRow({
+        verified_email: "prospect@example.test",
+        status: "paid_awaiting_form",
+      })),
+    });
+    const deps = activationDependencies(repo, {
+      getAthletes: vi.fn().mockResolvedValue([{ ...canonicalAthlete, email: " Prospect@Example.Test " }]),
+    });
+
+    const result = await activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      deps,
+    );
+
+    expect(result).toMatchObject({
+      alreadyActivated: false,
+      order: { status: "activated", athleteId: "lina-morel" },
+      membership: { athleteId: "lina-morel", source: "twint_prospect_order" },
+    });
+    expect(repo.activateAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      orderId,
+      athleteId: "lina-morel",
+      athleteEmail: "prospect@example.test",
+    }));
+  });
+
+  it.each([
+    [[], "not_found"],
+    [[{ ...canonicalAthlete, row: 0 }], "conflict"],
+    [[{ ...canonicalAthlete, email: "" }], "conflict"],
+  ] as const)("refuses an absent, virtual or unusable canonical Athlete", async (athletes, code) => {
+    const repo = adminRepository();
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo, { getAthletes: vi.fn().mockResolvedValue(athletes) }),
+    )).rejects.toMatchObject({ code });
+    expect(repo.activateAtomic).not.toHaveBeenCalled();
+  });
+
+  it("refuses a different email without name matching or transaction", async () => {
+    const repo = adminRepository();
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo, {
+        getAthletes: vi.fn().mockResolvedValue([{
+          ...canonicalAthlete,
+          name: "Lina Morel",
+          email: "different@example.test",
+        }]),
+      }),
+    )).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining("e-mail") });
+    expect(repo.activateAtomic).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not_paid_awaiting_form", "Seule une commande payée"],
+    ["membership_conflict", "adhésion active"],
+    ["access_conflict", "accès plateforme"],
+  ] as const)("maps %s to an explicit conflict", async (outcome, message) => {
+    const repo = adminRepository({
+      activateAtomic: vi.fn().mockResolvedValue({ outcome, order: orderRow(), membership: null }),
+    });
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo),
+    )).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining(message) });
+  });
+
+  it("returns the existing membership when replayed with the same Athlete", async () => {
+    const activatedOrder = orderRow({
+      status: "activated",
+      athlete_id: "lina-morel",
+      membership_id: membershipRow.id,
+      paid_at: now.toISOString(),
+      confirmed_by_clerk_user_id: "user-admin",
+      activated_at: now.toISOString(),
+      activated_by_clerk_user_id: "user-admin",
+    });
+    const repo = adminRepository({
+      findById: vi.fn().mockResolvedValue(activatedOrder),
+      activateAtomic: vi.fn().mockResolvedValue({
+        outcome: "already_activated",
+        order: activatedOrder,
+        membership: membershipRow,
+      }),
+    });
+
+    const result = await activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo),
+    );
+    expect(result).toMatchObject({ alreadyActivated: true, membership: { id: membershipRow.id } });
+  });
+
+  it("refuses a replay linked to another Athlete", async () => {
+    const repo = adminRepository({
+      activateAtomic: vi.fn().mockResolvedValue({
+        outcome: "athlete_mismatch",
+        order: orderRow({ status: "activated", athlete_id: "other-athlete" }),
+        membership: null,
+      }),
+    });
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo),
+    )).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining("autre Athlete") });
+  });
+
+  it.each(["40001", "23505"])("maps PostgreSQL %s to a replayable conflict", async (code) => {
+    const postgresError = Object.assign(new Error("concurrent activation"), { code });
+    const repo = adminRepository({ activateAtomic: vi.fn().mockRejectedValue(postgresError) });
+    await expect(activateAthleteMembershipProspectOrder(
+      request,
+      { orderId, athleteId: "lina-morel" },
+      activationDependencies(repo),
+    )).rejects.toMatchObject({ code: "conflict", message: expect.stringContaining("Rechargez") });
+  });
+
+  it("uses one SERIALIZABLE transaction with locked snapshot membership, credits, access and order writes", async () => {
+    transactionMock.mockResolvedValue([[{
+      outcome: "activated",
+      order: orderRow({ status: "activated", athlete_id: "lina-morel", membership_id: membershipRow.id }),
+      membership: membershipRow,
+    }]]);
+    const repo = createAthleteMembershipProspectOrderRepository();
+
+    await repo.activateAtomic({
+      orderId,
+      athleteId: "lina-morel",
+      athleteEmail: "prospect@example.test",
+      workspaceId: "admin-workspace",
+      adminClerkUserId: "user-admin",
+      membershipId: membershipRow.id,
+      productionMovementId: "33333333-3333-4333-8333-333333333333",
+      customContentMovementId: "44444444-4444-4444-8444-444444444444",
+      now: now.toISOString(),
+    });
+
+    const [queries, options] = transactionMock.mock.calls[0];
+    expect(options).toEqual({ isolationLevel: "Serializable" });
+    expect(queries).toHaveLength(1);
+    const text = queries[0].text;
+    expect(text).toContain("FOR UPDATE");
+    expect(text).toContain("INSERT INTO athlete_memberships");
+    expect(text).toContain("'subscription'");
+    expect(text).toContain("'active'");
+    expect(text).toContain("make_interval(months => locked.duration_months_snapshot)");
+    expect(text).toContain("FALSE, 1, 'twint_prospect_order'");
+    expect(text).toContain("INSERT INTO athlete_credit_movements");
+    expect(text).toContain("locked.production_credits_snapshot");
+    expect(text).toContain("locked.custom_content_credits_snapshot");
+    expect(text).toContain("WHERE credit.quantity > 0");
+    expect(text).toContain("CASE WHEN locked.production_credits_snapshot > 0 THEN 1 ELSE 0 END");
+    expect(text).toContain("COUNT(created_credits.id) = expectation.expected_count");
+    expect(text).not.toContain("JOIN membership_plans");
+    expect(text).toContain("INSERT INTO user_access");
+    expect(text).toContain("ON CONFLICT (clerk_user_id) DO UPDATE");
+    expect(text).toContain("user_access.role = 'athlete'");
+    expect(text).toContain("access.clerk_user_id <> locked.clerk_user_id");
+    expect(text).toContain("SET status = 'activated'");
+    expect(text).toContain("activated_by_clerk_user_id");
+    expect(text).not.toContain("athlete_invitations");
+  });
+
+  it.each([
+    [2, 4, 2],
+    [2, 0, 1],
+    [0, 0, 0],
+  ])("derives %i/%i snapshots into exactly %i positive credit movements", async (
+    productionCredits,
+    customContentCredits,
+    expectedMovements,
+  ) => {
+    transactionMock.mockResolvedValue([[{
+      outcome: "activated",
+      order: orderRow({
+        production_credits_snapshot: productionCredits,
+        custom_content_credits_snapshot: customContentCredits,
+      }),
+      membership: membershipRow,
+    }]]);
+    const repo = createAthleteMembershipProspectOrderRepository();
+    await repo.activateAtomic({
+      orderId,
+      athleteId: "lina-morel",
+      athleteEmail: "prospect@example.test",
+      workspaceId: "admin-workspace",
+      adminClerkUserId: "user-admin",
+      membershipId: membershipRow.id,
+      productionMovementId: "33333333-3333-4333-8333-333333333333",
+      customContentMovementId: "44444444-4444-4444-8444-444444444444",
+      now: now.toISOString(),
+    });
+
+    const text = transactionMock.mock.calls[0][0][0].text;
+    expect(text).toContain("WHERE credit.quantity > 0");
+    expect(text).toContain("expectation.expected_count");
+    expect(Number(productionCredits > 0) + Number(customContentCredits > 0)).toBe(expectedMovements);
+  });
+
+  it("creates absent access, reactivates only compatible access and rejects every incompatible owner", async () => {
+    transactionMock.mockResolvedValue([[{
+      outcome: "activated",
+      order: orderRow({ status: "activated" }),
+      membership: membershipRow,
+    }]]);
+    const repo = createAthleteMembershipProspectOrderRepository();
+    await repo.activateAtomic({
+      orderId,
+      athleteId: "lina-morel",
+      athleteEmail: "prospect@example.test",
+      workspaceId: "admin-workspace",
+      adminClerkUserId: "user-admin",
+      membershipId: membershipRow.id,
+      productionMovementId: "33333333-3333-4333-8333-333333333333",
+      customContentMovementId: "44444444-4444-4444-8444-444444444444",
+      now: now.toISOString(),
+    });
+
+    const text = transactionMock.mock.calls[0][0][0].text;
+    expect(text).toContain("NOT EXISTS (SELECT 1 FROM access_state)");
+    expect(text).toContain("access.role = 'athlete'");
+    expect(text).toContain("access.workspace_id = locked.workspace_id");
+    expect(text).toContain("access.athlete_id =");
+    expect(text).toContain("access.role <> 'athlete'");
+    expect(text).toContain("access.workspace_id <> locked.workspace_id");
+    expect(text).toContain("access.athlete_id IS DISTINCT FROM");
+    expect(text).toContain("other_active_access");
+  });
+
+  it("rolls back membership, credits, access and order together on any transaction failure", async () => {
+    const failure = new Error("atomic activation failed");
+    transactionMock.mockRejectedValue(failure);
+    const repo = createAthleteMembershipProspectOrderRepository();
+
+    await expect(repo.activateAtomic({
+      orderId,
+      athleteId: "lina-morel",
+      athleteEmail: "prospect@example.test",
+      workspaceId: "admin-workspace",
+      adminClerkUserId: "user-admin",
+      membershipId: membershipRow.id,
+      productionMovementId: "33333333-3333-4333-8333-333333333333",
+      customContentMovementId: "44444444-4444-4444-8444-444444444444",
+      now: now.toISOString(),
+    })).rejects.toBe(failure);
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(transactionMock.mock.calls[0][0]).toHaveLength(1);
     expect(transactionMock.mock.calls[0][1]).toEqual({ isolationLevel: "Serializable" });
   });
 });
