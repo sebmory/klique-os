@@ -19,6 +19,11 @@ const isApiRoute = (pathname: string): boolean => pathname === "/api" || pathnam
 export const isPublicMembershipPlansApi = (pathname: string, method: string): boolean =>
   pathname === "/api/public/membership-plans" && method === "GET";
 
+export const isPublicKliqueStatsApi = (pathname: string, method: string): boolean =>
+  pathname === "/api/public/klique-stats" && method === "GET";
+
+export const isPublicHomePage = (pathname: string): boolean => pathname === "/";
+
 export const isProspectMembershipOrderApi = (pathname: string, method: string): boolean =>
   pathname === "/api/join/pass/order"
   && (method === "GET" || method === "POST" || method === "DELETE");
@@ -209,7 +214,9 @@ export default clerkMiddleware(
     const { pathname } = request.nextUrl;
     if (
       isPublicRoute(request)
+      || isPublicHomePage(pathname)
       || isPublicPassPage(pathname)
+      || isPublicKliqueStatsApi(pathname, request.method)
       || isPublicMembershipPlansApi(pathname, request.method)
     ) {
       return NextResponse.next();

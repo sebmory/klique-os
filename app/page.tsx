@@ -1,5 +1,5 @@
-import { WorkspaceLanding } from "@/components/app-shell/WorkspaceLanding";
+import PublicHome from "@/components/home/PublicHome";
 
 export default function Home() {
-  return <WorkspaceLanding sectionTitle="Aujourd'hui" />;
+  return <PublicHome />;
 }

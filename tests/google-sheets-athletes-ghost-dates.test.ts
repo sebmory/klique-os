@@ -21,7 +21,7 @@ vi.mock("googleapis", () => ({
 
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
-const ATHLETES_RANGE = "'02_Athlètes'!A3:AC200";
+const ATHLETES_RANGE = "'02_Athlètes'!A3:AI200";
 const FORMS_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
 const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A1:Z500";
 

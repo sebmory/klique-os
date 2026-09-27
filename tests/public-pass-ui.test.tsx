@@ -69,12 +69,24 @@ describe("Public Pass page", () => {
     expect(container.textContent?.indexOf("Impact")).toBeLessThan(container.textContent!.indexOf("Signature"));
     expect(container.textContent).toContain("CHF 549.00");
     expect(container.textContent).toContain("12 mois");
-    expect(container.textContent).toContain("2 crédit(s) production");
-    expect(container.textContent).toContain("4 crédit(s) contenu");
+    expect(container.textContent).toContain("2 crédit(s)Production photo/vidéo");
+    expect(container.textContent).toContain("4 crédit(s)Contenu personnalisé");
     expect(container.textContent).toContain("Vidéo : incluse");
     expect(container.querySelector('a[href*="twint" i]')).toBeNull();
     expect(buttons().some((element) => element.textContent?.includes("Payer avec TWINT"))).toBe(false);
     expect(buttons()).toHaveLength(3);
+  });
+
+  it("explains both credit types once below the offers", async () => {
+    fetchMock.mockResolvedValueOnce(response({ plans }));
+    await mount();
+
+    const guideTitle = [...container.querySelectorAll("h2")]
+      .filter((heading) => heading.textContent === "Que comprennent les crédits ?");
+    expect(guideTitle).toHaveLength(1);
+    expect(container.textContent).toContain("demander l’organisation d’une séance photo");
+    expect(container.textContent).toContain("demander une interview, une publication, un Reel, une Story ou un portrait");
+    expect(container.textContent).toContain("Chaque crédit correspond à une demande, organisée avec KLIQUE selon les disponibilités et les modalités de votre offre.");
   });
 
   it("shows accessible loading, error, and unavailable catalog states", async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { google } from "googleapis";
 import path from "path";
 import type { Athlete, AthleteUpdate, PublicAthleteDirectoryEntry, PublicAthleteProfile } from "@/types/athlete";
-import { isAthleteVisibleToExternalRoles, normalizePublicSportLabel } from "@/lib/public-athletes";
+import { isAthleteVisibleToExternalRoles, isPublicDirectoryAthleteStatus, normalizePublicSportLabel } from "@/lib/public-athletes";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
 import type { CalendarEvent, NewCalendarEvent } from "@/types/calendar";
@@ -867,14 +867,6 @@ const athleteSheetRange = "'02_Athlètes'!A3:AI200";
 const athleteSheetHeaderRange = "'02_Athlètes'!A3:AI3";
 const athleteSheetAppendRange = "'02_Athlètes'!A:AI";
 const athleteAdhesionSyncAppendRange = "'02_Athlètes'!A:G";
-
-const isPublicDirectoryAthleteStatus = (value: unknown): boolean => {
-  const status = normalize(value);
-  if (!status || status.includes("prospect") || status.includes("inactif") || status.includes("refuse")) {
-    return false;
-  }
-  return status.includes("actif") || status.includes("membre");
-};
 
 export async function getPublicAthleteDirectoryFromGoogleSheets(): Promise<PublicAthleteDirectoryEntry[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });

@@ -6,6 +6,18 @@ const normalizeAthleteId = (athleteId: unknown): string =>
 export const isAthleteVisibleToExternalRoles = (athleteId: unknown): boolean =>
   !externallyHiddenAthleteIds.has(normalizeAthleteId(athleteId));
 
+export const isPublicDirectoryAthleteStatus = (value: unknown): boolean => {
+  const status = String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr");
+  if (!status || status.includes("prospect") || status.includes("inactif") || status.includes("refuse")) {
+    return false;
+  }
+  return status.includes("actif") || status.includes("membre");
+};
+
 export const canViewAthleteById = (
   athleteId: unknown,
   viewer: { role?: string | null; athleteId?: string | null },

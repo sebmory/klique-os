@@ -3,10 +3,11 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { headerMock, replaceMock, routerMock } = vi.hoisted(() => {
+const { headerMock, navigationState, replaceMock, routerMock } = vi.hoisted(() => {
   const replace = vi.fn();
   return {
     headerMock: vi.fn(),
+    navigationState: { pathname: "/today" },
     replaceMock: replace,
     routerMock: { replace },
   };
@@ -17,7 +18,7 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/today",
+  usePathname: () => navigationState.pathname,
   useRouter: () => routerMock,
 }));
 
@@ -69,6 +70,7 @@ const mountForRole = async (role: "admin" | "athlete" | "media" | "partner_exper
 
 beforeEach(() => {
   vi.clearAllMocks();
+  navigationState.pathname = "/today";
   vi.stubGlobal("fetch", fetchMock);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -83,6 +85,22 @@ afterEach(async () => {
 });
 
 describe("AppShell notifications", () => {
+  it("renders the public home without loading workspace access", async () => {
+    navigationState.pathname = "/";
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(AppShell, null, createElement("main", null, "Accueil public") as ReactNode));
+    });
+
+    expect(container.textContent).toBe("Accueil public");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(headerMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
   it.each(["admin", "athlete", "media", "partner_expert"] as const)(
     "enables the notifications bell for an active %s role",
     async (role) => {

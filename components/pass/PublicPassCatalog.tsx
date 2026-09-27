@@ -90,8 +90,14 @@ export default function PublicPassCatalog() {
                 </div>
                 <p style={{ margin: 0, color: "#65716b" }}>{plan.durationMonths} mois d’accompagnement</p>
                 <ul className={styles.features}>
-                  <li className={styles.feature}><CalendarDays size={18} aria-hidden="true" /> {plan.productionCredits} crédit(s) production</li>
-                  <li className={styles.feature}><FileText size={18} aria-hidden="true" /> {plan.customContentCredits} crédit(s) contenu</li>
+                  <li className={styles.feature}>
+                    <CalendarDays size={18} aria-hidden="true" />
+                    <span><strong>{plan.productionCredits} crédit(s)</strong><small>Production photo/vidéo</small></span>
+                  </li>
+                  <li className={styles.feature}>
+                    <FileText size={18} aria-hidden="true" />
+                    <span><strong>{plan.customContentCredits} crédit(s)</strong><small>Contenu personnalisé</small></span>
+                  </li>
                   <li className={styles.feature}><Clapperboard size={18} aria-hidden="true" /> Vidéo : {plan.videoAllowed ? "incluse" : "non incluse"}</li>
                 </ul>
                 <button className={styles.button} type="button" disabled={!isLoaded} onClick={() => choosePlan(plan.code)}>
@@ -100,6 +106,23 @@ export default function PublicPassCatalog() {
                 </button>
               </article>
             ))}
+          </section>
+        ) : null}
+
+        {!loading && !error && plans.length > 0 ? (
+          <section className={styles.creditGuide} aria-labelledby="credit-guide-title">
+            <h2 id="credit-guide-title">Que comprennent les crédits ?</h2>
+            <div className={styles.creditDefinitions}>
+              <div>
+                <h3>Production photo/vidéo</h3>
+                <p>Un crédit permet de demander à KLIQUE une production photo ou vidéo organisée avec l’Athlète, selon les disponibilités, la région et les modalités de l’offre. Exemple : demander l’organisation d’une séance photo.</p>
+              </div>
+              <div>
+                <h3>Contenu personnalisé</h3>
+                <p>Un crédit permet de demander à KLIQUE la création d’un contenu éditorial adapté à l’Athlète. Exemple : demander une interview, une publication, un Reel, une Story ou un portrait.</p>
+              </div>
+            </div>
+            <p className={styles.creditNote}>Chaque crédit correspond à une demande, organisée avec KLIQUE selon les disponibilités et les modalités de votre offre.</p>
           </section>
         ) : null}
       </main>

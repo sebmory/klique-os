@@ -5,12 +5,15 @@ import {
   isPartnerAllowedPage,
   isProspectPassPage,
   isProspectMembershipOrderApi,
+  isPublicHomePage,
   isPublicPassPage,
   isPublicMembershipPlansApi,
 } from "@/proxy";
 
 describe("partner proxy access", () => {
   it("opens only the public membership plan GET and the exact authenticated pre-access order methods", () => {
+    expect(isPublicHomePage("/")).toBe(true);
+    expect(isPublicHomePage("/today")).toBe(false);
     expect(isPublicPassPage("/pass")).toBe(true);
     expect(isPublicPassPage("/pass/details")).toBe(false);
     expect(isProspectPassPage("/join/pass")).toBe(true);

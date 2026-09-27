@@ -21,10 +21,10 @@ vi.mock("googleapis", () => ({
 
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
-const ATHLETES_RANGE = "'02_Athlètes'!A3:AC200";
+const ATHLETES_RANGE = "'02_Athlètes'!A3:AI200";
 const FORMS_ADHESION_RANGE = "'Forms_Adhesion_Responses'!A1:Z500";
-const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A1:Z500";
-const MONTHLY_RESPONSES_RANGE = "'Forms_Mensuel_Responses'!A1:Z500";
+const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A:Z";
+const MONTHLY_RESPONSES_RANGE = "'Forms_Mensuel_Responses'!A:H";
 
 describe("getAthletesFromGoogleSheets weekly and monthly form responses", () => {
   beforeEach(() => {
@@ -88,9 +88,9 @@ describe("getAthletesFromGoogleSheets weekly and monthly form responses", () => 
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom et prénom"],
-              ["2024-03-05 09:00:00", "alpha@example.com", "Alpha Martin"],
-              ["2024-04-10 10:30:00", "", "Beta Dupont"],
+              ["Horodateur", "Nom et prénom", "Dates importantes", "Objectif principal", "Autre actualité", "Opportunité ou besoin", "Moment à couvrir", "Remarque"],
+              ["2024-03-05 09:00:00", "Alpha Martin", "", "", "", "", "", ""],
+              ["2024-04-10 10:30:00", "Beta Dupont", "", "", "", "", "", ""],
             ],
           },
         };
@@ -147,9 +147,9 @@ describe("getAthletesFromGoogleSheets weekly and monthly form responses", () => 
         return {
           data: {
             values: [
-              ["Horodateur", "Email", "Nom et prénom"],
-              ["27/07/2026", "mila@example.com", "Mila Benjak"],
-              ["04/08/2026 01:26:53", "mila@example.com", "Benjak Mila"],
+              ["Horodateur", "Nom et prénom", "Dates importantes", "Objectif principal", "Autre actualité", "Opportunité ou besoin", "Moment à couvrir", "Remarque"],
+              ["27/07/2026", "Mila Benjak", "", "", "", "", "", ""],
+              ["04/08/2026 01:26:53", "Benjak Mila", "", "", "", "", "", ""],
             ],
           },
         };

@@ -30,6 +30,7 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useUser();
+  const isPublicHomeRoute = pathname === "/";
   const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const isAccessPendingRoute = pathname === "/access-pending";
   const isPassFlowRoute = pathname === "/pass" || pathname === "/join/pass";
@@ -55,7 +56,7 @@ export function AppShell({ children }: AppShellProps) {
   }, [collapsed]);
 
   useEffect(() => {
-    if (isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
+    if (isPublicHomeRoute || isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
       return;
     }
 
@@ -150,7 +151,7 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
       setAuthenticatedContentStorageRole(null);
     };
-  }, [isAccessPendingRoute, isPassFlowRoute, isPublicAuthRoute, router, user?.id]);
+  }, [isAccessPendingRoute, isPassFlowRoute, isPublicAuthRoute, isPublicHomeRoute, router, user?.id]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -163,7 +164,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener("keydown", onEscape);
   }, []);
 
-  if (isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
+  if (isPublicHomeRoute || isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
     return <>{children}</>;
   }
 
