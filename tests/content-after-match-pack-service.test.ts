@@ -28,6 +28,7 @@ import type {
 const mediaId = "11111111-1111-4111-8111-111111111111";
 const now = new Date("2026-09-27T12:00:00.000Z");
 const sourceUpdatedAt = "2026-09-27T10:00:00.000Z";
+const sourceStorageUpdatedAt = "2026-09-27T10:05:00.000Z";
 
 const mediaAccess: ContentAccessContext = {
   clerkUserId: "user-media",
@@ -146,7 +147,7 @@ const makePack = (overrides: Partial<AfterMatchPackRecord> = {}): AfterMatchPack
   sourceDocumentId: publication.id,
   sourceDocumentStorageVersion: 3,
   sourceDocumentVersionId: publication.activeVersionId,
-  sourceDocumentUpdatedAt: publication.updatedAt,
+  sourceDocumentUpdatedAt: sourceStorageUpdatedAt,
   status: "pending",
   reelStatus: "pending",
   storiesStatus: "pending",
@@ -171,7 +172,7 @@ const sourceInput = {
   sourceDocumentId: publication.id,
   expectedSourceDocumentStorageVersion: 3,
   expectedSourceDocumentVersionId: publication.activeVersionId,
-  expectedSourceDocumentUpdatedAt: publication.updatedAt,
+  expectedSourceDocumentUpdatedAt: sourceStorageUpdatedAt,
 };
 
 const sourceLookupInput = {
@@ -304,7 +305,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
   const contentRepository = {
     ...ContentStorageRepository,
     getDraft: vi.fn(async () => sourceDocument
-      ? { document: sourceDocument, version: 3, workspaceId: access.workspaceId, userId: access.clerkUserId, mediaId: access.mediaId ?? null }
+      ? { document: sourceDocument, version: 3, storageUpdatedAt: sourceStorageUpdatedAt, workspaceId: access.workspaceId, userId: access.clerkUserId, mediaId: access.mediaId ?? null }
       : null),
     getVariant: vi.fn(async (id: string) => {
       const variant = variants.get(id);

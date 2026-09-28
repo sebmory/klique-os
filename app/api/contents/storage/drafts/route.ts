@@ -19,6 +19,7 @@ export async function GET(request: Request) {
       drafts: drafts.map((draft) => ({
         document: draft.document,
         version: draft.version,
+        storageUpdatedAt: draft.storageUpdatedAt,
         workspaceId: draft.workspaceId,
       })),
     });
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       ok: true,
       workspaceId: draft.workspaceId,
       version: draft.version,
+      storageUpdatedAt: draft.storageUpdatedAt,
       document: draft.document,
     }, { status: 201 });
   } catch (error) {

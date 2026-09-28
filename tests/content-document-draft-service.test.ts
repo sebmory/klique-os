@@ -103,6 +103,7 @@ const readStoredDraft = (storage: MemoryStorage, documentId: string) => {
 };
 
 describe("ContentDocumentDraftService", () => {
+  const storageUpdatedAt = "2026-08-08T13:05:00.000Z";
   let storage: MemoryStorage;
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -122,13 +123,13 @@ describe("ContentDocumentDraftService", () => {
 
   it("loads the cloud draft and refreshes local storage", async () => {
     const cloudDocument = { ...baseDocument, updatedAt: "2026-08-08T11:00:00.000Z" };
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 4, document: cloudDocument }));
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 4, storageUpdatedAt, document: cloudDocument }));
 
     const document = await ContentDocumentDraftService.loadDraft("document-1");
 
     expect(document).toEqual(cloudDocument);
     expect(fetchMock).toHaveBeenCalledWith("/api/contents/storage/drafts/document-1", { credentials: "include" });
-    expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: cloudDocument, cloudVersion: 4 });
+    expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: cloudDocument, cloudVersion: 4, cloudStorageUpdatedAt: storageUpdatedAt });
   });
 
   it("restores a legacy publication without sourceContext", async () => {
@@ -147,7 +148,7 @@ describe("ContentDocumentDraftService", () => {
         editorialNote: "Note historique",
       },
     } as ContentDocument;
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 2, document: legacyPublication }));
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 2, storageUpdatedAt, document: legacyPublication }));
 
     await expect(ContentDocumentDraftService.loadDraft(legacyPublication.id)).resolves.toEqual(legacyPublication);
     expect(readStoredDraft(storage, legacyPublication.id)).toMatchObject({ document: legacyPublication, cloudVersion: 2 });
@@ -161,7 +162,7 @@ describe("ContentDocumentDraftService", () => {
     );
     fetchMock
       .mockResolvedValueOnce(createResponse({ ok: false, message: "Brouillon introuvable." }, 404))
-      .mockResolvedValueOnce(createResponse({ ok: true, version: 2, document: localDocument }, 201));
+      .mockResolvedValueOnce(createResponse({ ok: true, version: 2, storageUpdatedAt, document: localDocument }, 201));
 
     const document = await ContentDocumentDraftService.loadDraft("document-1");
 
@@ -178,11 +179,11 @@ describe("ContentDocumentDraftService", () => {
   it("saves a new draft locally and creates it in cloud", async () => {
     const newDocument = { ...baseDocument, id: "document-new", updatedAt: "2026-08-08T13:00:00.000Z" };
     const cloudDocument = { ...newDocument, updatedAt: "2026-08-08T13:01:00.000Z" };
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 3, document: cloudDocument }, 201));
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 3, storageUpdatedAt, document: cloudDocument }, 201));
 
     const result = await ContentDocumentDraftService.saveDraft(newDocument);
 
-    expect(result.cloud).toEqual({ status: "created", version: 3 });
+    expect(result.cloud).toEqual({ status: "created", version: 3, storageUpdatedAt });
     expect(result.document).toEqual(cloudDocument);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -199,11 +200,11 @@ describe("ContentDocumentDraftService", () => {
       "klique.contents.document-editor.draft.v2:document-1",
       JSON.stringify({ document: baseDocument, cloudVersion: 7 })
     );
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 8, document: cloudDocument }));
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 8, storageUpdatedAt, document: cloudDocument }));
 
     const result = await ContentDocumentDraftService.saveDraft(existingDocument);
 
-    expect(result.cloud).toEqual({ status: "updated", version: 8 });
+    expect(result.cloud).toEqual({ status: "updated", version: 8, storageUpdatedAt });
     expect(result.document).toEqual(cloudDocument);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/contents/storage/drafts/document-1",
@@ -260,12 +261,12 @@ describe("ContentDocumentDraftService", () => {
     setAuthenticatedContentStorageRole("media");
     fetchMock
       .mockResolvedValueOnce(createResponse({ ok: false, message: "Brouillon introuvable." }, 404))
-      .mockResolvedValueOnce(createResponse({ ok: true, version: 1, document: baseDocument }, 201));
+      .mockResolvedValueOnce(createResponse({ ok: true, version: 1, storageUpdatedAt, document: baseDocument }, 201));
 
     const result = await ContentDocumentDraftService.saveDraft(baseDocument);
 
     expect(result.local.status).toBe("skipped");
-    expect(result.cloud).toEqual({ status: "created", version: 1 });
+    expect(result.cloud).toEqual({ status: "created", version: 1, storageUpdatedAt });
     expect(readStoredDraft(storage, "document-1")).toBeNull();
   });
 });

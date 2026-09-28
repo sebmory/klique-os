@@ -190,9 +190,9 @@ describe("content storage API routes", () => {
     repo.getVariant.mockReset();
     repo.listVariantsBySourceDocumentId.mockReset();
 
-    repo.createDraft.mockResolvedValue({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
-    repo.getDraft.mockResolvedValue({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
-    repo.updateDraft.mockResolvedValue({ status: "updated", draft: { document: validDocument, version: 2, workspaceId: "klique-os", userId: null } });
+    repo.createDraft.mockResolvedValue({ document: validDocument, version: 1, storageUpdatedAt: "2026-08-08T10:45:00.000Z", workspaceId: "klique-os", userId: null });
+    repo.getDraft.mockResolvedValue({ document: validDocument, version: 1, storageUpdatedAt: "2026-08-08T10:45:00.000Z", workspaceId: "klique-os", userId: null });
+    repo.updateDraft.mockResolvedValue({ status: "updated", draft: { document: validDocument, version: 2, storageUpdatedAt: "2026-08-08T10:46:00.000Z", workspaceId: "klique-os", userId: null } });
     repo.createSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: futureSessionExpiresAt });
     repo.getSession.mockResolvedValue({ sessionId: "session-1", session: validSession, workspaceId: "klique-os", userId: null, createdAt: validSession.createdAt, expiresAt: futureSessionExpiresAt });
     repo.createVariant.mockResolvedValue({ variant: validVariant, workspaceId: "klique-os", userId: null, createdAt: validVariant.createdAt, updatedAt: validVariant.updatedAt });
@@ -205,10 +205,12 @@ describe("content storage API routes", () => {
 
     const response = await postDraft(makeJsonRequest({ document: validDocument }));
     expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ version: 1, storageUpdatedAt: "2026-08-08T10:45:00.000Z" });
     expect(repo.createDraft).toHaveBeenCalledTimes(1);
 
     const getResponse = await getDraft(new Request("http://localhost") as Request, { params: Promise.resolve({ id: "document-1" }) });
     expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toMatchObject({ version: 1, storageUpdatedAt: "2026-08-08T10:45:00.000Z" });
     expect(repo.getDraft).toHaveBeenCalledWith("document-1", expect.objectContaining({ workspaceId: "klique-os" }));
   });
 
@@ -252,7 +254,7 @@ describe("content storage API routes", () => {
   });
 
   it("allows a cloud variant after its source document is persisted", async () => {
-    repo.getDraft.mockResolvedValueOnce({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
+    repo.getDraft.mockResolvedValueOnce({ document: validDocument, version: 1, storageUpdatedAt: "2026-08-08T10:45:00.000Z", workspaceId: "klique-os", userId: null });
 
     const response = await postVariants(makeJsonRequest({ variant: validVariant }));
 

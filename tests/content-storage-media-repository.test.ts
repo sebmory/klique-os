@@ -61,7 +61,7 @@ const draftRow = (storedMediaId: string | null) => ({
   status: document.status,
   source: "generation",
   created_at: document.createdAt,
-  updated_at: document.updatedAt,
+  updated_at: "2026-09-15T10:45:00.000Z",
   payload_json: document,
   version: 1,
 });
@@ -167,6 +167,10 @@ describe("content storage media ownership", () => {
     const calls = sqlCalls();
 
     expect(result.status).toBe("updated");
+    if (result.status === "updated") {
+      expect(result.draft.storageUpdatedAt).toBe("2026-09-15T10:45:00.000Z");
+      expect(result.draft.document.updatedAt).toBe(document.updatedAt);
+    }
     expect(calls).toHaveLength(2);
     expectMediaOwnershipPredicate(calls[0]);
     expectMediaOwnershipPredicate(calls[1]);

@@ -90,6 +90,7 @@ export class AfterMatchPackError extends Error {
 type PersistedPublication = {
   document: PublicationDocument;
   storageVersion: number;
+  storageUpdatedAt: string;
 };
 
 type ClaimedAttempt = {
@@ -246,12 +247,12 @@ const assertExpectedSource = (
   if (
     draft.version !== expected.expectedSourceDocumentStorageVersion
     || draft.document.activeVersionId !== normalize(expected.expectedSourceDocumentVersionId)
-    || !sameInstant(draft.document.updatedAt, expected.expectedSourceDocumentUpdatedAt)
+    || !sameInstant(draft.storageUpdatedAt, expected.expectedSourceDocumentUpdatedAt)
   ) {
     throw new AfterMatchPackError("SOURCE_VERSION_CONFLICT");
   }
 
-  return { document: draft.document, storageVersion: draft.version };
+  return { document: draft.document, storageVersion: draft.version, storageUpdatedAt: draft.storageUpdatedAt };
 };
 
 const assertPackSource = async (
@@ -586,14 +587,14 @@ const createService = (dependencies: ServiceDependencies) => {
         sourceDocumentId,
         sourceDocumentStorageVersion: source.storageVersion,
         sourceDocumentVersionId: source.document.activeVersionId,
-        sourceDocumentUpdatedAt: source.document.updatedAt,
+        sourceDocumentUpdatedAt: source.storageUpdatedAt,
       }, access);
       if (!pack) throw new AfterMatchPackError("PACK_ACCESS_CONFLICT");
       if (
         pack.sourceDocumentId !== source.document.id
         || pack.sourceDocumentStorageVersion !== source.storageVersion
         || pack.sourceDocumentVersionId !== source.document.activeVersionId
-        || !sameInstant(pack.sourceDocumentUpdatedAt, source.document.updatedAt)
+        || !sameInstant(pack.sourceDocumentUpdatedAt, source.storageUpdatedAt)
       ) {
         throw new AfterMatchPackError("SOURCE_VERSION_CONFLICT");
       }

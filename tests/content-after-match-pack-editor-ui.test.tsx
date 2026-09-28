@@ -242,6 +242,7 @@ const mountPack = async (options: {
   persisted?: boolean;
   dirty?: boolean;
   revision?: number | null;
+  storageUpdatedAt?: string | null;
   onOpenVariant?: (variantId: string) => Promise<void>;
 } = {}) => {
   const currentPack = options.currentPack === undefined ? null : options.currentPack;
@@ -260,6 +261,7 @@ const mountPack = async (options: {
         isPersistedInCloud={options.persisted ?? true}
         hasUnsavedChanges={options.dirty ?? false}
         sourceDocumentRevision={options.revision === undefined ? 3 : options.revision}
+        sourceDocumentStorageUpdatedAt={options.storageUpdatedAt === undefined ? documentUpdatedAt : options.storageUpdatedAt}
         onOpenSource={vi.fn()}
         onOpenVariant={options.onOpenVariant ?? vi.fn(async () => undefined)}
       />
@@ -323,19 +325,28 @@ describe("After-match Pack editor UI", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("resolves the persisted revision and performs only the initial Pack lookup", async () => {
-    fetchMock.mockImplementation(async (input) => {
+  it("uses the SQL timestamp, never the editorial timestamp, when creating a Pack from a reopened draft", async () => {
+    const editorialUpdatedAt = "2026-09-28T08:39:00.000Z";
+    const storageUpdatedAt = "2026-09-28T08:45:00.000Z";
+    let createBody: Record<string, unknown> | null = null;
+    fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
       if (url === "/api/ai-credits/balance") return response({}, 403);
-      if (url === "/api/contents/storage/drafts/publication-1") return response({ ok: true, version: 3 });
+      if (url === "/api/contents/storage/drafts/publication-1") {
+        return response({ ok: true, version: 4, storageUpdatedAt });
+      }
       if (url.includes("/api/contents/packs/after-match?")) return response({ ok: true, pack: null });
+      if (url === "/api/contents/packs/after-match" && init?.method === "POST") {
+        createBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return response({ ok: true, pack: pack("completed") });
+      }
       throw new Error(`Unexpected URL: ${url}`);
     });
 
     await act(async () => {
       root.render(
         <AfterMatchPackBlock
-          document={publication()}
+          document={{ ...publication(), updatedAt: editorialUpdatedAt }}
           isPersistedInCloud
           hasUnsavedChanges={false}
           sourceDocumentRevision={null}
@@ -347,11 +358,19 @@ describe("After-match Pack editor UI", () => {
     await flush();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/contents/packs/after-match?sourceDocumentId=publication-1&sourceDocumentRevision=3",
+      "/api/contents/packs/after-match?sourceDocumentId=publication-1&sourceDocumentRevision=4",
       expect.objectContaining({ method: "GET" })
     );
-    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
-    expect(container.textContent).toContain("Créer le Pack Après-match");
+    await act(async () => button(container, "Créer le Pack Après-match").click());
+    await act(async () => button(container, "Confirmer la création").click());
+
+    expect(createBody).toEqual({
+      sourceDocumentId: "publication-1",
+      sourceDocumentRevision: 4,
+      sourceDocumentVersionId: "version-2",
+      sourceDocumentUpdatedAt: storageUpdatedAt,
+    });
+    expect(JSON.stringify(createBody)).not.toContain(editorialUpdatedAt);
   });
 
   it.each([
@@ -399,13 +418,15 @@ describe("After-match Pack editor UI", () => {
     expect(container.textContent).toContain("Votre Pack Après-match est prêt.");
   });
 
-  it("uses the cloud revision and document timestamp immediately after saving a selected proposal", async () => {
-    const cloudUpdatedAt = "2026-09-28T08:45:00.000Z";
-    const cloudDocument = { ...publication(), updatedAt: cloudUpdatedAt };
+  it("uses the cloud revision and SQL timestamp while preserving the editorial timestamp after saving", async () => {
+    const editorialUpdatedAt = "2026-09-28T08:39:00.000Z";
+    const storageUpdatedAt = "2026-09-28T08:45:00.000Z";
+    const sourceDocument = { ...publication(), updatedAt: editorialUpdatedAt };
+    const cloudDocument = { ...sourceDocument };
     const saveResult: ContentDocumentDraftSaveResult = {
       document: cloudDocument,
       local: { status: "saved", storageKey: "draft:publication-1" },
-      cloud: { status: "created", version: 4 },
+      cloud: { status: "created", version: 4, storageUpdatedAt },
     };
     const onSaveDraft = vi.fn(async () => saveResult);
     let createBody: Record<string, unknown> | null = null;
@@ -423,20 +444,20 @@ describe("After-match Pack editor UI", () => {
     });
 
     await act(async () => {
-      root.render(<ContentDocumentEditor initialDocument={publication()} onSaveDraft={onSaveDraft} isPersistedInCloud={false} />);
+      root.render(<ContentDocumentEditor initialDocument={sourceDocument} onSaveDraft={onSaveDraft} isPersistedInCloud={false} />);
     });
     await flush();
     await act(async () => button(container, "Enregistrer le brouillon").click());
     await flush();
 
-    const displayedCloudUpdatedAt = new Date(cloudUpdatedAt).toLocaleString("fr-CH", {
+    const displayedEditorialUpdatedAt = new Date(editorialUpdatedAt).toLocaleString("fr-CH", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
-    expect(container.textContent).toContain(`Derniere modification: ${displayedCloudUpdatedAt}`);
+    expect(container.textContent).toContain(`Derniere modification: ${displayedEditorialUpdatedAt}`);
     await act(async () => button(container, "Créer le Pack Après-match").click());
     await act(async () => button(container, "Confirmer la création").click());
 
@@ -444,7 +465,7 @@ describe("After-match Pack editor UI", () => {
       sourceDocumentId: "publication-1",
       sourceDocumentRevision: 4,
       sourceDocumentVersionId: "version-2",
-      sourceDocumentUpdatedAt: cloudUpdatedAt,
+      sourceDocumentUpdatedAt: storageUpdatedAt,
     });
     expect(container.textContent).not.toContain("La Publication a été modifiée.");
     expect(window.location.search).toBe("?documentId=publication-1");
@@ -472,6 +493,7 @@ describe("After-match Pack editor UI", () => {
         isPersistedInCloud
         hasUnsavedChanges={false}
         sourceDocumentRevision={3}
+        sourceDocumentStorageUpdatedAt={documentUpdatedAt}
         onOpenSource={vi.fn()}
         onOpenVariant={vi.fn(async () => undefined)}
       />
@@ -602,7 +624,9 @@ describe("After-match Pack editor UI", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/ai-credits/balance") return response({}, 403);
-      if (url === "/api/contents/storage/drafts/publication-1") return response({ ok: true, version: 3 });
+      if (url === "/api/contents/storage/drafts/publication-1") {
+        return response({ ok: true, version: 3, storageUpdatedAt: "2026-09-28T08:45:00.000Z" });
+      }
       if (url.startsWith("/api/contents/packs/after-match?")) return response({ ok: true, pack: pack("completed") });
       throw new Error(`Unexpected URL: ${url}`);
     });

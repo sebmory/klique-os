@@ -53,9 +53,10 @@ type VariantRow = {
   payload_json: unknown;
 };
 
-const mapDraftRow = (row: DraftRow): { document: ContentDocument; version: number; workspaceId: string; userId: string | null; mediaId: string | null } => ({
+const mapDraftRow = (row: DraftRow): { document: ContentDocument; version: number; storageUpdatedAt: string; workspaceId: string; userId: string | null; mediaId: string | null } => ({
   document: readJson<ContentDocument>(row.payload_json),
   version: row.version,
+  storageUpdatedAt: row.updated_at,
   workspaceId: row.workspace_id,
   userId: row.user_id,
   mediaId: row.media_id,
@@ -82,8 +83,8 @@ const mapVariantRow = (row: VariantRow): { variant: ContentVariant; workspaceId:
 
 export type UpdateDraftResult =
   | { status: "not_found" }
-  | { status: "version_conflict"; currentVersion: number; current: { document: ContentDocument; version: number; workspaceId: string; userId: string | null; mediaId: string | null } }
-  | { status: "updated"; draft: { document: ContentDocument; version: number; workspaceId: string; userId: string | null; mediaId: string | null } };
+  | { status: "version_conflict"; currentVersion: number; current: { document: ContentDocument; version: number; storageUpdatedAt: string; workspaceId: string; userId: string | null; mediaId: string | null } }
+  | { status: "updated"; draft: { document: ContentDocument; version: number; storageUpdatedAt: string; workspaceId: string; userId: string | null; mediaId: string | null } };
 
 export const ContentStorageRepository = {
   async createDraft(document: ContentDocument, access: ContentAccessContext) {
@@ -110,7 +111,7 @@ export const ContentStorageRepository = {
         ${document.status},
         ${getDocumentSource(document)},
         ${document.createdAt},
-        ${document.updatedAt},
+        NOW(),
         ${JSON.stringify(document)}::jsonb,
         ${1}
       )
@@ -165,7 +166,7 @@ export const ContentStorageRepository = {
         type = ${document.type},
         status = ${document.status},
         source = ${getDocumentSource(document)},
-        updated_at = ${document.updatedAt},
+        updated_at = NOW(),
         payload_json = ${JSON.stringify(document)}::jsonb,
         version = ${expectedVersion + 1}
       WHERE workspace_id = ${access.workspaceId}

@@ -38,6 +38,7 @@ type AfterMatchPackBlockProps = {
   isPersistedInCloud: boolean;
   hasUnsavedChanges: boolean;
   sourceDocumentRevision?: number | null;
+  sourceDocumentStorageUpdatedAt?: string | null;
   onOpenSource: () => void;
   onOpenVariant: (variantId: string) => Promise<void>;
 };
@@ -90,11 +91,13 @@ export function AfterMatchPackBlock({
   isPersistedInCloud,
   hasUnsavedChanges,
   sourceDocumentRevision,
+  sourceDocumentStorageUpdatedAt,
   onOpenSource,
   onOpenVariant,
 }: AfterMatchPackBlockProps) {
   const [pack, setPack] = useState<PublicPack | null>(null);
   const [resolvedRevision, setResolvedRevision] = useState<number | null>(sourceDocumentRevision ?? null);
+  const [resolvedStorageUpdatedAt, setResolvedStorageUpdatedAt] = useState<string | null>(sourceDocumentStorageUpdatedAt ?? null);
   const [loading, setLoading] = useState(false);
   const [busyDeliverable, setBusyDeliverable] = useState<Deliverable | "pack" | null>(null);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
@@ -109,7 +112,8 @@ export function AfterMatchPackBlock({
 
   useEffect(() => {
     setResolvedRevision(sourceDocumentRevision ?? null);
-  }, [sourceDocumentRevision, document.id]);
+    setResolvedStorageUpdatedAt(sourceDocumentStorageUpdatedAt ?? null);
+  }, [sourceDocumentRevision, sourceDocumentStorageUpdatedAt, document.id]);
 
   useEffect(() => {
     if (!canUsePack) return;
@@ -148,18 +152,25 @@ export function AfterMatchPackBlock({
       setError(null);
       try {
         let revision = sourceDocumentRevision ?? null;
-        if (revision === null) {
+        let storageUpdatedAt = sourceDocumentStorageUpdatedAt ?? null;
+        if (revision === null || storageUpdatedAt === null) {
           const draftResponse = await fetch(`/api/contents/storage/drafts/${encodeURIComponent(document.id)}`, {
             method: "GET",
             credentials: "include",
             cache: "no-store",
             signal: controller.signal,
           });
-          const draftPayload = await draftResponse.json().catch(() => null) as { version?: number } | null;
-          if (!draftResponse.ok || !Number.isSafeInteger(draftPayload?.version) || Number(draftPayload?.version) < 1) {
+          const draftPayload = await draftResponse.json().catch(() => null) as { version?: number; storageUpdatedAt?: string } | null;
+          if (
+            !draftResponse.ok
+            || !Number.isSafeInteger(draftPayload?.version)
+            || Number(draftPayload?.version) < 1
+            || typeof draftPayload?.storageUpdatedAt !== "string"
+          ) {
             throw new Error("SOURCE_REVISION_UNAVAILABLE");
           }
           revision = Number(draftPayload?.version);
+          storageUpdatedAt = draftPayload.storageUpdatedAt;
         }
 
         const query = new URLSearchParams({
@@ -176,6 +187,7 @@ export function AfterMatchPackBlock({
         if (!response.ok) throw new Error(userErrorMessage(response.status, payload.code));
         if (!active) return;
         setResolvedRevision(revision);
+        setResolvedStorageUpdatedAt(storageUpdatedAt);
         setPack(payload.pack ?? null);
       } catch (caught) {
         if (!active || controller.signal.aborted) return;
@@ -192,7 +204,7 @@ export function AfterMatchPackBlock({
       active = false;
       controller.abort();
     };
-  }, [canUsePack, document.activeVersionId, document.id, document.updatedAt, sourceDocumentRevision]);
+  }, [canUsePack, document.activeVersionId, document.id, sourceDocumentRevision, sourceDocumentStorageUpdatedAt]);
 
   useEffect(() => {
     if (pack?.status !== "generating") return;
@@ -243,7 +255,7 @@ export function AfterMatchPackBlock({
   };
 
   const createPack = async () => {
-    if (busyRef.current || resolvedRevision === null) return;
+    if (busyRef.current || resolvedRevision === null || resolvedStorageUpdatedAt === null) return;
     busyRef.current = true;
     setBusyDeliverable("pack");
     setError(null);
@@ -256,7 +268,7 @@ export function AfterMatchPackBlock({
           sourceDocumentId: document.id,
           sourceDocumentRevision: resolvedRevision,
           sourceDocumentVersionId: document.activeVersionId,
-          sourceDocumentUpdatedAt: document.updatedAt,
+          sourceDocumentUpdatedAt: resolvedStorageUpdatedAt,
         }),
       });
       const payload = await readPayload(response);
@@ -381,7 +393,7 @@ export function AfterMatchPackBlock({
                 ref={createButtonRef}
                 type="button"
                 className="crm-primary-action"
-                disabled={busyDeliverable !== null || resolvedRevision === null}
+                disabled={busyDeliverable !== null || resolvedRevision === null || resolvedStorageUpdatedAt === null}
                 onClick={() => setConfirmationOpen(true)}
               >
                 <Sparkles size={15} aria-hidden /> Créer le Pack Après-match

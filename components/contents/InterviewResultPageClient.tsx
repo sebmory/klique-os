@@ -31,6 +31,8 @@ export function InterviewResultPageClient() {
   const [articleRegenerating, setArticleRegenerating] = useState(false);
   const [articleRegenerationError, setArticleRegenerationError] = useState<string | null>(null);
   const [restoredDraft, setRestoredDraft] = useState<ContentDocument | null>(null);
+  const [restoredDraftVersion, setRestoredDraftVersion] = useState<number | undefined>(undefined);
+  const [restoredDraftStorageUpdatedAt, setRestoredDraftStorageUpdatedAt] = useState<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -44,13 +46,16 @@ export function InterviewResultPageClient() {
       const documentId = params.get("documentId")?.trim() || "";
 
       if (documentId) {
-        const storedDocument = await ContentDocumentDraftService.loadDraft(documentId);
+        const storedDraft = await ContentDocumentDraftService.loadDraftRecord(documentId);
         if (!active) return;
-        if (storedDocument) {
+        if (storedDraft) {
+          const storedDocument = storedDraft.document;
           setArticleDocument(storedDocument.type === "article" ? storedDocument : null);
           setArticleResult(null);
           setParsed(null);
           setRestoredDraft(storedDocument.type === "article" ? null : storedDocument);
+          setRestoredDraftVersion(storedDraft.version);
+          setRestoredDraftStorageUpdatedAt(storedDraft.storageUpdatedAt);
           setReady(true);
           return;
         }
@@ -219,7 +224,15 @@ export function InterviewResultPageClient() {
       );
     }
     if (restoredDraft) {
-      return <ContentDocumentEditor initialDocument={restoredDraft} onSaveDraft={saveDraft} isPersistedInCloud />;
+      return (
+        <ContentDocumentEditor
+          initialDocument={restoredDraft}
+          onSaveDraft={saveDraft}
+          isPersistedInCloud
+          initialSourceDocumentRevision={restoredDraftVersion}
+          initialSourceDocumentStorageUpdatedAt={restoredDraftStorageUpdatedAt}
+        />
+      );
     }
 
     return (

@@ -6,7 +6,7 @@ import type { ContentDocumentEditor } from "@/components/contents/ContentDocumen
 import type { PublicationDocument } from "@/types/content-document";
 
 const mocks = vi.hoisted(() => ({
-  loadDraft: vi.fn(),
+  loadDraftRecord: vi.fn(),
   saveDraft: vi.fn(),
   restoreInterviewResultSession: vi.fn(),
   restoreArticleResultSession: vi.fn(),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/services/content-documents/draft-service", () => ({
   ContentDocumentDraftService: {
-    loadDraft: mocks.loadDraft,
+    loadDraftRecord: mocks.loadDraftRecord,
     saveDraft: mocks.saveDraft,
   },
 }));
@@ -34,8 +34,12 @@ vi.mock("@/services/content-backfill", () => ({
 }));
 
 vi.mock("@/components/contents/ContentDocumentEditor", () => ({
-  ContentDocumentEditor: ({ initialDocument }: ComponentProps<typeof ContentDocumentEditor>) =>
-    createElement("section", { "data-testid": "document-editor" }, initialDocument.sections.title),
+  ContentDocumentEditor: ({ initialDocument, initialSourceDocumentRevision, initialSourceDocumentStorageUpdatedAt }: ComponentProps<typeof ContentDocumentEditor>) =>
+    createElement("section", {
+      "data-testid": "document-editor",
+      "data-revision": initialSourceDocumentRevision,
+      "data-storage-updated-at": initialSourceDocumentStorageUpdatedAt,
+    }, initialDocument.sections.title),
 }));
 
 vi.mock("@/components/contents/InterviewResultScreen", () => ({
@@ -57,7 +61,7 @@ const savedPublication = {
   type: "publication",
   status: "draft",
   createdAt: "2026-09-28T08:39:00.000Z",
-  updatedAt: "2026-09-28T08:45:00.000Z",
+  updatedAt: "2026-09-28T08:39:00.000Z",
   versions: [{ id: "version-2", createdAt: "2026-09-28T08:39:00.000Z", label: "Version 2", source: "manual" }],
   activeVersionId: "version-2",
   sidebar: {
@@ -112,7 +116,11 @@ let root: Root;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.loadDraft.mockResolvedValue(savedPublication);
+  mocks.loadDraftRecord.mockResolvedValue({
+    document: savedPublication,
+    version: 4,
+    storageUpdatedAt: "2026-09-28T08:45:00.000Z",
+  });
   mocks.runContentsBackfill.mockResolvedValue(undefined);
   mocks.restoreArticleResultSession.mockResolvedValue(null);
   mocks.restoreLegacyArticlePreviewSession.mockReturnValue(null);
@@ -137,8 +145,11 @@ describe("Content result page saved draft restoration", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.loadDraft).toHaveBeenCalledWith("publication-1");
-    expect(container.querySelector('[data-testid="document-editor"]')?.textContent).toBe("Publication sauvegardée");
+    expect(mocks.loadDraftRecord).toHaveBeenCalledWith("publication-1");
+    const editor = container.querySelector('[data-testid="document-editor"]');
+    expect(editor?.textContent).toBe("Publication sauvegardée");
+    expect(editor?.getAttribute("data-revision")).toBe("4");
+    expect(editor?.getAttribute("data-storage-updated-at")).toBe("2026-09-28T08:45:00.000Z");
     expect(container.querySelector('[data-testid="proposal-choice"]')).toBeNull();
     expect(mocks.restoreInterviewResultSession).not.toHaveBeenCalled();
   });

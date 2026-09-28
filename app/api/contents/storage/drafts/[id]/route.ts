@@ -30,6 +30,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       ok: true,
       workspaceId: draft.workspaceId,
       version: draft.version,
+      storageUpdatedAt: draft.storageUpdatedAt,
       document: draft.document,
     });
   } catch (error) {
@@ -77,6 +78,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       ok: true,
       workspaceId: result.draft.workspaceId,
       version: result.draft.version,
+      storageUpdatedAt: result.draft.storageUpdatedAt,
       document: result.draft.document,
     });
   } catch (error) {

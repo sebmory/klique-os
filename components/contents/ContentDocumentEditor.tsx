@@ -22,6 +22,8 @@ type ContentDocumentEditorProps = {
   onSaveDraft: (document: ContentDocument) => Promise<ContentDocumentDraftSaveResult>;
   onRegenerateDocument?: () => Promise<ContentDocument>;
   isPersistedInCloud?: boolean;
+  initialSourceDocumentRevision?: number;
+  initialSourceDocumentStorageUpdatedAt?: string;
 };
 
 type SaveState = {
@@ -255,7 +257,14 @@ const withUpdatedTimestamp = <T extends ContentDocument>(document: T): T => {
   };
 };
 
-export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenerateDocument, isPersistedInCloud = false }: ContentDocumentEditorProps) {
+export function ContentDocumentEditor({
+  initialDocument,
+  onSaveDraft,
+  onRegenerateDocument,
+  isPersistedInCloud = false,
+  initialSourceDocumentRevision,
+  initialSourceDocumentStorageUpdatedAt,
+}: ContentDocumentEditorProps) {
   const [document, setDocument] = useState<ContentDocument>(initialDocument);
   const [isEditing, setIsEditing] = useState(false);
   const [baselineSnapshot, setBaselineSnapshot] = useState(stableSerialize(initialDocument));
@@ -270,7 +279,8 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const [variants, setVariants] = useState<ContentVariant[]>([]);
   const [showVariationComposer, setShowVariationComposer] = useState(false);
   const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
-  const [sourceDocumentRevision, setSourceDocumentRevision] = useState<number | null>(null);
+  const [sourceDocumentRevision, setSourceDocumentRevision] = useState<number | null>(initialSourceDocumentRevision ?? null);
+  const [sourceDocumentStorageUpdatedAt, setSourceDocumentStorageUpdatedAt] = useState<string | null>(initialSourceDocumentStorageUpdatedAt ?? null);
 
   const interviewDocument = document.type === "interview" ? document : null;
   const publicationDocument = document.type === "publication" ? document : null;
@@ -606,6 +616,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
         setBaselineSnapshot(stableSerialize(result.document));
         setIsCloudSaved(true);
         setSourceDocumentRevision(result.cloud.version ?? null);
+        setSourceDocumentStorageUpdatedAt(result.cloud.storageUpdatedAt ?? null);
         const url = new URL(window.location.href);
         url.searchParams.set("documentId", result.document.id);
         url.searchParams.delete("sessionId");
@@ -632,6 +643,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       setBaselineSnapshot(stableSerialize(next));
       setIsCloudSaved(false);
       setSourceDocumentRevision(null);
+      setSourceDocumentStorageUpdatedAt(null);
     } catch {
       setSaveState((state) => ({ ...state, error: "Impossible de regenerer le document." }));
     } finally {
@@ -1483,6 +1495,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 isPersistedInCloud={isCloudSaved}
                 hasUnsavedChanges={hasUnsavedChanges}
                 sourceDocumentRevision={sourceDocumentRevision}
+                sourceDocumentStorageUpdatedAt={sourceDocumentStorageUpdatedAt}
                 onOpenSource={() => {
                   setIsEditing(true);
                   requestAnimationFrame(() => window.document.getElementById("document-title")?.focus());

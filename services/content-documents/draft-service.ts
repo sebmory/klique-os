@@ -14,6 +14,7 @@ export type ContentDocumentDraftSaveResult = {
   cloud: {
     status: ContentDocumentDraftCloudStatus;
     version?: number;
+    storageUpdatedAt?: string;
     currentVersion?: number;
     message?: string;
   };
@@ -22,6 +23,7 @@ export type ContentDocumentDraftSaveResult = {
 type StoredDraftRecord = {
   document: ContentDocument;
   cloudVersion?: number;
+  cloudStorageUpdatedAt?: string;
   syncedAt?: string;
   lastCloudStatus?: ContentDocumentDraftCloudStatus;
   lastCloudMessage?: string;
@@ -30,6 +32,7 @@ type StoredDraftRecord = {
 type CloudDraftResponse = {
   ok?: boolean;
   version?: number;
+  storageUpdatedAt?: string;
   document?: ContentDocument;
   currentVersion?: number;
   currentDocument?: ContentDocument;
@@ -37,7 +40,7 @@ type CloudDraftResponse = {
 };
 
 type CloudFetchResult =
-  | { status: "ok"; document: ContentDocument; version: number }
+  | { status: "ok"; document: ContentDocument; version: number; storageUpdatedAt: string }
   | { status: "missing" }
   | { status: "error"; message: string; code: number };
 
@@ -62,12 +65,13 @@ const readStoredDraft = (documentId: string): StoredDraftRecord | null => {
   }
 };
 
-const writeStoredDraft = (document: ContentDocument, cloudVersion?: number, cloudStatus?: ContentDocumentDraftCloudStatus, cloudMessage?: string) => {
+const writeStoredDraft = (document: ContentDocument, cloudVersion?: number, cloudStatus?: ContentDocumentDraftCloudStatus, cloudMessage?: string, cloudStorageUpdatedAt?: string) => {
   if (!hasWindow()) return;
 
   const record: StoredDraftRecord = {
     document,
     cloudVersion,
+    cloudStorageUpdatedAt,
     syncedAt: new Date().toISOString(),
     lastCloudStatus: cloudStatus,
     lastCloudMessage: cloudMessage,
@@ -76,7 +80,11 @@ const writeStoredDraft = (document: ContentDocument, cloudVersion?: number, clou
   window.localStorage.setItem(getStorageKey(document.id), JSON.stringify(record));
 };
 
-const getStoredDraftDocument = (documentId: string): ContentDocument | null => readStoredDraft(documentId)?.document ?? null;
+export type ContentDocumentDraftLoadResult = {
+  document: ContentDocument;
+  version?: number;
+  storageUpdatedAt?: string;
+};
 
 const parseCloudDraftResponse = async (response: Response): Promise<CloudDraftResponse> => {
   try {
@@ -92,11 +100,11 @@ const fetchCloudDraft = async (documentId: string): Promise<CloudFetchResult> =>
   });
   if (response.ok) {
     const payload = await parseCloudDraftResponse(response);
-    if (!payload.document || typeof payload.version !== "number") {
+    if (!payload.document || typeof payload.version !== "number" || typeof payload.storageUpdatedAt !== "string") {
       throw new Error("Format inattendu pour le brouillon cloud.");
     }
 
-    return { status: "ok" as const, document: payload.document, version: payload.version };
+    return { status: "ok" as const, document: payload.document, version: payload.version, storageUpdatedAt: payload.storageUpdatedAt };
   }
 
   if (response.status === 404) {
@@ -123,11 +131,11 @@ const createCloudDraft = async (document: ContentDocument) => {
 
   const payload = await parseCloudDraftResponse(response);
   if (response.ok) {
-    if (!payload.document || typeof payload.version !== "number") {
+    if (!payload.document || typeof payload.version !== "number" || typeof payload.storageUpdatedAt !== "string") {
       throw new Error("Format inattendu pour la creation du brouillon cloud.");
     }
 
-    return { status: "created" as const, version: payload.version, document: payload.document };
+    return { status: "created" as const, version: payload.version, storageUpdatedAt: payload.storageUpdatedAt, document: payload.document };
   }
 
   if (response.status === 409) {
@@ -157,11 +165,11 @@ const updateCloudDraft = async (document: ContentDocument, expectedVersion: numb
 
   const payload = await parseCloudDraftResponse(response);
   if (response.ok) {
-    if (!payload.document || typeof payload.version !== "number") {
+    if (!payload.document || typeof payload.version !== "number" || typeof payload.storageUpdatedAt !== "string") {
       throw new Error("Format inattendu pour la mise a jour du brouillon cloud.");
     }
 
-    return { status: "updated" as const, version: payload.version, document: payload.document };
+    return { status: "updated" as const, version: payload.version, storageUpdatedAt: payload.storageUpdatedAt, document: payload.document };
   }
 
   if (response.status === 409) {
@@ -186,51 +194,66 @@ const updateCloudDraft = async (document: ContentDocument, expectedVersion: numb
   };
 };
 
-export const ContentDocumentDraftService = {
-  async loadDraft(documentId: string): Promise<ContentDocument | null> {
-    const normalizedDocumentId = normalizeDocumentId(documentId);
-    if (!normalizedDocumentId) return null;
+const loadDraftRecord = async (documentId: string): Promise<ContentDocumentDraftLoadResult | null> => {
+  const normalizedDocumentId = normalizeDocumentId(documentId);
+  if (!normalizedDocumentId) return null;
 
-    const useLocalStorage = canUseLocalContentStorage();
-    if (!useLocalStorage) {
-      try {
-        const cloud = await fetchCloudDraft(normalizedDocumentId);
-        return cloud.status === "ok" ? cloud.document : null;
-      } catch {
-        return null;
-      }
-    }
-
-    const localDraft = getStoredDraftDocument(normalizedDocumentId);
-
+  const useLocalStorage = canUseLocalContentStorage();
+  if (!useLocalStorage) {
     try {
       const cloud = await fetchCloudDraft(normalizedDocumentId);
-      if (cloud.status === "ok") {
-        writeStoredDraft(cloud.document, cloud.version, "updated");
-        return cloud.document;
-      }
-
-      if (!localDraft) return null;
-
-      if (cloud.status === "missing") {
-        try {
-          const created = await createCloudDraft(localDraft);
-          if (created.status === "created") {
-            writeStoredDraft(localDraft, created.version, "created");
-          } else {
-            writeStoredDraft(localDraft, readStoredDraft(normalizedDocumentId)?.cloudVersion, created.status, created.message);
-          }
-        } catch {
-          writeStoredDraft(localDraft, readStoredDraft(normalizedDocumentId)?.cloudVersion, "unavailable", "Synchronisation cloud indisponible.");
-        }
-
-        return localDraft;
-      }
-
-      return localDraft;
+      return cloud.status === "ok"
+        ? { document: cloud.document, version: cloud.version, storageUpdatedAt: cloud.storageUpdatedAt }
+        : null;
     } catch {
-      return localDraft;
+      return null;
     }
+  }
+
+  const localRecord = readStoredDraft(normalizedDocumentId);
+  const localDraft = localRecord?.document ?? null;
+
+  try {
+    const cloud = await fetchCloudDraft(normalizedDocumentId);
+    if (cloud.status === "ok") {
+      writeStoredDraft(cloud.document, cloud.version, "updated", undefined, cloud.storageUpdatedAt);
+      return { document: cloud.document, version: cloud.version, storageUpdatedAt: cloud.storageUpdatedAt };
+    }
+
+    if (!localDraft) return null;
+
+    if (cloud.status === "missing") {
+      try {
+        const created = await createCloudDraft(localDraft);
+        if (created.status === "created") {
+          writeStoredDraft(localDraft, created.version, "created", undefined, created.storageUpdatedAt);
+          return { document: localDraft, version: created.version, storageUpdatedAt: created.storageUpdatedAt };
+        }
+        writeStoredDraft(localDraft, localRecord?.cloudVersion, created.status, created.message, localRecord?.cloudStorageUpdatedAt);
+      } catch {
+        writeStoredDraft(localDraft, localRecord?.cloudVersion, "unavailable", "Synchronisation cloud indisponible.", localRecord?.cloudStorageUpdatedAt);
+      }
+    }
+
+    return {
+      document: localDraft,
+      version: localRecord?.cloudVersion,
+      storageUpdatedAt: localRecord?.cloudStorageUpdatedAt,
+    };
+  } catch {
+    return localDraft
+      ? { document: localDraft, version: localRecord?.cloudVersion, storageUpdatedAt: localRecord?.cloudStorageUpdatedAt }
+      : null;
+  }
+};
+
+export const ContentDocumentDraftService = {
+  async loadDraft(documentId: string): Promise<ContentDocument | null> {
+    return (await loadDraftRecord(documentId))?.document ?? null;
+  },
+
+  async loadDraftRecord(documentId: string): Promise<ContentDocumentDraftLoadResult | null> {
+    return loadDraftRecord(documentId);
   },
 
   async saveDraft(document: ContentDocument): Promise<ContentDocumentDraftSaveResult> {
@@ -247,7 +270,7 @@ export const ContentDocumentDraftService = {
             document: updated.status === "updated" ? updated.document : document,
             local: { status: "skipped", storageKey },
             cloud: updated.status === "updated"
-              ? { status: "updated", version: updated.version }
+              ? { status: "updated", version: updated.version, storageUpdatedAt: updated.storageUpdatedAt }
               : {
                   status: updated.status,
                   currentVersion: updated.currentVersion,
@@ -262,7 +285,7 @@ export const ContentDocumentDraftService = {
             document: created.status === "created" ? created.document : document,
             local: { status: "skipped", storageKey },
             cloud: created.status === "created"
-              ? { status: "created", version: created.version }
+              ? { status: "created", version: created.version, storageUpdatedAt: created.storageUpdatedAt }
               : { status: created.status, message: created.message },
           };
         }
@@ -293,11 +316,11 @@ export const ContentDocumentDraftService = {
       if (typeof cloudVersion === "number") {
         const updated = await updateCloudDraft(document, cloudVersion);
         if (updated.status === "updated") {
-          writeStoredDraft(updated.document, updated.version, "updated");
+          writeStoredDraft(updated.document, updated.version, "updated", undefined, updated.storageUpdatedAt);
           return {
             document: updated.document,
             local: { status: "saved", storageKey },
-            cloud: { status: "updated", version: updated.version },
+            cloud: { status: "updated", version: updated.version, storageUpdatedAt: updated.storageUpdatedAt },
           };
         }
 
@@ -316,11 +339,11 @@ export const ContentDocumentDraftService = {
 
         const createdAfterMissing = await createCloudDraft(document);
         if (createdAfterMissing.status === "created") {
-          writeStoredDraft(createdAfterMissing.document, createdAfterMissing.version, "created");
+          writeStoredDraft(createdAfterMissing.document, createdAfterMissing.version, "created", undefined, createdAfterMissing.storageUpdatedAt);
           return {
             document: createdAfterMissing.document,
             local: { status: "saved", storageKey },
-            cloud: { status: "created", version: createdAfterMissing.version },
+            cloud: { status: "created", version: createdAfterMissing.version, storageUpdatedAt: createdAfterMissing.storageUpdatedAt },
           };
         }
 
@@ -337,11 +360,11 @@ export const ContentDocumentDraftService = {
 
       const created = await createCloudDraft(document);
       if (created.status === "created") {
-        writeStoredDraft(created.document, created.version, "created");
+        writeStoredDraft(created.document, created.version, "created", undefined, created.storageUpdatedAt);
         return {
           document: created.document,
           local: { status: "saved", storageKey },
-          cloud: { status: "created", version: created.version },
+          cloud: { status: "created", version: created.version, storageUpdatedAt: created.storageUpdatedAt },
         };
       }
 
