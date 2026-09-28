@@ -244,7 +244,7 @@ export const ContentDocumentDraftService = {
         if (cloud.status === "ok") {
           const updated = await updateCloudDraft(document, cloud.version);
           return {
-            document,
+            document: updated.status === "updated" ? updated.document : document,
             local: { status: "skipped", storageKey },
             cloud: updated.status === "updated"
               ? { status: "updated", version: updated.version }
@@ -259,7 +259,7 @@ export const ContentDocumentDraftService = {
         if (cloud.status === "missing") {
           const created = await createCloudDraft(document);
           return {
-            document,
+            document: created.status === "created" ? created.document : document,
             local: { status: "skipped", storageKey },
             cloud: created.status === "created"
               ? { status: "created", version: created.version }
@@ -293,9 +293,9 @@ export const ContentDocumentDraftService = {
       if (typeof cloudVersion === "number") {
         const updated = await updateCloudDraft(document, cloudVersion);
         if (updated.status === "updated") {
-          writeStoredDraft(document, updated.version, "updated");
+          writeStoredDraft(updated.document, updated.version, "updated");
           return {
-            document,
+            document: updated.document,
             local: { status: "saved", storageKey },
             cloud: { status: "updated", version: updated.version },
           };
@@ -316,9 +316,9 @@ export const ContentDocumentDraftService = {
 
         const createdAfterMissing = await createCloudDraft(document);
         if (createdAfterMissing.status === "created") {
-          writeStoredDraft(document, createdAfterMissing.version, "created");
+          writeStoredDraft(createdAfterMissing.document, createdAfterMissing.version, "created");
           return {
-            document,
+            document: createdAfterMissing.document,
             local: { status: "saved", storageKey },
             cloud: { status: "created", version: createdAfterMissing.version },
           };
@@ -337,9 +337,9 @@ export const ContentDocumentDraftService = {
 
       const created = await createCloudDraft(document);
       if (created.status === "created") {
-        writeStoredDraft(document, created.version, "created");
+        writeStoredDraft(created.document, created.version, "created");
         return {
-          document,
+          document: created.document,
           local: { status: "saved", storageKey },
           cloud: { status: "created", version: created.version },
         };

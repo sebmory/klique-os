@@ -177,35 +177,39 @@ describe("ContentDocumentDraftService", () => {
 
   it("saves a new draft locally and creates it in cloud", async () => {
     const newDocument = { ...baseDocument, id: "document-new", updatedAt: "2026-08-08T13:00:00.000Z" };
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 3, document: newDocument }, 201));
+    const cloudDocument = { ...newDocument, updatedAt: "2026-08-08T13:01:00.000Z" };
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 3, document: cloudDocument }, 201));
 
     const result = await ContentDocumentDraftService.saveDraft(newDocument);
 
     expect(result.cloud).toEqual({ status: "created", version: 3 });
+    expect(result.document).toEqual(cloudDocument);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/contents/storage/drafts",
       expect.objectContaining({ method: "POST", credentials: "include" })
     );
-    expect(readStoredDraft(storage, "document-new")).toMatchObject({ document: newDocument, cloudVersion: 3 });
+    expect(readStoredDraft(storage, "document-new")).toMatchObject({ document: cloudDocument, cloudVersion: 3 });
   });
 
   it("saves an existing draft locally and patches the cloud version", async () => {
     const existingDocument = { ...baseDocument, updatedAt: "2026-08-08T14:00:00.000Z" };
+    const cloudDocument = { ...existingDocument, updatedAt: "2026-08-08T14:01:00.000Z" };
     storage.setItem(
       "klique.contents.document-editor.draft.v2:document-1",
       JSON.stringify({ document: baseDocument, cloudVersion: 7 })
     );
-    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 8, document: existingDocument }));
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 8, document: cloudDocument }));
 
     const result = await ContentDocumentDraftService.saveDraft(existingDocument);
 
     expect(result.cloud).toEqual({ status: "updated", version: 8 });
+    expect(result.document).toEqual(cloudDocument);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/contents/storage/drafts/document-1",
       expect.objectContaining({ method: "PATCH", credentials: "include" })
     );
-    expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: existingDocument, cloudVersion: 8 });
+    expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: cloudDocument, cloudVersion: 8 });
   });
 
   it("keeps the local draft when the cloud version conflicts", async () => {

@@ -17,6 +17,7 @@ import type {
   StoryDocument,
 } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
+import type { ContentDocumentDraftSaveResult } from "@/services/content-documents/draft-service";
 
 const variantRepositoryMocks = vi.hoisted(() => ({
   save: vi.fn(),
@@ -396,6 +397,57 @@ describe("After-match Pack editor UI", () => {
 
     await act(async () => pending.resolve(response({ ok: true, pack: pack("completed") })));
     expect(container.textContent).toContain("Votre Pack Après-match est prêt.");
+  });
+
+  it("uses the cloud revision and document timestamp immediately after saving a selected proposal", async () => {
+    const cloudUpdatedAt = "2026-09-28T08:45:00.000Z";
+    const cloudDocument = { ...publication(), updatedAt: cloudUpdatedAt };
+    const saveResult: ContentDocumentDraftSaveResult = {
+      document: cloudDocument,
+      local: { status: "saved", storageKey: "draft:publication-1" },
+      cloud: { status: "created", version: 4 },
+    };
+    const onSaveDraft = vi.fn(async () => saveResult);
+    let createBody: Record<string, unknown> | null = null;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/ai-credits/balance") return response({}, 403);
+      if (url === "/api/contents/packs/after-match?sourceDocumentId=publication-1&sourceDocumentRevision=4") {
+        return response({ ok: true, pack: null });
+      }
+      if (url === "/api/contents/packs/after-match" && init?.method === "POST") {
+        createBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return response({ ok: true, pack: pack("completed") });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    await act(async () => {
+      root.render(<ContentDocumentEditor initialDocument={publication()} onSaveDraft={onSaveDraft} isPersistedInCloud={false} />);
+    });
+    await flush();
+    await act(async () => button(container, "Enregistrer le brouillon").click());
+    await flush();
+
+    const displayedCloudUpdatedAt = new Date(cloudUpdatedAt).toLocaleString("fr-CH", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(container.textContent).toContain(`Derniere modification: ${displayedCloudUpdatedAt}`);
+    await act(async () => button(container, "Créer le Pack Après-match").click());
+    await act(async () => button(container, "Confirmer la création").click());
+
+    expect(createBody).toEqual({
+      sourceDocumentId: "publication-1",
+      sourceDocumentRevision: 4,
+      sourceDocumentVersionId: "version-2",
+      sourceDocumentUpdatedAt: cloudUpdatedAt,
+    });
+    expect(container.textContent).not.toContain("La Publication a été modifiée.");
+    expect(window.location.search).toBe("?documentId=publication-1");
   });
 
   it("shows the two-credit notice only when Media identity is reliably confirmed", async () => {

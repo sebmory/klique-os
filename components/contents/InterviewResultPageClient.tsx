@@ -46,11 +46,11 @@ export function InterviewResultPageClient() {
       if (documentId) {
         const storedDocument = await ContentDocumentDraftService.loadDraft(documentId);
         if (!active) return;
-        if (storedDocument?.type === "article") {
-          setArticleDocument(storedDocument);
+        if (storedDocument) {
+          setArticleDocument(storedDocument.type === "article" ? storedDocument : null);
           setArticleResult(null);
           setParsed(null);
-          setRestoredDraft(null);
+          setRestoredDraft(storedDocument.type === "article" ? null : storedDocument);
           setReady(true);
           return;
         }

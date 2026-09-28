@@ -590,7 +590,8 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const saveDraft = async () => {
     setSaveState({ saving: true, savedAt: saveState.savedAt, error: null });
     try {
-      const result = await onSaveDraft(document);
+      const documentToSave = withUpdatedTimestamp(document);
+      const result = await onSaveDraft(documentToSave);
       const cloudSynced = result.cloud.status === "created" || result.cloud.status === "updated";
 
       const cloudError = cloudSynced
@@ -601,9 +602,14 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
 
       // Le document n est considere comme enregistre que si le cloud a confirme l ecriture.
       if (cloudSynced) {
-        setBaselineSnapshot(stableSerialize(document));
+        setDocument(result.document);
+        setBaselineSnapshot(stableSerialize(result.document));
         setIsCloudSaved(true);
         setSourceDocumentRevision(result.cloud.version ?? null);
+        const url = new URL(window.location.href);
+        url.searchParams.set("documentId", result.document.id);
+        url.searchParams.delete("sessionId");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}`);
       }
 
       setSaveState({
