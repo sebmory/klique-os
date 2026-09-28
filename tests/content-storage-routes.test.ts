@@ -242,6 +242,24 @@ describe("content storage API routes", () => {
     expect(getResponse.status).toBe(200);
   });
 
+  it("rejects a cloud variant when its source document is not persisted", async () => {
+    repo.getDraft.mockResolvedValueOnce(null);
+
+    const response = await postVariants(makeJsonRequest({ variant: validVariant }));
+
+    expect(response.status).toBe(404);
+    expect(repo.createVariant).not.toHaveBeenCalled();
+  });
+
+  it("allows a cloud variant after its source document is persisted", async () => {
+    repo.getDraft.mockResolvedValueOnce({ document: validDocument, version: 1, workspaceId: "klique-os", userId: null });
+
+    const response = await postVariants(makeJsonRequest({ variant: validVariant }));
+
+    expect(response.status).toBe(201);
+    expect(repo.createVariant).toHaveBeenCalledWith(validVariant, expect.objectContaining({ workspaceId: "klique-os" }));
+  });
+
   it("uses the session mediaId to verify the source document before creating a variant", async () => {
     const mediaAccess = {
       clerkUserId: "user-media",
@@ -271,6 +289,16 @@ describe("content storage API routes", () => {
     const publicationDocument = {
       ...validDocument,
       type: "publication",
+      sourceContext: {
+        afterMatch: {
+          opponent: "FC Exemple",
+          result: "Victoire 2-1",
+          competition: "Championnat",
+          matchDate: "2026-09-26",
+          keyFacts: "But decisif",
+          nextFixture: "Samedi prochain",
+        },
+      },
       sections: {
         title: "Titre",
         editorialAngle: "Angle",
@@ -284,6 +312,14 @@ describe("content storage API routes", () => {
     };
 
     expect(() => validateContentDocumentWriteBody({ document: publicationDocument })).not.toThrow();
+    expect(() =>
+      validateContentDocumentWriteBody({
+        document: {
+          ...publicationDocument,
+          sourceContext: { afterMatch: { opponent: 42 } },
+        },
+      }),
+    ).toThrow(/sourceContext\.afterMatch\.opponent/);
     expect(() =>
       validateContentDocumentWriteBody({
         document: { ...publicationDocument, sections: { ...publicationDocument.sections, cta: 42 } },

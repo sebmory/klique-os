@@ -223,9 +223,16 @@
   letter-spacing: 0;
 }
 
+.valueIntroduction {
+  max-width: 64ch;
+  margin: 1.25rem 0 0;
+  color: #526059;
+  line-height: 1.65;
+}
+
 .pillars {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: clamp(2.5rem, 6vw, 5rem);
   border-top: 1px solid #bfc5be;
   border-bottom: 1px solid #bfc5be;
@@ -546,6 +553,18 @@
   .validationNote {
     grid-column: 1;
     margin-top: -1rem;
+  }
+
+  .pillars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pillars article:nth-child(2) {
+    border-right: 0;
+  }
+
+  .pillars article:nth-child(-n + 2) {
+    border-bottom: 1px solid #bfc5be;
   }
 
   .ecosystemSection {

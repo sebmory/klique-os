@@ -71,12 +71,20 @@ describe("Public KLIQUE home", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/public/membership-plans", { cache: "no-store" });
     expect(fetchMock).toHaveBeenCalledWith("/api/public/klique-stats");
-    expect(container.querySelector("h1")?.textContent).toBe("Votre carrière mérite plus de visibilité.");
-    expect(container.textContent).toContain("KLIQUE accompagne les Athlètes pour développer leur image");
-    expect(container.textContent).toContain("Bien plus qu’un abonnement. Un accompagnement autour de votre image.");
-    expect(container.textContent).toContain("Interviews, publications, Reels, Stories et contenus personnalisés");
-    expect(container.textContent).toContain("Séances photo, vidéo, Media Days et productions organisées avec KLIQUE");
-    expect(container.textContent).toContain("Partenaires, experts, médias, opportunités et avantages réservés aux membres");
+    expect(container.querySelector("h1")?.textContent).toBe("Votre ambition mérite tout un réseau.");
+    expect(container.textContent).toContain("LE RÉSEAU AU SERVICE DES ATHLÈTES");
+    expect(container.textContent).toContain("KLIQUE réunit autour des Athlètes les ressources, les expertises et les opportunités");
+    expect(container.textContent).toContain("KLIQUE · UN RÉSEAU AUTOUR DE L’ATHLÈTE");
+    expect(container.textContent).toContain("Bien plus qu’un abonnement. Un réseau pour avancer.");
+    expect(container.textContent).toContain("Chaque Athlète a son parcours, ses besoins et ses objectifs.");
+    expect(container.textContent).toContain("Développer son image");
+    expect(container.textContent).toContain("S’entourer d’experts");
+    expect(container.textContent).toContain("Profiter d’avantages");
+    expect(container.textContent).toContain("Accéder à des opportunités");
+    expect(container.textContent).toContain("Activez votre réseau");
+    expect(container.textContent).toContain("Utilisez les contenus, expertises, avantages et opportunités disponibles");
+    expect(container.textContent).toContain("Un écosystème complémentaire, construit autour de l’Athlète.");
+    expect(container.textContent).toContain("Prêt à rejoindre un réseau construit autour de vos ambitions ?");
     expect(container.textContent).toContain("Le paiement est vérifié manuellement par KLIQUE");
     for (const actor of ["Athlètes", "Partenaires et experts", "Médias", "Créatifs KLIQUE"]) {
       expect(container.textContent).toContain(actor);
@@ -113,7 +121,7 @@ describe("Public KLIQUE home", () => {
 
     expect(container.querySelector('[aria-label="KLIQUE en chiffres"]')).toBeNull();
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    expect(container.querySelector("h1")?.textContent).toBe("Votre carrière mérite plus de visibilité.");
+    expect(container.querySelector("h1")?.textContent).toBe("Votre ambition mérite tout un réseau.");
   });
 
   it("sends an authenticated visitor back to the existing workspace", async () => {

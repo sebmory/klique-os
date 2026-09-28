@@ -93,9 +93,21 @@ export type PublicationDocumentSections = {
   editorialNote: string;
 };
 
+export type AfterMatchDocumentContext = {
+  opponent?: string;
+  result?: string;
+  competition?: string;
+  matchDate?: string;
+  keyFacts?: string;
+  nextFixture?: string;
+};
+
 export type PublicationDocument = ContentDocumentBase & {
   type: "publication";
   sections: PublicationDocumentSections;
+  sourceContext?: {
+    afterMatch?: AfterMatchDocumentContext;
+  };
 };
 
 export type ReelDocumentSections = {

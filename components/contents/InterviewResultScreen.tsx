@@ -74,6 +74,7 @@ export function InterviewResultScreen({
         request,
         result: publicationResult,
         selectedProposalId: selectedId,
+        afterMatch: initialPayload.afterMatch,
         createdAt: initialCreatedAt,
         documentId,
       });
@@ -149,6 +150,7 @@ export function InterviewResultScreen({
         request: payload.request,
         result: publicationResult,
         selectedProposalId: selectedId,
+        afterMatch: initialPayload.afterMatch,
         createdAt: initialCreatedAt,
         documentId,
       });

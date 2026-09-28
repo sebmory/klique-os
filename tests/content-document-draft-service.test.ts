@@ -131,6 +131,28 @@ describe("ContentDocumentDraftService", () => {
     expect(readStoredDraft(storage, "document-1")).toMatchObject({ document: cloudDocument, cloudVersion: 4 });
   });
 
+  it("restores a legacy publication without sourceContext", async () => {
+    const legacyPublication = {
+      ...baseDocument,
+      id: "document-publication-legacy",
+      type: "publication" as const,
+      sections: {
+        title: "Publication historique",
+        editorialAngle: "Angle historique",
+        hook: "Accroche historique",
+        text: "Texte historique",
+        cta: "",
+        hashtags: [],
+        visualSuggestion: "Visuel historique",
+        editorialNote: "Note historique",
+      },
+    } as ContentDocument;
+    fetchMock.mockResolvedValueOnce(createResponse({ ok: true, version: 2, document: legacyPublication }));
+
+    await expect(ContentDocumentDraftService.loadDraft(legacyPublication.id)).resolves.toEqual(legacyPublication);
+    expect(readStoredDraft(storage, legacyPublication.id)).toMatchObject({ document: legacyPublication, cloudVersion: 2 });
+  });
+
   it("falls back to local draft and creates cloud draft when cloud is missing", async () => {
     const localDocument = { ...baseDocument, updatedAt: "2026-08-08T12:00:00.000Z" };
     storage.setItem(

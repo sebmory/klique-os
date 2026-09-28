@@ -154,6 +154,7 @@ export type CreationPreparationPayload = {
     id: CreationObjectiveType;
     subtypeId: string;
   };
+  afterMatch?: AfterMatchPresetDraft;
   parameters: {
     language: "fr" | "fr-CH";
     toneId: string;
@@ -529,6 +530,16 @@ export const ContentCreationAssistantService = {
         id: objectiveId,
         subtypeId: args.draft.objective.subtypeId,
       },
+      afterMatch: isAfterMatch && args.draft.afterMatch
+        ? {
+            opponent: normalize(args.draft.afterMatch.opponent),
+            result: normalize(args.draft.afterMatch.result),
+            competition: normalize(args.draft.afterMatch.competition),
+            matchDate: normalize(args.draft.afterMatch.matchDate),
+            keyFacts: normalize(args.draft.afterMatch.keyFacts),
+            nextFixture: normalize(args.draft.afterMatch.nextFixture),
+          }
+        : undefined,
       parameters: {
         language: "fr-CH",
         toneId: resolveFreeOptionValue(args.draft.parameters.toneId, args.draft.parameters.customTone),

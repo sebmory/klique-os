@@ -10,6 +10,38 @@ export const buildSourceDocumentSnapshot = (args: {
 }): SourceDocumentSnapshot => {
   const { document } = args;
 
+  if (document.type === "publication") {
+    return {
+      documentId: document.id,
+      documentType: document.type,
+      documentVersionId: document.activeVersionId,
+      documentUpdatedAt: document.updatedAt,
+      subjectName: normalize(document.sidebar?.subject),
+      objective: normalize(document.sidebar?.objective) || undefined,
+      title: normalize(document.sections?.title),
+      editorialAngle: normalize(document.sections?.editorialAngle),
+      introduction: "",
+      questions: [],
+      conclusion: "",
+      selectedContextItems: document.contextUsage?.selectedItems ?? [],
+      contextDateRange: document.contextUsage?.dateRange,
+      contextResearchedAt: document.contextUsage?.researchedAt,
+      publication: {
+        hook: normalize(document.sections?.hook),
+        text: normalize(document.sections?.text),
+        cta: normalize(document.sections?.cta),
+        hashtags: Array.isArray(document.sections?.hashtags)
+          ? document.sections.hashtags.map((item) => normalize(item)).filter(Boolean)
+          : [],
+        visualSuggestion: normalize(document.sections?.visualSuggestion),
+        editorialNote: normalize(document.sections?.editorialNote),
+        afterMatch: document.sourceContext?.afterMatch
+          ? { ...document.sourceContext.afterMatch }
+          : undefined,
+      },
+    };
+  }
+
   if (document.type !== "interview") {
     return {
       documentId: document.id,

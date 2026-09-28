@@ -1,4 +1,4 @@
-import type { ContentDocumentType } from "@/types/content-document";
+import type { AfterMatchDocumentContext, ContentDocumentType } from "@/types/content-document";
 import type { ContextDateRange, ContextItem } from "@/types/context-intelligence";
 
 export type ContentVariantType =
@@ -78,6 +78,7 @@ export type SourceDocumentSnapshot = {
   documentUpdatedAt: string;
   subjectId?: string;
   subjectName: string;
+  objective?: string;
   title: string;
   editorialAngle: string;
   introduction: string;
@@ -93,6 +94,15 @@ export type SourceDocumentSnapshot = {
   selectedContextItems: ContextItem[];
   contextDateRange?: ContextDateRange;
   contextResearchedAt?: string;
+  publication?: {
+    hook: string;
+    text: string;
+    cta: string;
+    hashtags: string[];
+    visualSuggestion: string;
+    editorialNote: string;
+    afterMatch?: AfterMatchDocumentContext;
+  };
 };
 
 export type ContentVariationRequest = {
@@ -219,6 +229,12 @@ export type ContentVariantGenerationMetadata = {
   usedContextItemIds: string[];
 };
 
+export type ContentVariantOrigin = {
+  type: "after_match_pack";
+  packId: string;
+  deliverable: "reel" | "stories";
+};
+
 export type ContentVariant = {
   id: string;
   sourceDocumentId: string;
@@ -237,6 +253,7 @@ export type ContentVariant = {
   content: string;
   structuredContent: ContentVariantStructuredContent;
   status: ContentVariantStatus;
+  origin?: ContentVariantOrigin;
   generationMetadata: ContentVariantGenerationMetadata;
   createdAt: string;
   updatedAt: string;

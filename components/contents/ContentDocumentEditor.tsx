@@ -13,6 +13,7 @@ import type {
 import type { ContentVariant, StoryCardType } from "@/types/content-variant";
 import { ContentVariationComposer } from "@/components/contents/ContentVariationComposer";
 import { ContentVariantEditor } from "@/components/contents/ContentVariantEditor";
+import { AfterMatchPackBlock } from "@/components/contents/AfterMatchPackBlock";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
 import type { ContentDocumentDraftSaveResult } from "@/services/content-documents/draft-service";
 
@@ -269,6 +270,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const [variants, setVariants] = useState<ContentVariant[]>([]);
   const [showVariationComposer, setShowVariationComposer] = useState(false);
   const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
+  const [sourceDocumentRevision, setSourceDocumentRevision] = useState<number | null>(null);
 
   const interviewDocument = document.type === "interview" ? document : null;
   const publicationDocument = document.type === "publication" ? document : null;
@@ -309,6 +311,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       .filter((item): item is { id: string; title: string; sourceName: string; publishedAt: string; href: string } => Boolean(item));
   })();
   const activeVariant = variants.find((item) => item.id === activeVariantId) ?? null;
+  const canCreateCloudVariant = isCloudSaved && !hasUnsavedChanges;
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
@@ -600,6 +603,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       if (cloudSynced) {
         setBaselineSnapshot(stableSerialize(document));
         setIsCloudSaved(true);
+        setSourceDocumentRevision(result.cloud.version ?? null);
       }
 
       setSaveState({
@@ -621,6 +625,7 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
       setDocument(next);
       setBaselineSnapshot(stableSerialize(next));
       setIsCloudSaved(false);
+      setSourceDocumentRevision(null);
     } catch {
       setSaveState((state) => ({ ...state, error: "Impossible de regenerer le document." }));
     } finally {
@@ -643,6 +648,19 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
   const handleVariantCreated = async (variant: ContentVariant) => {
     await saveVariant(variant);
     setShowVariationComposer(false);
+  };
+
+  const openPersistedVariant = async (variantId: string) => {
+    const existing = variants.find((variant) => variant.id === variantId);
+    if (existing) {
+      setActiveVariantId(existing.id);
+      return;
+    }
+
+    const variant = await ContentVariantRepositoryService.getById(variantId);
+    if (!variant) throw new Error("VARIANT_NOT_FOUND");
+    setVariants((current) => [variant, ...current.filter((item) => item.id !== variant.id)]);
+    setActiveVariantId(variant.id);
   };
 
   if (!interviewDocument && !publicationDocument && !reelDocument && !storyDocument) {
@@ -1452,6 +1470,30 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
                 <textarea className="document-prose-editor" rows={4} value={publicationDocument.sections.editorialNote} onChange={(event) => updatePublicationField("editorialNote", event.target.value)} />
               </section>
             ) : null}
+
+            {publicationDocument.sourceContext?.afterMatch ? (
+              <AfterMatchPackBlock
+                document={publicationDocument}
+                isPersistedInCloud={isCloudSaved}
+                hasUnsavedChanges={hasUnsavedChanges}
+                sourceDocumentRevision={sourceDocumentRevision}
+                onOpenSource={() => {
+                  setIsEditing(true);
+                  requestAnimationFrame(() => window.document.getElementById("document-title")?.focus());
+                }}
+                onOpenVariant={openPersistedVariant}
+              />
+            ) : null}
+
+            {activeVariant ? (
+              <ContentVariantEditor
+                variant={activeVariant}
+                sourceDocumentUpdatedAt={publicationDocument.updatedAt}
+                onSave={saveVariant}
+                onBackToParameters={() => setActiveVariantId(null)}
+                onCreateAnother={() => setActiveVariantId(null)}
+              />
+            ) : null}
           </main>
 
           <aside className="document-sidebar" aria-label="Informations et contexte">
@@ -1966,11 +2008,20 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
             <div className="document-questions-header">
               <h2 id="document-variations-title">Declinaisons liees</h2>
               {isEditing ? (
-                <button type="button" className="crm-primary-action" onClick={() => setShowVariationComposer(true)}>
+                <button
+                  type="button"
+                  className="crm-primary-action"
+                  onClick={() => setShowVariationComposer(true)}
+                  disabled={!canCreateCloudVariant}
+                >
                   Creer une declinaison
                 </button>
               ) : null}
             </div>
+
+            {!canCreateCloudVariant ? (
+              <p className="creation-muted">Enregistrez d abord le contenu pour creer une declinaison.</p>
+            ) : null}
 
             {variants.length === 0 ? (
               <p className="creation-muted">Aucune declinaison creee</p>
@@ -1994,12 +2045,12 @@ export function ContentDocumentEditor({ initialDocument, onSaveDraft, onRegenera
               variant={activeVariant}
               sourceDocumentUpdatedAt={interviewDocument.updatedAt}
               onSave={saveVariant}
-              onBackToParameters={() => setShowVariationComposer(true)}
-              onCreateAnother={() => setShowVariationComposer(true)}
+              onBackToParameters={() => setShowVariationComposer(canCreateCloudVariant)}
+              onCreateAnother={() => setShowVariationComposer(canCreateCloudVariant)}
             />
           ) : null}
 
-          {showVariationComposer ? (
+          {showVariationComposer && canCreateCloudVariant ? (
             <ContentVariationComposer
               document={interviewDocument}
               onClose={() => setShowVariationComposer(false)}

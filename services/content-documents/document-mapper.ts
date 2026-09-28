@@ -9,6 +9,7 @@ import type {
   StoryGenerationResult,
 } from "@/types/content-generation";
 import type {
+  AfterMatchDocumentContext,
   ArticleDocument,
   ContentDocument,
   InterviewDocument,
@@ -87,6 +88,7 @@ export const mapPublicationGenerationToDocument = (args: {
   request: PublicationGenerationRequest;
   result: PublicationGenerationResult;
   selectedProposalId: string;
+  afterMatch?: AfterMatchDocumentContext;
   createdAt?: string;
   documentId?: string;
 }): PublicationDocument => {
@@ -126,6 +128,11 @@ export const mapPublicationGenerationToDocument = (args: {
     },
     metadata: args.result.metadata,
     contextUsage: args.result.contextUsage,
+    sourceContext: args.afterMatch
+      ? {
+          afterMatch: { ...args.afterMatch },
+        }
+      : undefined,
     sections: {
       title: args.result.title,
       editorialAngle: args.result.selectedAngle,

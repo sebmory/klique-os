@@ -2908,6 +2908,119 @@ button {
   background: #f1f7fb;
 }
 
+.after-match-pack {
+  gap: 16px;
+}
+
+.after-match-pack-header,
+.after-match-pack-item,
+.after-match-pack-create,
+.after-match-pack-confirmation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.after-match-pack-header h2,
+.after-match-pack-confirmation-panel h3 {
+  margin: 2px 0 0;
+}
+
+.after-match-pack-status {
+  border: 1px solid #d9d9d9;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #f7f7f7;
+  color: #444444;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.after-match-pack-status.is-generating {
+  border-color: #e4cf85;
+  background: #fff8dd;
+  color: #6e5200;
+}
+
+.after-match-pack-status.is-completed {
+  border-color: #cde4d3;
+  background: #eff8f1;
+  color: #2f6c3e;
+}
+
+.after-match-pack-status.is-partial,
+.after-match-pack-status.is-failed {
+  border-color: #efc7c7;
+  background: #fff3f3;
+  color: #8e2f2f;
+}
+
+.after-match-pack-disabled,
+.after-match-pack-message {
+  margin: 0;
+  color: #5f5f5f;
+}
+
+.after-match-pack-disabled {
+  border-left: 3px solid #b5b5b5;
+  padding: 8px 12px;
+  background: #f7f7f7;
+}
+
+.after-match-pack-items {
+  display: grid;
+  gap: 8px;
+}
+
+.after-match-pack-item {
+  min-height: 58px;
+  border: 1px solid #e3e5e8;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #ffffff;
+}
+
+.after-match-pack-item > div {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.after-match-pack-item span,
+.after-match-pack-create p {
+  color: #60646c;
+  font-size: 0.84rem;
+}
+
+.after-match-pack-create p {
+  margin: 0;
+}
+
+.after-match-pack-confirmation {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(18, 18, 18, 0.48);
+}
+
+.after-match-pack-confirmation-panel {
+  width: min(100%, 480px);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  padding: 20px;
+}
+
+.after-match-pack-confirmation-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+}
+
 .contents-ghost-button.is-danger {
   color: #a53131;
 }
@@ -6239,6 +6352,20 @@ button {
 }
 
 @media (max-width: 560px) {
+  .after-match-pack-header,
+  .after-match-pack-item,
+  .after-match-pack-create,
+  .after-match-pack-confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .after-match-pack-item .contents-ghost-button,
+  .after-match-pack-create .crm-primary-action,
+  .after-match-pack-confirmation-actions button {
+    width: 100%;
+  }
+
   .partner-benefits-admin-head {
     align-items: flex-start;
     flex-direction: column;

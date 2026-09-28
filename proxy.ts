@@ -167,6 +167,9 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
   if (/^\/api\/contents\/storage\/variants\/[^/]+$/.test(pathname)) return method === "GET";
   if (pathname === "/api/contents/storage/sessions") return method === "POST";
   if (/^\/api\/contents\/storage\/sessions\/[^/]+$/.test(pathname)) return method === "GET";
+  if (pathname === "/api/contents/packs/after-match") return method === "GET" || method === "POST";
+  if (/^\/api\/contents\/packs\/after-match\/[^/]+$/.test(pathname)) return method === "GET";
+  if (/^\/api\/contents\/packs\/after-match\/[^/]+\/resume$/.test(pathname)) return method === "POST";
 
   return false;
 };

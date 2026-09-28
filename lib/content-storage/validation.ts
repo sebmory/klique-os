@@ -178,6 +178,20 @@ const validatePublicationSections = (value: unknown): void => {
   requireString(sections.editorialNote, "sections.editorialNote");
 };
 
+const validatePublicationSourceContext = (value: unknown): void => {
+  if (value === undefined || value === null) return;
+
+  const sourceContext = requireObject(value, "sourceContext");
+  if (sourceContext.afterMatch === undefined || sourceContext.afterMatch === null) return;
+
+  const afterMatch = requireObject(sourceContext.afterMatch, "sourceContext.afterMatch");
+  for (const field of ["opponent", "result", "competition", "matchDate", "keyFacts", "nextFixture"] as const) {
+    if (afterMatch[field] !== undefined && afterMatch[field] !== null && typeof afterMatch[field] !== "string") {
+      throw new ContentStorageValidationError(`sourceContext.afterMatch.${field} doit etre une chaine.`);
+    }
+  }
+};
+
 const validateReelSections = (value: unknown): void => {
   const sections = requireObject(value, "sections");
   requireString(sections.title, "sections.title");
@@ -320,6 +334,7 @@ const validateContentDocument = (value: unknown): ContentDocument => {
     validateInterviewSections(document.sections);
   } else if (type === "publication") {
     validatePublicationSections(document.sections);
+    validatePublicationSourceContext(document.sourceContext);
   } else if (type === "reel") {
     validateReelSections(document.sections);
   } else if (type === "article") {

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Camera, Check, Network, PenLine } from "lucide-react";
+import { ArrowRight, BadgePercent, Camera, Check, Network, UsersRound } from "lucide-react";
 import type { PublicPassPlan } from "@/components/pass/PublicPassCatalog";
 import type { PublicKliqueStats } from "@/lib/public-klique-stats";
 import styles from "./public-home.module.css";
@@ -75,16 +75,16 @@ export default function PublicHome() {
           <Image
             className={styles.heroImage}
             src="/moodboard/football/01-portrait-debout.jpg"
-            alt="Athlète de football prêt pour une production photo KLIQUE"
+            alt="Athlète de football debout sur un terrain"
             fill
             priority
             sizes="100vw"
           />
           <div className={styles.heroShade} aria-hidden="true" />
           <div className={styles.heroContent}>
-            <p className={styles.eyebrow}>Créer · Produire · Connecter</p>
-            <h1 id="home-title">Votre carrière mérite plus de visibilité.</h1>
-            <p>KLIQUE accompagne les Athlètes pour développer leur image, créer des contenus professionnels et accéder à un réseau d’opportunités.</p>
+            <p className={styles.eyebrow}>LE RÉSEAU AU SERVICE DES ATHLÈTES</p>
+            <h1 id="home-title">Votre ambition mérite tout un réseau.</h1>
+            <p>KLIQUE réunit autour des Athlètes les ressources, les expertises et les opportunités qui peuvent faire avancer leur parcours — de leur image à leurs objectifs sportifs et professionnels.</p>
             <div className={styles.heroActions}>
               <Link className={styles.primaryButton} href="/pass">Découvrir les Pass <ArrowRight size={18} aria-hidden="true" /></Link>
               <Link className={styles.heroSecondaryButton} href={accountHref}>
@@ -92,7 +92,7 @@ export default function PublicHome() {
               </Link>
             </div>
           </div>
-          <p className={styles.heroSignature}>KLIQUE · L’image au service de la carrière</p>
+          <p className={styles.heroSignature}>KLIQUE · UN RÉSEAU AUTOUR DE L’ATHLÈTE</p>
         </section>
 
         {stats ? (
@@ -108,26 +108,35 @@ export default function PublicHome() {
         <section className={styles.valueSection} id="decouvrir" aria-labelledby="value-title">
           <div className={styles.sectionIntro}>
             <p className={styles.sectionLabel}>L’accompagnement KLIQUE</p>
-            <h2 id="value-title">Bien plus qu’un abonnement. Un accompagnement autour de votre image.</h2>
+            <div>
+              <h2 id="value-title">Bien plus qu’un abonnement. Un réseau pour avancer.</h2>
+              <p className={styles.valueIntroduction}>Chaque Athlète a son parcours, ses besoins et ses objectifs. KLIQUE rassemble des compétences, des services et des opportunités pour l’accompagner au bon moment.</p>
+            </div>
           </div>
           <div className={styles.pillars}>
             <article>
-              <PenLine size={24} aria-hidden="true" />
+              <Camera size={24} aria-hidden="true" />
               <p className={styles.pillarNumber}>01</p>
-              <h3>Créer</h3>
-              <p>Interviews, publications, Reels, Stories et contenus personnalisés adaptés à votre actualité.</p>
+              <h3>Développer son image</h3>
+              <p>Des contenus, interviews, photos et vidéos pour raconter son parcours et gagner en visibilité.</p>
             </article>
             <article>
-              <Camera size={24} aria-hidden="true" />
+              <UsersRound size={24} aria-hidden="true" />
               <p className={styles.pillarNumber}>02</p>
-              <h3>Produire</h3>
-              <p>Séances photo, vidéo, Media Days et productions organisées avec KLIQUE.</p>
+              <h3>S’entourer d’experts</h3>
+              <p>Des professionnels du sport et de l’accompagnement qui mettent leur expertise au service des membres.</p>
+            </article>
+            <article>
+              <BadgePercent size={24} aria-hidden="true" />
+              <p className={styles.pillarNumber}>03</p>
+              <h3>Profiter d’avantages</h3>
+              <p>Des offres et conditions proposées par les Partenaires et Experts du réseau KLIQUE.</p>
             </article>
             <article>
               <Network size={24} aria-hidden="true" />
-              <p className={styles.pillarNumber}>03</p>
-              <h3>Connecter</h3>
-              <p>Partenaires, experts, médias, opportunités et avantages réservés aux membres.</p>
+              <p className={styles.pillarNumber}>04</p>
+              <h3>Accéder à des opportunités</h3>
+              <p>Des connexions avec des médias, des marques, des créatifs et les autres acteurs de l’écosystème.</p>
             </article>
           </div>
         </section>
@@ -140,7 +149,7 @@ export default function PublicHome() {
           <ol className={styles.processSteps}>
             <li><span>01</span><div><h3>Choisissez votre Pass</h3><p>Comparez les niveaux d’accompagnement et choisissez celui qui vous correspond.</p></div></li>
             <li><span>02</span><div><h3>Rejoignez le réseau KLIQUE</h3><p>Créez votre compte et transmettez les informations nécessaires à votre adhésion.</p></div></li>
-            <li><span>03</span><div><h3>Développez votre image</h3><p>Avancez avec nos outils, nos productions et l’accompagnement de KLIQUE.</p></div></li>
+            <li><span>03</span><div><h3>Activez votre réseau</h3><p>Utilisez les contenus, expertises, avantages et opportunités disponibles pour faire avancer votre parcours.</p></div></li>
           </ol>
           <p className={styles.validationNote}>Le paiement est vérifié manuellement par KLIQUE. L’accès à l’espace membre est activé après validation du dossier.</p>
         </section>
@@ -148,8 +157,8 @@ export default function PublicHome() {
         <section className={styles.ecosystemSection} aria-labelledby="ecosystem-title">
           <div className={styles.ecosystemCopy}>
             <p className={styles.sectionLabel}>Un écosystème actif</p>
-            <h2 id="ecosystem-title">Les bonnes personnes, réunies autour de votre image.</h2>
-            <p>KLIQUE relie les Athlètes, les partenaires, les experts, les médias et les créatifs autour de contenus, de productions et d’opportunités.</p>
+            <h2 id="ecosystem-title">Un écosystème complémentaire, construit autour de l’Athlète.</h2>
+            <p>Au centre du réseau, chaque Athlète peut s’appuyer sur la complémentarité des Partenaires et experts, des Médias et des Créatifs KLIQUE.</p>
           </div>
           <ul className={styles.ecosystemList}>
             <li><span>01</span>Athlètes</li>
@@ -191,7 +200,7 @@ export default function PublicHome() {
 
         <section className={styles.finalCta} aria-labelledby="final-cta-title">
           <p className={styles.sectionLabel}>Votre prochaine étape</p>
-          <h2 id="final-cta-title">Prêt à donner plus de force à votre image ?</h2>
+          <h2 id="final-cta-title">Prêt à rejoindre un réseau construit autour de vos ambitions ?</h2>
           <div className={styles.heroActions}>
             <Link className={styles.lightButton} href="/pass">Découvrir les Pass <ArrowRight size={18} aria-hidden="true" /></Link>
             <Link className={styles.darkSecondaryButton} href={accountHref}>{accountLabel}</Link>
