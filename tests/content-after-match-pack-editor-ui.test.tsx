@@ -24,6 +24,11 @@ const variantRepositoryMocks = vi.hoisted(() => ({
   listBySourceDocument: vi.fn(),
   getById: vi.fn(),
 }));
+const routerMocks = vi.hoisted(() => ({ push: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => routerMocks,
+}));
 
 vi.mock("@/services/content-variants/repository", () => ({
   ContentVariantRepositoryService: variantRepositoryMocks,
@@ -562,6 +567,58 @@ describe("After-match Pack editor UI", () => {
     await act(async () => button(container, "Ouvrir les Stories").click());
 
     expect(onOpenVariant.mock.calls).toEqual([["variant-reel"], ["variant-stories"]]);
+  });
+
+  it("creates or reopens the mapped Story Studio project and navigates to it", async () => {
+    const projectId = "33333333-3333-4333-8333-333333333333";
+    const projectBodies: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/ai-credits/balance") return response({}, 403);
+      if (url.startsWith("/api/contents/packs/after-match?")) return response({ ok: true, pack: pack("completed") });
+      if (url === "/api/contents/storage/variants/variant-stories" && init?.method === "GET") {
+        return response({ ok: true, variant: makeVariant("stories") });
+      }
+      if (url === "/api/contents/storage/story-studio/projects" && init?.method === "POST") {
+        projectBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return response({ ok: true, project: { id: projectId } });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    await mountPack({ currentPack: pack("completed") });
+
+    const createButton = button(container, "Créer les visuels");
+    await act(async () => createButton.click());
+    await flush();
+    await act(async () => button(container, "Créer les visuels").click());
+    await flush();
+
+    expect(projectBodies).toHaveLength(2);
+    expect(projectBodies[0]).toEqual(projectBodies[1]);
+    expect(projectBodies[0]).toMatchObject({
+      sourcePackId: packId,
+      sourceStoriesVariantId: "variant-stories",
+      sourceDocumentId: "publication-1",
+      athleteId: null,
+      payload: {
+        schemaVersion: 1,
+        templateKey: "editorial_klique",
+        frames: [
+          { order: 1, role: "result" },
+          { order: 2, role: "context" },
+          { order: 3, role: "poll" },
+          { order: 4, role: "question" },
+        ],
+      },
+    });
+    expect(routerMocks.push).toHaveBeenCalledTimes(2);
+    expect(routerMocks.push).toHaveBeenNthCalledWith(1, `/contents/story-studio/${projectId}`);
+    expect(routerMocks.push).toHaveBeenNthCalledWith(2, `/contents/story-studio/${projectId}`);
+  });
+
+  it("does not offer visual creation before Stories are completed", async () => {
+    await mountPack({ currentPack: pack("generating") });
+    expect(container.textContent).not.toContain("Créer les visuels");
   });
 
   it.each([

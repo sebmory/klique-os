@@ -1,0 +1,407 @@
+.page {
+  min-height: 100%;
+  padding: 28px 32px 48px;
+  color: #181818;
+  background: #f4f5f2;
+  font-family: Verdana, sans-serif;
+}
+
+.header {
+  max-width: 1240px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 auto 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #cdd2cc;
+}
+
+.header h1 {
+  margin: 3px 0 0;
+  font-family: Georgia, serif;
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #526158;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.newButton,
+.saveButton,
+.importButton,
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid #171717;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.newButton,
+.saveButton {
+  padding: 0 15px;
+  color: #111111;
+  background: #f2b800;
+}
+
+.layout {
+  max-width: 1240px;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 28px;
+  margin: 0 auto;
+}
+
+.kitList {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.kitList button {
+  min-height: 46px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #343b36;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kitList button.activeKit {
+  border-color: #aeb7b0;
+  background: #ffffff;
+}
+
+.swatches {
+  display: flex;
+}
+
+.swatches i {
+  width: 13px;
+  height: 28px;
+  display: block;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(260px, 360px);
+  align-items: start;
+  gap: 38px;
+}
+
+.formColumn {
+  display: grid;
+  gap: 22px;
+}
+
+.field,
+.colorFields,
+.signatureModes,
+.logoPicker {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field > span,
+.colorFields legend,
+.signatureModes legend,
+.logoPicker legend {
+  color: #526158;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select {
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border: 1px solid #abb4ad;
+  border-radius: 4px;
+  color: #171717;
+  background: #ffffff;
+  font: inherit;
+}
+
+.field small {
+  color: #6c746e;
+}
+
+.colorFields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.colorFields legend {
+  grid-column: 1 / -1;
+}
+
+.colorFields label {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid #d2d7d3;
+  background: #ffffff;
+}
+
+.colorFields input {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.colorFields output {
+  color: #687069;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.signatureModes > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.signatureModes button {
+  min-height: 40px;
+  border: 1px solid #aeb7b0;
+  color: #343b36;
+  background: #ffffff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.signatureModes button.activeMode {
+  color: #111111;
+  background: #f2b800;
+  font-weight: 750;
+}
+
+.logoColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.logoGrid {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: repeat(4, 52px);
+  gap: 6px;
+}
+
+.logoGrid button {
+  width: 52px;
+  height: 52px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background-color: #d9ddd9;
+  background-position: center;
+  background-size: cover;
+  cursor: pointer;
+}
+
+.logoGrid button.selectedLogo {
+  border-color: #f2b800;
+  box-shadow: 0 0 0 1px #111111;
+}
+
+.logoActions {
+  display: flex;
+  gap: 7px;
+}
+
+.importButton {
+  flex: 1;
+  padding: 0 10px;
+  color: #ffffff;
+  background: #171717;
+}
+
+.importButton input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.clearButton {
+  width: 40px;
+  color: #171717;
+  background: #ffffff;
+}
+
+.saveButton {
+  justify-self: start;
+}
+
+.saveButton:disabled,
+.clearButton:disabled,
+.importButton:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.preview {
+  position: sticky;
+  top: 24px;
+  overflow: hidden;
+  border: 1px solid #aeb7b0;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.previewPrimary {
+  min-height: 380px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 34px 28px;
+}
+
+.previewPrimary small {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.previewPrimary strong {
+  max-width: 13ch;
+  font-size: 32px;
+  line-height: 1.04;
+}
+
+.previewPrimary p {
+  max-width: 27ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.previewPrimary b {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  font-size: 11px;
+}
+
+.previewAccent {
+  width: 72px;
+  height: 7px;
+  position: absolute;
+  top: 28px;
+  left: 28px;
+}
+
+.previewLogo {
+  width: 88px;
+  height: 64px;
+  position: absolute;
+  top: 48px;
+  right: 24px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.previewSecondary {
+  height: 88px;
+  position: relative;
+}
+
+.previewSecondary i {
+  width: 100%;
+  height: 8px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+}
+
+.previewSecondary .previewLogo {
+  width: 70px;
+  height: 46px;
+  top: 16px;
+  left: 22px;
+}
+
+.error,
+.success {
+  max-width: 1240px;
+  margin: 0 auto 18px;
+  padding: 11px 13px;
+  border-left: 4px solid;
+}
+
+.error {
+  border-color: #b42318;
+  color: #7a271a;
+  background: #fff0ee;
+}
+
+.success {
+  border-color: #28735a;
+  color: #175b43;
+  background: #eaf7f1;
+}
+
+.loading {
+  min-height: 55vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #59625c;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 920px) {
+  .layout { grid-template-columns: 1fr; }
+  .kitList { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .editor { grid-template-columns: 1fr; }
+  .preview { position: static; width: min(100%, 420px); }
+}
+
+@media (max-width: 620px) {
+  .page { padding: 20px 14px 36px; }
+  .header { align-items: flex-start; flex-direction: column; }
+  .header h1 { font-size: 30px; }
+  .kitList, .colorFields, .logoColumns { grid-template-columns: 1fr; }
+}

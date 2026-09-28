@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, Film, GalleryVerticalEnd, RefreshCw, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FileText, Film, GalleryVerticalEnd, ImagePlus, RefreshCw, Sparkles } from "lucide-react";
+import { mapAfterMatchStoriesToStudioPayload } from "@/lib/story-studio/after-match-mapper";
 import type { PublicationDocument } from "@/types/content-document";
+import type { ContentVariant } from "@/types/content-variant";
 
 type PackStatus = "pending" | "generating" | "partial" | "completed" | "failed";
 type DeliverableStatus = "pending" | "generating" | "completed" | "failed";
@@ -95,11 +98,12 @@ export function AfterMatchPackBlock({
   onOpenSource,
   onOpenVariant,
 }: AfterMatchPackBlockProps) {
+  const router = useRouter();
   const [pack, setPack] = useState<PublicPack | null>(null);
   const [resolvedRevision, setResolvedRevision] = useState<number | null>(sourceDocumentRevision ?? null);
   const [resolvedStorageUpdatedAt, setResolvedStorageUpdatedAt] = useState<string | null>(sourceDocumentStorageUpdatedAt ?? null);
   const [loading, setLoading] = useState(false);
-  const [busyDeliverable, setBusyDeliverable] = useState<Deliverable | "pack" | null>(null);
+  const [busyDeliverable, setBusyDeliverable] = useState<Deliverable | "pack" | "visuals" | null>(null);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMedia, setIsMedia] = useState(false);
@@ -327,6 +331,55 @@ export function AfterMatchPackBlock({
     }
   };
 
+  const createVisuals = async () => {
+    const variantId = pack?.stories.variantId;
+    if (busyRef.current || !pack || pack.stories.status !== "completed" || !variantId) return;
+    busyRef.current = true;
+    setBusyDeliverable("visuals");
+    setError(null);
+    try {
+      const variantResponse = await fetch(`/api/contents/storage/variants/${encodeURIComponent(variantId)}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const variantPayload = await variantResponse.json().catch(() => null) as {
+        variant?: ContentVariant;
+        message?: string;
+      } | null;
+      if (!variantResponse.ok || !variantPayload?.variant) {
+        throw new Error(variantPayload?.message || "Variante Stories introuvable.");
+      }
+
+      const projectResponse = await fetch("/api/contents/storage/story-studio/projects", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourcePackId: pack.id,
+          sourceStoriesVariantId: variantId,
+          sourceDocumentId: pack.source.documentId,
+          athleteId: null,
+          payload: mapAfterMatchStoriesToStudioPayload(variantPayload.variant),
+        }),
+      });
+      const projectPayload = await projectResponse.json().catch(() => null) as {
+        project?: { id?: string };
+        message?: string;
+      } | null;
+      if (!projectResponse.ok || !projectPayload?.project?.id) {
+        throw new Error(projectPayload?.message || "Projet Story Studio indisponible.");
+      }
+
+      router.push(`/contents/story-studio/${encodeURIComponent(projectPayload.project.id)}`);
+    } catch {
+      setError("Impossible de créer ou rouvrir les visuels pour le moment.");
+    } finally {
+      busyRef.current = false;
+      setBusyDeliverable(null);
+    }
+  };
+
   const reelStatus = pack?.reel.status ?? "pending";
   const storiesStatus = pack?.stories.status ?? "pending";
 
@@ -377,7 +430,12 @@ export function AfterMatchPackBlock({
               <GalleryVerticalEnd size={18} aria-hidden />
               <div><strong>Stories</strong><span>{statusLabel("stories", storiesStatus)}</span></div>
               {storiesStatus === "completed" && pack?.stories.variantId ? (
-                <button type="button" className="contents-ghost-button" onClick={() => void openVariant(pack.stories.variantId!)}>Ouvrir les Stories</button>
+                <>
+                  <button type="button" className="contents-ghost-button" disabled={busyDeliverable !== null} onClick={() => void openVariant(pack.stories.variantId!)}>Ouvrir les Stories</button>
+                  <button type="button" className="contents-ghost-button" disabled={busyDeliverable !== null} onClick={() => void createVisuals()}>
+                    <ImagePlus size={14} aria-hidden /> {busyDeliverable === "visuals" ? "Ouverture…" : "Créer les visuels"}
+                  </button>
+                </>
               ) : storiesStatus === "failed" ? (
                 <button type="button" className="contents-ghost-button" disabled={busyDeliverable !== null} onClick={() => void resumeDeliverable("stories")}>
                   <RefreshCw size={14} aria-hidden /> {busyDeliverable === "stories" ? "Relance…" : "Relancer les Stories"}
