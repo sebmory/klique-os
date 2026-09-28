@@ -47,7 +47,7 @@ type PackRow = {
   source_document_id: string;
   source_document_storage_version: number;
   source_document_version_id: string;
-  source_document_updated_at: string;
+  source_document_updated_at: string | Date;
   status: AfterMatchPackStatus;
   reel_status: AfterMatchPackDeliverableStatus;
   stories_status: AfterMatchPackDeliverableStatus;
@@ -61,10 +61,10 @@ type PackRow = {
   stories_credit_idempotency_key: string | null;
   reel_error_code: string | null;
   stories_error_code: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  finished_at: string | null;
+  created_at: string | Date;
+  updated_at: string | Date;
+  started_at: string | Date | null;
+  finished_at: string | Date | null;
   claimed?: boolean;
 };
 
@@ -79,6 +79,17 @@ const packColumns = `
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
+const normalizeTimestamp = (value: string | Date, fieldName: string): string => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Date Neon invalide pour ${fieldName}.`);
+  }
+  return date.toISOString();
+};
+
+const normalizeNullableTimestamp = (value: string | Date | null, fieldName: string): string | null =>
+  value === null ? null : normalizeTimestamp(value, fieldName);
+
 const mapPackRow = (row: PackRow): AfterMatchPackRecord => ({
   id: row.id,
   workspaceId: row.workspace_id,
@@ -87,7 +98,7 @@ const mapPackRow = (row: PackRow): AfterMatchPackRecord => ({
   sourceDocumentId: row.source_document_id,
   sourceDocumentStorageVersion: Number(row.source_document_storage_version),
   sourceDocumentVersionId: row.source_document_version_id,
-  sourceDocumentUpdatedAt: row.source_document_updated_at,
+  sourceDocumentUpdatedAt: normalizeTimestamp(row.source_document_updated_at, "content_after_match_packs.source_document_updated_at"),
   status: row.status,
   reelStatus: row.reel_status,
   storiesStatus: row.stories_status,
@@ -101,10 +112,10 @@ const mapPackRow = (row: PackRow): AfterMatchPackRecord => ({
   storiesCreditIdempotencyKey: row.stories_credit_idempotency_key,
   reelErrorCode: row.reel_error_code,
   storiesErrorCode: row.stories_error_code,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  startedAt: row.started_at,
-  finishedAt: row.finished_at,
+  createdAt: normalizeTimestamp(row.created_at, "content_after_match_packs.created_at"),
+  updatedAt: normalizeTimestamp(row.updated_at, "content_after_match_packs.updated_at"),
+  startedAt: normalizeNullableTimestamp(row.started_at, "content_after_match_packs.started_at"),
+  finishedAt: normalizeNullableTimestamp(row.finished_at, "content_after_match_packs.finished_at"),
 });
 
 const getDeliverableState = (pack: AfterMatchPackRecord, deliverable: AfterMatchPackDeliverable) =>

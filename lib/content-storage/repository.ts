@@ -6,6 +6,14 @@ import type { StoredContentResult } from "@/lib/content-storage/validation";
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
+const normalizeTimestamp = (value: string | Date, fieldName: string): string => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Date Neon invalide pour ${fieldName}.`);
+  }
+  return date.toISOString();
+};
+
 const readJson = <T>(value: unknown): T => {
   if (typeof value === "string") {
     return JSON.parse(value) as T;
@@ -26,8 +34,8 @@ type DraftRow = {
   type: string;
   status: string;
   source: string;
-  created_at: string;
-  updated_at: string;
+  created_at: string | Date;
+  updated_at: string | Date;
   payload_json: unknown;
   version: number;
 };
@@ -56,7 +64,7 @@ type VariantRow = {
 const mapDraftRow = (row: DraftRow): { document: ContentDocument; version: number; storageUpdatedAt: string; workspaceId: string; userId: string | null; mediaId: string | null } => ({
   document: readJson<ContentDocument>(row.payload_json),
   version: row.version,
-  storageUpdatedAt: row.updated_at,
+  storageUpdatedAt: normalizeTimestamp(row.updated_at, "content_documents.updated_at"),
   workspaceId: row.workspace_id,
   userId: row.user_id,
   mediaId: row.media_id,

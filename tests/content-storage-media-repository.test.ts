@@ -176,6 +176,29 @@ describe("content storage media ownership", () => {
     expectMediaOwnershipPredicate(calls[1]);
   });
 
+  it("normalizes Neon Date timestamps without losing milliseconds", async () => {
+    sqlMock.mockResolvedValueOnce([{
+      ...draftRow(mediaId),
+      updated_at: new Date("2026-09-28T06:39:50.865Z"),
+    }]);
+
+    const result = await ContentStorageRepository.getDraft("document-1", mediaAccess);
+
+    expect(result?.storageUpdatedAt).toBe("2026-09-28T06:39:50.865Z");
+    expect(typeof result?.storageUpdatedAt).toBe("string");
+  });
+
+  it("keeps ISO string timestamps canonical", async () => {
+    sqlMock.mockResolvedValueOnce([{
+      ...draftRow(mediaId),
+      updated_at: "2026-09-28T06:39:50.865Z",
+    }]);
+
+    const result = await ContentStorageRepository.getDraft("document-1", mediaAccess);
+
+    expect(result?.storageUpdatedAt).toBe("2026-09-28T06:39:50.865Z");
+  });
+
   it("lets admins read historical null-media rows across their workspace", async () => {
     sqlMock.mockResolvedValue([draftRow(null)]);
 

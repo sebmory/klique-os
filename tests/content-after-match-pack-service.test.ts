@@ -28,7 +28,7 @@ import type {
 const mediaId = "11111111-1111-4111-8111-111111111111";
 const now = new Date("2026-09-27T12:00:00.000Z");
 const sourceUpdatedAt = "2026-09-27T10:00:00.000Z";
-const sourceStorageUpdatedAt = "2026-09-27T10:05:00.000Z";
+const sourceStorageUpdatedAt = "2026-09-28T06:39:50.865Z";
 
 const mediaAccess: ContentAccessContext = {
   clerkUserId: "user-media",
@@ -377,6 +377,16 @@ describe("After-match Pack V1 service", () => {
     expect(result.reel.variant?.type).toBe("reel");
     expect(result.stories.variant?.type).toBe("stories");
     expect(harness.generateVariation).toHaveBeenCalledTimes(2);
+  });
+
+  it("accepts the mapped SQL instant with production millisecond precision", async () => {
+    const harness = makeHarness();
+
+    await expect(harness.service.createOrResumeAfterMatchPack(request, sourceInput)).resolves.toBeDefined();
+    expect(harness.packRepository.createOrGet).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceDocumentUpdatedAt: "2026-09-28T06:39:50.865Z" }),
+      mediaAccess
+    );
   });
 
   it("rejects an absent source", async () => {

@@ -70,6 +70,7 @@ describe("AfterMatchPackRepository SQL contracts", () => {
     const normalized = normalizeSql(query);
 
     expect(result?.id).toBe(row.id);
+    expect(result?.sourceDocumentUpdatedAt).toBe("2026-09-27T10:00:00.000Z");
     expect(normalized).toContain("workspace_id = $1");
     expect(normalized).toContain("source_document_id = $2");
     expect(normalized).toContain("source_document_storage_version = $3");
@@ -83,6 +84,32 @@ describe("AfterMatchPackRepository SQL contracts", () => {
       false,
       access.mediaId,
     ]);
+  });
+
+  it("normalizes every Neon Pack timestamp and preserves milliseconds", async () => {
+    sqlMock.query.mockResolvedValueOnce([{
+      ...row,
+      source_document_updated_at: new Date("2026-09-28T06:39:50.865Z"),
+      created_at: new Date("2026-09-28T06:41:32.641Z"),
+      updated_at: new Date("2026-09-28T06:42:33.742Z"),
+      started_at: new Date("2026-09-28T06:43:34.843Z"),
+      finished_at: new Date("2026-09-28T06:44:35.944Z"),
+    }]);
+
+    const result = await AfterMatchPackRepository.getBySourceRevision(
+      row.source_document_id,
+      row.source_document_storage_version,
+      access
+    );
+
+    expect(result).toMatchObject({
+      sourceDocumentUpdatedAt: "2026-09-28T06:39:50.865Z",
+      createdAt: "2026-09-28T06:41:32.641Z",
+      updatedAt: "2026-09-28T06:42:33.742Z",
+      startedAt: "2026-09-28T06:43:34.843Z",
+      finishedAt: "2026-09-28T06:44:35.944Z",
+    });
+    expect(typeof result?.sourceDocumentUpdatedAt).toBe("string");
   });
 
   it("claims a deliverable under FOR UPDATE with workspace, user and media predicates", async () => {
