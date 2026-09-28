@@ -220,6 +220,12 @@ const deferredResponse = () => {
   return { promise, resolve };
 };
 
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+};
+
 const button = (container: HTMLElement, label: string): HTMLButtonElement => {
   const match = Array.from(container.querySelectorAll("button")).find((item) => item.textContent?.includes(label));
   if (!(match instanceof HTMLButtonElement)) throw new Error(`Bouton introuvable: ${label}`);
@@ -236,6 +242,7 @@ const flush = async () => {
 let container: HTMLElement;
 let root: Root;
 const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
+const scrollIntoViewMock = vi.fn();
 
 const mountPack = async (options: {
   currentPack?: ReturnType<typeof pack> | null;
@@ -277,6 +284,11 @@ beforeEach(() => {
   variantRepositoryMocks.listBySourceDocument.mockResolvedValue([]);
   variantRepositoryMocks.getById.mockResolvedValue(null);
   variantRepositoryMocks.save.mockResolvedValue(undefined);
+  scrollIntoViewMock.mockReset();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoViewMock,
+  });
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     callback(0);
@@ -617,10 +629,7 @@ describe("After-match Pack editor UI", () => {
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
-  it("opens Pack variants inside the existing ContentVariantEditor", async () => {
-    variantRepositoryMocks.getById.mockImplementation(async (id: string) =>
-      id === "variant-reel" ? makeVariant("reel") : makeVariant("stories")
-    );
+  const mockCompletedPackFetch = () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/ai-credits/balance") return response({}, 403);
@@ -630,14 +639,70 @@ describe("After-match Pack editor UI", () => {
       if (url.startsWith("/api/contents/packs/after-match?")) return response({ ok: true, pack: pack("completed") });
       throw new Error(`Unexpected URL: ${url}`);
     });
+  };
+
+  it("scrolls and focuses a Pack Reel that was already loaded", async () => {
+    variantRepositoryMocks.listBySourceDocument.mockResolvedValue([makeVariant("reel")]);
+    mockCompletedPackFetch();
     await act(async () => {
       root.render(<ContentDocumentEditor initialDocument={publication()} onSaveDraft={vi.fn()} isPersistedInCloud />);
     });
     await flush();
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
     await act(async () => button(container, "Ouvrir le Reel").click());
     await flush();
 
-    expect(variantRepositoryMocks.getById).toHaveBeenCalledWith("variant-reel");
+    const editor = container.querySelector<HTMLElement>("[data-variant-editor-container]");
+    expect(variantRepositoryMocks.getById).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Declinaison: Reel du match");
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("waits for a fetched Pack Stories variant to render before scrolling and focusing", async () => {
+    const pendingVariant = deferred<ContentVariant | null>();
+    variantRepositoryMocks.getById.mockReturnValue(pendingVariant.promise);
+    mockCompletedPackFetch();
+    await act(async () => {
+      root.render(<ContentDocumentEditor initialDocument={publication()} onSaveDraft={vi.fn()} isPersistedInCloud />);
+    });
+    await flush();
+
+    await act(async () => button(container, "Ouvrir les Stories").click());
+    expect(variantRepositoryMocks.getById).toHaveBeenCalledWith("variant-stories");
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-variant-editor-container]")).toBeNull();
+
+    await act(async () => pendingVariant.resolve(makeVariant("stories")));
+    await flush();
+
+    const editor = container.querySelector<HTMLElement>("[data-variant-editor-container]");
+    expect(container.textContent).toContain("Declinaison: Stories du match");
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("keeps an opened Pack variant when the initial variant list resolves later", async () => {
+    const pendingList = deferred<ContentVariant[]>();
+    variantRepositoryMocks.listBySourceDocument.mockReturnValue(pendingList.promise);
+    variantRepositoryMocks.getById.mockResolvedValue(makeVariant("stories"));
+    mockCompletedPackFetch();
+    await act(async () => {
+      root.render(<ContentDocumentEditor initialDocument={publication()} onSaveDraft={vi.fn()} isPersistedInCloud />);
+    });
+    await flush();
+
+    await act(async () => button(container, "Ouvrir les Stories").click());
+    await flush();
+    expect(container.textContent).toContain("Declinaison: Stories du match");
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => pendingList.resolve([makeVariant("reel"), makeVariant("stories")]));
+    await flush();
+
+    expect(container.textContent).toContain("Declinaison: Stories du match");
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
 });

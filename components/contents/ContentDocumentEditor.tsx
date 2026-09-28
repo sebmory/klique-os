@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Lock, MoreHorizontal, PenLine, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import type {
   ContentDocument,
@@ -279,6 +279,8 @@ export function ContentDocumentEditor({
   const [variants, setVariants] = useState<ContentVariant[]>([]);
   const [showVariationComposer, setShowVariationComposer] = useState(false);
   const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
+  const variantEditorRef = useRef<HTMLDivElement>(null);
+  const pendingPackVariantFocusIdRef = useRef<string | null>(null);
   const [sourceDocumentRevision, setSourceDocumentRevision] = useState<number | null>(initialSourceDocumentRevision ?? null);
   const [sourceDocumentStorageUpdatedAt, setSourceDocumentStorageUpdatedAt] = useState<string | null>(initialSourceDocumentStorageUpdatedAt ?? null);
 
@@ -340,7 +342,16 @@ export function ContentDocumentEditor({
     const loadVariants = async () => {
       const items = await ContentVariantRepositoryService.listBySourceDocument(document.id);
       if (cancelled) return;
-      setVariants(items);
+      setVariants((current) => {
+        const seen = new Set(current.map((variant) => variant.id));
+        const merged = [...current];
+        for (const variant of items) {
+          if (seen.has(variant.id)) continue;
+          seen.add(variant.id);
+          merged.push(variant);
+        }
+        return merged;
+      });
     };
 
     void loadVariants();
@@ -349,6 +360,23 @@ export function ContentDocumentEditor({
       cancelled = true;
     };
   }, [document.id]);
+
+  useEffect(() => {
+    if (!activeVariant || pendingPackVariantFocusIdRef.current !== activeVariant.id) return;
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      if (cancelled || pendingPackVariantFocusIdRef.current !== activeVariant.id) return;
+      const editor = variantEditorRef.current;
+      if (!editor) return;
+      pendingPackVariantFocusIdRef.current = null;
+      editor.scrollIntoView({ behavior: "smooth", block: "start" });
+      editor.focus();
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [activeVariant]);
 
   const setInterviewDocument = (updater: (current: InterviewDocument) => InterviewDocument) => {
     setDocument((current) => {
@@ -671,12 +699,14 @@ export function ContentDocumentEditor({
   const openPersistedVariant = async (variantId: string) => {
     const existing = variants.find((variant) => variant.id === variantId);
     if (existing) {
+      pendingPackVariantFocusIdRef.current = existing.id;
       setActiveVariantId(existing.id);
       return;
     }
 
     const variant = await ContentVariantRepositoryService.getById(variantId);
     if (!variant) throw new Error("VARIANT_NOT_FOUND");
+    pendingPackVariantFocusIdRef.current = variant.id;
     setVariants((current) => [variant, ...current.filter((item) => item.id !== variant.id)]);
     setActiveVariantId(variant.id);
   };
@@ -1505,13 +1535,15 @@ export function ContentDocumentEditor({
             ) : null}
 
             {activeVariant ? (
-              <ContentVariantEditor
-                variant={activeVariant}
-                sourceDocumentUpdatedAt={publicationDocument.updatedAt}
-                onSave={saveVariant}
-                onBackToParameters={() => setActiveVariantId(null)}
-                onCreateAnother={() => setActiveVariantId(null)}
-              />
+              <div ref={variantEditorRef} tabIndex={-1} data-variant-editor-container>
+                <ContentVariantEditor
+                  variant={activeVariant}
+                  sourceDocumentUpdatedAt={publicationDocument.updatedAt}
+                  onSave={saveVariant}
+                  onBackToParameters={() => setActiveVariantId(null)}
+                  onCreateAnother={() => setActiveVariantId(null)}
+                />
+              </div>
             ) : null}
           </main>
 
@@ -2060,13 +2092,15 @@ export function ContentDocumentEditor({
           </section>
 
           {activeVariant ? (
-            <ContentVariantEditor
-              variant={activeVariant}
-              sourceDocumentUpdatedAt={interviewDocument.updatedAt}
-              onSave={saveVariant}
-              onBackToParameters={() => setShowVariationComposer(canCreateCloudVariant)}
-              onCreateAnother={() => setShowVariationComposer(canCreateCloudVariant)}
-            />
+            <div ref={variantEditorRef} tabIndex={-1} data-variant-editor-container>
+              <ContentVariantEditor
+                variant={activeVariant}
+                sourceDocumentUpdatedAt={interviewDocument.updatedAt}
+                onSave={saveVariant}
+                onBackToParameters={() => setShowVariationComposer(canCreateCloudVariant)}
+                onCreateAnother={() => setShowVariationComposer(canCreateCloudVariant)}
+              />
+            </div>
           ) : null}
 
           {showVariationComposer && canCreateCloudVariant ? (
