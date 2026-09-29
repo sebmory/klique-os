@@ -154,4 +154,15 @@ describe("Story Studio direct Blob upload integration", () => {
     expect(response.status).toBe(500);
     expect(mocks.del).toHaveBeenCalledWith(blobUrl);
   });
+
+  it("returns valid JSON when a legacy multipart upload body is received", async () => {
+    const response = await photoUpload(new Request("http://localhost/api/contents/storage/story-studio/photos", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=legacy" },
+      body: "--legacy\r\ncontent\r\n--legacy--",
+    }));
+
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toMatchObject({ ok: false, message: expect.any(String) });
+  });
 });

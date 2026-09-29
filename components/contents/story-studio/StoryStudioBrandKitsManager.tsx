@@ -1,5 +1,6 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { ImagePlus, LoaderCircle, LockKeyhole, Plus, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -8,7 +9,11 @@ import {
   type StoryStudioBrandKit,
   type StoryStudioBrandKitInput,
 } from "@/types/story-studio-brand-kit";
-import type { StoryStudioPhoto } from "@/types/story-studio-photo";
+import {
+  MAX_STORY_STUDIO_PHOTO_BYTES,
+  STORY_STUDIO_PHOTO_CONTENT_TYPES,
+  type StoryStudioPhoto,
+} from "@/types/story-studio-photo";
 import styles from "./story-studio-brand-kits.module.css";
 
 type LogoField = "lightLogoPhotoId" | "darkLogoPhotoId";
@@ -42,9 +47,25 @@ const signatureLabels = {
 
 const responseMessage = async (response: Response, fallback: string): Promise<string> => {
   try {
-    return ((await response.json()) as { message?: string }).message || fallback;
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("application/json")) return fallback;
+    const body = await response.text();
+    if (!body.trim()) return fallback;
+    return (JSON.parse(body) as { message?: string }).message || fallback;
   } catch {
     return fallback;
+  }
+};
+
+const readJsonResponse = async <Payload,>(response: Response, fallback: string): Promise<Payload> => {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("application/json")) throw new Error(fallback);
+  const body = await response.text();
+  if (!body.trim()) throw new Error(fallback);
+  try {
+    return JSON.parse(body) as Payload;
+  } catch {
+    throw new Error(fallback);
   }
 };
 
@@ -205,18 +226,48 @@ export function StoryStudioBrandKitsManager() {
 
   const importLogo = async (field: LogoField, file: File | undefined) => {
     if (!file) return;
+    if (file.size > MAX_STORY_STUDIO_PHOTO_BYTES) {
+      setError("Le logo dépasse la limite de 25 Mo.");
+      return;
+    }
+    if (!STORY_STUDIO_PHOTO_CONTENT_TYPES.includes(file.type as typeof STORY_STUDIO_PHOTO_CONTENT_TYPES[number])) {
+      setError("Type d'image non autorisé. Formats acceptés: JPEG, PNG, WebP.");
+      return;
+    }
     setUploading(field);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.set("file", file);
-      const response = await fetch("/api/contents/storage/story-studio/photos", {
+      const uploadApi = "/api/contents/storage/story-studio/photos";
+      const intentResponse = await fetch(uploadApi, {
         method: "POST",
         credentials: "include",
-        body: formData,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "create-upload-intent",
+          athleteId: null,
+          contentType: file.type,
+          sizeBytes: file.size,
+        }),
       });
-      if (!response.ok) throw new Error(await responseMessage(response, "Import du logo impossible."));
-      const payload = await response.json() as { photo: StoryStudioPhoto };
+      if (!intentResponse.ok) throw new Error(await responseMessage(intentResponse, "Import du logo impossible."));
+      const intent = await readJsonResponse<{ pathname: string; uploadIntent: string }>(intentResponse, "Import du logo impossible.");
+      const blob = await upload(intent.pathname, file, {
+        access: "public",
+        handleUploadUrl: uploadApi,
+        clientPayload: intent.uploadIntent,
+        contentType: file.type,
+        multipart: true,
+      });
+      const registrationResponse = await fetch(uploadApi, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "register-upload", uploadIntent: intent.uploadIntent, blob }),
+      });
+      if (!registrationResponse.ok) {
+        throw new Error(await responseMessage(registrationResponse, "Enregistrement du logo impossible."));
+      }
+      const payload = await readJsonResponse<{ photo: StoryStudioPhoto }>(registrationResponse, "Enregistrement du logo impossible.");
       setPhotos((current) => [payload.photo, ...current.filter((photo) => photo.id !== payload.photo.id)]);
       updateDraft(field, payload.photo.id);
     } catch (uploadError) {

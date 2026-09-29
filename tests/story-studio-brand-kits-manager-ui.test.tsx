@@ -6,6 +6,10 @@ import { StoryStudioBrandKitsManager } from "@/components/contents/story-studio/
 import type { StoryStudioBrandKit } from "@/types/story-studio-brand-kit";
 import type { StoryStudioPhoto } from "@/types/story-studio-photo";
 
+const { uploadMock } = vi.hoisted(() => ({ uploadMock: vi.fn() }));
+
+vi.mock("@vercel/blob/client", () => ({ upload: uploadMock }));
+
 const defaultKit: StoryStudioBrandKit = {
   id: "11111111-1111-4111-8111-111111111111",
   workspaceId: "workspace-1",
@@ -57,11 +61,16 @@ const importedPhoto: StoryStudioPhoto = {
   blobUrl: "https://studio.public.blob.vercel-storage.com/logo-imported.png",
 };
 
-const jsonResponse = (payload: unknown, status = 200) => ({
+const jsonResponse = (payload: unknown, status = 200) => {
+  const body = JSON.stringify(payload);
+  return ({
   ok: status >= 200 && status < 300,
   status,
+  headers: new Headers({ "content-type": "application/json" }),
+  text: async () => body,
   json: async () => payload,
-}) as Response;
+  }) as Response;
+};
 
 const flush = async () => {
   await Promise.resolve();
@@ -85,9 +94,19 @@ const setControlValue = async (selector: string, value: string) => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  uploadMock.mockResolvedValue({
+    url: importedPhoto.blobUrl,
+    pathname: "story-studio/photos/logo-imported.png",
+  });
   fetchMock = vi.fn((url: string, options?: RequestInit) => {
     if (options?.method === "POST" && url.endsWith("/photos")) {
-      return Promise.resolve(jsonResponse({ photo: importedPhoto }, 201));
+      const body = JSON.parse(String(options.body));
+      if (body.action === "create-upload-intent") {
+        return Promise.resolve(jsonResponse({ pathname: "story-studio/photos/logo-imported.png", uploadIntent: "signed-intent" }));
+      }
+      if (body.action === "register-upload") {
+        return Promise.resolve(jsonResponse({ photo: importedPhoto }, 201));
+      }
     }
     if (options?.method === "POST" && url.endsWith("/brand-kits")) {
       const body = JSON.parse(String(options.body));
@@ -180,10 +199,45 @@ describe("Story Studio Brand Kits manager", () => {
       await flush();
     });
 
-    const uploadCall = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith("/photos") && (options as RequestInit | undefined)?.method === "POST");
-    expect(uploadCall?.[1]?.body).toBeInstanceOf(FormData);
+    const uploadCalls = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/photos") && (options as RequestInit | undefined)?.method === "POST");
+    expect(uploadCalls).toHaveLength(2);
+    expect(uploadCalls.map(([, options]) => JSON.parse(String((options as RequestInit).body)).action))
+      .toEqual(["create-upload-intent", "register-upload"]);
+    expect(uploadMock).toHaveBeenCalledWith(
+      "story-studio/photos/logo-imported.png",
+      expect.any(File),
+      expect.objectContaining({ handleUploadUrl: "/api/contents/storage/story-studio/photos", clientPayload: "signed-intent" }),
+    );
     const patchCall = fetchMock.mock.calls.find(([, options]) => (options as RequestInit | undefined)?.method === "PATCH");
     expect(JSON.parse(String((patchCall?.[1] as RequestInit).body))).toMatchObject({ lightLogoPhotoId: importedPhoto.id });
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Brand Kit enregistré.");
+  });
+
+  it.each([
+    { label: "empty", contentType: "application/json", body: "" },
+    { label: "non-JSON", contentType: "text/plain", body: "-" },
+  ])("does not parse a $label logo upload response as JSON", async ({ contentType, body }) => {
+    const json = vi.fn();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": contentType }),
+      text: vi.fn().mockResolvedValue(body),
+      json,
+    } as unknown as Response);
+
+    const lightLogoInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[0];
+    Object.defineProperty(lightLogoInput, "files", {
+      configurable: true,
+      value: [new File(["logo"], "logo.png", { type: "image/png" })],
+    });
+    await act(async () => {
+      lightLogoInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await flush();
+    });
+
+    expect(json).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Import du logo impossible.");
   });
 });
