@@ -70,6 +70,33 @@ describe("StoryStudioPhotoRepository", () => {
     });
   });
 
+  it("accepts the Brand Kit logo Blob prefix", async () => {
+    const logoPathname = "story-studio/brand-kit-logos/elfic.png";
+    const logoUrl = `https://studio.public.blob.vercel-storage.com/${logoPathname}`;
+    sqlMock.query.mockResolvedValueOnce([{
+      ...row,
+      athlete_id: null,
+      blob_url: logoUrl,
+      blob_pathname: logoPathname,
+      content_type: "image/png",
+      width_px: 652,
+      height_px: 296,
+    }]);
+
+    await expect(StoryStudioPhotoRepository.create({
+      athleteId: null,
+      blob: {
+        ...blob,
+        url: logoUrl,
+        pathname: logoPathname,
+        contentType: "image/png",
+        width: 652,
+        height: 296,
+      },
+    }, access)).resolves.toMatchObject({ blobPathname: logoPathname, width: 652, height: 296 });
+    expect(sqlMock.query).toHaveBeenCalledOnce();
+  });
+
   it("refuses metadata that does not originate from the Studio Blob prefix", async () => {
     await expect(StoryStudioPhotoRepository.create({
       athleteId: null,
@@ -78,6 +105,14 @@ describe("StoryStudioPhotoRepository", () => {
     await expect(StoryStudioPhotoRepository.create({
       athleteId: null,
       blob: { ...blob, url: "https://sheets.google.com/gallery/photo" },
+    }, access)).rejects.toThrow(/upload Story Studio/);
+    await expect(StoryStudioPhotoRepository.create({
+      athleteId: null,
+      blob: {
+        ...blob,
+        url: "https://studio.public.blob.vercel-storage.com/story-studio/other/photo.webp",
+        pathname: "story-studio/other/photo.webp",
+      },
     }, access)).rejects.toThrow(/upload Story Studio/);
     expect(sqlMock.query).not.toHaveBeenCalled();
   });

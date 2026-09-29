@@ -26,6 +26,7 @@ const photoColumns = `
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 const normalizeNullable = (value: unknown): string | null => normalize(value) || null;
+const allowedStoryStudioBlobPrefixes = ["story-studio/photos/", "story-studio/brand-kit-logos/"] as const;
 
 const isVercelBlobUrl = (value: string): boolean => {
   try {
@@ -59,7 +60,7 @@ const mapPhotoRow = (row: StoryStudioPhotoRow): StoryStudioPhoto => {
 export const StoryStudioPhotoRepository = {
   async create(input: CreateStoryStudioPhotoInput, access: ContentAccessContext): Promise<StoryStudioPhoto> {
     if (
-      !input.blob.pathname.startsWith("story-studio/photos/")
+      !allowedStoryStudioBlobPrefixes.some((prefix) => input.blob.pathname.startsWith(prefix))
       || !isVercelBlobUrl(input.blob.url)
     ) {
       throw new Error("Le fichier ne provient pas de l'upload Story Studio.");
