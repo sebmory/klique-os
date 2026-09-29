@@ -9,6 +9,7 @@ import {
 import { getStoryStudioTemplate, storyStudioTemplates } from "@/lib/story-studio/templates";
 import type { StoryStudioPhoto } from "@/types/story-studio-photo";
 import type { StoryStudioProject, StoryStudioTemplateKey } from "@/types/story-studio";
+import { DEFAULT_STORY_STUDIO_CANVAS_FORMAT } from "@/types/story-studio";
 import styles from "./story-studio-preview.module.css";
 
 type StoryStudioPreviewProps = {
@@ -217,7 +218,10 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
     void renderStoryStudioFrameToCanvas({
       canvas,
       frame: renderedFrame,
-      template: getStoryStudioTemplate(templateKey),
+      template: getStoryStudioTemplate(
+        templateKey,
+        project.payload.canvasFormat ?? DEFAULT_STORY_STUDIO_CANVAS_FORMAT,
+      ),
       photoUrl,
       brandKitSnapshot: project.payload.brandKitSnapshot,
     }).catch((renderError) => {
@@ -276,7 +280,9 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
   const frame = project?.payload.frames[selectedFrame] ?? null;
   const localFrameText = localFrameTexts[selectedFrame];
   const localFramePhoto = localFramePhotos[selectedFrame];
-  const template = project ? getStoryStudioTemplate(templateKey) : null;
+  const template = project
+    ? getStoryStudioTemplate(templateKey, project.payload.canvasFormat ?? DEFAULT_STORY_STUDIO_CANVAS_FORMAT)
+    : null;
   const hasActivePhoto = Boolean(localFramePhoto?.url || frame?.photo.visible);
 
   return (
@@ -284,7 +290,7 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
       <header className={styles.header}>
         <div>
           <p className={styles.eyebrow}>Story Studio</p>
-          <h1>Prévisualisation 1080 × 1920</h1>
+          <h1>Prévisualisation {template?.canvas.width ?? 1080} × {template?.canvas.height ?? 1920}</h1>
         </div>
         {template && <span className={styles.template}>{template.label} · V{template.version}</span>}
       </header>
@@ -311,7 +317,11 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
       )}
 
       <section className={styles.workspace}>
-        <div className={styles.stage} aria-busy={rendering}>
+        <div
+          className={styles.stage}
+          aria-busy={rendering}
+          style={template ? { aspectRatio: `${template.canvas.width} / ${template.canvas.height}` } : undefined}
+        >
           <canvas ref={canvasRef} className={styles.canvas} aria-label="Prévisualisation de la Story sélectionnée" />
           {!project && <p className={styles.empty}>Chargez un projet pour afficher sa première Story.</p>}
           {rendering && <div className={styles.rendering}><LoaderCircle size={24} className={styles.spin} /></div>}
@@ -435,7 +445,7 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
           <dl className={styles.details}>
             <div><dt>Rôle</dt><dd>{frame?.role ?? "—"}</dd></div>
             <div><dt>Photo</dt><dd>{localFramePhoto?.url || frame?.photo.visible ? "Visible" : "Masquée"}</dd></div>
-            <div><dt>Format</dt><dd>PNG · 1080 × 1920</dd></div>
+            <div><dt>Format</dt><dd>PNG · {template?.canvas.width ?? 1080} × {template?.canvas.height ?? 1920}</dd></div>
           </dl>
 
           <button type="button" className={styles.download} onClick={() => void downloadPng()} disabled={!project || rendering || Boolean(error)}>

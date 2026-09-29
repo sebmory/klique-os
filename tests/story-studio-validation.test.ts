@@ -124,6 +124,95 @@ describe("Story Studio project validation", () => {
     expect(() => validateStoryStudioProjectPayload({ ...validPayload, frames })).toThrow(/logoLayouts.*scale/);
   });
 
+  it("accepts an optional project format and keeps layouts separate with format bounds", () => {
+    const frames = [...validPayload.frames] as StoryStudioProjectPayload["frames"];
+    frames[0] = {
+      ...frames[0],
+      textLayouts: {
+        "1080x1920:editorial_klique": {
+          eyebrow: { x: 72, y: 1500 },
+          headline: { x: 72, y: 1600 },
+          body: { x: 72, y: 1800 },
+        },
+        "1080x1350:editorial_klique": {
+          eyebrow: { x: 72, y: 700 },
+          headline: { x: 72, y: 800 },
+          body: { x: 72, y: 1100 },
+        },
+      },
+      logoLayouts: {
+        "1080x1920:editorial_klique": { x: 700, y: 1500, scale: 1 },
+        "1080x1350:editorial_klique": { x: 600, y: 900, scale: 1.5 },
+      },
+    };
+    const formattedPayload = { ...validPayload, canvasFormat: "1080x1350" as const, frames };
+    expect(validateStoryStudioProjectPayload(formattedPayload)).toEqual(formattedPayload);
+    expect(validateStoryStudioProjectPayload(validPayload)).toEqual(validPayload);
+
+    frames[0] = {
+      ...frames[0],
+      logoLayouts: { "1080x1350:editorial_klique": { x: 20, y: 1351, scale: 1 } },
+    };
+    expect(() => validateStoryStudioProjectPayload({ ...formattedPayload, frames })).toThrow(/logoLayouts.*y/);
+    expect(() => validateStoryStudioProjectPayload({ ...validPayload, canvasFormat: "square" })).toThrow(/canvasFormat/);
+  });
+
+  it("strictly validates an optional match card and its Blob logo snapshots", () => {
+    const frames = [...validPayload.frames] as StoryStudioProjectPayload["frames"];
+    frames[0] = {
+      ...frames[0],
+      matchCard: {
+        competition: "SB League",
+        homeTeam: {
+          name: "Elfic Fribourg",
+          logoPhotoId: "11111111-1111-4111-8111-111111111111",
+          logoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/elfic.png",
+        },
+        awayTeam: { name: "Équipe adverse au nom particulièrement long", logoPhotoId: null, logoUrl: null },
+        homeScore: 12,
+        awayScore: 10,
+      },
+    };
+    const payload = { ...validPayload, canvasFormat: "1080x1350" as const, frames };
+    expect(validateStoryStudioProjectPayload(payload)).toEqual(payload);
+    expect(validateStoryStudioProjectPayload(validPayload)).toEqual(validPayload);
+
+    frames[0] = { ...frames[0], matchCard: { ...frames[0].matchCard!, homeScore: 100 } };
+    expect(() => validateStoryStudioProjectPayload({ ...payload, frames })).toThrow(/homeScore/);
+    frames[0] = {
+      ...frames[0],
+      matchCard: {
+        ...frames[0].matchCard!,
+        homeScore: 12,
+        homeTeam: { ...frames[0].matchCard!.homeTeam, logoUrl: "https://example.com/logo.png" },
+      },
+    };
+    expect(() => validateStoryStudioProjectPayload({ ...payload, frames })).toThrow(/Blob Vercel Story Studio/);
+  });
+
+  it("strictly validates an optional transparent subject layer without changing legacy frames", () => {
+    const frames = [...validPayload.frames] as StoryStudioProjectPayload["frames"];
+    frames[0] = {
+      ...frames[0],
+      subjectLayer: {
+        photoId: "44444444-4444-4444-8444-444444444444",
+        url: "https://studio.public.blob.vercel-storage.com/story-studio/subjects/player.png",
+        x: 180,
+        y: 240,
+        scale: 1.25,
+      },
+    };
+    expect(validateStoryStudioProjectPayload({ ...validPayload, frames }).frames[0].subjectLayer)
+      .toEqual(frames[0].subjectLayer);
+    expect(validateStoryStudioProjectPayload(validPayload)).toEqual(validPayload);
+
+    frames[0] = {
+      ...frames[0],
+      subjectLayer: { ...frames[0].subjectLayer!, url: "https://example.com/player.png" },
+    };
+    expect(() => validateStoryStudioProjectPayload({ ...validPayload, frames })).toThrow(/subjects/);
+  });
+
   it("rejects incomplete or external Brand Kit snapshots", () => {
     expect(() => validateStoryStudioProjectPayload({
       ...validPayload,

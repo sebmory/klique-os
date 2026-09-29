@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StoryStudioSavedEditor } from "@/components/contents/story-studio/StoryStudioSavedEditor";
 import type { StoryStudioBrandKit } from "@/types/story-studio-brand-kit";
 import type { StoryStudioBrandKitSnapshot } from "@/types/story-studio";
+import { DEFAULT_STORY_STUDIO_CANVAS_FORMAT, getStoryStudioLayoutKey } from "@/types/story-studio";
 import { MAX_STORY_STUDIO_PHOTO_BYTES } from "@/types/story-studio-photo";
 
 const { exportZipMock, renderFrameMock, uploadMock } = vi.hoisted(() => ({
@@ -118,6 +119,56 @@ const photo = {
   createdAt: "2026-09-28T10:00:00.000Z",
 };
 
+const brandLogo = {
+  ...photo,
+  id: "logo-1",
+  athleteId: null,
+  blobUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/logo-1.png",
+  blobPathname: "story-studio/brand-kit-logos/logo-1.png",
+  contentType: "image/png" as const,
+  width: 512,
+  height: 512,
+};
+
+const frameModel = {
+  id: "33333333-3333-4333-8333-333333333333",
+  workspaceId: "workspace-1",
+  createdByUserId: "user-2",
+  name: "Modèle score premium",
+  content: {
+    schemaVersion: 1 as const,
+    canvasFormat: "1080x1350" as const,
+    templateKey: "match_energy" as const,
+    brandKitId: secondBrandKit.id,
+    brandKitSnapshot: {
+      name: secondBrandKit.name,
+      primaryColor: secondBrandKit.primaryColor,
+      secondaryColor: secondBrandKit.secondaryColor,
+      accentColor: secondBrandKit.accentColor,
+      textColor: secondBrandKit.textColor,
+      mutedTextColor: secondBrandKit.mutedTextColor,
+      lightLogoPhotoId: secondBrandKit.lightLogoPhotoId,
+      darkLogoPhotoId: secondBrandKit.darkLogoPhotoId,
+      lightLogoUrl: secondBrandKit.lightLogoUrl,
+      darkLogoUrl: secondBrandKit.darkLogoUrl,
+      fontFamily: secondBrandKit.fontFamily,
+      signatureMode: secondBrandKit.signatureMode,
+    },
+    frame: {
+      text: { eyebrow: "MODÈLE", headline: "Titre du modèle", body: "Corps du modèle", interaction: "" },
+      elements: { athleteName: true, score: false, competition: true, logo: true, signature: true, interactionZone: false },
+      textLayout: {
+        eyebrow: { x: 90, y: 120 },
+        headline: { x: 90, y: 240 },
+        body: { x: 90, y: 430 },
+      },
+      logoLayout: { x: 760, y: 110, scale: 1.4 },
+    },
+  },
+  createdAt: "2026-09-29T10:00:00.000Z",
+  updatedAt: "2026-09-29T10:00:00.000Z",
+};
+
 const jsonResponse = (payload: unknown, status = 200) => ({
   ok: status >= 200 && status < 300,
   status,
@@ -154,15 +205,20 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   renderFrameMock.mockImplementation(async ({ canvas, frame: renderedFrame, template, onTextBounds, onLogoBounds, onDiagnostics }) => {
-    canvas.width = 1080;
-    canvas.height = 1920;
+    canvas.width = template.canvas.width;
+    canvas.height = template.canvas.height;
+    const layoutKey = getStoryStudioLayoutKey(template.canvasFormat, template.key);
+    const textLayout = renderedFrame.textLayouts?.[layoutKey]
+      ?? (template.canvasFormat === DEFAULT_STORY_STUDIO_CANVAS_FORMAT ? renderedFrame.textLayouts?.[template.key] : undefined);
     onTextBounds?.({
-      eyebrow: { x: 72, y: 100, width: 936, height: 42, position: { x: 72, y: 100 } },
-      headline: { x: 72, y: 200, width: 936, height: 90, position: { x: 72, y: 200 } },
-      body: { x: 72, y: 350, width: 936, height: 50, position: { x: 72, y: 350 } },
+      eyebrow: { x: textLayout?.eyebrow.x ?? 72, y: textLayout?.eyebrow.y ?? 100, width: 936, height: 42, position: textLayout?.eyebrow ?? { x: 72, y: 100 } },
+      headline: { x: textLayout?.headline.x ?? 72, y: textLayout?.headline.y ?? 200, width: 936, height: 90, position: textLayout?.headline ?? { x: 72, y: 200 } },
+      body: { x: textLayout?.body.x ?? 72, y: textLayout?.body.y ?? 350, width: 936, height: 50, position: textLayout?.body ?? { x: 72, y: 350 } },
     });
     const defaultLogo = template.composition.logo;
-    const logoLayout = renderedFrame.logoLayouts?.[template.key] ?? { x: defaultLogo.x, y: defaultLogo.y, scale: 1 };
+    const logoLayout = renderedFrame.logoLayouts?.[layoutKey]
+      ?? (template.canvasFormat === DEFAULT_STORY_STUDIO_CANVAS_FORMAT ? renderedFrame.logoLayouts?.[template.key] : undefined)
+      ?? { x: defaultLogo.x, y: defaultLogo.y, scale: 1 };
     onLogoBounds?.({
       x: logoLayout.x,
       y: logoLayout.y,
@@ -179,10 +235,12 @@ beforeEach(async () => {
     });
   });
   exportZipMock.mockResolvedValue(new Blob(["zip"], { type: "application/zip" }));
-  uploadMock.mockResolvedValue({
-    url: "https://studio.public.blob.vercel-storage.com/photo-2.jpg",
-    pathname: "story-studio/photos/upload-2.jpg",
-  });
+  uploadMock.mockImplementation(async (pathname: string) => ({
+    url: pathname.includes("/subjects/")
+      ? "https://studio.public.blob.vercel-storage.com/story-studio/subjects/player.png"
+      : "https://studio.public.blob.vercel-storage.com/photo-2.jpg",
+    pathname,
+  }));
   fetchMock = vi.fn((url: string, options?: RequestInit) => {
     if (options?.method === "PATCH") {
       const body = JSON.parse(String(options.body));
@@ -190,15 +248,42 @@ beforeEach(async () => {
     }
     if (options?.method === "POST") {
       const body = JSON.parse(String(options.body));
+      if (url.includes("/frame-models")) {
+        return Promise.resolve(jsonResponse({ frameModel: { ...frameModel, ...body } }, 201));
+      }
       if (body.action === "create-upload-intent") {
+        if (body.assetKind === "subjectLayer") {
+          return Promise.resolve(jsonResponse({
+            pathname: "story-studio/subjects/player.png",
+            uploadIntent: "signed-subject-intent",
+          }));
+        }
         return Promise.resolve(jsonResponse({ pathname: "story-studio/photos/upload-2.jpg", uploadIntent: "signed-intent" }));
       }
       if (body.action === "register-upload") {
+        if (body.uploadIntent === "signed-subject-intent") {
+          return Promise.resolve(jsonResponse({
+            photo: {
+              ...photo,
+              id: "55555555-5555-4555-8555-555555555555",
+              blobUrl: "https://studio.public.blob.vercel-storage.com/story-studio/subjects/player.png",
+              blobPathname: "story-studio/subjects/player.png",
+              contentType: "image/png",
+            },
+          }, 201));
+        }
         return Promise.resolve(jsonResponse({ photo: { ...photo, id: "photo-2", blobUrl: "https://studio.public.blob.vercel-storage.com/photo-2.jpg" } }, 201));
       }
     }
-    if (url.includes("/photos")) return Promise.resolve(jsonResponse({ photos: [photo] }));
-    if (url.includes("/brand-kits")) return Promise.resolve(jsonResponse({ brandKits: [currentBrandKit, secondBrandKit] }));
+    if (url.includes("/frame-models")) return Promise.resolve(jsonResponse({ frameModels: [frameModel] }));
+    if (url.includes("/photos")) return Promise.resolve(jsonResponse({ photos: [photo, brandLogo] }));
+    if (url.includes("/brand-kits")) return Promise.resolve(jsonResponse({
+      brandKits: [{
+        ...currentBrandKit,
+        lightLogoPhotoId: brandLogo.id,
+        lightLogoUrl: brandLogo.blobUrl,
+      }, secondBrandKit],
+    }));
     return Promise.resolve(jsonResponse({ project }));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -459,11 +544,12 @@ describe("saved Story Studio editor", () => {
   });
 
   it("restores the saved snapshot and autosaves a newly selected Brand Kit", async () => {
-    const savedLogoLayout = { editorial_klique: { x: 320, y: 480, scale: 1.75 } };
+    const savedLogoLayout = { "1080x1350:editorial_klique": { x: 320, y: 480, scale: 1.75 } };
     const projectWithLogoLayout = {
       ...project,
       payload: {
         ...project.payload,
+        canvasFormat: "1080x1350" as const,
         frames: project.payload.frames.map((item, index) => index === 0
           ? { ...item, logoLayouts: savedLogoLayout }
           : item) as typeof project.payload.frames,
@@ -489,6 +575,8 @@ describe("saved Story Studio editor", () => {
       brandKitSnapshot: savedBrandKitSnapshot,
       frame: expect.objectContaining({ logoLayouts: savedLogoLayout }),
     }));
+    expect(container.querySelector("canvas")?.height).toBe(1350);
+    expect(container.querySelector("h1")?.textContent).toContain("1080 × 1350");
     expect(container.textContent).toContain("Snapshot enregistré · Ancien Club Nord");
 
     await setControlValue('[aria-label="Brand Kit du projet"]', secondBrandKit.id);
@@ -556,10 +644,10 @@ describe("saved Story Studio editor", () => {
 
   it("persists text and logo layouts per template and resets only the active layout", async () => {
     const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
-      x: 0, y: 0, left: 0, top: 0, right: 540, bottom: 960, width: 540, height: 960,
+    vi.spyOn(canvas, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0, y: 0, left: 0, top: 0, right: 540, bottom: canvas.height / 2, width: 540, height: canvas.height / 2,
       toJSON: () => ({}),
-    });
+    }));
     canvas.setPointerCapture = vi.fn();
     canvas.releasePointerCapture = vi.fn();
     canvas.hasPointerCapture = vi.fn(() => true);
@@ -589,6 +677,8 @@ describe("saved Story Studio editor", () => {
     await act(async () => {
       matchButton?.click();
       await flush();
+    });
+    await act(async () => {
       dispatchPointer("pointerdown", 100, 125, 2);
       dispatchPointer("pointermove", 200, 175, 2);
       dispatchPointer("pointerup", 200, 175, 2);
@@ -610,12 +700,12 @@ describe("saved Story Studio editor", () => {
 
     const savedBody = JSON.parse(String((patchCalls()[0]?.[1] as RequestInit).body));
     expect(savedBody.payload.frames[0].textLayouts).toMatchObject({
-      editorial_klique: { headline: { x: 172, y: 280 } },
-      match_energy: { headline: { x: 272, y: 300 } },
+      "1080x1920:editorial_klique": { headline: { x: 172, y: 280 } },
+      "1080x1920:match_energy": { headline: { x: 272, y: 300 } },
     });
     expect(savedBody.payload.frames[0].logoLayouts).toMatchObject({
-      editorial_klique: { x: 688, y: 172, scale: 1.5 },
-      match_energy: { x: 738, y: 204, scale: 1 },
+      "1080x1920:editorial_klique": { x: 688, y: 172, scale: 1.5 },
+      "1080x1920:match_energy": { x: 738, y: 204, scale: 1 },
     });
 
     const resetButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
@@ -625,10 +715,240 @@ describe("saved Story Studio editor", () => {
       await flush();
     });
     const resetFrame = renderFrameMock.mock.calls.at(-1)?.[0].frame;
-    expect(resetFrame.textLayouts?.editorial_klique).toBeUndefined();
-    expect(resetFrame.textLayouts?.match_energy).toBeDefined();
-    expect(resetFrame.logoLayouts?.editorial_klique).toBeUndefined();
-    expect(resetFrame.logoLayouts?.match_energy).toBeDefined();
+    expect(resetFrame.textLayouts?.["1080x1920:editorial_klique"]).toBeUndefined();
+    expect(resetFrame.textLayouts?.["1080x1920:match_energy"]).toBeDefined();
+    expect(resetFrame.logoLayouts?.["1080x1920:editorial_klique"]).toBeUndefined();
+    expect(resetFrame.logoLayouts?.["1080x1920:match_energy"]).toBeDefined();
+  });
+
+  it("restores independent layouts after a round trip between project formats", async () => {
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+    vi.spyOn(canvas, "getBoundingClientRect").mockImplementation(() => ({
+      x: 0, y: 0, left: 0, top: 0, right: 540, bottom: canvas.height / 2, width: 540, height: canvas.height / 2,
+      toJSON: () => ({}),
+    }));
+    canvas.setPointerCapture = vi.fn();
+    canvas.releasePointerCapture = vi.fn();
+    canvas.hasPointerCapture = vi.fn(() => true);
+    const dispatchPointer = (type: string, clientX: number, clientY: number, pointerId: number) => {
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, { clientX, clientY, pointerId });
+      canvas.dispatchEvent(event);
+    };
+    const formatButton = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Format du projet"] button')]
+      .find((button) => button.textContent?.includes(label));
+
+    await act(async () => {
+      dispatchPointer("pointerdown", 100, 125, 10);
+      dispatchPointer("pointermove", 150, 165, 10);
+      dispatchPointer("pointerup", 150, 165, 10);
+      dispatchPointer("pointerdown", 450, 55, 12);
+      dispatchPointer("pointermove", 400, 105, 12);
+      dispatchPointer("pointerup", 400, 105, 12);
+      await flush();
+    });
+    await act(async () => {
+      formatButton("1080 × 1350")?.click();
+      await flush();
+    });
+    await act(async () => {
+      dispatchPointer("pointerdown", 100, 125, 11);
+      dispatchPointer("pointermove", 200, 175, 11);
+      dispatchPointer("pointerup", 200, 175, 11);
+      dispatchPointer("pointerdown", 450, 55, 13);
+      dispatchPointer("pointermove", 425, 105, 13);
+      dispatchPointer("pointerup", 425, 105, 13);
+      await flush();
+    });
+    await act(async () => {
+      formatButton("1080 × 1920")?.click();
+      await flush();
+    });
+
+    const renderedFrame = renderFrameMock.mock.calls.at(-1)?.[0].frame;
+    expect(renderedFrame.textLayouts).toMatchObject({
+      "1080x1920:editorial_klique": { headline: { x: 172, y: 280 } },
+      "1080x1350:editorial_klique": { headline: { x: 272, y: 300 } },
+    });
+    expect(renderedFrame.textLayouts["1080x1920:editorial_klique"].headline).toEqual({ x: 172, y: 280 });
+    expect(renderedFrame.logoLayouts).toMatchObject({
+      "1080x1920:editorial_klique": { x: 688, y: 172, scale: 1 },
+      "1080x1350:editorial_klique": { x: 738, y: 164, scale: 1 },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(700);
+      await flush();
+    });
+    const savedBody = JSON.parse(String((patchCalls().at(-1)?.[1] as RequestInit).body));
+    expect(savedBody.payload.canvasFormat).toBe("1080x1920");
+    expect(savedBody.payload.frames[0]).toMatchObject({
+      textLayouts: expect.objectContaining({
+        "1080x1350:editorial_klique": expect.any(Object),
+      }),
+      logoLayouts: expect.objectContaining({
+        "1080x1350:editorial_klique": { x: 738, y: 164, scale: 1 },
+      }),
+    });
+
+    const resetButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Réinitialiser la disposition"));
+    await act(async () => {
+      resetButton?.click();
+      await flush();
+    });
+    const resetFrame = renderFrameMock.mock.calls.at(-1)?.[0].frame;
+    expect(resetFrame.textLayouts["1080x1920:editorial_klique"]).toBeUndefined();
+    expect(resetFrame.logoLayouts["1080x1920:editorial_klique"]).toBeUndefined();
+    expect(resetFrame.textLayouts["1080x1350:editorial_klique"]).toBeDefined();
+    expect(resetFrame.logoLayouts["1080x1350:editorial_klique"]).toBeDefined();
+  });
+
+  it("edits and autosaves a 1080x1350 match card without losing it across formats", async () => {
+    const formatButton = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Format du projet"] button')]
+      .find((button) => button.textContent?.includes(label));
+    await act(async () => {
+      formatButton("1080 × 1350")?.click();
+      await flush();
+    });
+    const addButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Ajouter un bloc match"));
+    await act(async () => {
+      addButton?.click();
+      await flush();
+    });
+
+    await setControlValue('[aria-label="Compétition du match"]', "SB League Women");
+    await setControlValue('[aria-label="Équipe domicile"]', "Elfic Fribourg Basketball");
+    await setControlValue('[aria-label="Score domicile"]', "12");
+    await setControlValue('[aria-label="Équipe extérieure"]', "Adversaire au nom très long");
+    await setControlValue('[aria-label="Score extérieur"]', "10");
+    const homeLogo = container.querySelector<HTMLButtonElement>('[aria-label="Logo domicile : Club Nord modifié · clair"]');
+    const awayLogo = container.querySelector<HTMLButtonElement>('[aria-label="Logo extérieur : Club Nord modifié · clair"]');
+    expect(homeLogo?.querySelector("img")?.getAttribute("src")).toBe(brandLogo.blobUrl);
+    expect(container.querySelector('[aria-label="Logo domicile : Logo workspace 1"]')).toBeNull();
+    const noHomeLogo = container.querySelector<HTMLButtonElement>('[aria-label="Logo domicile : Aucun"]');
+    expect(noHomeLogo?.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      homeLogo?.click();
+      awayLogo?.click();
+      await flush();
+    });
+    expect(container.querySelector('fieldset[aria-label="Logo domicile"] > div > img')?.getAttribute("src")).toBe(brandLogo.blobUrl);
+    await act(async () => {
+      noHomeLogo?.click();
+      await flush();
+    });
+    expect(renderFrameMock.mock.calls.at(-1)?.[0].frame.matchCard.homeTeam).toMatchObject({ logoPhotoId: null, logoUrl: null });
+    await act(async () => {
+      homeLogo?.click();
+      await flush();
+    });
+
+    await act(async () => {
+      formatButton("1080 × 1920")?.click();
+      await flush();
+      formatButton("1080 × 1350")?.click();
+      await flush();
+      vi.advanceTimersByTime(700);
+      await flush();
+    });
+
+    const renderedFrame = renderFrameMock.mock.calls.at(-1)?.[0].frame;
+    expect(renderedFrame.matchCard).toEqual({
+      competition: "SB League Women",
+      homeTeam: { name: "Elfic Fribourg Basketball", logoPhotoId: brandLogo.id, logoUrl: brandLogo.blobUrl },
+      awayTeam: { name: "Adversaire au nom très long", logoPhotoId: brandLogo.id, logoUrl: brandLogo.blobUrl },
+      homeScore: 12,
+      awayScore: 10,
+    });
+    const savedBody = JSON.parse(String((patchCalls().at(-1)?.[1] as RequestInit).body));
+    expect(savedBody.payload.frames[0].matchCard).toEqual(renderedFrame.matchCard);
+  });
+
+  it("saves only reusable 1080x1350 frame fields as a workspace model", async () => {
+    const formatButton = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Format du projet"] button')]
+      .find((button) => button.textContent?.includes("1080 × 1350"));
+    await act(async () => {
+      formatButton?.click();
+      await flush();
+    });
+    const saveModelButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Enregistrer comme modèle");
+    await act(async () => {
+      saveModelButton?.click();
+      await flush();
+    });
+    await setControlValue('[aria-label="Nom du modèle de frame"]', "Ma composition");
+    const confirmSave = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Enregistrer le modèle");
+    await act(async () => {
+      confirmSave?.click();
+      await flush();
+    });
+
+    const modelPost = fetchMock.mock.calls.find(([url, options]) => (
+      String(url).includes("/frame-models") && (options as RequestInit | undefined)?.method === "POST"
+    ));
+    const body = JSON.parse(String((modelPost?.[1] as RequestInit).body));
+    expect(body).toMatchObject({
+      name: "Ma composition",
+      content: { schemaVersion: 1, canvasFormat: "1080x1350", templateKey: "editorial_klique" },
+    });
+    expect(body.content.frame).not.toHaveProperty("photo");
+    expect(body.content.frame).not.toHaveProperty("matchCard");
+    expect(body.content.brandKitSnapshot).toEqual(savedBrandKitSnapshot);
+  });
+
+  it("shows replaced fields and preserves photo and match data when applying a model", async () => {
+    const formatButton = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Format du projet"] button')]
+      .find((button) => button.textContent?.includes("1080 × 1350"));
+    await act(async () => {
+      formatButton?.click();
+      await flush();
+    });
+    const photoButton = container.querySelector<HTMLButtonElement>('[aria-label="Utiliser la photo photo-1"]');
+    const addMatchButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Ajouter un bloc match"));
+    await act(async () => {
+      photoButton?.click();
+      addMatchButton?.click();
+      await flush();
+    });
+    const beforeApply = renderFrameMock.mock.calls.at(-1)?.[0].frame;
+
+    const applyButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Appliquer un modèle");
+    await act(async () => {
+      applyButton?.click();
+      await flush();
+    });
+    await setControlValue('[aria-label="Modèle de frame à appliquer"]', frameModel.id);
+    const confirmation = container.querySelector('[aria-label="Confirmer l’application du modèle"]');
+    expect(confirmation?.textContent).toContain("Style visuel du projet");
+    expect(confirmation?.textContent).toContain("Brand Kit par défaut du projet");
+    expect(confirmation?.textContent).toContain("Textes de la frame active");
+    expect(confirmation?.textContent).toContain("La photo du projet et les données du match restent inchangées");
+
+    const confirmApply = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent === "Confirmer l’application");
+    await act(async () => {
+      confirmApply?.click();
+      await flush();
+      vi.advanceTimersByTime(700);
+      await flush();
+    });
+
+    const rendered = renderFrameMock.mock.calls.at(-1)?.[0];
+    expect(rendered.template.key).toBe(frameModel.content.templateKey);
+    expect(rendered.frame.text).toEqual(frameModel.content.frame.text);
+    expect(rendered.frame.photo).toEqual(beforeApply.photo);
+    expect(rendered.frame.matchCard).toEqual(beforeApply.matchCard);
+    expect(rendered.frame.textLayouts["1080x1350:match_energy"]).toEqual(frameModel.content.frame.textLayout);
+    const savedBody = JSON.parse(String((patchCalls().at(-1)?.[1] as RequestInit).body));
+    expect(savedBody.payload.brandKitSnapshot).toEqual(frameModel.content.brandKitSnapshot);
+    expect(savedBody.payload.frames[0].photo).toEqual(beforeApply.photo);
+    expect(savedBody.payload.frames[0].matchCard).toEqual(beforeApply.matchCard);
   });
 
   it("uploads directly to Blob, registers metadata and selects the photo", async () => {
@@ -666,6 +986,42 @@ describe("saved Story Studio editor", () => {
       photoUrl: "https://studio.public.blob.vercel-storage.com/photo-2.jpg",
       frame: expect.objectContaining({ photo: expect.objectContaining({ assetId: "photo-2" }) }),
     }));
+  });
+
+  it("uploads, resizes and autosaves an optional transparent subject layer", async () => {
+    const input = container.querySelector('input[type="file"][accept="image/png"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["png"], "player.png", { type: "image/png" })],
+    });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await flush();
+    });
+
+    const intentCall = fetchMock.mock.calls.find(([, options]) => {
+      if ((options as RequestInit | undefined)?.method !== "POST") return false;
+      return JSON.parse(String((options as RequestInit).body)).assetKind === "subjectLayer";
+    });
+    expect(JSON.parse(String((intentCall?.[1] as RequestInit).body))).toMatchObject({
+      assetKind: "subjectLayer",
+      contentType: "image/png",
+    });
+    expect(renderFrameMock.mock.calls.at(-1)?.[0].frame.subjectLayer).toMatchObject({
+      photoId: "55555555-5555-4555-8555-555555555555",
+      url: "https://studio.public.blob.vercel-storage.com/story-studio/subjects/player.png",
+      x: 180,
+      y: 240,
+      scale: 1,
+    });
+
+    await setControlValue('[aria-label="Taille du sujet détouré"]', "1.5");
+    await act(async () => {
+      vi.advanceTimersByTime(700);
+      await flush();
+    });
+    const savedBody = JSON.parse(String((patchCalls().at(-1)?.[1] as RequestInit).body));
+    expect(savedBody.payload.frames[0].subjectLayer.scale).toBe(1.5);
   });
 
   it("rejects a photo over 25 MB before any upload request", async () => {

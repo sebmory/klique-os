@@ -7,6 +7,7 @@ import {
 import {
   getStoryStudioTemplate,
   STORY_STUDIO_CANVAS,
+  STORY_STUDIO_CANVASES,
   storyStudioTemplates,
 } from "@/lib/story-studio/templates";
 import type { ContentVariant, StoriesStructuredContent } from "@/types/content-variant";
@@ -185,5 +186,16 @@ describe("Story Studio template definitions", () => {
       yellowShapeBottomAtTextX + matchEnergyTemplate.composition.eyebrowSize,
     );
     expect(getStoryStudioTemplate("minimal_premium").label).toBe("Minimal Premium");
+  });
+
+  it("defines three bounded 1080x1350 compositions without changing the implicit default", () => {
+    expect(getStoryStudioTemplate("editorial_klique").canvas).toBe(STORY_STUDIO_CANVAS);
+    for (const templateKey of Object.keys(storyStudioTemplates) as Array<keyof typeof storyStudioTemplates>) {
+      const template = getStoryStudioTemplate(templateKey, "1080x1350");
+      expect(template.canvas).toBe(STORY_STUDIO_CANVASES["1080x1350"]);
+      expect(template.composition.photo.y + template.composition.photo.height).toBeLessThanOrEqual(1350);
+      expect(template.composition.text.y + template.composition.text.maxHeight).toBeLessThanOrEqual(1350);
+      expect(template.composition.interaction.y + template.composition.interaction.height).toBeLessThanOrEqual(1350);
+    }
   });
 });

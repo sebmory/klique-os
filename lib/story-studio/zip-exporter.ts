@@ -3,7 +3,8 @@ import {
   exportStoryStudioCanvasPng,
   renderStoryStudioFrameToCanvas,
 } from "@/lib/story-studio/browser-renderer";
-import { getStoryStudioTemplate, STORY_STUDIO_CANVAS } from "@/lib/story-studio/templates";
+import { getStoryStudioTemplate } from "@/lib/story-studio/templates";
+import { DEFAULT_STORY_STUDIO_CANVAS_FORMAT } from "@/types/story-studio";
 import type { StoryStudioPhoto } from "@/types/story-studio-photo";
 import type { StoryStudioFrameRole, StoryStudioProjectPayload } from "@/types/story-studio";
 
@@ -45,7 +46,10 @@ export const exportStoryStudioProjectZip = async ({
 }: ExportStoryStudioZipInput): Promise<Blob> => {
   const zip = new JSZip();
   const canvas = document.createElement("canvas");
-  const template = getStoryStudioTemplate(payload.templateKey);
+  const template = getStoryStudioTemplate(
+    payload.templateKey,
+    payload.canvasFormat ?? DEFAULT_STORY_STUDIO_CANVAS_FORMAT,
+  );
 
   try {
     for (const [index, frame] of payload.frames.entries()) {
@@ -63,7 +67,7 @@ export const exportStoryStudioProjectZip = async ({
           photoUrl: photo.blobUrl,
           brandKitSnapshot: payload.brandKitSnapshot,
         });
-        if (canvas.width !== STORY_STUDIO_CANVAS.width || canvas.height !== STORY_STUDIO_CANVAS.height) {
+        if (canvas.width !== template.canvas.width || canvas.height !== template.canvas.height) {
           throw new Error("Dimensions Canvas invalides.");
         }
 

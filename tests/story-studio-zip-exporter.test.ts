@@ -49,6 +49,15 @@ const frame = (index: number): StoryStudioFrame => ({
   logoLayouts: {
     editorial_klique: { x: 180 + index * 20, y: 260 + index * 30, scale: 1 + index * 0.25 },
   },
+  ...(index === 0 ? {
+    matchCard: {
+      competition: "SB League",
+      homeTeam: { name: "Elfic", logoPhotoId: null, logoUrl: null },
+      awayTeam: { name: "Adversaire", logoPhotoId: null, logoUrl: null },
+      homeScore: 12,
+      awayScore: 10,
+    },
+  } : {}),
   photo: { assetId: `photo-${index + 1}`, visible: true, scale: 1, x: 0, y: 0 },
   elements: { athleteName: false, score: false, competition: false, logo: false, signature: false, interactionZone: false },
 });
@@ -80,9 +89,9 @@ describe("Story Studio ZIP exporter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     let pngIndex = 0;
-    mocks.render.mockImplementation(async ({ canvas }: { canvas: HTMLCanvasElement }) => {
-      canvas.width = 1080;
-      canvas.height = 1920;
+    mocks.render.mockImplementation(async ({ canvas, template }: { canvas: HTMLCanvasElement; template: { canvas: { width: number; height: number } } }) => {
+      canvas.width = template.canvas.width;
+      canvas.height = template.canvas.height;
     });
     mocks.exportPng.mockImplementation(async () => {
       pngIndex += 1;
@@ -117,8 +126,27 @@ describe("Story Studio ZIP exporter", () => {
       expect(renderInput.brandKitSnapshot).toEqual(hiddenBrandKitSnapshot);
       expect(renderInput.onTextBounds).toBeUndefined();
     }
+    expect(mocks.render.mock.calls[0][0].frame.matchCard).toMatchObject({ homeScore: 12, awayScore: 10 });
     await expect(Promise.all(names.map((name) => zip.file(name)!.async("string"))))
       .resolves.toEqual(["png-1", "png-2", "png-3", "png-4"]);
+  });
+
+  it("exports every frame at the explicit 1080 x 1350 project format", async () => {
+    const dimensions: Array<[number, number]> = [];
+    mocks.exportPng.mockImplementation(async (canvas: HTMLCanvasElement) => {
+      dimensions.push([canvas.width, canvas.height]);
+      return new Blob([`png-${dimensions.length}`], { type: "image/png" });
+    });
+
+    await exportStoryStudioProjectZip({
+      payload: { ...payload, canvasFormat: "1080x1350" },
+      photos,
+    });
+
+    expect(dimensions).toEqual(Array.from({ length: 4 }, () => [1080, 1350]));
+    expect(mocks.render).toHaveBeenCalledWith(expect.objectContaining({
+      template: expect.objectContaining({ canvasFormat: "1080x1350", canvas: { width: 1080, height: 1350 } }),
+    }));
   });
 
   it("reports the failing frame and stops before later frames", async () => {

@@ -4,7 +4,12 @@ export const storyStudioTemplateKeys = [
   "minimal_premium",
 ] as const;
 
+export const storyStudioCanvasFormats = ["1080x1920", "1080x1350"] as const;
+export const DEFAULT_STORY_STUDIO_CANVAS_FORMAT = "1080x1920" as const;
+
 export type StoryStudioTemplateKey = typeof storyStudioTemplateKeys[number];
+export type StoryStudioCanvasFormat = typeof storyStudioCanvasFormats[number];
+export type StoryStudioLayoutKey = StoryStudioTemplateKey | `${StoryStudioCanvasFormat}:${StoryStudioTemplateKey}`;
 export type StoryStudioProjectStatus = "draft" | "finalized";
 export type StoryStudioFrameRole = "result" | "context" | "poll" | "question";
 export type StoryStudioFrameOrder = 1 | 2 | 3 | 4;
@@ -12,6 +17,33 @@ export type StoryStudioTextBlock = "eyebrow" | "headline" | "body";
 export type StoryStudioTextPosition = { x: number; y: number };
 export type StoryStudioTextLayout = Record<StoryStudioTextBlock, StoryStudioTextPosition>;
 export type StoryStudioLogoLayout = { x: number; y: number; scale: number };
+
+export type StoryStudioSubjectLayer = {
+  photoId: string;
+  url: string;
+  x: number;
+  y: number;
+  scale: number;
+};
+
+export type StoryStudioMatchTeam = {
+  name: string;
+  logoPhotoId: string | null;
+  logoUrl: string | null;
+};
+
+export type StoryStudioMatchCard = {
+  competition: string;
+  homeTeam: StoryStudioMatchTeam;
+  awayTeam: StoryStudioMatchTeam;
+  homeScore: number;
+  awayScore: number;
+};
+
+export const getStoryStudioLayoutKey = (
+  canvasFormat: StoryStudioCanvasFormat,
+  templateKey: StoryStudioTemplateKey,
+): `${StoryStudioCanvasFormat}:${StoryStudioTemplateKey}` => `${canvasFormat}:${templateKey}`;
 
 export type StoryStudioBrandKitSnapshot = {
   name: string;
@@ -39,8 +71,10 @@ export type StoryStudioFrame = {
     body: string;
     interaction: string;
   };
-  textLayouts?: Partial<Record<StoryStudioTemplateKey, StoryStudioTextLayout>>;
-  logoLayouts?: Partial<Record<StoryStudioTemplateKey, StoryStudioLogoLayout>>;
+  matchCard?: StoryStudioMatchCard;
+  subjectLayer?: StoryStudioSubjectLayer;
+  textLayouts?: Partial<Record<StoryStudioLayoutKey, StoryStudioTextLayout>>;
+  logoLayouts?: Partial<Record<StoryStudioLayoutKey, StoryStudioLogoLayout>>;
   photo: {
     assetId: string | null;
     visible: boolean;
@@ -60,6 +94,7 @@ export type StoryStudioFrame = {
 
 export type StoryStudioProjectPayload = {
   schemaVersion: 1;
+  canvasFormat?: StoryStudioCanvasFormat;
   templateKey: StoryStudioTemplateKey;
   brandKitId?: string | null;
   brandKitSnapshot?: StoryStudioBrandKitSnapshot | null;

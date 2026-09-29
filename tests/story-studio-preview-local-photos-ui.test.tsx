@@ -52,6 +52,7 @@ const lastRenderInput = () => renderFrameMock.mock.calls.at(-1)?.[0] as {
     id: string;
     text: { headline: string; body: string };
     photo: { scale: number; x: number; y: number };
+    matchCard?: StoryStudioProject["payload"]["frames"][number]["matchCard"];
     logoLayouts?: StoryStudioProject["payload"]["frames"][number]["logoLayouts"];
   };
   template: { key: string };
@@ -111,6 +112,7 @@ describe("Story Studio preview local photos", () => {
       status: "draft",
       payload: {
         schemaVersion: 1,
+        canvasFormat: "1080x1350",
         templateKey: "editorial_klique",
         brandKitId: "22222222-2222-4222-8222-222222222222",
         brandKitSnapshot: hiddenSnapshot,
@@ -121,7 +123,16 @@ describe("Story Studio preview local photos", () => {
           sourceStoryIndex: index + 1,
           text: { eyebrow: "", headline: `Story ${index + 1}`, body: "", interaction: "" },
           photo: { assetId: null, visible: false, scale: 1, x: 0, y: 0 },
-          ...(index === 0 ? { logoLayouts: { editorial_klique: { x: 240, y: 360, scale: 1.5 } } } : {}),
+          ...(index === 0 ? { logoLayouts: { "1080x1350:editorial_klique": { x: 240, y: 360, scale: 1.5 } } } : {}),
+          ...(index === 0 ? {
+            matchCard: {
+              competition: "SB League",
+              homeTeam: { name: "Elfic", logoPhotoId: null, logoUrl: null },
+              awayTeam: { name: "Adversaire", logoPhotoId: null, logoUrl: null },
+              homeScore: 12,
+              awayScore: 10,
+            },
+          } : {}),
           elements: { athleteName: false, score: false, competition: false, logo: true, signature: true, interactionZone: false },
         })) as StoryStudioProject["payload"]["frames"],
       },
@@ -143,7 +154,10 @@ describe("Story Studio preview local photos", () => {
     });
 
     expect(lastRenderInput().brandKitSnapshot).toEqual(hiddenSnapshot);
-    expect(lastRenderInput().frame.logoLayouts?.editorial_klique).toEqual({ x: 240, y: 360, scale: 1.5 });
+    expect(lastRenderInput().frame.logoLayouts?.["1080x1350:editorial_klique"]).toEqual({ x: 240, y: 360, scale: 1.5 });
+    expect(lastRenderInput().frame).toMatchObject({ matchCard: { homeScore: 12, awayScore: 10 } });
+    expect(lastRenderInput().template).toMatchObject({ canvasFormat: "1080x1350", canvas: { width: 1080, height: 1350 } });
+    expect(container.querySelector("h1")?.textContent).toContain("1080 × 1350");
   });
 
   it("keeps each frame photo and crop independent in local memory", async () => {

@@ -87,4 +87,32 @@ describe("Story Studio client photo upload", () => {
     expect(() => validateStoryStudioPhotoBytes(bytes, "image/png", bytes.byteLength, "photo"))
       .toThrow(/320 et 8192/);
   });
+
+  it("accepts only PNG uploads for transparent subject layers", () => {
+    const bytes = new Uint8Array(1024);
+    bytes.set([137, 80, 78, 71, 13, 10, 26, 10]);
+    bytes[25] = 6;
+    imageSizeMock.mockReturnValue({ width: 1080, height: 1920, type: "png" });
+    expect(createStoryStudioPhotoUploadIntent({
+      athleteId: "athlete-1",
+      assetKind: "subjectLayer",
+      contentType: "image/png",
+      sizeBytes: bytes.byteLength,
+    }, access).pathname).toMatch(/^story-studio\/subjects\/[0-9a-f-]+\.png$/);
+    expect(validateStoryStudioPhotoBytes(bytes, "image/png", bytes.byteLength, "subjectLayer")).toMatchObject({
+      contentType: "image/png",
+      width: 1080,
+      height: 1920,
+    });
+    expect(() => createStoryStudioPhotoUploadIntent({
+      athleteId: "athlete-1",
+      assetKind: "subjectLayer",
+      contentType: "image/jpeg",
+      sizeBytes: bytes.byteLength,
+    }, access)).toThrow(/PNG transparent/);
+    const opaqueBytes = new Uint8Array(bytes);
+    opaqueBytes[25] = 2;
+    expect(() => validateStoryStudioPhotoBytes(opaqueBytes, "image/png", opaqueBytes.byteLength, "subjectLayer"))
+      .toThrow(/contenir de la transparence/);
+  });
 });

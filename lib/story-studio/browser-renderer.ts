@@ -5,6 +5,7 @@ import type {
   StoryStudioTextBlock,
   StoryStudioTextPosition,
 } from "@/types/story-studio";
+import { DEFAULT_STORY_STUDIO_CANVAS_FORMAT, getStoryStudioLayoutKey } from "@/types/story-studio";
 import type { StoryStudioTemplateDefinition } from "@/lib/story-studio/templates";
 
 export type StoryStudioBrowserRenderErrorCode =
@@ -33,6 +34,7 @@ export type RenderStoryStudioFrameInput = {
   brandKitSnapshot?: StoryStudioBrandKitSnapshot | null;
   onTextBounds?: (bounds: StoryStudioTextBounds) => void;
   onLogoBounds?: (bounds: StoryStudioLogoBounds) => void;
+  onSubjectBounds?: (bounds: StoryStudioSubjectBounds) => void;
   onDiagnostics?: (diagnostics: StoryStudioRenderDiagnostics) => void;
 };
 
@@ -58,6 +60,71 @@ export type StoryStudioLogoBounds = {
   width: number;
   height: number;
   layout: StoryStudioLogoLayout;
+};
+
+export type StoryStudioSubjectBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  renderedWidth: number;
+  renderedHeight: number;
+  layout: { x: number; y: number; scale: number };
+};
+
+const MIN_VISIBLE_SUBJECT_SIZE = 24;
+
+export const clampStoryStudioSubjectPosition = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  canvasWidth: number,
+  canvasHeight: number,
+) => ({
+  x: Math.min(Math.max(x, Math.min(0, MIN_VISIBLE_SUBJECT_SIZE - width)), Math.max(0, canvasWidth - MIN_VISIBLE_SUBJECT_SIZE)),
+  y: Math.min(Math.max(y, Math.min(0, MIN_VISIBLE_SUBJECT_SIZE - height)), Math.max(0, canvasHeight - MIN_VISIBLE_SUBJECT_SIZE)),
+});
+
+export const findStoryStudioAlphaBounds = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): { x: number; y: number; width: number; height: number } => {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (data[(y * width + x) * 4 + 3] === 0) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  return right < left
+    ? { x: 0, y: 0, width, height }
+    : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+};
+
+const imageAlphaBounds = (image: HTMLImageElement) => {
+  try {
+    const alphaCanvas = document.createElement("canvas");
+    alphaCanvas.width = image.naturalWidth;
+    alphaCanvas.height = image.naturalHeight;
+    const alphaContext = alphaCanvas.getContext("2d", { willReadFrequently: true });
+    if (!alphaContext?.getImageData) throw new Error("unavailable");
+    alphaContext.drawImage(image, 0, 0);
+    return findStoryStudioAlphaBounds(
+      alphaContext.getImageData(0, 0, alphaCanvas.width, alphaCanvas.height).data,
+      alphaCanvas.width,
+      alphaCanvas.height,
+    );
+  } catch {
+    return { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
+  }
 };
 
 const roleLabels: Record<StoryStudioFrame["role"], string> = {
@@ -308,6 +375,76 @@ const fitHeadline = (
   };
 };
 
+const fitSingleLineText = (
+  context: CanvasRenderingContext2D,
+  text: string,
+  fontFamily: string,
+  maxWidth: number,
+  preferredSize: number,
+  minimumSize: number,
+) => {
+  for (let fontSize = preferredSize; fontSize >= minimumSize; fontSize -= 2) {
+    context.font = `700 ${fontSize}px "${fontFamily}"`;
+    if (context.measureText(text).width <= maxWidth) return { text, fontSize };
+  }
+  context.font = `700 ${minimumSize}px "${fontFamily}"`;
+  let fitted = text;
+  while (fitted && context.measureText(`${fitted}…`).width > maxWidth) fitted = fitted.slice(0, -1).trimEnd();
+  return { text: fitted ? `${fitted}…` : "…", fontSize: minimumSize };
+};
+
+const drawMatchCard = async (
+  context: CanvasRenderingContext2D,
+  frame: StoryStudioFrame,
+  template: StoryStudioTemplateDefinition,
+) => {
+  const matchCard = frame.matchCard;
+  const area = template.composition.matchCard;
+  if (!matchCard || !area || template.canvasFormat !== "1080x1350") return;
+
+  const darkBackground = isDarkColor(template.composition.backgroundColor);
+  context.save();
+  context.fillStyle = darkBackground ? "rgba(0, 0, 0, 0.78)" : "rgba(255, 255, 255, 0.9)";
+  roundedRect(context, area.x, area.y, area.width, area.height, area.cornerRadius);
+  context.fill();
+  context.fillStyle = darkBackground ? "#FFFFFF" : "#171717";
+  context.textBaseline = "top";
+  context.textAlign = "center";
+  context.font = `700 24px "${template.composition.fontFamily}"`;
+  context.fillText(matchCard.competition.toUpperCase(), area.x + area.width / 2, area.y + 24, area.width - 64);
+
+  const logoSize = 82;
+  const logoTop = area.y + 82;
+  const homeLogoX = area.x + 34;
+  const awayLogoX = area.x + area.width - 34 - logoSize;
+  const [homeLogo, awayLogo] = await Promise.all([
+    matchCard.homeTeam.logoUrl ? loadPhoto(matchCard.homeTeam.logoUrl) : null,
+    matchCard.awayTeam.logoUrl ? loadPhoto(matchCard.awayTeam.logoUrl) : null,
+  ]);
+  if (homeLogo) drawContainedImage(context, homeLogo, homeLogoX, logoTop, logoSize, logoSize);
+  if (awayLogo) drawContainedImage(context, awayLogo, awayLogoX, logoTop, logoSize, logoSize);
+
+  const teamWidth = 245;
+  const homeName = fitSingleLineText(context, matchCard.homeTeam.name, template.composition.fontFamily, teamWidth, 32, 18);
+  context.font = `700 ${homeName.fontSize}px "${template.composition.fontFamily}"`;
+  context.textAlign = "left";
+  context.fillText(homeName.text, homeLogoX, area.y + 184, teamWidth);
+  const awayName = fitSingleLineText(context, matchCard.awayTeam.name, template.composition.fontFamily, teamWidth, 32, 18);
+  context.font = `700 ${awayName.fontSize}px "${template.composition.fontFamily}"`;
+  context.textAlign = "right";
+  context.fillText(awayName.text, area.x + area.width - 34, area.y + 184, teamWidth);
+
+  const scoreY = area.y + 92;
+  context.font = `700 72px "${template.composition.fontFamily}"`;
+  context.textAlign = "right";
+  context.fillText(String(matchCard.homeScore), area.x + area.width / 2 - 34, scoreY, 120);
+  context.textAlign = "center";
+  context.fillText("–", area.x + area.width / 2, scoreY, 44);
+  context.textAlign = "left";
+  context.fillText(String(matchCard.awayScore), area.x + area.width / 2 + 34, scoreY, 120);
+  context.restore();
+};
+
 const drawTemplateGraphics = (
   context: CanvasRenderingContext2D,
   template: StoryStudioTemplateDefinition
@@ -344,6 +481,7 @@ export const renderStoryStudioFrameToCanvas = async ({
   brandKitSnapshot,
   onTextBounds,
   onLogoBounds,
+  onSubjectBounds,
   onDiagnostics,
 }: RenderStoryStudioFrameInput): Promise<void> => {
   const context = canvas.getContext("2d");
@@ -375,36 +513,30 @@ export const renderStoryStudioFrameToCanvas = async ({
 
   drawTemplateGraphics(context, resolvedTemplate);
 
-  if (brandKitSnapshot) {
+  const drawBrandLogo = async () => {
+    if (!brandKitSnapshot) return;
     const logoUrl = isDarkColor(composition.backgroundColor)
       ? brandKitSnapshot.lightLogoUrl ?? brandKitSnapshot.darkLogoUrl
       : brandKitSnapshot.darkLogoUrl ?? brandKitSnapshot.lightLogoUrl;
-    if (logoUrl) {
-      const logo = await loadPhoto(logoUrl);
-      const defaultLogo = composition.logo;
-      const requestedLayout = frame.logoLayouts?.[template.key] ?? {
-        x: defaultLogo.x,
-        y: defaultLogo.y,
-        scale: 1,
-      };
-      const logoWidth = defaultLogo.width * requestedLayout.scale;
-      const logoHeight = defaultLogo.height * requestedLayout.scale;
-      const layout = {
-        x: Math.min(Math.max(requestedLayout.x, 0), canvas.width - logoWidth),
-        y: Math.min(Math.max(requestedLayout.y, 0), canvas.height - logoHeight),
-        scale: requestedLayout.scale,
-      };
-      const bounds = drawContainedImage(
-        context,
-        logo,
-        layout.x,
-        layout.y,
-        logoWidth,
-        logoHeight,
-      );
-      onLogoBounds?.({ ...bounds, layout });
-    }
-  }
+    if (!logoUrl) return;
+    const logo = await loadPhoto(logoUrl);
+    const defaultLogo = composition.logo;
+    const logoLayoutKey = getStoryStudioLayoutKey(template.canvasFormat, template.key);
+    const requestedLayout = frame.logoLayouts?.[logoLayoutKey]
+      ?? (template.canvasFormat === DEFAULT_STORY_STUDIO_CANVAS_FORMAT ? frame.logoLayouts?.[template.key] : undefined)
+      ?? { x: defaultLogo.x, y: defaultLogo.y, scale: 1 };
+    const logoWidth = defaultLogo.width * requestedLayout.scale;
+    const logoHeight = defaultLogo.height * requestedLayout.scale;
+    const layout = {
+      x: Math.min(Math.max(requestedLayout.x, 0), canvas.width - logoWidth),
+      y: Math.min(Math.max(requestedLayout.y, 0), canvas.height - logoHeight),
+      scale: requestedLayout.scale,
+    };
+    const bounds = drawContainedImage(context, logo, layout.x, layout.y, logoWidth, logoHeight);
+    onLogoBounds?.({ ...bounds, layout });
+  };
+
+  if (!frame.subjectLayer) await drawBrandLogo();
   context.textAlign = composition.textAlign;
   context.textBaseline = "top";
   const safeLeft = composition.safeArea.left;
@@ -414,7 +546,9 @@ export const renderStoryStudioFrameToCanvas = async ({
   const eyebrowText = roleLabels[frame.role];
   const headlineText = renderableText(frame.text.headline);
   const bodyText = renderableText(frame.text.body);
-  const savedLayout = frame.textLayouts?.[template.key];
+  const layoutKey = getStoryStudioLayoutKey(template.canvasFormat, template.key);
+  const savedLayout = frame.textLayouts?.[layoutKey]
+    ?? (template.canvasFormat === DEFAULT_STORY_STUDIO_CANVAS_FORMAT ? frame.textLayouts?.[template.key] : undefined);
   const defaultX = composition.textAlign === "center"
     ? composition.text.x + composition.text.width / 2
     : composition.text.x;
@@ -526,6 +660,46 @@ export const renderStoryStudioFrameToCanvas = async ({
       position: bodyPosition,
     },
   });
+
+  if (frame.subjectLayer) {
+    const subject = await loadPhoto(frame.subjectLayer.url);
+    const alpha = imageAlphaBounds(subject);
+    const baseScale = Math.min(canvas.width * 0.75 / alpha.width, canvas.height * 0.8 / alpha.height);
+    const imageScale = baseScale * frame.subjectLayer.scale;
+    const width = alpha.width * imageScale;
+    const height = alpha.height * imageScale;
+    const position = clampStoryStudioSubjectPosition(
+      frame.subjectLayer.x,
+      frame.subjectLayer.y,
+      width,
+      height,
+      canvas.width,
+      canvas.height,
+    );
+    context.drawImage(
+      subject,
+      position.x - alpha.x * imageScale,
+      position.y - alpha.y * imageScale,
+      subject.naturalWidth * imageScale,
+      subject.naturalHeight * imageScale,
+    );
+    const visibleX = Math.max(0, position.x);
+    const visibleY = Math.max(0, position.y);
+    const visibleRight = Math.min(canvas.width, position.x + width);
+    const visibleBottom = Math.min(canvas.height, position.y + height);
+    onSubjectBounds?.({
+      x: visibleX,
+      y: visibleY,
+      width: Math.max(0, visibleRight - visibleX),
+      height: Math.max(0, visibleBottom - visibleY),
+      renderedWidth: width,
+      renderedHeight: height,
+      layout: { x: position.x, y: position.y, scale: frame.subjectLayer.scale },
+    });
+  }
+
+  await drawMatchCard(context, frame, resolvedTemplate);
+  if (frame.subjectLayer) await drawBrandLogo();
 
   const isNativeStickerFrame = frame.role === "poll" || frame.role === "question";
   const interactionText = renderableText(frame.text.interaction);

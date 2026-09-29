@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { STORY_STUDIO_CANVAS } from "@/lib/story-studio/templates";
+import { STORY_STUDIO_CANVAS, STORY_STUDIO_CANVASES } from "@/lib/story-studio/templates";
 
 const css = readFileSync("components/contents/story-studio/story-studio-preview.module.css", "utf8");
 const mobileMarker = "@media (max-width: 760px)";
@@ -11,6 +11,7 @@ const mobileCss = css.slice(markerIndex);
 describe("Story Studio mobile editor responsive contract", () => {
   it("keeps the internal export resolution while fitting the preview to phone width", () => {
     expect(STORY_STUDIO_CANVAS).toEqual({ width: 1080, height: 1920 });
+    expect(STORY_STUDIO_CANVASES["1080x1350"]).toEqual({ width: 1080, height: 1350 });
     expect(css).toContain("aspect-ratio: 9 / 16");
     expect(mobileCss).toMatch(/\.stage\s*\{[\s\S]*?width: 100%;[\s\S]*?max-width: 430px;/);
   });

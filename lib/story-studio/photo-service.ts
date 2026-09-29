@@ -35,7 +35,7 @@ type StoryStudioPhotoUploadIntent = {
   sizeBytes: number;
 };
 
-export type StoryStudioUploadAssetKind = "photo" | "brandKitLogo";
+export type StoryStudioUploadAssetKind = "photo" | "brandKitLogo" | "subjectLayer";
 
 export class StoryStudioPhotoValidationError extends Error {
   constructor(message: string) {
@@ -67,13 +67,30 @@ const assertUploadInput = (contentType: string, sizeBytes: number): AllowedVisua
   return contentType as AllowedVisualContentType;
 };
 
+const pngSupportsTransparency = (bytes: Uint8Array): boolean => {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < 26 || signature.some((value, index) => bytes[index] !== value)) return false;
+  const colorType = bytes[25];
+  if (colorType === 4 || colorType === 6) return true;
+  for (let index = 8; index + 8 <= bytes.length;) {
+    const length = ((bytes[index] << 24) | (bytes[index + 1] << 16) | (bytes[index + 2] << 8) | bytes[index + 3]) >>> 0;
+    const type = String.fromCharCode(bytes[index + 4], bytes[index + 5], bytes[index + 6], bytes[index + 7]);
+    if (type === "tRNS") return true;
+    index += 12 + length;
+  }
+  return false;
+};
+
 export const createStoryStudioPhotoUploadIntent = (
   input: { athleteId: string | null; assetKind?: StoryStudioUploadAssetKind; contentType: string; sizeBytes: number },
   access: ContentAccessContext,
 ) => {
   const contentType = assertUploadInput(input.contentType, input.sizeBytes);
   const assetKind = input.assetKind ?? "photo";
-  const folder = assetKind === "brandKitLogo" ? "brand-kit-logos" : "photos";
+  if (assetKind === "subjectLayer" && contentType !== "image/png") {
+    throw new StoryStudioPhotoValidationError("Le sujet détouré doit être un PNG transparent.");
+  }
+  const folder = assetKind === "brandKitLogo" ? "brand-kit-logos" : assetKind === "subjectLayer" ? "subjects" : "photos";
   const pathname = `story-studio/${folder}/${randomUUID()}.${EXTENSION_BY_CONTENT_TYPE[contentType]}`;
   const payload: StoryStudioPhotoUploadIntent = {
     version: 1,
@@ -129,8 +146,14 @@ export const validateStoryStudioPhotoBytes = (
   assetKind: StoryStudioUploadAssetKind = "photo",
 ) => {
   const allowedContentType = assertUploadInput(contentType, sizeBytes);
+  if (assetKind === "subjectLayer" && allowedContentType !== "image/png") {
+    throw new StoryStudioPhotoValidationError("Le sujet détouré doit être un PNG transparent.");
+  }
   if (bytes.byteLength !== sizeBytes) {
     throw new StoryStudioPhotoValidationError("La taille du Blob ne correspond pas au fichier autorisé.");
+  }
+  if (assetKind === "subjectLayer" && !pngSupportsTransparency(bytes)) {
+    throw new StoryStudioPhotoValidationError("Le PNG du sujet détouré doit contenir de la transparence.");
   }
 
   let dimensions: ReturnType<typeof imageSize>;

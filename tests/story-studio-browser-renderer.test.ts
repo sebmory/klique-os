@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   exportStoryStudioCanvasPng,
+  findStoryStudioAlphaBounds,
   renderStoryStudioFrameToCanvas,
   StoryStudioBrowserRenderError,
 } from "@/lib/story-studio/browser-renderer";
@@ -173,6 +174,135 @@ describe("Story Studio browser renderer", () => {
     expect(adjustedBounds.mock.calls[0][0].height).toBeCloseTo(220);
     const [, , , width, height] = vi.mocked(context.drawImage).mock.calls.at(-1)!;
     expect(Number(width) / Number(height)).toBeCloseTo(1600 / 2400);
+  });
+
+  it("renders 1080x1350 with its own text and logo layouts", async () => {
+    const onTextBounds = vi.fn();
+    const onLogoBounds = vi.fn();
+    const canvas = document.createElement("canvas");
+    await renderStoryStudioFrameToCanvas({
+      canvas,
+      frame: {
+        ...frame,
+        photo: { ...frame.photo, visible: false },
+        textLayouts: {
+          editorial_klique: {
+            eyebrow: { x: 72, y: 1200 },
+            headline: { x: 72, y: 1300 },
+            body: { x: 72, y: 1500 },
+          },
+          "1080x1350:editorial_klique": {
+            eyebrow: { x: 90, y: 500 },
+            headline: { x: 110, y: 620 },
+            body: { x: 130, y: 900 },
+          },
+        },
+        logoLayouts: {
+          editorial_klique: { x: 700, y: 1500, scale: 1 },
+          "1080x1350:editorial_klique": { x: 500, y: 300, scale: 1.5 },
+        },
+      },
+      template: getStoryStudioTemplate("editorial_klique", "1080x1350"),
+      photoUrl: null,
+      brandKitSnapshot,
+      onTextBounds,
+      onLogoBounds,
+    });
+
+    expect([canvas.width, canvas.height]).toEqual([1080, 1350]);
+    expect(onTextBounds.mock.calls[0][0].headline.position).toEqual({ x: 110, y: 620 });
+    expect(onLogoBounds.mock.calls[0][0].layout).toEqual({ x: 500, y: 300, scale: 1.5 });
+  });
+
+  it("renders an optional 1080x1350 match card with two-digit scores and fitted team names", async () => {
+    const canvas = document.createElement("canvas");
+    const matchFrame: StoryStudioFrame = {
+      ...frame,
+      photo: { ...frame.photo, visible: false },
+      matchCard: {
+        competition: "SB League Women",
+        homeTeam: {
+          name: "Elfic Fribourg Basketball",
+          logoPhotoId: "11111111-1111-4111-8111-111111111111",
+          logoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/elfic.png",
+        },
+        awayTeam: {
+          name: "Une équipe adverse avec un nom exceptionnellement long",
+          logoPhotoId: "22222222-2222-4222-8222-222222222222",
+          logoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/adversaire.png",
+        },
+        homeScore: 12,
+        awayScore: 10,
+      },
+    };
+    await renderStoryStudioFrameToCanvas({
+      canvas,
+      frame: matchFrame,
+      template: getStoryStudioTemplate("match_energy", "1080x1350"),
+      photoUrl: null,
+    });
+
+    expect([canvas.width, canvas.height]).toEqual([1080, 1350]);
+    expect(context.fillText).toHaveBeenCalledWith("12", expect.any(Number), expect.any(Number), 120);
+    expect(context.fillText).toHaveBeenCalledWith("10", expect.any(Number), expect.any(Number), 120);
+    expect(vi.mocked(context.fillText).mock.calls.some(([text]) => String(text).endsWith("…"))).toBe(true);
+    expect(context.drawImage).toHaveBeenCalledTimes(2);
+    for (const [, , , width, height] of vi.mocked(context.drawImage).mock.calls) {
+      expect(Number(width) / Number(height)).toBeCloseTo(1600 / 2400);
+    }
+  });
+
+  it("does not add match card drawing for historical frames", async () => {
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: { ...frame, photo: { ...frame.photo, visible: false } },
+      template: getStoryStudioTemplate("match_energy", "1080x1350"),
+      photoUrl: null,
+    });
+
+    expect(vi.mocked(context.fillText).mock.calls.map(([text]) => String(text))).not.toContain("–");
+  });
+
+  it("tracks transparent margins and layers the subject before the score band", async () => {
+    const pixels = new Uint8ClampedArray(6 * 5 * 4);
+    for (const [x, y] of [[2, 1], [4, 3]]) pixels[(y * 6 + x) * 4 + 3] = 255;
+    expect(findStoryStudioAlphaBounds(pixels, 6, 5)).toEqual({ x: 2, y: 1, width: 3, height: 3 });
+
+    const onSubjectBounds = vi.fn();
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: {
+        ...frame,
+        photo: { ...frame.photo, visible: false },
+        subjectLayer: {
+          photoId: "44444444-4444-4444-8444-444444444444",
+          url: "https://studio.public.blob.vercel-storage.com/story-studio/subjects/player.png",
+          x: 180,
+          y: 240,
+          scale: 1,
+        },
+        matchCard: {
+          competition: "SB League",
+          homeTeam: { name: "Elfic", logoPhotoId: null, logoUrl: null },
+          awayTeam: { name: "Adversaire", logoPhotoId: null, logoUrl: null },
+          homeScore: 82,
+          awayScore: 71,
+        },
+      },
+      template: getStoryStudioTemplate("match_energy", "1080x1350"),
+      photoUrl: null,
+      onSubjectBounds,
+    });
+
+    expect(context.drawImage).toHaveBeenCalledTimes(1);
+    expect(onSubjectBounds).toHaveBeenCalledWith(expect.objectContaining({ x: 180, y: 240 }));
+    expect(vi.mocked(context.fillText).mock.calls.map(([text]) => String(text))).toContain("82");
+    const headlineCall = vi.mocked(context.fillText).mock.calls.findIndex(([text]) => text === frame.text.headline);
+    const scoreCall = vi.mocked(context.fillText).mock.calls.findIndex(([text]) => text === "82");
+    expect(vi.mocked(context.fillText).mock.invocationCallOrder[headlineCall])
+      .toBeLessThan(vi.mocked(context.drawImage).mock.invocationCallOrder[0]);
+    expect(vi.mocked(context.drawImage).mock.invocationCallOrder[0])
+      .toBeLessThan(vi.mocked(context.fillText).mock.invocationCallOrder[scoreCall]);
   });
 
   it("reduces headline type without adding an ellipsis", async () => {
