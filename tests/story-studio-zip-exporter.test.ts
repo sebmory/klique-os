@@ -19,6 +19,20 @@ vi.mock("@/lib/story-studio/browser-renderer", () => ({
 }));
 
 const roles = ["result", "context", "poll", "question"] as const;
+const hiddenBrandKitSnapshot = {
+  name: "Elfic Fribourg Test",
+  primaryColor: "#000000",
+  secondaryColor: "#FFFFFF",
+  accentColor: "#F2B800",
+  textColor: "#FFFFFF",
+  mutedTextColor: "#CCCCCC",
+  lightLogoPhotoId: "11111111-1111-4111-8111-111111111111",
+  darkLogoPhotoId: null,
+  lightLogoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/elfic.png",
+  darkLogoUrl: null,
+  fontFamily: "Arial" as const,
+  signatureMode: "hidden" as const,
+};
 const frame = (index: number): StoryStudioFrame => ({
   id: `frame-${index + 1}`,
   order: (index + 1) as StoryStudioFrame["order"],
@@ -39,6 +53,8 @@ const frame = (index: number): StoryStudioFrame => ({
 const payload: StoryStudioProjectPayload = {
   schemaVersion: 1,
   templateKey: "editorial_klique",
+  brandKitId: "22222222-2222-4222-8222-222222222222",
+  brandKitSnapshot: hiddenBrandKitSnapshot,
   frames: [frame(0), frame(1), frame(2), frame(3)],
 };
 
@@ -94,6 +110,7 @@ describe("Story Studio ZIP exporter", () => {
     expect(new Set(canvases)).toHaveLength(1);
     for (const [renderInput] of mocks.render.mock.calls) {
       expect(renderInput.frame.textLayouts.editorial_klique.headline).toEqual({ x: 96, y: 320 });
+      expect(renderInput.brandKitSnapshot).toEqual(hiddenBrandKitSnapshot);
       expect(renderInput.onTextBounds).toBeUndefined();
     }
     await expect(Promise.all(names.map((name) => zip.file(name)!.async("string"))))

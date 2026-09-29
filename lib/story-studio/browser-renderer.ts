@@ -524,7 +524,9 @@ export const renderStoryStudioFrameToCanvas = async ({
     stickerZone: isNativeStickerFrame ? composition.interaction : null,
   });
 
-  const signatureVisible = Boolean(brandKitSnapshot) || frame.elements.logo || frame.elements.signature;
+  const signatureVisible = brandKitSnapshot
+    ? brandKitSnapshot.signatureMode !== "hidden"
+    : frame.elements.logo || frame.elements.signature;
   if (signatureVisible) {
     context.save();
     const signatureOnDark = isDarkColor(composition.backgroundColor);

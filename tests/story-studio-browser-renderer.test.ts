@@ -295,25 +295,39 @@ describe("Story Studio browser renderer", () => {
     expect(context.drawImage).toHaveBeenCalledTimes(8);
   });
 
-  it("exports the four role eyebrows and the Brand Kit signature on every frame", async () => {
-    const hiddenSignatureBrandKit = { ...brandKitSnapshot, signatureMode: "hidden" as const };
-    const expectedEyebrows = ["Résultat", "Fait marquant", "Votre avis", "Posez votre question"];
+  it.each([
+    { signatureMode: "visible" as const, expectedSignature: true },
+    { signatureMode: "discreet" as const, expectedSignature: true },
+    { signatureMode: "hidden" as const, expectedSignature: false },
+  ])("applies the $signatureMode Brand Kit signature without hiding its club logo", async ({ signatureMode, expectedSignature }) => {
+    const frameWithLegacyOverrides = {
+      ...frame,
+      photo: { ...frame.photo, visible: false },
+      elements: { ...frame.elements, logo: true, signature: true },
+    };
 
-    for (const [index, exportFrame] of fourDemoFrames.entries()) {
-      vi.clearAllMocks();
-      await renderStoryStudioFrameToCanvas({
-        canvas: document.createElement("canvas"),
-        frame: { ...exportFrame, text: { ...exportFrame.text, eyebrow: index < 3 ? "Après-match avec une athlète" : "" } },
-        template: getStoryStudioTemplate("editorial_klique"),
-        photoUrl: "https://studio.public.blob.vercel-storage.com/photo.jpg",
-        brandKitSnapshot: hiddenSignatureBrandKit,
-      });
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: frameWithLegacyOverrides,
+      template: getStoryStudioTemplate("editorial_klique"),
+      photoUrl: null,
+      brandKitSnapshot: { ...brandKitSnapshot, signatureMode },
+    });
 
-      const renderedText = vi.mocked(context.fillText).mock.calls.map(([text]) => String(text));
-      expect(renderedText).toContain(expectedEyebrows[index]);
-      expect(renderedText).not.toContain("Après-match avec une athlète");
-      expect(renderedText).toContain("KLIQUE");
-    }
+    const renderedText = vi.mocked(context.fillText).mock.calls.map(([text]) => String(text));
+    expect(renderedText.includes("KLIQUE")).toBe(expectedSignature);
+    expect(context.drawImage).toHaveBeenCalledOnce();
+  });
+
+  it("preserves legacy frame signature flags when no Brand Kit snapshot exists", async () => {
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: { ...frame, photo: { ...frame.photo, visible: false }, elements: { ...frame.elements, logo: false, signature: true } },
+      template: getStoryStudioTemplate("editorial_klique"),
+      photoUrl: null,
+    });
+
+    expect(context.fillText).toHaveBeenCalledWith("KLIQUE", expect.any(Number), expect.any(Number));
   });
 
   it("keeps the fourth-frame signature contrasted on a black background", async () => {

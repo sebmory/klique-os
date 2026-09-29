@@ -48,6 +48,33 @@ describe("Story Studio project validation", () => {
     expect(validateStoryStudioProjectPayload(validPayload)).toEqual(validPayload);
   });
 
+  it.each([
+    {
+      field: "lightLogoUrl" as const,
+      idField: "lightLogoPhotoId" as const,
+      url: "https://studio.public.blob.vercel-storage.com/story-studio/photos/logo.png",
+    },
+    {
+      field: "darkLogoUrl" as const,
+      idField: "darkLogoPhotoId" as const,
+      url: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/elfic.png",
+    },
+  ])("accepts $field from an allowed Story Studio Blob path", ({ field, idField, url }) => {
+    const snapshot = {
+      ...brandKitSnapshot,
+      [idField]: "33333333-3333-4333-8333-333333333333",
+      [field]: url,
+    };
+
+    const result = validateStoryStudioProjectPayload({
+      ...validPayload,
+      brandKitId: "22222222-2222-4222-8222-222222222222",
+      brandKitSnapshot: snapshot,
+    });
+
+    expect(result.brandKitSnapshot?.[field]).toBe(url);
+  });
+
   it("accepts independent text layouts by frame and template", () => {
     const frames = [...validPayload.frames] as StoryStudioProjectPayload["frames"];
     frames[0] = {
@@ -89,6 +116,14 @@ describe("Story Studio project validation", () => {
       ...validPayload,
       brandKitId: "22222222-2222-4222-8222-222222222222",
       brandKitSnapshot: { ...brandKitSnapshot, lightLogoUrl: "https://example.com/logo.png" },
+    })).toThrow(/Blob Vercel Story Studio/);
+    expect(() => validateStoryStudioProjectPayload({
+      ...validPayload,
+      brandKitId: "22222222-2222-4222-8222-222222222222",
+      brandKitSnapshot: {
+        ...brandKitSnapshot,
+        lightLogoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/other/logo.png",
+      },
     })).toThrow(/Blob Vercel Story Studio/);
   });
 

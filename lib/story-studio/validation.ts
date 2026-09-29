@@ -19,6 +19,7 @@ export class StoryStudioValidationError extends Error {
 const frameRoles: StoryStudioFrameRole[] = ["result", "context", "poll", "question"];
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const colorPattern = /^#[0-9A-Fa-f]{6}$/;
+const allowedStoryStudioLogoPathPrefixes = ["/story-studio/photos/", "/story-studio/brand-kit-logos/"] as const;
 
 const requireObject = (value: unknown, fieldName: string): Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -68,7 +69,7 @@ const requireNullableLogo = (id: unknown, url: unknown, fieldName: string) => {
     if (
       parsed.protocol !== "https:"
       || !parsed.hostname.endsWith(".blob.vercel-storage.com")
-      || !parsed.pathname.startsWith("/story-studio/photos/")
+      || !allowedStoryStudioLogoPathPrefixes.some((prefix) => parsed.pathname.startsWith(prefix))
     ) throw new Error("invalid");
   } catch {
     throw new StoryStudioValidationError(`${fieldName}Url doit etre une URL Blob Vercel Story Studio.`);

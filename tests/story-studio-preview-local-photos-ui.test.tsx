@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StoryStudioPreview } from "@/components/contents/story-studio/StoryStudioPreview";
+import type { StoryStudioProject } from "@/types/story-studio";
 
 const { renderFrameMock } = vi.hoisted(() => ({
   renderFrameMock: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +47,7 @@ const setControlValue = async (selector: string, value: string) => {
 
 const lastRenderInput = () => renderFrameMock.mock.calls.at(-1)?.[0] as {
   photoUrl: string | null;
+  brandKitSnapshot?: StoryStudioProject["payload"]["brandKitSnapshot"];
   frame: {
     id: string;
     text: { headline: string; body: string };
@@ -78,6 +80,69 @@ afterEach(async () => {
 });
 
 describe("Story Studio preview local photos", () => {
+  it("passes the saved Brand Kit snapshot to the preview renderer", async () => {
+    const hiddenSnapshot = {
+      name: "Elfic Fribourg Test",
+      primaryColor: "#000000",
+      secondaryColor: "#FFFFFF",
+      accentColor: "#F2B800",
+      textColor: "#FFFFFF",
+      mutedTextColor: "#CCCCCC",
+      lightLogoPhotoId: "11111111-1111-4111-8111-111111111111",
+      darkLogoPhotoId: null,
+      lightLogoUrl: "https://studio.public.blob.vercel-storage.com/story-studio/brand-kit-logos/elfic.png",
+      darkLogoUrl: null,
+      fontFamily: "Arial" as const,
+      signatureMode: "hidden" as const,
+    };
+    const roles = ["result", "context", "poll", "question"] as const;
+    const loadedProject: StoryStudioProject = {
+      id: "project-1",
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      mediaId: null,
+      sourcePackId: "pack-1",
+      sourceStoriesVariantId: "variant-1",
+      sourceDocumentId: "document-1",
+      athleteId: null,
+      projectType: "after_match",
+      templateKey: "editorial_klique",
+      status: "draft",
+      payload: {
+        schemaVersion: 1,
+        templateKey: "editorial_klique",
+        brandKitId: "22222222-2222-4222-8222-222222222222",
+        brandKitSnapshot: hiddenSnapshot,
+        frames: roles.map((role, index) => ({
+          id: `frame-${index + 1}`,
+          order: (index + 1) as 1 | 2 | 3 | 4,
+          role,
+          sourceStoryIndex: index + 1,
+          text: { eyebrow: "", headline: `Story ${index + 1}`, body: "", interaction: "" },
+          photo: { assetId: null, visible: false, scale: 1, x: 0, y: 0 },
+          elements: { athleteName: false, score: false, competition: false, logo: true, signature: true, interactionZone: false },
+        })) as StoryStudioProject["payload"]["frames"],
+      },
+      version: 1,
+      createdAt: "2026-09-29T00:00:00.000Z",
+      updatedAt: "2026-09-29T00:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({
+      ok: true,
+      json: async () => url.includes("/photos") ? { photos: [] } : { project: loadedProject },
+    })));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<StoryStudioPreview initialProjectId="project-1" />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(lastRenderInput().brandKitSnapshot).toEqual(hiddenSnapshot);
+  });
+
   it("keeps each frame photo and crop independent in local memory", async () => {
     await selectFile("frame-1.jpg");
     expect(lastRenderInput()).toMatchObject({

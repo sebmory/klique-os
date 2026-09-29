@@ -9,6 +9,7 @@ import {
   Megaphone,
   MessageSquareQuote,
   Mic,
+  Palette,
   Radio,
   Search,
   Sparkles,
@@ -185,6 +186,32 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
           </label>
         </div>
       </header>
+
+      <section className="contents-section" aria-labelledby="contents-story-studio-title">
+        <div className="contents-section-head">
+          <h2 id="contents-story-studio-title">Story Studio</h2>
+          <p>Gérez les identités visuelles utilisées pour vos Stories.</p>
+        </div>
+
+        <div className="contents-templates-grid">
+          <Link
+            href="/contents/story-studio/brand-kits"
+            className="contents-template-card"
+            aria-label="Ouvrir les Brand Kits Story Studio"
+          >
+            <span className="contents-template-icon" aria-hidden>
+              <Palette size={16} />
+            </span>
+            <div className="contents-template-body">
+              <div className="contents-template-heading">
+                <h3>Brand Kits</h3>
+                <span className="contents-template-badge">Story Studio</span>
+              </div>
+              <p>Couleurs, logos, typographies et signatures de marque.</p>
+            </div>
+          </Link>
+        </div>
+      </section>
 
       <section className="contents-section" aria-labelledby="contents-generators-title">
         <div className="contents-section-head">

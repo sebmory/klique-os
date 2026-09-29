@@ -219,6 +219,7 @@ export function StoryStudioPreview({ initialProjectId = "" }: StoryStudioPreview
       frame: renderedFrame,
       template: getStoryStudioTemplate(templateKey),
       photoUrl,
+      brandKitSnapshot: project.payload.brandKitSnapshot,
     }).catch((renderError) => {
       if (active) setError(renderError instanceof Error ? renderError.message : "Rendu impossible.");
     }).finally(() => {
