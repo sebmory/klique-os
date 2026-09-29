@@ -11,6 +11,7 @@ export type StoryStudioFrameOrder = 1 | 2 | 3 | 4;
 export type StoryStudioTextBlock = "eyebrow" | "headline" | "body";
 export type StoryStudioTextPosition = { x: number; y: number };
 export type StoryStudioTextLayout = Record<StoryStudioTextBlock, StoryStudioTextPosition>;
+export type StoryStudioLogoLayout = { x: number; y: number; scale: number };
 
 export type StoryStudioBrandKitSnapshot = {
   name: string;
@@ -39,6 +40,7 @@ export type StoryStudioFrame = {
     interaction: string;
   };
   textLayouts?: Partial<Record<StoryStudioTemplateKey, StoryStudioTextLayout>>;
+  logoLayouts?: Partial<Record<StoryStudioTemplateKey, StoryStudioLogoLayout>>;
   photo: {
     assetId: string | null;
     visible: boolean;

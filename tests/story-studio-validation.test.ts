@@ -107,6 +107,23 @@ describe("Story Studio project validation", () => {
     expect(() => validateStoryStudioProjectPayload({ ...validPayload, frames })).toThrow(/headline.x/);
   });
 
+  it("accepts strict independent logo layouts while preserving legacy frames", () => {
+    expect(validateStoryStudioProjectPayload(validPayload)).toEqual(validPayload);
+    const frames = [...validPayload.frames] as StoryStudioProjectPayload["frames"];
+    frames[0] = {
+      ...frames[0],
+      logoLayouts: {
+        editorial_klique: { x: 0, y: 0, scale: 0.25 },
+        match_energy: { x: 1080, y: 1920, scale: 4 },
+      },
+    };
+    expect(validateStoryStudioProjectPayload({ ...validPayload, frames }).frames[0].logoLayouts)
+      .toEqual(frames[0].logoLayouts);
+
+    frames[0] = { ...frames[0], logoLayouts: { editorial_klique: { x: 20, y: 30, scale: 4.01 } } };
+    expect(() => validateStoryStudioProjectPayload({ ...validPayload, frames })).toThrow(/logoLayouts.*scale/);
+  });
+
   it("rejects incomplete or external Brand Kit snapshots", () => {
     expect(() => validateStoryStudioProjectPayload({
       ...validPayload,

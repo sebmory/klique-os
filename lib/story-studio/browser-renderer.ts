@@ -1,6 +1,7 @@
 import type {
   StoryStudioBrandKitSnapshot,
   StoryStudioFrame,
+  StoryStudioLogoLayout,
   StoryStudioTextBlock,
   StoryStudioTextPosition,
 } from "@/types/story-studio";
@@ -31,6 +32,7 @@ export type RenderStoryStudioFrameInput = {
   photoUrl: string | null;
   brandKitSnapshot?: StoryStudioBrandKitSnapshot | null;
   onTextBounds?: (bounds: StoryStudioTextBounds) => void;
+  onLogoBounds?: (bounds: StoryStudioLogoBounds) => void;
   onDiagnostics?: (diagnostics: StoryStudioRenderDiagnostics) => void;
 };
 
@@ -49,6 +51,14 @@ export type StoryStudioTextBound = {
 };
 
 export type StoryStudioTextBounds = Record<StoryStudioTextBlock, StoryStudioTextBound>;
+
+export type StoryStudioLogoBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  layout: StoryStudioLogoLayout;
+};
 
 const roleLabels: Record<StoryStudioFrame["role"], string> = {
   result: "Résultat",
@@ -137,11 +147,14 @@ const drawContainedImage = (
   y: number,
   maxWidth: number,
   maxHeight: number,
-) => {
+): Omit<StoryStudioLogoBounds, "layout"> => {
   const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
   const width = image.naturalWidth * scale;
   const height = image.naturalHeight * scale;
-  context.drawImage(image, x + maxWidth - width, y + (maxHeight - height) / 2, width, height);
+  const drawX = x + maxWidth - width;
+  const drawY = y + (maxHeight - height) / 2;
+  context.drawImage(image, drawX, drawY, width, height);
+  return { x: drawX, y: drawY, width, height };
 };
 
 const isDarkColor = (color: string): boolean => {
@@ -330,6 +343,7 @@ export const renderStoryStudioFrameToCanvas = async ({
   photoUrl,
   brandKitSnapshot,
   onTextBounds,
+  onLogoBounds,
   onDiagnostics,
 }: RenderStoryStudioFrameInput): Promise<void> => {
   const context = canvas.getContext("2d");
@@ -367,14 +381,28 @@ export const renderStoryStudioFrameToCanvas = async ({
       : brandKitSnapshot.darkLogoUrl ?? brandKitSnapshot.lightLogoUrl;
     if (logoUrl) {
       const logo = await loadPhoto(logoUrl);
-      drawContainedImage(
+      const defaultLogo = composition.logo;
+      const requestedLayout = frame.logoLayouts?.[template.key] ?? {
+        x: defaultLogo.x,
+        y: defaultLogo.y,
+        scale: 1,
+      };
+      const logoWidth = defaultLogo.width * requestedLayout.scale;
+      const logoHeight = defaultLogo.height * requestedLayout.scale;
+      const layout = {
+        x: Math.min(Math.max(requestedLayout.x, 0), canvas.width - logoWidth),
+        y: Math.min(Math.max(requestedLayout.y, 0), canvas.height - logoHeight),
+        scale: requestedLayout.scale,
+      };
+      const bounds = drawContainedImage(
         context,
         logo,
-        canvas.width - composition.safeArea.right - 220,
-        composition.safeArea.top,
-        220,
-        110,
+        layout.x,
+        layout.y,
+        logoWidth,
+        logoHeight,
       );
+      onLogoBounds?.({ ...bounds, layout });
     }
   }
   context.textAlign = composition.textAlign;

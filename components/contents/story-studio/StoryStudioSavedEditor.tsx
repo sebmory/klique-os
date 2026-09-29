@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   exportStoryStudioCanvasPng,
   renderStoryStudioFrameToCanvas,
+  type StoryStudioLogoBounds,
   type StoryStudioRenderDiagnostics,
   type StoryStudioTextBounds,
 } from "@/lib/story-studio/browser-renderer";
@@ -98,6 +99,14 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
     originX: number;
     originY: number;
   } | null>(null);
+  const logoDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    scale: number;
+  } | null>(null);
   const draftRef = useRef<StoryStudioProjectPayload | null>(null);
   const savedPayloadRef = useRef("");
   const versionRef = useRef(0);
@@ -118,6 +127,8 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
   const [zipProgress, setZipProgress] = useState<StoryStudioZipFrameProgress[]>([]);
   const [selectedTextBlock, setSelectedTextBlock] = useState<StoryStudioTextBlock | null>(null);
   const [textBounds, setTextBounds] = useState<StoryStudioTextBounds | null>(null);
+  const [logoBounds, setLogoBounds] = useState<StoryStudioLogoBounds | null>(null);
+  const [selectedLogo, setSelectedLogo] = useState(false);
   const [renderDiagnostics, setRenderDiagnostics] = useState<StoryStudioRenderDiagnostics | null>(null);
 
   useEffect(() => {
@@ -255,6 +266,7 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
       : null;
     let active = true;
     setRenderDiagnostics(null);
+    setLogoBounds(null);
     setRendering(true);
     void renderStoryStudioFrameToCanvas({
       canvas,
@@ -264,6 +276,9 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
       brandKitSnapshot: draft.brandKitSnapshot,
       onTextBounds: (nextBounds) => {
         if (active) setTextBounds(nextBounds);
+      },
+      onLogoBounds: (nextBounds) => {
+        if (active) setLogoBounds(nextBounds);
       },
       onDiagnostics: (diagnostics) => {
         if (active) setRenderDiagnostics(diagnostics);
@@ -280,7 +295,9 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
 
   useEffect(() => {
     setSelectedTextBlock(null);
+    setSelectedLogo(false);
     textDragRef.current = null;
+    logoDragRef.current = null;
   }, [draft?.templateKey, selectedFrame]);
 
   const updateActiveFrame = (updater: (frame: StoryStudioFrame) => StoryStudioFrame) => {
@@ -340,15 +357,52 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
     }));
   };
 
+  const updateLogoLayout = (x: number, y: number, scale: number) => {
+    if (!draft) return;
+    const templateKey = draft.templateKey;
+    const template = getStoryStudioTemplate(templateKey);
+    const width = template.composition.logo.width * scale;
+    const height = template.composition.logo.height * scale;
+    updateActiveFrame((activeFrame) => ({
+      ...activeFrame,
+      logoLayouts: {
+        ...activeFrame.logoLayouts,
+        [templateKey]: {
+          x: Math.min(Math.max(x, 0), template.canvas.width - width),
+          y: Math.min(Math.max(y, 0), template.canvas.height - height),
+          scale,
+        },
+      },
+    }));
+  };
+
   const onCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const point = canvasPoint(event);
-    if (!point || !textBounds) return;
+    if (!point) return;
+    if (logoBounds
+      && point.x >= logoBounds.x && point.x <= logoBounds.x + logoBounds.width
+      && point.y >= logoBounds.y && point.y <= logoBounds.y + logoBounds.height) {
+      setSelectedTextBlock(null);
+      setSelectedLogo(true);
+      logoDragRef.current = {
+        pointerId: event.pointerId,
+        startX: point.x,
+        startY: point.y,
+        originX: logoBounds.layout.x,
+        originY: logoBounds.layout.y,
+        scale: logoBounds.layout.scale,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (!textBounds) return;
     const block = (["body", "headline", "eyebrow"] as StoryStudioTextBlock[]).find((candidate) => {
       const bound = textBounds[candidate];
       return point.x >= bound.x && point.x <= bound.x + bound.width
         && point.y >= bound.y && point.y <= bound.y + bound.height;
     }) ?? null;
     setSelectedTextBlock(block);
+    setSelectedLogo(false);
     if (!block) return;
     const position = textBounds[block].position;
     textDragRef.current = {
@@ -363,8 +417,17 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
   };
 
   const onCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const drag = textDragRef.current;
+    const logoDrag = logoDragRef.current;
     const point = canvasPoint(event);
+    if (logoDrag && logoDrag.pointerId === event.pointerId && point) {
+      updateLogoLayout(
+        logoDrag.originX + point.x - logoDrag.startX,
+        logoDrag.originY + point.y - logoDrag.startY,
+        logoDrag.scale,
+      );
+      return;
+    }
+    const drag = textDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !point) return;
     updateTextPosition(
       drag.block,
@@ -374,26 +437,31 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
   };
 
   const onCanvasPointerEnd = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (textDragRef.current?.pointerId !== event.pointerId) return;
-    textDragRef.current = null;
+    if (textDragRef.current?.pointerId === event.pointerId) textDragRef.current = null;
+    else if (logoDragRef.current?.pointerId === event.pointerId) logoDragRef.current = null;
+    else return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
 
-  const resetTextLayout = () => {
+  const resetLayout = () => {
     if (!draft) return;
     const templateKey = draft.templateKey;
     updateActiveFrame((activeFrame) => {
-      if (!activeFrame.textLayouts?.[templateKey]) return activeFrame;
+      if (!activeFrame.textLayouts?.[templateKey] && !activeFrame.logoLayouts?.[templateKey]) return activeFrame;
       const textLayouts = { ...activeFrame.textLayouts };
+      const logoLayouts = { ...activeFrame.logoLayouts };
       delete textLayouts[templateKey];
+      delete logoLayouts[templateKey];
       return {
         ...activeFrame,
         ...(Object.keys(textLayouts).length > 0 ? { textLayouts } : { textLayouts: undefined }),
+        ...(Object.keys(logoLayouts).length > 0 ? { logoLayouts } : { logoLayouts: undefined }),
       };
     });
     setSelectedTextBlock(null);
+    setSelectedLogo(false);
   };
 
   const selectPhoto = (photo: StoryStudioPhoto) => {
@@ -570,9 +638,9 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
             onPointerUp={onCanvasPointerEnd}
             onPointerCancel={onCanvasPointerEnd}
           />
-          {textBounds && (
+          {(textBounds || logoBounds) && (
             <div className={styles.textSelectionLayer} aria-hidden="true">
-              {(Object.entries(textBounds) as [StoryStudioTextBlock, StoryStudioTextBounds[StoryStudioTextBlock]][]).map(([block, bound]) => (
+              {textBounds && (Object.entries(textBounds) as [StoryStudioTextBlock, StoryStudioTextBounds[StoryStudioTextBlock]][]).map(([block, bound]) => (
                 <span
                   key={block}
                   className={`${styles.textSelection} ${selectedTextBlock === block ? styles.activeTextSelection : ""}`}
@@ -585,6 +653,18 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
                   }}
                 />
               ))}
+              {logoBounds && (
+                <span
+                  className={`${styles.textSelection} ${selectedLogo ? styles.activeTextSelection : ""}`}
+                  data-label="LOGO"
+                  style={{
+                    left: `${logoBounds.x / template.canvas.width * 100}%`,
+                    top: `${logoBounds.y / template.canvas.height * 100}%`,
+                    width: `${logoBounds.width / template.canvas.width * 100}%`,
+                    height: `${logoBounds.height / template.canvas.height * 100}%`,
+                  }}
+                />
+              )}
             </div>
           )}
           {renderDiagnostics?.stickerZone && (
@@ -658,6 +738,27 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
             </div>
           </div>
 
+          {logoBounds && (
+            <div className={styles.cropControls}>
+              <label>
+                <span>Taille du logo <output>{logoBounds.layout.scale.toFixed(2)}×</output></span>
+                <input
+                  aria-label="Taille du logo du Brand Kit"
+                  type="range"
+                  min="0.25"
+                  max="4"
+                  step="0.05"
+                  value={logoBounds.layout.scale}
+                  onChange={(event) => updateLogoLayout(
+                    logoBounds.layout.x,
+                    logoBounds.layout.y,
+                    Number(event.target.value),
+                  )}
+                />
+              </label>
+            </div>
+          )}
+
           <div className={styles.textFields}>
             <label>
               <span className={styles.controlLabel}>Sur-titre</span>
@@ -675,7 +776,7 @@ export function StoryStudioSavedEditor({ projectId }: StoryStudioSavedEditorProp
               <span className={styles.controlLabel}>Interaction ou note source</span>
               <textarea aria-label="Interaction de la frame active" rows={2} value={frame.text.interaction} onChange={(event) => updateActiveText("interaction", event.target.value)} />
             </label>
-            <button type="button" className={styles.resetLayoutButton} onClick={resetTextLayout}>
+            <button type="button" className={styles.resetLayoutButton} onClick={resetLayout}>
               <RotateCcw size={16} />
               Réinitialiser la disposition
             </button>

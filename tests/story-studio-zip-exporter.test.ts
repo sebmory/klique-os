@@ -46,6 +46,9 @@ const frame = (index: number): StoryStudioFrame => ({
       body: { x: 120, y: 720 },
     },
   },
+  logoLayouts: {
+    editorial_klique: { x: 180 + index * 20, y: 260 + index * 30, scale: 1 + index * 0.25 },
+  },
   photo: { assetId: `photo-${index + 1}`, visible: true, scale: 1, x: 0, y: 0 },
   elements: { athleteName: false, score: false, competition: false, logo: false, signature: false, interactionZone: false },
 });
@@ -108,8 +111,9 @@ describe("Story Studio ZIP exporter", () => {
     ]);
     expect(dimensions).toEqual(Array.from({ length: 4 }, () => [1080, 1920]));
     expect(new Set(canvases)).toHaveLength(1);
-    for (const [renderInput] of mocks.render.mock.calls) {
+    for (const [index, [renderInput]] of mocks.render.mock.calls.entries()) {
       expect(renderInput.frame.textLayouts.editorial_klique.headline).toEqual({ x: 96, y: 320 });
+      expect(renderInput.frame.logoLayouts.editorial_klique).toEqual(payload.frames[index].logoLayouts?.editorial_klique);
       expect(renderInput.brandKitSnapshot).toEqual(hiddenBrandKitSnapshot);
       expect(renderInput.onTextBounds).toBeUndefined();
     }

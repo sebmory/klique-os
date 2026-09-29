@@ -52,6 +52,7 @@ const lastRenderInput = () => renderFrameMock.mock.calls.at(-1)?.[0] as {
     id: string;
     text: { headline: string; body: string };
     photo: { scale: number; x: number; y: number };
+    logoLayouts?: StoryStudioProject["payload"]["frames"][number]["logoLayouts"];
   };
   template: { key: string };
 };
@@ -120,6 +121,7 @@ describe("Story Studio preview local photos", () => {
           sourceStoryIndex: index + 1,
           text: { eyebrow: "", headline: `Story ${index + 1}`, body: "", interaction: "" },
           photo: { assetId: null, visible: false, scale: 1, x: 0, y: 0 },
+          ...(index === 0 ? { logoLayouts: { editorial_klique: { x: 240, y: 360, scale: 1.5 } } } : {}),
           elements: { athleteName: false, score: false, competition: false, logo: true, signature: true, interactionZone: false },
         })) as StoryStudioProject["payload"]["frames"],
       },
@@ -141,6 +143,7 @@ describe("Story Studio preview local photos", () => {
     });
 
     expect(lastRenderInput().brandKitSnapshot).toEqual(hiddenSnapshot);
+    expect(lastRenderInput().frame.logoLayouts?.editorial_klique).toEqual({ x: 240, y: 360, scale: 1.5 });
   });
 
   it("keeps each frame photo and crop independent in local memory", async () => {

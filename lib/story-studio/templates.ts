@@ -25,6 +25,7 @@ export type StoryStudioTemplateDefinition = {
     interactionSize: number;
     safeArea: { top: number; right: number; bottom: number; left: number };
     photo: { x: number; y: number; width: number; height: number; cornerRadius: number };
+    logo: { x: number; y: number; width: number; height: number };
     text: { x: number; y: number; width: number; maxHeight: number; gap: number };
     interaction: { x: number; y: number; width: number; height: number; cornerRadius: number };
   };
@@ -51,6 +52,7 @@ export const storyStudioTemplates = {
       interactionSize: 38,
       safeArea: { top: 72, right: 72, bottom: 96, left: 72 },
       photo: { x: 0, y: 0, width: 1080, height: 1800, cornerRadius: 0 },
+      logo: { x: 788, y: 72, width: 220, height: 110 },
       text: { x: 72, y: 1080, width: 936, maxHeight: 570, gap: 24 },
       interaction: { x: 72, y: 1660, width: 936, height: 140, cornerRadius: 4 },
     },
@@ -75,6 +77,7 @@ export const storyStudioTemplates = {
       interactionSize: 40,
       safeArea: { top: 104, right: 72, bottom: 112, left: 72 },
       photo: { x: 0, y: 0, width: 1080, height: 1920, cornerRadius: 0 },
+      logo: { x: 788, y: 104, width: 220, height: 110 },
       text: { x: 72, y: 400, width: 936, maxHeight: 1060, gap: 24 },
       interaction: { x: 72, y: 1570, width: 936, height: 180, cornerRadius: 4 },
     },
@@ -99,6 +102,7 @@ export const storyStudioTemplates = {
       interactionSize: 34,
       safeArea: { top: 120, right: 96, bottom: 128, left: 96 },
       photo: { x: 72, y: 168, width: 936, height: 1010, cornerRadius: 8 },
+      logo: { x: 764, y: 120, width: 220, height: 110 },
       text: { x: 96, y: 1230, width: 888, maxHeight: 390, gap: 32 },
       interaction: { x: 150, y: 1660, width: 780, height: 120, cornerRadius: 8 },
     },

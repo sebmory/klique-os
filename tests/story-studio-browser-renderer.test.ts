@@ -143,6 +143,38 @@ describe("Story Studio browser renderer", () => {
     expect(context.fillText).toHaveBeenCalledWith("Victoire 2-1", expect.any(Number), expect.any(Number), expect.any(Number));
   });
 
+  it("preserves the historical logo box and applies clamped proportional logo layouts", async () => {
+    const defaultBounds = vi.fn();
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: { ...frame, photo: { ...frame.photo, visible: false } },
+      template: getStoryStudioTemplate("editorial_klique"),
+      photoUrl: null,
+      brandKitSnapshot,
+      onLogoBounds: defaultBounds,
+    });
+    expect(defaultBounds.mock.calls[0][0].layout).toEqual({ x: 788, y: 72, scale: 1 });
+    expect(defaultBounds.mock.calls[0][0].height).toBeCloseTo(110);
+
+    const adjustedBounds = vi.fn();
+    await renderStoryStudioFrameToCanvas({
+      canvas: document.createElement("canvas"),
+      frame: {
+        ...frame,
+        photo: { ...frame.photo, visible: false },
+        logoLayouts: { editorial_klique: { x: 1000, y: 1900, scale: 2 } },
+      },
+      template: getStoryStudioTemplate("editorial_klique"),
+      photoUrl: null,
+      brandKitSnapshot,
+      onLogoBounds: adjustedBounds,
+    });
+    expect(adjustedBounds.mock.calls[0][0].layout).toEqual({ x: 640, y: 1700, scale: 2 });
+    expect(adjustedBounds.mock.calls[0][0].height).toBeCloseTo(220);
+    const [, , , width, height] = vi.mocked(context.drawImage).mock.calls.at(-1)!;
+    expect(Number(width) / Number(height)).toBeCloseTo(1600 / 2400);
+  });
+
   it("reduces headline type without adding an ellipsis", async () => {
     const onDiagnostics = vi.fn();
     vi.mocked(context.measureText).mockImplementation((text: string) => {

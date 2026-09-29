@@ -117,11 +117,15 @@ const validateFrame = (value: unknown, index: number): StoryStudioFrame => {
   const field = `frames[${index}]`;
   const frame = requireObject(value, field);
   const hasTextLayouts = Object.hasOwn(frame, "textLayouts");
+  const hasLogoLayouts = Object.hasOwn(frame, "logoLayouts");
   requireExactKeys(
     frame,
-    hasTextLayouts
-      ? ["id", "order", "role", "sourceStoryIndex", "text", "textLayouts", "photo", "elements"]
-      : ["id", "order", "role", "sourceStoryIndex", "text", "photo", "elements"],
+    [
+      "id", "order", "role", "sourceStoryIndex", "text",
+      ...(hasTextLayouts ? ["textLayouts"] : []),
+      ...(hasLogoLayouts ? ["logoLayouts"] : []),
+      "photo", "elements",
+    ],
     field,
   );
 
@@ -171,6 +175,25 @@ const validateFrame = (value: unknown, index: number): StoryStudioFrame => {
     }
   }
 
+  let logoLayouts: StoryStudioFrame["logoLayouts"];
+  if (hasLogoLayouts) {
+    const layouts = requireObject(frame.logoLayouts, `${field}.logoLayouts`);
+    requireExactKeys(layouts, Object.keys(layouts).filter((key) => storyStudioTemplateKeys.includes(key as StoryStudioTemplateKey)), `${field}.logoLayouts`);
+    logoLayouts = {};
+    for (const [templateKey, rawLayout] of Object.entries(layouts)) {
+      if (!storyStudioTemplateKeys.includes(templateKey as StoryStudioTemplateKey)) {
+        throw new StoryStudioValidationError(`${field}.logoLayouts.${templateKey} est un template inconnu.`);
+      }
+      const layout = requireObject(rawLayout, `${field}.logoLayouts.${templateKey}`);
+      requireExactKeys(layout, ["x", "y", "scale"], `${field}.logoLayouts.${templateKey}`);
+      logoLayouts[templateKey as StoryStudioTemplateKey] = {
+        x: requireNumber(layout.x, `${field}.logoLayouts.${templateKey}.x`, 0, 1080),
+        y: requireNumber(layout.y, `${field}.logoLayouts.${templateKey}.y`, 0, 1920),
+        scale: requireNumber(layout.scale, `${field}.logoLayouts.${templateKey}.scale`, 0.25, 4),
+      };
+    }
+  }
+
   return {
     id: requireString(frame.id, `${field}.id`),
     order: expectedOrder as StoryStudioFrame["order"],
@@ -183,6 +206,7 @@ const validateFrame = (value: unknown, index: number): StoryStudioFrame => {
       interaction: requireString(text.interaction, `${field}.text.interaction`, true),
     },
     ...(textLayouts ? { textLayouts } : {}),
+    ...(logoLayouts ? { logoLayouts } : {}),
     photo: {
       assetId: photo.assetId === null ? null : requireString(photo.assetId, `${field}.photo.assetId`),
       visible: requireBoolean(photo.visible, `${field}.photo.visible`),

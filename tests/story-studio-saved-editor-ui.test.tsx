@@ -153,13 +153,22 @@ const patchCalls = () => fetchMock.mock.calls.filter(([, options]) => (options a
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.clearAllMocks();
-  renderFrameMock.mockImplementation(async ({ canvas, frame: renderedFrame, onTextBounds, onDiagnostics }) => {
+  renderFrameMock.mockImplementation(async ({ canvas, frame: renderedFrame, template, onTextBounds, onLogoBounds, onDiagnostics }) => {
     canvas.width = 1080;
     canvas.height = 1920;
     onTextBounds?.({
       eyebrow: { x: 72, y: 100, width: 936, height: 42, position: { x: 72, y: 100 } },
       headline: { x: 72, y: 200, width: 936, height: 90, position: { x: 72, y: 200 } },
       body: { x: 72, y: 350, width: 936, height: 50, position: { x: 72, y: 350 } },
+    });
+    const defaultLogo = template.composition.logo;
+    const logoLayout = renderedFrame.logoLayouts?.[template.key] ?? { x: defaultLogo.x, y: defaultLogo.y, scale: 1 };
+    onLogoBounds?.({
+      x: logoLayout.x,
+      y: logoLayout.y,
+      width: defaultLogo.width * logoLayout.scale,
+      height: defaultLogo.height * logoLayout.scale,
+      layout: logoLayout,
     });
     onDiagnostics?.({
       headlineFontSize: 84,
@@ -450,8 +459,35 @@ describe("saved Story Studio editor", () => {
   });
 
   it("restores the saved snapshot and autosaves a newly selected Brand Kit", async () => {
+    const savedLogoLayout = { editorial_klique: { x: 320, y: 480, scale: 1.75 } };
+    const projectWithLogoLayout = {
+      ...project,
+      payload: {
+        ...project.payload,
+        frames: project.payload.frames.map((item, index) => index === 0
+          ? { ...item, logoLayouts: savedLogoLayout }
+          : item) as typeof project.payload.frames,
+      },
+    };
+    fetchMock.mockImplementation((url: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body));
+        return Promise.resolve(jsonResponse({ project: { ...projectWithLogoLayout, payload: body.payload, version: 2 } }));
+      }
+      if (url.includes("/photos")) return Promise.resolve(jsonResponse({ photos: [photo] }));
+      if (url.includes("/brand-kits")) return Promise.resolve(jsonResponse({ brandKits: [currentBrandKit, secondBrandKit] }));
+      return Promise.resolve(jsonResponse({ project: projectWithLogoLayout }));
+    });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<StoryStudioSavedEditor projectId="project-1" />);
+      await flush();
+    });
+
     expect(renderFrameMock).toHaveBeenLastCalledWith(expect.objectContaining({
       brandKitSnapshot: savedBrandKitSnapshot,
+      frame: expect.objectContaining({ logoLayouts: savedLogoLayout }),
     }));
     expect(container.textContent).toContain("Snapshot enregistré · Ancien Club Nord");
 
@@ -478,6 +514,7 @@ describe("saved Story Studio editor", () => {
         signatureMode: "hidden",
       },
     });
+    expect(body.payload.frames[0].logoLayouts).toEqual(savedLogoLayout);
   });
 
   it("debounces and saves text, template, photo and crop with the current version", async () => {
@@ -517,7 +554,7 @@ describe("saved Story Studio editor", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe("Enregistré");
   });
 
-  it("drags text per template, autosaves positions and resets only the active layout", async () => {
+  it("persists text and logo layouts per template and resets only the active layout", async () => {
     const canvas = container.querySelector("canvas") as HTMLCanvasElement;
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 540, bottom: 960, width: 540, height: 960,
@@ -539,6 +576,13 @@ describe("saved Story Studio editor", () => {
       await flush();
     });
     expect(container.querySelector('[data-label="TITRE"]')?.className).toContain("activeTextSelection");
+    await act(async () => {
+      dispatchPointer("pointerdown", 450, 55, 3);
+      dispatchPointer("pointermove", 400, 105, 3);
+      dispatchPointer("pointerup", 400, 105, 3);
+      await flush();
+    });
+    await setControlValue('[aria-label="Taille du logo du Brand Kit"]', "1.5");
 
     const matchButton = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
       .find((button) => button.textContent === "Énergie Match");
@@ -548,6 +592,12 @@ describe("saved Story Studio editor", () => {
       dispatchPointer("pointerdown", 100, 125, 2);
       dispatchPointer("pointermove", 200, 175, 2);
       dispatchPointer("pointerup", 200, 175, 2);
+      await flush();
+    });
+    await act(async () => {
+      dispatchPointer("pointerdown", 450, 70, 4);
+      dispatchPointer("pointermove", 425, 120, 4);
+      dispatchPointer("pointerup", 425, 120, 4);
       await flush();
     });
     const editorialButton = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
@@ -563,6 +613,10 @@ describe("saved Story Studio editor", () => {
       editorial_klique: { headline: { x: 172, y: 280 } },
       match_energy: { headline: { x: 272, y: 300 } },
     });
+    expect(savedBody.payload.frames[0].logoLayouts).toMatchObject({
+      editorial_klique: { x: 688, y: 172, scale: 1.5 },
+      match_energy: { x: 738, y: 204, scale: 1 },
+    });
 
     const resetButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Réinitialiser la disposition"));
@@ -573,6 +627,8 @@ describe("saved Story Studio editor", () => {
     const resetFrame = renderFrameMock.mock.calls.at(-1)?.[0].frame;
     expect(resetFrame.textLayouts?.editorial_klique).toBeUndefined();
     expect(resetFrame.textLayouts?.match_energy).toBeDefined();
+    expect(resetFrame.logoLayouts?.editorial_klique).toBeUndefined();
+    expect(resetFrame.logoLayouts?.match_energy).toBeDefined();
   });
 
   it("uploads directly to Blob, registers metadata and selects the photo", async () => {
