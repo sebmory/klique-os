@@ -211,6 +211,47 @@ afterEach(async () => {
 });
 
 describe("saved Story Studio editor", () => {
+  it("keeps an Aucune interaction editorial note visible, editable and autosaved", async () => {
+    const editorialNote = "Aucune interaction prévue sur cette frame.";
+    const editedNote = "Aucune interaction prévue, note éditoriale ajustée.";
+    const editorialProject = {
+      ...project,
+      payload: {
+        ...project.payload,
+        frames: project.payload.frames.map((item, index) => index === 0
+          ? { ...item, text: { ...item.text, interaction: editorialNote } }
+          : item),
+      },
+    };
+    fetchMock.mockImplementation((url: string, options?: RequestInit) => {
+      if (options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body));
+        return Promise.resolve(jsonResponse({ project: { ...editorialProject, payload: body.payload, version: 2 } }));
+      }
+      if (url.includes("/photos")) return Promise.resolve(jsonResponse({ photos: [photo] }));
+      if (url.includes("/brand-kits")) return Promise.resolve(jsonResponse({ brandKits: [] }));
+      return Promise.resolve(jsonResponse({ project: editorialProject }));
+    });
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<StoryStudioSavedEditor projectId="project-1" />);
+      await flush();
+    });
+
+    const selector = '[aria-label="Interaction de la frame active"]';
+    expect((container.querySelector(selector) as HTMLTextAreaElement).value).toBe(editorialNote);
+
+    await setControlValue(selector, editedNote);
+    await act(async () => {
+      vi.advanceTimersByTime(700);
+      await flush();
+    });
+
+    const body = JSON.parse(String((patchCalls()[0]?.[1] as RequestInit).body));
+    expect(body.payload.frames[0].text.interaction).toBe(editedNote);
+  });
+
   it("repairs legacy four-frame text and preserves every source value for editing", async () => {
     const sourceContents = [
       "Victoire 2-1 pour Vevey Sport, le 27 septembre 2026 en 1re ligue. Abdou Böbödi CAMARA est au centre de cet après-match.",

@@ -167,7 +167,7 @@ const applyBrandKit = (
   },
 } : template;
 
-const internalEditorialInstructionPattern = /^(?:aucun(?:e)?(?:\s*[—–:-]|\s*$)|(?:instruction|indication)s?\s+(?:interne|éditoriale|editoriale|visuelle)|(?:ouverture|consigne)\s+visuelle|sticker\s+(?:questions?|sondage|quiz)\b|(?:visuel|photo|illustration|mise en page|animation)\s*[:—–-])/i;
+const internalEditorialInstructionPattern = /^(?:aucune interaction\b|aucun(?:e)?(?:\s*[—–:-]|\s*$)|(?:instruction|indication)s?\s+(?:interne|éditoriale|editoriale|visuelle)|(?:ouverture|consigne)\s+visuelle|sticker\s+(?:questions?|sondage|quiz)\b|(?:visuel|photo|illustration|mise en page|animation)\s*[:—–-])/i;
 
 const renderableText = (value: string): string => value
   .split(/\r?\n/)

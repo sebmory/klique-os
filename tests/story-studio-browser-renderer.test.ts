@@ -212,6 +212,30 @@ describe("Story Studio browser renderer", () => {
     }
   });
 
+  it.each(["headline", "body", "interaction"] as const)(
+    "does not paint editorial notes beginning with Aucune interaction from %s",
+    async (field) => {
+      const editorialNote = "Aucune interaction prévue sur cette frame.";
+      const editorialFrame: StoryStudioFrame = {
+        ...frame,
+        photo: { ...frame.photo, visible: false },
+        text: { ...frame.text, [field]: editorialNote },
+        elements: { ...frame.elements, interactionZone: true },
+      };
+
+      await renderStoryStudioFrameToCanvas({
+        canvas: document.createElement("canvas"),
+        frame: editorialFrame,
+        template: getStoryStudioTemplate("editorial_klique"),
+        photoUrl: null,
+      });
+
+      const renderedText = vi.mocked(context.fillText).mock.calls.map(([text]) => String(text));
+      expect(renderedText).not.toContain(editorialNote);
+      expect(editorialFrame.text[field]).toBe(editorialNote);
+    },
+  );
+
   it("renders saved positions only for their template and clamps them to its safe area", async () => {
     const onTextBounds = vi.fn();
     const positionedFrame: StoryStudioFrame = {
