@@ -245,6 +245,7 @@ export function StoryStudioBrandKitsManager() {
         body: JSON.stringify({
           action: "create-upload-intent",
           athleteId: null,
+          assetKind: "brandKitLogo",
           contentType: file.type,
           sizeBytes: file.size,
         }),

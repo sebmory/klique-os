@@ -10,6 +10,7 @@ import {
 import { MAX_STORY_STUDIO_PHOTO_BYTES } from "@/types/story-studio-photo";
 
 const INTENT_TTL_MS = 15 * 60 * 1000;
+const MIN_BRAND_KIT_LOGO_DIMENSION = 128;
 const EXTENSION_BY_CONTENT_TYPE: Record<AllowedVisualContentType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -29,9 +30,12 @@ type StoryStudioPhotoUploadIntent = {
   clerkUserId: string;
   mediaId: string | null;
   athleteId: string | null;
+  assetKind: StoryStudioUploadAssetKind;
   contentType: AllowedVisualContentType;
   sizeBytes: number;
 };
+
+export type StoryStudioUploadAssetKind = "photo" | "brandKitLogo";
 
 export class StoryStudioPhotoValidationError extends Error {
   constructor(message: string) {
@@ -64,11 +68,13 @@ const assertUploadInput = (contentType: string, sizeBytes: number): AllowedVisua
 };
 
 export const createStoryStudioPhotoUploadIntent = (
-  input: { athleteId: string | null; contentType: string; sizeBytes: number },
+  input: { athleteId: string | null; assetKind?: StoryStudioUploadAssetKind; contentType: string; sizeBytes: number },
   access: ContentAccessContext,
 ) => {
   const contentType = assertUploadInput(input.contentType, input.sizeBytes);
-  const pathname = `story-studio/photos/${randomUUID()}.${EXTENSION_BY_CONTENT_TYPE[contentType]}`;
+  const assetKind = input.assetKind ?? "photo";
+  const folder = assetKind === "brandKitLogo" ? "brand-kit-logos" : "photos";
+  const pathname = `story-studio/${folder}/${randomUUID()}.${EXTENSION_BY_CONTENT_TYPE[contentType]}`;
   const payload: StoryStudioPhotoUploadIntent = {
     version: 1,
     expiresAt: Date.now() + INTENT_TTL_MS,
@@ -77,6 +83,7 @@ export const createStoryStudioPhotoUploadIntent = (
     clerkUserId: access.clerkUserId,
     mediaId: access.isAdmin ? null : access.mediaId ?? null,
     athleteId: input.athleteId,
+    assetKind,
     contentType,
     sizeBytes: input.sizeBytes,
   };
@@ -119,6 +126,7 @@ export const validateStoryStudioPhotoBytes = (
   bytes: Uint8Array,
   contentType: string,
   sizeBytes: number,
+  assetKind: StoryStudioUploadAssetKind = "photo",
 ) => {
   const allowedContentType = assertUploadInput(contentType, sizeBytes);
   if (bytes.byteLength !== sizeBytes) {
@@ -134,15 +142,16 @@ export const validateStoryStudioPhotoBytes = (
   if (dimensions.type !== IMAGE_SIZE_TYPE_BY_CONTENT_TYPE[allowedContentType]) {
     throw new StoryStudioPhotoValidationError("Le contenu du fichier ne correspond pas à son type MIME.");
   }
+  const minimumDimension = assetKind === "brandKitLogo" ? MIN_BRAND_KIT_LOGO_DIMENSION : MIN_VISUAL_DIMENSION;
   if (
     !dimensions.width
     || !dimensions.height
-    || dimensions.width < MIN_VISUAL_DIMENSION
-    || dimensions.height < MIN_VISUAL_DIMENSION
+    || dimensions.width < minimumDimension
+    || dimensions.height < minimumDimension
     || dimensions.width > MAX_VISUAL_DIMENSION
     || dimensions.height > MAX_VISUAL_DIMENSION
   ) {
-    throw new StoryStudioPhotoValidationError("Dimensions invalides. Chaque côté doit être compris entre 320 et 8192 px.");
+    throw new StoryStudioPhotoValidationError(`Dimensions invalides. Chaque côté doit être compris entre ${minimumDimension} et 8192 px.`);
   }
   return { contentType: allowedContentType, width: dimensions.width, height: dimensions.height, sizeBytes };
 };

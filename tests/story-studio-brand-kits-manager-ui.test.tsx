@@ -201,8 +201,10 @@ describe("Story Studio Brand Kits manager", () => {
 
     const uploadCalls = fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith("/photos") && (options as RequestInit | undefined)?.method === "POST");
     expect(uploadCalls).toHaveLength(2);
-    expect(uploadCalls.map(([, options]) => JSON.parse(String((options as RequestInit).body)).action))
+    const uploadBodies = uploadCalls.map(([, options]) => JSON.parse(String((options as RequestInit).body)));
+    expect(uploadBodies.map((body) => body.action))
       .toEqual(["create-upload-intent", "register-upload"]);
+    expect(uploadBodies[0]).toMatchObject({ assetKind: "brandKitLogo" });
     expect(uploadMock).toHaveBeenCalledWith(
       "story-studio/photos/logo-imported.png",
       expect.any(File),

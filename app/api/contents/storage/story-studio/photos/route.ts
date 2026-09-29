@@ -64,6 +64,7 @@ export async function POST(request: Request) {
     if (body.action === "create-upload-intent") {
       const intent = createStoryStudioPhotoUploadIntent({
         athleteId: normalizeAthleteId(body.athleteId),
+        assetKind: body.assetKind === "brandKitLogo" ? "brandKitLogo" : "photo",
         contentType: String(body.contentType ?? ""),
         sizeBytes: Number(body.sizeBytes),
       }, access);
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
         new Uint8Array(await blobResponse.arrayBuffer()),
         blobHead.contentType,
         blobHead.size,
+        intent.assetKind,
       );
 
       try {

@@ -73,4 +73,18 @@ describe("Story Studio client photo upload", () => {
     expect(() => validateStoryStudioPhotoBytes(bytes, "image/jpeg", bytes.byteLength)).toThrow(/320 et 8192/);
     expect(() => validateStoryStudioPhotoBytes(bytes, "image/jpeg", bytes.byteLength + 1)).toThrow(/taille du Blob/);
   });
+
+  it("accepts a 652 x 296 PNG only for a Brand Kit logo", () => {
+    const bytes = new Uint8Array(1024);
+    imageSizeMock.mockReturnValue({ width: 652, height: 296, type: "png" });
+
+    expect(validateStoryStudioPhotoBytes(bytes, "image/png", bytes.byteLength, "brandKitLogo")).toEqual({
+      contentType: "image/png",
+      width: 652,
+      height: 296,
+      sizeBytes: 1024,
+    });
+    expect(() => validateStoryStudioPhotoBytes(bytes, "image/png", bytes.byteLength, "photo"))
+      .toThrow(/320 et 8192/);
+  });
 });

@@ -47,9 +47,7 @@ const pngChunk = (type: string, data: Buffer) => {
   return Buffer.concat([length, typeBytes, data, checksum]);
 };
 
-const validPng = () => {
-  const width = 400;
-  const height = 400;
+const validPng = (width = 400, height = 400) => {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
   header.writeUInt32BE(height, 4);
@@ -69,10 +67,11 @@ const jsonRequest = (body: unknown) => new Request("http://localhost/api/content
   body: JSON.stringify(body),
 });
 
-const createIntent = async (bytes: Uint8Array) => {
+const createIntent = async (bytes: Uint8Array, assetKind: "photo" | "brandKitLogo" = "photo") => {
   const response = await photoUpload(jsonRequest({
     action: "create-upload-intent",
     athleteId: "athlete-1",
+    assetKind,
     contentType: "image/png",
     sizeBytes: bytes.byteLength,
   }));
@@ -153,6 +152,30 @@ describe("Story Studio direct Blob upload integration", () => {
 
     expect(response.status).toBe(500);
     expect(mocks.del).toHaveBeenCalledWith(blobUrl);
+  });
+
+  it("validates and persists a 652 x 296 Brand Kit logo during registration", async () => {
+    const bytes = validPng(652, 296);
+    const intent = await createIntent(bytes, "brandKitLogo");
+    mocks.head.mockResolvedValue({
+      url: blobUrl,
+      pathname: intent.pathname,
+      contentType: "image/png",
+      size: bytes.byteLength,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(bytes, { status: 200 })));
+
+    const response = await photoUpload(jsonRequest({
+      action: "register-upload",
+      uploadIntent: intent.uploadIntent,
+      blob: { url: blobUrl, pathname: intent.pathname },
+    }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createPhoto).toHaveBeenCalledWith({
+      athleteId: "athlete-1",
+      blob: expect.objectContaining({ width: 652, height: 296 }),
+    }, access);
   });
 
   it("returns valid JSON when a legacy multipart upload body is received", async () => {
