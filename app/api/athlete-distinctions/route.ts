@@ -14,16 +14,41 @@ import { evaluateBusinessAccess, getCurrentUserAccessProfile } from "@/lib/clerk
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const ATHLETE_OF_THE_MONTH_TYPE = "athlete_of_the_month";
+
+const isValidAwardPeriod = (awardMonth: number, awardYear: number): boolean =>
+  Number.isInteger(awardMonth)
+  && awardMonth >= 1
+  && awardMonth <= 12
+  && Number.isInteger(awardYear)
+  && awardYear >= 2000;
+
+const isCompletedAwardPeriod = (awardMonth: number, awardYear: number, now = new Date()): boolean =>
+  isValidAwardPeriod(awardMonth, awardYear)
+  && awardYear * 12 + awardMonth < now.getFullYear() * 12 + now.getMonth() + 1;
+
+const isAllowedAwardPeriod = (type: string, awardMonth: number, awardYear: number): boolean =>
+  type === ATHLETE_OF_THE_MONTH_TYPE
+    ? isCompletedAwardPeriod(awardMonth, awardYear)
+    : isValidAwardPeriod(awardMonth, awardYear);
+
 export async function GET(request: NextRequest) {
   try {
     const type = request.nextUrl.searchParams.get("type")?.trim() ?? "";
     const awardMonth = Number(request.nextUrl.searchParams.get("awardMonth"));
     const awardYear = Number(request.nextUrl.searchParams.get("awardYear"));
+    const hasPeriodQuery = Boolean(type)
+      || request.nextUrl.searchParams.has("awardMonth")
+      || request.nextUrl.searchParams.has("awardYear");
 
-    if (type && Number.isInteger(awardMonth) && Number.isInteger(awardYear)) {
+    if (hasPeriodQuery) {
       const accessCheck = await evaluateBusinessAccess(request, { action: "write:crm" });
       if (!accessCheck.allowed) {
         return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      }
+
+      if (!type || !isAllowedAwardPeriod(type, awardMonth, awardYear)) {
+        return NextResponse.json({ error: "Période invalide ou non terminée." }, { status: 400 });
       }
 
       const nominations = await listDistinctionNominationsByPeriod(type, awardMonth, awardYear);
@@ -93,7 +118,7 @@ export async function POST(request: NextRequest) {
       const awardYear = Number(body.awardYear);
       const reason = String(body.reason ?? "").trim();
 
-      if (!athleteId || !type || !Number.isInteger(awardMonth) || !Number.isInteger(awardYear)) {
+      if (!athleteId || !type || !isAllowedAwardPeriod(type, awardMonth, awardYear)) {
         return NextResponse.json({ error: "Données invalides." }, { status: 400 });
       }
 
@@ -132,7 +157,7 @@ export async function POST(request: NextRequest) {
       const awardYear = Number(body.awardYear);
       const description = String(body.description ?? "").trim();
 
-      if (!athleteId || !type || !Number.isInteger(awardMonth) || !Number.isInteger(awardYear)) {
+      if (!athleteId || !type || !isAllowedAwardPeriod(type, awardMonth, awardYear)) {
         return NextResponse.json({ error: "Données invalides." }, { status: 400 });
       }
 
@@ -169,7 +194,7 @@ export async function POST(request: NextRequest) {
     const awardYear = Number(body.awardYear);
     const description = String(body.description ?? "").trim();
 
-    if (!athleteId || !type || !Number.isInteger(awardMonth) || !Number.isInteger(awardYear)) {
+    if (!athleteId || !type || !isAllowedAwardPeriod(type, awardMonth, awardYear)) {
       return NextResponse.json({ error: "Données invalides." }, { status: 400 });
     }
 
@@ -215,13 +240,18 @@ export async function DELETE(request: NextRequest) {
       const awardMonth = Number(body.awardMonth);
       const awardYear = Number(body.awardYear);
 
-      if (!nominationId || !type || !Number.isInteger(awardMonth) || !Number.isInteger(awardYear)) {
+      if (!nominationId || !type || !isAllowedAwardPeriod(type, awardMonth, awardYear)) {
         return NextResponse.json({ error: "Données invalides." }, { status: 400 });
       }
 
       const winner = await getDistinctionByPeriod(type, awardMonth, awardYear);
       if (winner) {
         return NextResponse.json({ error: "Impossible de modifier les nominés après désignation du vainqueur." }, { status: 409 });
+      }
+
+      const nominations = await listDistinctionNominationsByPeriod(type, awardMonth, awardYear);
+      if (!nominations.some((nomination) => nomination.id === nominationId)) {
+        return NextResponse.json({ error: "Nomination introuvable pour cette période." }, { status: 404 });
       }
 
       const removedNomination = await deleteAthleteDistinctionNomination(nominationId);

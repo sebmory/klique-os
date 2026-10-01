@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/src/design-system/components";
 import type { Athlete, AthletesResponse, MonthlyFormResponse, WeeklyFormResponse } from "@/types/athlete";
 import type { ShootingsResponse, Shooting } from "@/types/shooting";
@@ -63,6 +63,38 @@ type ProcessedWeeklyResponse = {
 const DRAFT_KEY_PREFIX = "klique.contents.document-editor.draft.v1";
 const ATHLETE_OF_THE_MONTH_TYPE = "athlete_of_the_month";
 const MONTH_LABELS = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+
+export const getLastCompletedAwardPeriod = (now = new Date()): string => {
+  const lastCompletedMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${lastCompletedMonth.getFullYear()}-${String(lastCompletedMonth.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const parseAwardPeriod = (value: string): { awardMonth: number; awardYear: number } => {
+  const [year, month] = value.split("-").map(Number);
+  return { awardMonth: month, awardYear: year };
+};
+
+const loadAthleteOfTheMonth = async (awardPeriod: string) => {
+  const { awardMonth, awardYear } = parseAwardPeriod(awardPeriod);
+  const response = await fetch(
+    `/api/athlete-distinctions?type=${encodeURIComponent(ATHLETE_OF_THE_MONTH_TYPE)}&awardMonth=${awardMonth}&awardYear=${awardYear}`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error("Impossible de charger les nominations du mois.");
+  }
+
+  const payload = (await response.json()) as {
+    nominations?: AthleteOfTheMonthNomination[];
+    winner?: AthleteOfTheMonthWinner | null;
+  };
+
+  return {
+    nominations: Array.isArray(payload.nominations) ? payload.nominations : [],
+    winner: payload.winner ?? null,
+  };
+};
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -209,8 +241,10 @@ const parseWeeklyResponseDate = (value: string): number | null => {
 
 export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
   const now = new Date();
-  const currentAwardMonth = now.getMonth() + 1;
-  const currentAwardYear = now.getFullYear();
+  const lastCompletedAwardPeriod = getLastCompletedAwardPeriod(now);
+  const [selectedAwardPeriod, setSelectedAwardPeriod] = useState(lastCompletedAwardPeriod);
+  const selectedAwardPeriodRef = useRef(selectedAwardPeriod);
+  const { awardMonth: selectedAwardMonth, awardYear: selectedAwardYear } = parseAwardPeriod(selectedAwardPeriod);
   const [loading, setLoading] = useState(true);
   const [athletesAvailable, setAthletesAvailable] = useState(false);
   const [productionsAvailable, setProductionsAvailable] = useState(false);
@@ -226,6 +260,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [selectedWinnerAthleteId, setSelectedWinnerAthleteId] = useState("");
   const [winnerDescription, setWinnerDescription] = useState("");
   const [nominationLoading, setNominationLoading] = useState(false);
+  const [awardLoading, setAwardLoading] = useState(true);
   const [nominationError, setNominationError] = useState<string | null>(null);
   const [processedWeeklyResponseKeys, setProcessedWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
   const [processingWeeklyResponseKeys, setProcessingWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
@@ -236,124 +271,112 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [monthlyDetailOverrides, setMonthlyDetailOverrides] = useState<Record<string, boolean>>({});
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
-  const loadAthleteOfTheMonth = async () => {
-    const response = await fetch(
-      `/api/athlete-distinctions?type=${encodeURIComponent(ATHLETE_OF_THE_MONTH_TYPE)}&awardMonth=${currentAwardMonth}&awardYear=${currentAwardYear}`,
-      { cache: "no-store" },
-    );
-
-    if (!response.ok) {
-      throw new Error("Impossible de charger les nominations du mois.");
-    }
-
-    const payload = (await response.json()) as {
-      nominations?: AthleteOfTheMonthNomination[];
-      winner?: AthleteOfTheMonthWinner | null;
-    };
-
-    return {
-      nominations: Array.isArray(payload.nominations) ? payload.nominations : [],
-      winner: payload.winner ?? null,
-    };
-  };
-
   useEffect(() => {
     let active = true;
 
     const loadDashboardData = async () => {
       setLoading(true);
 
-      try {
-        const [athletesResponse, shootingsResponse, awardResponse, opportunitiesResponse, opportunitySlotsResponse, processedWeeklyResponsesResponse, processedMonthlyResponsesResponse] = await Promise.all([
-          fetch("/api/athletes?weeklyResponseDays=14&monthlyResponseDays=45", { cache: "no-store" }),
-          fetch("/api/shootings", { cache: "no-store" }),
-          loadAthleteOfTheMonth(),
-          fetch("/api/hub-opportunities", { cache: "no-store" }),
-          fetch("/api/hub-opportunity-slots", { cache: "no-store" }),
-          fetch("/api/weekly-response-processing", { cache: "no-store" }),
-          fetch("/api/weekly-response-processing?responseType=monthly", { cache: "no-store" }),
-        ]);
+      const loadAthletes = async () => {
+        try {
+          const athletesResponse = await fetch("/api/athletes?weeklyResponseDays=14&monthlyResponseDays=45", { cache: "no-store" });
+          const athletesPayload = (await athletesResponse.json()) as AthletesResponse | { error?: string };
+          if (!active) return;
 
-        const athletesPayload = (await athletesResponse.json()) as AthletesResponse | { error?: string };
-        const shootingsPayload = (await shootingsResponse.json()) as ShootingsResponse | { error?: string };
-        const opportunitiesPayload = (await opportunitiesResponse.json()) as { opportunities?: DashboardOpportunity[] };
-        const opportunitySlotsPayload = (await opportunitySlotsResponse.json()) as {
-          slots?: DashboardOpportunitySlot[];
-          requests?: DashboardOpportunityRequest[];
-        };
-        const processedWeeklyResponsesPayload = (await processedWeeklyResponsesResponse.json()) as {
-          processedResponses?: ProcessedWeeklyResponse[];
-        };
-        const processedMonthlyResponsesPayload = (await processedMonthlyResponsesResponse.json()) as {
-          processedResponses?: ProcessedWeeklyResponse[];
-        };
-
-        if (!active) return;
-
-        if (athletesResponse.ok && "source" in athletesPayload && athletesPayload.source === "google-sheets") {
-          setAthletesAvailable(true);
-          setAthletes(athletesPayload.athletes);
-        } else {
+          if (athletesResponse.ok && "source" in athletesPayload && athletesPayload.source === "google-sheets") {
+            setAthletesAvailable(true);
+            setAthletes(athletesPayload.athletes);
+          } else {
+            setAthletesAvailable(false);
+            setAthletes([]);
+          }
+        } catch {
+          if (!active) return;
           setAthletesAvailable(false);
           setAthletes([]);
         }
+      };
 
-        if (shootingsResponse.ok && "source" in shootingsPayload && shootingsPayload.source === "google-sheets") {
-          setProductionsAvailable(true);
-          setShootings(shootingsPayload.shootings);
-        } else {
+      const loadOtherDashboardData = async () => {
+        try {
+          const [shootingsResponse, opportunitiesResponse, opportunitySlotsResponse, processedWeeklyResponsesResponse, processedMonthlyResponsesResponse] = await Promise.all([
+            fetch("/api/shootings", { cache: "no-store" }),
+            fetch("/api/hub-opportunities", { cache: "no-store" }),
+            fetch("/api/hub-opportunity-slots", { cache: "no-store" }),
+            fetch("/api/weekly-response-processing", { cache: "no-store" }),
+            fetch("/api/weekly-response-processing?responseType=monthly", { cache: "no-store" }),
+          ]);
+
+          const shootingsPayload = (await shootingsResponse.json()) as ShootingsResponse | { error?: string };
+          const opportunitiesPayload = (await opportunitiesResponse.json()) as { opportunities?: DashboardOpportunity[] };
+          const opportunitySlotsPayload = (await opportunitySlotsResponse.json()) as {
+            slots?: DashboardOpportunitySlot[];
+            requests?: DashboardOpportunityRequest[];
+          };
+          const processedWeeklyResponsesPayload = (await processedWeeklyResponsesResponse.json()) as {
+            processedResponses?: ProcessedWeeklyResponse[];
+          };
+          const processedMonthlyResponsesPayload = (await processedMonthlyResponsesResponse.json()) as {
+            processedResponses?: ProcessedWeeklyResponse[];
+          };
+
+          if (!active) return;
+
+          if (shootingsResponse.ok && "source" in shootingsPayload && shootingsPayload.source === "google-sheets") {
+            setProductionsAvailable(true);
+            setShootings(shootingsPayload.shootings);
+          } else {
+            setProductionsAvailable(false);
+            setShootings([]);
+          }
+
+          const drafts: ContentDocument[] = [];
+          const keys = Object.keys(window.localStorage).filter((key) => key.startsWith(`${DRAFT_KEY_PREFIX}:`));
+          for (const key of keys) {
+            const raw = window.localStorage.getItem(key);
+            if (!raw) continue;
+            try {
+              drafts.push(JSON.parse(raw) as ContentDocument);
+            } catch {
+              // Ignore malformed saved entries.
+            }
+          }
+          setSavedDocuments(
+            drafts.sort((a, b) => {
+              const aRank = parseDateRank(a.updatedAt || a.createdAt);
+              const bRank = parseDateRank(b.updatedAt || b.createdAt);
+              return bRank - aRank;
+            })
+          );
+
+          setOpportunities(opportunitiesResponse.ok && Array.isArray(opportunitiesPayload.opportunities) ? opportunitiesPayload.opportunities : []);
+          setOpportunityRequests(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.requests) ? opportunitySlotsPayload.requests : []);
+          setOpportunitySlots(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.slots) ? opportunitySlotsPayload.slots : []);
+          setProcessedWeeklyResponseKeys(new Set(
+            processedWeeklyResponsesResponse.ok && Array.isArray(processedWeeklyResponsesPayload.processedResponses)
+              ? processedWeeklyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
+              : [],
+          ));
+          setProcessedMonthlyResponseKeys(new Set(
+            processedMonthlyResponsesResponse.ok && Array.isArray(processedMonthlyResponsesPayload.processedResponses)
+              ? processedMonthlyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
+              : [],
+          ));
+        } catch {
+          if (!active) return;
           setProductionsAvailable(false);
           setShootings([]);
+          setSavedDocuments([]);
+          setOpportunities([]);
+          setOpportunityRequests([]);
+          setOpportunitySlots([]);
+          setProcessedWeeklyResponseKeys(new Set());
+          setProcessedMonthlyResponseKeys(new Set());
         }
+      };
 
-        const drafts: ContentDocument[] = [];
-        const keys = Object.keys(window.localStorage).filter((key) => key.startsWith(`${DRAFT_KEY_PREFIX}:`));
-        for (const key of keys) {
-          const raw = window.localStorage.getItem(key);
-          if (!raw) continue;
-          try {
-            drafts.push(JSON.parse(raw) as ContentDocument);
-          } catch {
-            // Ignore malformed saved entries.
-          }
-        }
-        setSavedDocuments(
-          drafts.sort((a, b) => {
-            const aRank = parseDateRank(a.updatedAt || a.createdAt);
-            const bRank = parseDateRank(b.updatedAt || b.createdAt);
-            return bRank - aRank;
-          })
-        );
-
-        setMonthlyNominations(awardResponse.nominations);
-        setMonthlyWinner(awardResponse.winner);
-        setOpportunities(opportunitiesResponse.ok && Array.isArray(opportunitiesPayload.opportunities) ? opportunitiesPayload.opportunities : []);
-        setOpportunityRequests(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.requests) ? opportunitySlotsPayload.requests : []);
-        setOpportunitySlots(opportunitySlotsResponse.ok && Array.isArray(opportunitySlotsPayload.slots) ? opportunitySlotsPayload.slots : []);
-        setProcessedWeeklyResponseKeys(new Set(
-          processedWeeklyResponsesResponse.ok && Array.isArray(processedWeeklyResponsesPayload.processedResponses)
-            ? processedWeeklyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
-            : [],
-        ));
-        setProcessedMonthlyResponseKeys(new Set(
-          processedMonthlyResponsesResponse.ok && Array.isArray(processedMonthlyResponsesPayload.processedResponses)
-            ? processedMonthlyResponsesPayload.processedResponses.map((item) => getWeeklyResponseKey(item.athleteId, item.responseTimestamp))
-            : [],
-        ));
-      } catch {
-        if (!active) return;
-        setAthletesAvailable(false);
-        setProductionsAvailable(false);
-        setAthletes([]);
-        setShootings([]);
-        setSavedDocuments([]);
-        setMonthlyNominations([]);
-        setMonthlyWinner(null);
-        setOpportunities([]);
-        setOpportunityRequests([]);
-        setOpportunitySlots([]);
-        setProcessedWeeklyResponseKeys(new Set());
-        setProcessedMonthlyResponseKeys(new Set());
+      try {
+        await Promise.all([loadAthletes(), loadOtherDashboardData()]);
       } finally {
         if (active) {
           setLoading(false);
@@ -368,6 +391,30 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    void loadAthleteOfTheMonth(selectedAwardPeriod)
+      .then((payload) => {
+        if (!active) return;
+        setMonthlyNominations(payload.nominations);
+        setMonthlyWinner(payload.winner);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setMonthlyNominations([]);
+        setMonthlyWinner(null);
+        setNominationError(error instanceof Error ? error.message : "Impossible de charger les nominations du mois.");
+      })
+      .finally(() => {
+        if (active) setAwardLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedAwardPeriod]);
 
   const athletesToFollow = useMemo(() => {
     const now = Date.now();
@@ -577,9 +624,9 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   }, [opportunities, opportunityRequests, opportunitySlots]);
 
   const monthLabel = useMemo(() => {
-    const monthText = MONTH_LABELS[currentAwardMonth - 1] ?? "mois";
-    return `${monthText} ${currentAwardYear}`;
-  }, [currentAwardMonth, currentAwardYear]);
+    const monthText = MONTH_LABELS[selectedAwardMonth - 1] ?? "mois";
+    return `${monthText} ${selectedAwardYear}`;
+  }, [selectedAwardMonth, selectedAwardYear]);
 
   const nominatedAthleteIds = useMemo(
     () => new Set(monthlyNominations.map((nomination) => nomination.athleteId)),
@@ -602,8 +649,9 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     return athlete?.name || athleteId;
   };
 
-  const refreshAthleteOfTheMonth = async () => {
-    const payload = await loadAthleteOfTheMonth();
+  const refreshAthleteOfTheMonth = async (awardPeriod: string) => {
+    const payload = await loadAthleteOfTheMonth(awardPeriod);
+    if (selectedAwardPeriodRef.current !== awardPeriod) return;
     setMonthlyNominations(payload.nominations);
     setMonthlyWinner(payload.winner);
   };
@@ -617,6 +665,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     setNominationError(null);
 
     try {
+      const awardPeriod = selectedAwardPeriod;
+      const { awardMonth, awardYear } = parseAwardPeriod(awardPeriod);
       const response = await fetch("/api/athlete-distinctions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -624,8 +674,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           action: "nominate",
           athleteId: selectedNomineeAthleteId,
           type: ATHLETE_OF_THE_MONTH_TYPE,
-          awardMonth: currentAwardMonth,
-          awardYear: currentAwardYear,
+          awardMonth,
+          awardYear,
         }),
       });
 
@@ -635,7 +685,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       }
 
       setSelectedNomineeAthleteId("");
-      await refreshAthleteOfTheMonth();
+      await refreshAthleteOfTheMonth(awardPeriod);
     } catch (error) {
       setNominationError(error instanceof Error ? error.message : "Impossible d'ajouter le nomine.");
     } finally {
@@ -652,6 +702,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     setNominationError(null);
 
     try {
+      const awardPeriod = selectedAwardPeriod;
+      const { awardMonth, awardYear } = parseAwardPeriod(awardPeriod);
       const response = await fetch("/api/athlete-distinctions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -659,8 +711,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           action: "delete-nomination",
           nominationId,
           type: ATHLETE_OF_THE_MONTH_TYPE,
-          awardMonth: currentAwardMonth,
-          awardYear: currentAwardYear,
+          awardMonth,
+          awardYear,
         }),
       });
 
@@ -669,7 +721,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         throw new Error(payload.error || "Impossible de supprimer le nomine.");
       }
 
-      await refreshAthleteOfTheMonth();
+      await refreshAthleteOfTheMonth(awardPeriod);
     } catch (error) {
       setNominationError(error instanceof Error ? error.message : "Impossible de supprimer le nomine.");
     } finally {
@@ -686,6 +738,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     setNominationError(null);
 
     try {
+      const awardPeriod = selectedAwardPeriod;
+      const { awardMonth, awardYear } = parseAwardPeriod(awardPeriod);
       const response = await fetch("/api/athlete-distinctions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -693,8 +747,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           action: "designate-winner",
           athleteId: selectedWinnerAthleteId,
           type: ATHLETE_OF_THE_MONTH_TYPE,
-          awardMonth: currentAwardMonth,
-          awardYear: currentAwardYear,
+          awardMonth,
+          awardYear,
           description: winnerDescription,
         }),
       });
@@ -705,7 +759,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       }
 
       setWinnerDescription("");
-      await refreshAthleteOfTheMonth();
+      await refreshAthleteOfTheMonth(awardPeriod);
     } catch (error) {
       setNominationError(error instanceof Error ? error.message : "Impossible de designer le vainqueur.");
     } finally {
@@ -844,9 +898,36 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
               </div>
             </header>
 
-            <p style={{ marginTop: 0, color: "#4b5563" }}>Periode en cours: {monthLabel}</p>
+            <div style={{ display: "flex", alignItems: "end", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+              <label htmlFor="athlete-award-period" style={{ display: "grid", gap: "0.25rem", color: "#4b5563", fontSize: "0.85rem" }}>
+                Période consultée
+                <input
+                  id="athlete-award-period"
+                  type="month"
+                  value={selectedAwardPeriod}
+                  min="2000-01"
+                  max={lastCompletedAwardPeriod}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    selectedAwardPeriodRef.current = event.target.value;
+                    setAwardLoading(true);
+                    setNominationError(null);
+                    setSelectedNomineeAthleteId("");
+                    setSelectedWinnerAthleteId("");
+                    setWinnerDescription("");
+                    setSelectedAwardPeriod(event.target.value);
+                  }}
+                  disabled={nominationLoading}
+                  aria-label="Mois et année de la distinction"
+                  style={{ border: "1px solid #d1d5db", borderRadius: "10px", padding: "0.45rem 0.6rem" }}
+                />
+              </label>
+              <strong style={{ color: "#374151", paddingBottom: "0.45rem" }}>{monthLabel}</strong>
+            </div>
 
-            {monthlyWinner ? (
+            {awardLoading ? (
+              <p>Chargement des nominés...</p>
+            ) : monthlyWinner ? (
               <div style={{ border: "1px solid #d1fae5", background: "#ecfdf5", borderRadius: "12px", padding: "0.7rem", marginBottom: "0.7rem" }}>
                 <strong style={{ color: "#065f46" }}>Vainqueur: {getAthleteName(monthlyWinner.athleteId)}</strong>
                 <p style={{ margin: "0.25rem 0 0", color: "#047857" }}>
@@ -855,7 +936,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
               </div>
             ) : null}
 
-            {monthlyNominations.length > 0 ? (
+            {!awardLoading && monthlyNominations.length > 0 ? (
               <ul className="priority-list">
                 {monthlyNominations.map((nomination) => (
                   <li key={nomination.id} className="priority-item">
@@ -877,11 +958,11 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : !awardLoading ? (
               <p>Aucun nomine enregistre pour cette periode.</p>
-            )}
+            ) : null}
 
-            {!monthlyWinner && monthlyNominations.length < 3 ? (
+            {!awardLoading && !monthlyWinner && monthlyNominations.length < 3 ? (
               <div style={{ display: "grid", gap: "0.5rem", marginTop: "0.75rem" }}>
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                   <select
@@ -908,7 +989,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
               </div>
             ) : null}
 
-            {!monthlyWinner && monthlyNominations.length === 3 ? (
+            {!awardLoading && !monthlyWinner && monthlyNominations.length === 3 ? (
               <div style={{ marginTop: "0.75rem", display: "grid", gap: "0.55rem" }}>
                 <strong>Designer le vainqueur</strong>
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
