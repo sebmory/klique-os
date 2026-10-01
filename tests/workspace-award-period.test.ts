@@ -18,6 +18,51 @@ describe("Athlète KLIQUE du mois period", () => {
     expect(getLastCompletedAwardPeriod(new Date(2026, 0, 15))).toBe("2025-12");
   });
 
+  it("expands the monthly award rules from an accessible compact control", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/athletes?")) {
+        return Response.json({ source: "google-sheets", athletes: [] });
+      }
+      if (url.startsWith("/api/athlete-distinctions?")) {
+        return Response.json({ nominations: [], winner: null });
+      }
+      return Response.json({ source: "google-sheets", shootings: [], processedResponses: [], slots: [], requests: [] });
+    }));
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(WorkspaceLanding));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const toggle = container.querySelector<HTMLButtonElement>("#athlete-award-rules-toggle");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("#athlete-award-rules")).toBeNull();
+
+    await act(async () => toggle?.click());
+
+    const rules = container.querySelector("#athlete-award-rules");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(rules?.getAttribute("role")).toBe("region");
+    for (const rule of [
+      "3 athlètes sélectionnés chaque mois.",
+      "Vote du public pendant quelques jours.",
+      "Le vainqueur doit être parmi les 3 nominés.",
+      "Les 3 nominations restent dans l’historique.",
+      "Maximum de 3 titres par athlète et par saison.",
+      "Après son 3e titre, l’athlète n’est plus éligible aux élections mensuelles de la saison, mais reste qualifié pour la finale annuelle.",
+    ]) {
+      expect(rules?.textContent).toContain(rule);
+    }
+
+    await act(async () => root.unmount());
+  });
+
   it("keeps the monthly award usable when an unrelated dashboard source fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

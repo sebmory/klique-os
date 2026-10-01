@@ -261,6 +261,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [winnerDescription, setWinnerDescription] = useState("");
   const [nominationLoading, setNominationLoading] = useState(false);
   const [awardLoading, setAwardLoading] = useState(true);
+  const [awardRulesExpanded, setAwardRulesExpanded] = useState(false);
   const [nominationError, setNominationError] = useState<string | null>(null);
   const [processedWeeklyResponseKeys, setProcessedWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
   const [processingWeeklyResponseKeys, setProcessingWeeklyResponseKeys] = useState<Set<string>>(() => new Set());
@@ -894,9 +895,37 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
             <header className="dashboard-card-head">
               <h2>Athlete KLIQUE du mois</h2>
               <div className="dashboard-card-head-right">
+                <button
+                  id="athlete-award-rules-toggle"
+                  type="button"
+                  aria-expanded={awardRulesExpanded}
+                  aria-controls="athlete-award-rules"
+                  onClick={() => setAwardRulesExpanded((expanded) => !expanded)}
+                  style={{ border: 0, background: "transparent", color: "#374151", padding: "0.25rem", cursor: "pointer", fontWeight: 600 }}
+                >
+                  Voir les règles
+                </button>
                 <span className="card-pill">{monthlyNominations.length} / 3 nomines</span>
               </div>
             </header>
+
+            {awardRulesExpanded ? (
+              <div
+                id="athlete-award-rules"
+                role="region"
+                aria-labelledby="athlete-award-rules-toggle"
+                style={{ borderLeft: "3px solid #d1d5db", padding: "0.15rem 0 0.15rem 0.75rem", marginBottom: "0.75rem", color: "#4b5563", fontSize: "0.85rem" }}
+              >
+                <ul style={{ margin: 0, paddingLeft: "1rem", display: "grid", gap: "0.25rem" }}>
+                  <li>3 athlètes sélectionnés chaque mois.</li>
+                  <li>Vote du public pendant quelques jours.</li>
+                  <li>Le vainqueur doit être parmi les 3 nominés.</li>
+                  <li>Les 3 nominations restent dans l’historique.</li>
+                  <li>Maximum de 3 titres par athlète et par saison.</li>
+                  <li>Après son 3e titre, l’athlète n’est plus éligible aux élections mensuelles de la saison, mais reste qualifié pour la finale annuelle.</li>
+                </ul>
+              </div>
+            ) : null}
 
             <div style={{ display: "flex", alignItems: "end", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
               <label htmlFor="athlete-award-period" style={{ display: "grid", gap: "0.25rem", color: "#4b5563", fontSize: "0.85rem" }}>
