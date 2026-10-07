@@ -5,12 +5,15 @@ import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, Clapperboard, FileText, UserRoundPlus } from "lucide-react";
 import { buildJoinPassUrl, type PublicPassPlanCode } from "@/lib/pass-navigation";
+import { KLIQUE_PASS_LAUNCH_PROMOTION_LABEL } from "@/lib/klique-pass-launch-promotion";
 import styles from "./pass-flow.module.css";
 
 export type PublicPassPlan = {
   code: PublicPassPlanCode;
   name: string;
   annualPriceChf: number;
+  normalAnnualPriceChf: number;
+  launchPromotionActive: boolean;
   durationMonths: number;
   productionCredits: number;
   customContentCredits: number;
@@ -74,6 +77,10 @@ export default function PublicPassCatalog() {
           </ol>
         </section>
 
+        {plans.some((plan) => plan.launchPromotionActive) ? (
+          <p className={styles.promotionBanner}>{KLIQUE_PASS_LAUNCH_PROMOTION_LABEL}</p>
+        ) : null}
+
         {loading ? <p role="status" aria-live="polite" className={styles.status}>Chargement des offres…</p> : null}
         {error ? <p role="alert" className={styles.error}>{error}</p> : null}
         {!loading && !error && plans.length === 0 ? (
@@ -86,6 +93,9 @@ export default function PublicPassCatalog() {
               <article className={styles.plan} key={plan.code}>
                 <div>
                   <h2 className={styles.planName}>{plan.name}</h2>
+                  {plan.launchPromotionActive ? (
+                    <del className={styles.normalPrice}>{formatPrice(plan.normalAnnualPriceChf)}</del>
+                  ) : null}
                   <p className={styles.price}>{formatPrice(plan.annualPriceChf)} <span>par an</span></p>
                 </div>
                 <p style={{ margin: 0, color: "#65716b" }}>{plan.durationMonths} mois d’accompagnement</p>

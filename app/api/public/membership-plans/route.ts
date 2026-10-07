@@ -3,16 +3,19 @@ import {
   listActiveAthleteMembershipPlans,
   type AthleteMembershipPlan,
 } from "@/lib/athlete-credits";
+import { resolveKliquePassPrice } from "@/lib/klique-pass-launch-promotion";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type HandlerDependencies = {
   listPlans: () => Promise<AthleteMembershipPlan[]>;
+  now?: () => Date;
 };
 
 const defaultDependencies: HandlerDependencies = {
   listPlans: listActiveAthleteMembershipPlans,
+  now: () => new Date(),
 };
 
 const planOrder = new Map([
@@ -30,6 +33,7 @@ export const createPublicMembershipPlansHandlers = (
     }
 
     try {
+      const now = dependencies.now?.() ?? new Date();
       const plans = (await dependencies.listPlans())
         .filter((plan) => (
           plan.active
@@ -40,15 +44,18 @@ export const createPublicMembershipPlansHandlers = (
           && plan.customContentCredits !== null
         ))
         .sort((left, right) => planOrder.get(left.code)! - planOrder.get(right.code)!)
-        .map((plan) => ({
-          code: plan.code,
-          name: plan.name,
-          annualPriceChf: plan.annualPriceChf!,
-          durationMonths: plan.durationMonths!,
-          productionCredits: plan.productionCredits!,
-          customContentCredits: plan.customContentCredits!,
-          videoAllowed: plan.videoAllowed === true,
-        }));
+        .map((plan) => {
+          const price = resolveKliquePassPrice(plan.annualPriceChf!, now);
+          return {
+            code: plan.code,
+            name: plan.name,
+            ...price,
+            durationMonths: plan.durationMonths!,
+            productionCredits: plan.productionCredits!,
+            customContentCredits: plan.customContentCredits!,
+            videoAllowed: plan.videoAllowed === true,
+          };
+        });
 
       return NextResponse.json({ plans });
     } catch {

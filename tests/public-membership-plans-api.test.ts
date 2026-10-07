@@ -45,17 +45,35 @@ describe("Public membership plans API", () => {
   it("limits every plan to the public projection without TWINT or internal data", async () => {
     const response = await createPublicMembershipPlansHandlers({
       listPlans: vi.fn().mockResolvedValue([plan()]),
+      now: () => new Date("2026-10-07T12:00:00.000Z"),
     }).GET(new Request(url));
 
     await expect(response.json()).resolves.toEqual({
       plans: [{
         code: "essential",
         name: "Essentiel",
-        annualPriceChf: 249,
+        annualPriceChf: 124.5,
+        normalAnnualPriceChf: 249,
+        launchPromotionActive: true,
         durationMonths: 12,
         productionCredits: 1,
         customContentCredits: 2,
         videoAllowed: false,
+      }],
+    });
+  });
+
+  it("returns normal prices automatically after the Zurich deadline", async () => {
+    const response = await createPublicMembershipPlansHandlers({
+      listPlans: vi.fn().mockResolvedValue([plan()]),
+      now: () => new Date("2026-12-31T23:00:00.000Z"),
+    }).GET(new Request(url));
+
+    await expect(response.json()).resolves.toMatchObject({
+      plans: [{
+        annualPriceChf: 249,
+        normalAnnualPriceChf: 249,
+        launchPromotionActive: false,
       }],
     });
   });

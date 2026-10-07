@@ -3,6 +3,7 @@ import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 import { buildAnnualPlanGrantReference } from "@/lib/athlete-credits";
+import { resolveKliquePassPriceMultiplier } from "@/lib/klique-pass-launch-promotion";
 
 export type AthleteMembershipOrderStatus = "pending" | "paid" | "cancelled" | "expired";
 export type CommercialAthletePlanCode = "essential" | "impact" | "signature";
@@ -78,6 +79,7 @@ export type AthleteMembershipOrderRepository = {
     athleteId: string;
     clerkUserId: string;
     planCode: CommercialAthletePlanCode;
+    annualPriceMultiplier: number;
     publicReference: string;
     now: string;
   }): Promise<CreateResult>;
@@ -256,7 +258,7 @@ const createRepository = (): AthleteMembershipOrderRepository => {
             created_by_clerk_user_id, expires_at, created_at, updated_at
           )
           SELECT ${input.id}::uuid, ${input.workspaceId}, ${input.athleteId}, ${input.publicReference},
-                 plan.code, plan.name, plan.annual_price_chf, plan.duration_months,
+                 plan.code, plan.name, ROUND(plan.annual_price_chf * ${input.annualPriceMultiplier}, 2), plan.duration_months,
                  plan.production_credits, plan.custom_content_credits, plan.video_allowed,
                  'twint_business', 'pending', ${input.clerkUserId},
                  ${input.now}::timestamptz + INTERVAL '7 days', ${input.now}::timestamptz, ${input.now}::timestamptz
@@ -451,14 +453,16 @@ export const createAthleteMembershipOrder = async (
   const identity = await requireAthlete(request, dependencies.getAccessProfile);
   const planCode = parsePlanCode(input.planCode);
   const paymentUrl = dependencies.getTwintPaymentUrl();
+  const now = dependencies.now();
   for (let attempt = 0; attempt < REFERENCE_RETRY_LIMIT; attempt += 1) {
     try {
       const result = await dependencies.repository.createAtomic({
         ...identity,
         id: dependencies.createId(),
         planCode,
+        annualPriceMultiplier: resolveKliquePassPriceMultiplier(now),
         publicReference: dependencies.createReference(),
-        now: dependencies.now().toISOString(),
+        now: now.toISOString(),
       });
       if (result.outcome === "founder") throw new AthleteMembershipOrderError("conflict", "Les adhésions Founder sont exclues de ce parcours.");
       if (result.outcome === "membership_conflict") throw new AthleteMembershipOrderError("conflict", "Une adhésion effective ou active existe déjà.");

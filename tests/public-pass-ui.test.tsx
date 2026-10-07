@@ -14,9 +14,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 import PublicPassCatalog from "@/components/pass/PublicPassCatalog";
 
 const plans = [
-  { code: "essential", name: "Essentiel", annualPriceChf: 249, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
-  { code: "impact", name: "Impact", annualPriceChf: 549, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
-  { code: "signature", name: "Signature", annualPriceChf: 999, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
+  { code: "essential", name: "Essentiel", annualPriceChf: 124.5, normalAnnualPriceChf: 249, launchPromotionActive: true, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
+  { code: "impact", name: "Impact", annualPriceChf: 274.5, normalAnnualPriceChf: 549, launchPromotionActive: true, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
+  { code: "signature", name: "Signature", annualPriceChf: 499.5, normalAnnualPriceChf: 999, launchPromotionActive: true, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
 ];
 const response = (payload: unknown, status = 200) => ({
   ok: status < 400,
@@ -67,7 +67,13 @@ describe("Public Pass page", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/public/membership-plans", { cache: "no-store" });
     expect(container.textContent?.indexOf("Essentiel")).toBeLessThan(container.textContent!.indexOf("Impact"));
     expect(container.textContent?.indexOf("Impact")).toBeLessThan(container.textContent!.indexOf("Signature"));
-    expect(container.textContent).toContain("CHF 549.00");
+    expect(container.textContent).toContain("Offre de lancement : -50 % jusqu’au 31.12.2026");
+    expect(container.textContent).toContain("CHF 274.50");
+    expect([...container.querySelectorAll("del")].map((element) => element.textContent)).toEqual([
+      "CHF 249.00",
+      "CHF 549.00",
+      "CHF 999.00",
+    ]);
     expect(container.textContent).toContain("12 mois");
     expect(container.textContent).toContain("2 crédit(s)Production photo/vidéo");
     expect(container.textContent).toContain("4 crédit(s)Contenu personnalisé");

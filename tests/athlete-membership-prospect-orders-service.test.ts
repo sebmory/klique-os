@@ -260,6 +260,7 @@ describe("Prospect membership order identity and creation", () => {
     expect(repo.createAtomic).toHaveBeenCalledWith(expect.objectContaining({
       termsVersion: ATHLETE_MEMBERSHIP_PROSPECT_TERMS_VERSION,
       termsAcceptedAt: now.toISOString(),
+      annualPriceMultiplier: 0.5,
     }));
   });
 
@@ -346,6 +347,7 @@ describe("Prospect membership order persistence", () => {
       fullName: "Lina Morel",
       phone: null,
       planCode: "essential",
+      annualPriceMultiplier: 0.5,
       termsVersion: ATHLETE_MEMBERSHIP_PROSPECT_TERMS_VERSION,
       termsAcceptedAt: now.toISOString(),
       now: now.toISOString(),

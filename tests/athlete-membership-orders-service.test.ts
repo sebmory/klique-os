@@ -116,7 +116,8 @@ afterEach(() => {
 
 describe("Athlete membership order creation", () => {
   it("uses catalog snapshots returned by the atomic repository", async () => {
-    const result = await createAthleteMembershipOrder(request, { planCode: "essential" }, dependencies());
+    const repo = repository();
+    const result = await createAthleteMembershipOrder(request, { planCode: "essential" }, dependencies(repo));
 
     expect(result).toMatchObject({
       planCode: "essential",
@@ -127,6 +128,10 @@ describe("Athlete membership order creation", () => {
       customContentCredits: 2,
       videoAllowed: false,
     });
+    expect(repo.createAtomic).toHaveBeenCalledWith(expect.objectContaining({
+      annualPriceMultiplier: 0.5,
+      now: now.toISOString(),
+    }));
   });
 
   it("expires old pending rows and snapshots only an active commercial catalog plan in one transaction", async () => {

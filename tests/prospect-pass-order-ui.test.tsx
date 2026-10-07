@@ -8,9 +8,9 @@ import ProspectPassOrder, {
 } from "@/components/pass/ProspectPassOrder";
 
 const plans = [
-  { code: "essential", name: "Essentiel", annualPriceChf: 249, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
-  { code: "impact", name: "Impact", annualPriceChf: 549, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
-  { code: "signature", name: "Signature", annualPriceChf: 999, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
+  { code: "essential", name: "Essentiel", annualPriceChf: 124.5, normalAnnualPriceChf: 249, launchPromotionActive: true, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
+  { code: "impact", name: "Impact", annualPriceChf: 274.5, normalAnnualPriceChf: 549, launchPromotionActive: true, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
+  { code: "signature", name: "Signature", annualPriceChf: 499.5, normalAnnualPriceChf: 999, launchPromotionActive: true, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
 ];
 const pendingOrder = {
   ...plans[1],
@@ -88,6 +88,9 @@ describe("Prospect Pass order", () => {
       "/api/join/pass/order",
     ]);
     expect(container.textContent).toContain("Impact");
+    expect(container.textContent).toContain("Offre de lancement : -50 % jusqu’au 31.12.2026");
+    expect(container.querySelector("del")?.textContent).toBe("CHF 549.00");
+    expect(container.textContent).toContain("CHF 274.50");
     expect(container.textContent).toContain("Nom complet");
     expect(container.textContent).toContain("Téléphone (facultatif)");
     expect(container.textContent).toContain("Lire les conditions commerciales");
@@ -151,7 +154,7 @@ describe("Prospect Pass order", () => {
     fetchMock.mockResolvedValueOnce(response({ plans })).mockResolvedValueOnce(response({ order: pendingOrder }));
     await mount("signature");
     expect(container.textContent).toContain("Impact");
-    expect(container.textContent).toContain("CHF 549.00");
+    expect(container.textContent).toContain("CHF 274.50");
     expect(container.textContent).toContain("KQ-ABCDEF123456");
     expect(container.textContent).toContain("30 septembre 2026");
     expect(container.textContent).toContain(PROSPECT_TWINT_INSTRUCTIONS);
@@ -165,7 +168,7 @@ describe("Prospect Pass order", () => {
     await click(button("Copier le montant"));
     await click(button("Copier la référence"));
     await click(button("Payer avec TWINT"));
-    expect(copyMock).toHaveBeenNthCalledWith(1, "549.00");
+    expect(copyMock).toHaveBeenNthCalledWith(1, "274.50");
     expect(copyMock).toHaveBeenNthCalledWith(2, "KQ-ABCDEF123456");
     expect(openMock).toHaveBeenCalledWith("https://pay.example.test/twint", "_blank", "noopener,noreferrer");
     expect(container.textContent).not.toContain("Paiement vérifié");

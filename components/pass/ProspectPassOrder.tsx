@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, Copy, ExternalLink, ShieldCheck } from "lucide-react";
 import { ATHLETE_SUBSCRIPTION_TERMS } from "@/lib/athlete-subscription-terms";
+import { KLIQUE_PASS_LAUNCH_PROMOTION_LABEL } from "@/lib/klique-pass-launch-promotion";
 import type { PublicPassPlanCode } from "@/lib/pass-navigation";
 import type { PublicPassPlan } from "./PublicPassCatalog";
 import styles from "./pass-flow.module.css";
@@ -174,6 +175,9 @@ export default function ProspectPassOrder({ initialPlan }: { initialPlan: Public
 
   return (
     <>
+      {plans.some((plan) => plan.launchPromotionActive) ? (
+        <p className={styles.promotionBanner}>{KLIQUE_PASS_LAUNCH_PROMOTION_LABEL}</p>
+      ) : null}
       {error ? <p role="alert" className={styles.error}>{error}</p> : null}
       {notice ? <p role="status" aria-live="polite" className={styles.status}>{notice}</p> : null}
 
@@ -207,6 +211,9 @@ export default function ProspectPassOrder({ initialPlan }: { initialPlan: Public
           <aside className={styles.panel}>
             <p className={styles.eyebrow}>Votre choix</p>
             <h2 className={styles.planName}>{selectedPlan.name}</h2>
+            {selectedPlan.launchPromotionActive ? (
+              <del className={styles.normalPrice}>{formatAmount(selectedPlan.normalAnnualPriceChf)}</del>
+            ) : null}
             <p className={styles.price}>{formatAmount(selectedPlan.annualPriceChf)} <span>par an</span></p>
             <ul className={styles.features} style={{ marginTop: "1rem" }}>
               <li>{selectedPlan.durationMonths} mois</li>

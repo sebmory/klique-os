@@ -3,6 +3,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { resolveTwintBusinessPaymentUrl } from "@/lib/athlete-membership-orders";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
+import { resolveKliquePassPriceMultiplier } from "@/lib/klique-pass-launch-promotion";
 import type { AthleteMembership } from "@/lib/athlete-memberships";
 import type { Athlete } from "@/types/athlete";
 
@@ -169,6 +170,7 @@ export type AthleteMembershipProspectOrderRepository = {
     fullName: string;
     phone: string | null;
     planCode: AthleteMembershipProspectPlanCode;
+    annualPriceMultiplier: number;
     termsVersion: string;
     termsAcceptedAt: string;
     now: string;
@@ -491,7 +493,7 @@ export const createAthleteMembershipProspectOrderRepository = (): AthleteMembers
           )
           SELECT ${input.id}::uuid, ${input.publicReference}, ${input.workspaceId},
                  ${input.clerkUserId}, ${input.verifiedEmail}, ${input.fullName}, ${input.phone},
-                 plan.code, plan.name, plan.annual_price_chf, plan.duration_months,
+                 plan.code, plan.name, ROUND(plan.annual_price_chf * ${input.annualPriceMultiplier}, 2), plan.duration_months,
                  plan.production_credits, plan.custom_content_credits, plan.video_allowed,
                  'twint_business', 'pending_payment', ${input.clerkUserId},
                  ${input.termsVersion}, ${input.termsAcceptedAt}::timestamptz,
@@ -850,7 +852,8 @@ export const createAthleteMembershipProspectOrder = async (
   const termsVersion = normalize(dependencies.termsVersion);
   if (!termsVersion) throw new AthleteMembershipProspectOrderError("configuration", "La version des conditions est indisponible.");
   const twintPaymentUrl = dependencies.getTwintPaymentUrl();
-  const acceptedAt = dependencies.now().toISOString();
+  const now = dependencies.now();
+  const acceptedAt = now.toISOString();
 
   for (let attempt = 0; attempt < REFERENCE_RETRY_LIMIT; attempt += 1) {
     try {
@@ -859,6 +862,7 @@ export const createAthleteMembershipProspectOrder = async (
         ...parsed,
         id: dependencies.createId(),
         publicReference: dependencies.createReference(),
+        annualPriceMultiplier: resolveKliquePassPriceMultiplier(now),
         termsVersion,
         termsAcceptedAt: acceptedAt,
         now: acceptedAt,
