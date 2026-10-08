@@ -15,7 +15,8 @@ export type PublicKliqueStats = {
 };
 
 type StatsAthlete = Pick<Athlete, "row" | "athleteId" | "name" | "sport" | "status">;
-type StatsPartner = Pick<Partner, "row" | "name" | "status" | "relationType" | "type" | "expertKlique">;
+type StatsPartner = Pick<Partner, "row" | "name" | "status" | "relationType" | "type" | "expertKlique">
+  & { category?: Partner["category"] };
 
 const normalize = (value: unknown): string => String(value ?? "")
   .trim()
@@ -33,6 +34,7 @@ const isCanonicalPublicAthlete = (athlete: StatsAthlete): boolean =>
 const isCanonicalActivePartnerExpert = (partner: StatsPartner): boolean => {
   if (typeof partner.row !== "number" || partner.row <= 0 || !partner.name.trim()) return false;
   if (normalize(partner.status) !== "actif") return false;
+  if (normalize(partner.category) === "test") return false;
   const relationType = normalize(partner.relationType ?? partner.type);
   return partner.expertKlique || relationType.includes("partenaire") || relationType.includes("expert");
 };
