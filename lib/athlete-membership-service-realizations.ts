@@ -145,14 +145,10 @@ const createRepository = (): AthleteIncludedServiceRealizationRepository => {
                  COALESCE(ledger.entitlement, 0)
                    + CASE
                        WHEN membership.membership_kind = 'founder'
-                         AND membership.source = 'legacy_founder_migration'
                          AND COALESCE(ledger.has_plan_grant, FALSE) = FALSE
                        THEN 1
                        WHEN ${input.creditType} = 'custom_content'
-                         AND NOT (
-                           membership.membership_kind = 'founder'
-                           AND membership.source = 'legacy_founder_migration'
-                         )
+                         AND membership.membership_kind <> 'founder'
                          AND COALESCE(ledger.has_plan_grant, FALSE) = FALSE
                        THEN COALESCE(subscription.custom_contents_included, 0)
                        ELSE 0

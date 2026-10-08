@@ -276,8 +276,7 @@ export const calculateAthleteMembershipServiceSummary = ({
   const legacyRequests = projection.legacyContent?.requests.filter(
     (request) => !legacyUsageReferences.has(legacyReference(request.id)),
   ) ?? [];
-  const isLegacyFounder = membership.membershipKind === "founder"
-    && membership.source === "legacy_founder_migration";
+  const isFounder = membership.membershipKind === "founder";
 
   const included = (["production", "custom_content"] as const).map((creditType) => {
     const movements = projection.movements.filter((movement) => movement.creditType === creditType);
@@ -290,8 +289,8 @@ export const calculateAthleteMembershipServiceSummary = ({
     const hasPlanGrant = movements.some((movement) => (
       movement.source === "plan_grant" && movement.quantity > 0
     ));
-    const founderFallbackQuota = isLegacyFounder && !hasPlanGrant ? 1 : 0;
-    const legacyQuota = !isLegacyFounder && creditType === "custom_content" && !hasPlanGrant
+    const founderFallbackQuota = isFounder && !hasPlanGrant ? 1 : 0;
+    const legacyQuota = !isFounder && creditType === "custom_content" && !hasPlanGrant
       ? projection.legacyContent?.quota ?? 0
       : 0;
     const quota = Math.max(0, ledgerQuota + founderFallbackQuota + legacyQuota);

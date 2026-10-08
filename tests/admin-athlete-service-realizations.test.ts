@@ -64,6 +64,26 @@ describe("Admin included service realizations", () => {
     expect(serviceSource).not.toContain("getShootingsFromGoogleSheets");
   });
 
+  it("allows an admin_manual Founder realization through the source-agnostic fallback", async () => {
+    const repository: AthleteIncludedServiceRealizationRepository = {
+      record: vi.fn().mockResolvedValue({
+        outcome: "created",
+        requestId: validInput.realizationId,
+      }),
+    };
+
+    await expect(recordAthleteIncludedServiceRealization(validInput, {
+      now: new Date("2026-10-08T12:00:00.000Z"),
+      repository,
+    })).resolves.toEqual({ outcome: "created", requestId: validInput.realizationId });
+    expect(serviceSource).toMatch(
+      /WHEN membership\.membership_kind = 'founder'\s+AND COALESCE\(ledger\.has_plan_grant, FALSE\) = FALSE\s+THEN 1/,
+    );
+    expect(serviceSource).not.toMatch(
+      /membership\.membership_kind = 'founder'\s+AND membership\.source = 'legacy_founder_migration'/,
+    );
+  });
+
   it.each([
     ["membership_inactive", "inactive"],
     ["insufficient_rights", "insufficient_rights"],

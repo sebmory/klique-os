@@ -193,7 +193,26 @@ describe("Athlete membership service summary", () => {
     ]);
   });
 
-  it("does not apply the Founder fallback to another membership kind or source", () => {
+  it("applies one production and one custom_content right to an admin_manual Founder without plan grants", () => {
+    const founderMembership: AthleteMembership = {
+      ...membership,
+      membershipKind: "founder",
+      planCode: null,
+      source: "admin_manual",
+    };
+    const summary = calculateAthleteMembershipServiceSummary({
+      membership: founderMembership,
+      projection: emptyProjection(),
+      now: new Date("2026-10-08T00:00:00.000Z"),
+    });
+
+    expect(summary.included).toEqual([
+      expect.objectContaining({ creditType: "production", quota: 1, reserved: 0, used: 0, available: 1 }),
+      expect.objectContaining({ creditType: "custom_content", quota: 1, reserved: 0, used: 0, available: 1 }),
+    ]);
+  });
+
+  it("does not apply the Founder fallback to another membership kind", () => {
     const summary = calculateAthleteMembershipServiceSummary({
       membership,
       projection: emptyProjection(),
