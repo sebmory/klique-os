@@ -8,6 +8,10 @@ import type { ShootingsResponse, Shooting } from "@/types/shooting";
 import type { ContentDocument } from "@/types/content-document";
 import { ShootingService } from "@/services/shooting.service";
 import { buildMembershipState } from "@/lib/membership";
+import {
+  AthleteServicePlanningCard,
+  type AthleteServicePlanningPriorityView,
+} from "@/components/app-shell/AthleteServicePlanningCard";
 
 type WorkspaceLandingProps = {
   sectionTitle?: string;
@@ -248,8 +252,10 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   const [loading, setLoading] = useState(true);
   const [athletesAvailable, setAthletesAvailable] = useState(false);
   const [productionsAvailable, setProductionsAvailable] = useState(false);
+  const [servicePrioritiesAvailable, setServicePrioritiesAvailable] = useState(false);
   const [athletes, setAthletes] = useState<AthletesResponse["athletes"]>([]);
   const [shootings, setShootings] = useState<Shooting[]>([]);
+  const [servicePriorities, setServicePriorities] = useState<AthleteServicePlanningPriorityView[]>([]);
   const [savedDocuments, setSavedDocuments] = useState<ContentDocument[]>([]);
   const [opportunities, setOpportunities] = useState<DashboardOpportunity[]>([]);
   const [opportunityRequests, setOpportunityRequests] = useState<DashboardOpportunityRequest[]>([]);
@@ -376,8 +382,24 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         }
       };
 
+      const loadServicePriorities = async () => {
+        try {
+          const response = await fetch("/api/admin/today/service-priorities", { cache: "no-store" });
+          const payload = (await response.json()) as {
+            priorities?: AthleteServicePlanningPriorityView[];
+          };
+          if (!active) return;
+          setServicePrioritiesAvailable(response.ok);
+          setServicePriorities(response.ok && Array.isArray(payload.priorities) ? payload.priorities : []);
+        } catch {
+          if (!active) return;
+          setServicePrioritiesAvailable(false);
+          setServicePriorities([]);
+        }
+      };
+
       try {
-        await Promise.all([loadAthletes(), loadOtherDashboardData()]);
+        await Promise.all([loadAthletes(), loadOtherDashboardData(), loadServicePriorities()]);
       } finally {
         if (active) {
           setLoading(false);
@@ -855,6 +877,10 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
             Voir toutes les opportunités
           </Link>
         </Card>
+
+        {servicePrioritiesAvailable ? (
+          <AthleteServicePlanningCard priorities={servicePriorities} />
+        ) : null}
 
         {athletesAvailable ? (
           <Card className="workspace-dashboard-card card-priorities dashboard-athletes-card">

@@ -6556,6 +6556,10 @@ button {
 
 [data-ds="Card"].dashboard-opportunities-card { order: 11; }
 [data-ds="Card"].dashboard-weekly-card { order: 12; }
+[data-ds="Card"].dashboard-service-planning-card {
+  order: 13;
+  grid-column: 1 / -1;
+}
 [data-ds="Card"].dashboard-monthly-card {
   order: 21;
   grid-column: 1 / -1;
@@ -6699,6 +6703,22 @@ button {
   align-items: start;
 }
 
+.service-planning-item {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.service-planning-deadline {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.service-planning-deadline small {
+  color: #6c625b;
+  white-space: nowrap;
+}
+
 .athlete-follow-reasons {
   display: flex;
   flex-wrap: wrap;
@@ -6799,6 +6819,7 @@ button {
 
   [data-ds="Card"].dashboard-opportunities-card,
   [data-ds="Card"].dashboard-weekly-card,
+  [data-ds="Card"].dashboard-service-planning-card,
   [data-ds="Card"].dashboard-monthly-card,
   [data-ds="Card"].dashboard-productions-card,
   [data-ds="Card"].dashboard-contents-card,
@@ -6811,6 +6832,19 @@ button {
 
   .monthly-responses-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-planning-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .service-planning-deadline {
+    justify-items: start;
+  }
+
+  .service-planning-item .card-link-button {
+    grid-column: 1 / -1;
+    width: fit-content;
   }
 }
 

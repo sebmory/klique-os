@@ -12,6 +12,7 @@ import {
   type AthleteMembershipAdminInput,
 } from "@/lib/athlete-memberships";
 import { listActiveAthleteMembershipPlans } from "@/lib/athlete-credits";
+import { getAthleteMembershipServiceSummary } from "@/lib/athlete-membership-service-summary";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
@@ -93,7 +94,14 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }),
       listActiveAthleteMembershipPlans(),
     ]);
-    return NextResponse.json({ membership, plans });
+    const serviceSummary = membership.isActive && membership.membership
+      ? await getAthleteMembershipServiceSummary({
+          workspaceId: authorized.workspaceId,
+          athleteId: authorized.athleteId,
+          membership: membership.membership,
+        })
+      : null;
+    return NextResponse.json({ membership, plans, serviceSummary });
   } catch (error) {
     return errorResponse(error);
   }
