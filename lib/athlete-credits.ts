@@ -1,7 +1,7 @@
 import { createContentStorageClient } from "@/lib/content-storage/db";
 
 export type AthleteCreditType = "production" | "custom_content";
-export type AthleteCreditMovementSource = "plan_grant" | "admin_adjustment" | "purchase" | "usage";
+export type AthleteCreditMovementSource = "plan_grant" | "admin_adjustment" | "purchase" | "usage" | "usage_reversal";
 export type AthleteCreditPurchaseStatus = "pending" | "paid" | "cancelled" | "refunded";
 export type AthleteServiceType = "standard_photo" | "editorial_interview" | "simple_video" | "custom_content";
 

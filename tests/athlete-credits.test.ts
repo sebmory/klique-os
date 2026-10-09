@@ -34,6 +34,16 @@ const essentialPlan: AthleteMembershipPlan = {
 };
 
 describe("athlete credit calculations", () => {
+  it("sums a cancellation once and does not retain credit after its grant expires", () => {
+    const movements = [
+      movement({ id: "grant", quantity: 1, expiresAt: "2027-01-01T00:00:00.000Z" }),
+      movement({ id: "usage", quantity: -1, source: "usage", expiresAt: null }),
+      movement({ id: "reversal", quantity: 1, source: "usage_reversal", expiresAt: null }),
+    ];
+    expect(calculateAthleteCreditBalance(movements, new Date("2026-10-08")).production).toBe(1);
+    expect(calculateAthleteCreditBalance(movements, new Date("2027-02-01")).production).toBe(0);
+  });
+
   it("calculates balances from signed movements", () => {
     const balance = calculateAthleteCreditBalance([
       movement({ id: "grant-production", quantity: 3 }),

@@ -51,16 +51,17 @@ describe("Admin included service realizations", () => {
       occurredAt: "2026-09-10T12:00:00.000Z",
       note: "Séance historique",
     }));
-    expect(serviceSource).toContain("WITH locked_membership AS MATERIALIZED");
+    expect(serviceSource).toContain('sql.transaction([lockMembership(input), query], { isolationLevel: "ReadCommitted" })');
     expect(serviceSource).toContain("FOR UPDATE");
     expect(serviceSource).toContain("INSERT INTO athlete_credit_movements");
     expect(serviceSource).toContain("INSERT INTO athlete_service_requests");
     expect(serviceSource).toContain("'included_right', 'completed'");
-    expect(serviceSource).toContain("${input.creditType}, 1, movement.id");
-    expect(serviceSource).toContain("'athlete_service_request:' || ${input.requestId}");
-    expect(serviceSource).toContain("'message', ${input.note}::text");
-    expect(serviceSource).toContain("'historicalRealizationAt', ${input.occurredAt}::text");
-    expect(serviceSource).toContain("'recordedByClerkUserId', ${input.adminClerkUserId}::text");
+    expect(serviceSource).toContain("$5, 1, movement.id");
+    expect(serviceSource).toContain("'athlete_service_request:' || $4::text");
+    expect(serviceSource).toContain("'message', $9::text");
+    expect(serviceSource).toContain("'historicalRealizationAt', to_char($8::timestamptz AT TIME ZONE 'UTC'");
+    expect(serviceSource).toContain("'recordedByClerkUserId', $10::text");
+    expect(serviceSource).toContain("created_at, updated_at, is_admin_membership_realization");
     expect(serviceSource).not.toContain("getShootingsFromGoogleSheets");
   });
 
@@ -189,6 +190,29 @@ describe("Admin included service realizations", () => {
 
     expect(response.status).toBe(409);
   });
+
+  it.each([{ note: 123 }, { creditType: "invalid" }, { workspaceId: "injected" }])(
+    "rejects invalid creation data %j before invoking the service", async (override) => {
+      const recordRealization = vi.fn();
+      const handlers = createAthleteIncludedServiceRealizationHandlers({
+        getAdminAccess: vi.fn().mockResolvedValue({
+          clerkUserId: "admin-1", role: "admin", status: "active",
+          workspaceId: "workspace-a", athleteExists: true,
+        }),
+        recordRealization,
+      });
+      const response = await handlers.POST(new Request("http://localhost", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          realizationId: validInput.realizationId, membershipId: validInput.membershipId,
+          creditType: validInput.creditType, occurredAt: validInput.occurredAt,
+          ...override,
+        }),
+      }) as NextRequest, { params: Promise.resolve({ athleteId: validInput.athleteId }) });
+      expect(response.status).toBe(400);
+      expect(recordRealization).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns a safe actionable transaction error without database details", async () => {
     const handlers = createAthleteIncludedServiceRealizationHandlers({

@@ -13,6 +13,7 @@ import {
 } from "@/lib/athlete-memberships";
 import { listActiveAthleteMembershipPlans } from "@/lib/athlete-credits";
 import { getAthleteMembershipServiceSummary } from "@/lib/athlete-membership-service-summary";
+import { listAthleteAdminServiceRealizations } from "@/lib/athlete-membership-service-realizations";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
@@ -94,14 +95,23 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }),
       listActiveAthleteMembershipPlans(),
     ]);
-    const serviceSummary = membership.isActive && membership.membership
-      ? await getAthleteMembershipServiceSummary({
-          workspaceId: authorized.workspaceId,
-          athleteId: authorized.athleteId,
-          membership: membership.membership,
-        })
-      : null;
-    return NextResponse.json({ membership, plans, serviceSummary });
+    const [serviceSummary, realizations] = await Promise.all([
+      membership.isActive && membership.membership
+        ? getAthleteMembershipServiceSummary({
+            workspaceId: authorized.workspaceId,
+            athleteId: authorized.athleteId,
+            membership: membership.membership,
+          })
+        : null,
+      membership.membership
+        ? listAthleteAdminServiceRealizations({
+            workspaceId: authorized.workspaceId,
+            athleteId: authorized.athleteId,
+            membershipId: membership.membership.id,
+          })
+        : [],
+    ]);
+    return NextResponse.json({ membership, plans, serviceSummary, realizations });
   } catch (error) {
     return errorResponse(error);
   }

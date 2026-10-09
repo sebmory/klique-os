@@ -5,7 +5,6 @@ import {
   type RecordAthleteIncludedServiceRealizationInput,
   type RecordAthleteIncludedServiceRealizationResult,
 } from "@/lib/athlete-membership-service-realizations";
-import type { AthleteCreditType } from "@/lib/athlete-credits";
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 
@@ -27,8 +26,8 @@ type HandlerDependencies = {
   ) => Promise<RecordAthleteIncludedServiceRealizationResult>;
 };
 
-const defaultDependencies: HandlerDependencies = {
-  async getAdminAccess(request, athleteId) {
+export const getAthleteRealizationAdminAccess: HandlerDependencies["getAdminAccess"] =
+  async (request, athleteId) => {
     const profile = await getCurrentUserAccessProfile(request);
     const role = profile?.userAccess?.role;
     const status = profile?.userAccess?.status;
@@ -43,15 +42,18 @@ const defaultDependencies: HandlerDependencies = {
       workspaceId,
       athleteExists: athletes.some((athlete) => athlete.key === athleteId),
     };
-  },
+  };
+
+const defaultDependencies: HandlerDependencies = {
+  getAdminAccess: getAthleteRealizationAdminAccess,
   recordRealization: recordAthleteIncludedServiceRealization,
 };
 
-const errorResponse = (error: unknown) => {
+export const athleteRealizationErrorResponse = (error: unknown) => {
   if (error instanceof AthleteIncludedServiceRealizationError) {
     const status = error.code === "not_found"
       ? 404
-      : error.code === "inactive" || error.code === "insufficient_rights"
+      : ["inactive", "insufficient_rights", "conflict", "inconsistent_balance"].includes(error.code)
         ? 409
         : error.code === "transaction"
           ? 500
@@ -61,6 +63,7 @@ const errorResponse = (error: unknown) => {
       code: error.code === "transaction" ? "transaction_failed" : error.code,
     }, { status });
   }
+  console.error("[athlete_service_realization] unexpected failure", error);
   return NextResponse.json(
     { error: "Impossible d’enregistrer cette réalisation pour le moment." },
     { status: 500 },
@@ -87,9 +90,10 @@ export const createAthleteIncludedServiceRealizationHandlers = (
       }
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!body || Object.keys(body).some((key) => (
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => (
         !["realizationId", "membershipId", "creditType", "occurredAt", "note"].includes(key)
-      ))) {
+      )) || (body.creditType !== "production" && body.creditType !== "custom_content")
+        || (body.note !== undefined && body.note !== null && typeof body.note !== "string")) {
         return NextResponse.json({ error: "Données invalides." }, { status: 400 });
       }
 
@@ -98,7 +102,7 @@ export const createAthleteIncludedServiceRealizationHandlers = (
         workspaceId: access.workspaceId,
         athleteId,
         membershipId: typeof body.membershipId === "string" ? body.membershipId : "",
-        creditType: body.creditType as AthleteCreditType,
+        creditType: body.creditType,
         occurredAt: typeof body.occurredAt === "string" ? body.occurredAt : "",
         note: typeof body.note === "string" || body.note === null ? body.note : undefined,
         adminClerkUserId: access.clerkUserId,
@@ -108,7 +112,7 @@ export const createAthleteIncludedServiceRealizationHandlers = (
         { status: result.outcome === "created" ? 201 : 200 },
       );
     } catch (error) {
-      return errorResponse(error);
+      return athleteRealizationErrorResponse(error);
     }
   },
 });

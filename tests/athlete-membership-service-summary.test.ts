@@ -32,6 +32,93 @@ const emptyProjection = (): AthleteMembershipServiceSummaryProjection => ({
 });
 
 describe("Athlete membership service summary", () => {
+  it.each(["production", "custom_content"] as const)(
+    "restores exactly one %s right without increasing quota or changing reservations", (creditType) => {
+      const projection: AthleteMembershipServiceSummaryProjection = {
+        ...emptyProjection(),
+        movements: [
+          { creditType, quantity: 3, source: "plan_grant", referenceId: "cycle", expiresAt: membership.endsAt },
+          { creditType, quantity: -1, source: "usage", referenceId: "athlete_service_request:realized", expiresAt: null },
+          { creditType, quantity: -1, source: "usage", referenceId: "athlete_service_request:ordinary", expiresAt: null },
+        ],
+        serviceRequests: [{ status: "scheduled", fulfillmentMode: "included_right", creditType, creditQuantity: 1 }],
+      };
+      const before = calculateAthleteMembershipServiceSummary({ membership, projection, now: new Date("2026-10-08") });
+      const initial = JSON.stringify(projection);
+      const after = calculateAthleteMembershipServiceSummary({
+        membership, now: new Date("2026-10-08"),
+        projection: { ...projection, movements: [
+          ...projection.movements,
+          { creditType, quantity: 1, source: "usage_reversal", referenceId: "athlete_service_request_reversal:realized", expiresAt: null },
+        ] },
+      });
+      expect(before.included.find((right) => right.creditType === creditType))
+        .toMatchObject({ quota: 3, reserved: 1, used: 2, available: 0 });
+      expect(after.included.find((right) => right.creditType === creditType))
+        .toMatchObject({ quota: 3, reserved: 1, used: 1, available: 1, expiresAt: membership.endsAt });
+      expect(after.included.find((right) => right.creditType !== creditType))
+        .toEqual(before.included.find((right) => right.creditType !== creditType));
+      expect(after.pendingRequests).toEqual(before.pendingRequests);
+      expect(after.purchases).toEqual(before.purchases);
+      expect(JSON.stringify(projection)).toBe(initial);
+    },
+  );
+
+  it.each(["founder", "subscription"] as const)("restores a %s fallback right without a plan grant", (membershipKind) => {
+    const summary = calculateAthleteMembershipServiceSummary({
+      membership: { ...membership, membershipKind, planCode: null },
+      now: new Date("2026-10-08"),
+      projection: {
+        ...emptyProjection(),
+        legacyContent: { quota: 1, expiresAt: membership.endsAt!, requests: [] },
+        movements: [
+          { creditType: "custom_content", quantity: -1, source: "usage", referenceId: "athlete_service_request:admin", expiresAt: null },
+          { creditType: "custom_content", quantity: 1, source: "usage_reversal", referenceId: "athlete_service_request_reversal:admin", expiresAt: null },
+        ],
+      },
+    });
+    expect(summary.included.find((right) => right.creditType === "custom_content"))
+      .toMatchObject({ quota: 1, used: 0, reserved: 0, available: 1 });
+  });
+
+  it("increases a positive available balance by one, rather than setting it to one", () => {
+    const projection: AthleteMembershipServiceSummaryProjection = {
+      ...emptyProjection(),
+      movements: [
+        { creditType: "production", quantity: 4, source: "plan_grant", referenceId: "cycle", expiresAt: membership.endsAt },
+        { creditType: "production", quantity: -1, source: "usage", referenceId: "athlete_service_request:admin", expiresAt: null },
+      ],
+    };
+    const before = calculateAthleteMembershipServiceSummary({ membership, projection, now: new Date("2026-10-08") });
+    const after = calculateAthleteMembershipServiceSummary({
+      membership, now: new Date("2026-10-08"),
+      projection: {
+        ...projection,
+        movements: [...projection.movements, {
+          creditType: "production", quantity: 1, source: "usage_reversal",
+          referenceId: "athlete_service_request_reversal:admin", expiresAt: null,
+        }],
+      },
+    });
+    expect(before.included[0]).toMatchObject({ quota: 4, used: 1, available: 3 });
+    expect(after.included[0]).toMatchObject({ quota: 4, used: 0, available: 4 });
+  });
+
+  it("does not turn a cancellation into an unexpiring grant", () => {
+    const summary = calculateAthleteMembershipServiceSummary({
+      membership, now: new Date("2027-02-01"),
+      projection: {
+        ...emptyProjection(),
+        movements: [
+          { creditType: "production", quantity: 1, source: "plan_grant", referenceId: "cycle", expiresAt: membership.endsAt },
+          { creditType: "production", quantity: -1, source: "usage", referenceId: "athlete_service_request:admin", expiresAt: null },
+          { creditType: "production", quantity: 1, source: "usage_reversal", referenceId: "athlete_service_request_reversal:admin", expiresAt: null },
+        ],
+      },
+    });
+    expect(summary.included[0]).toMatchObject({ quota: 0, used: 0, available: 0 });
+  });
+
   it("calculates included quota, reservations, usage, pending requests and purchased balances", () => {
     const projection: AthleteMembershipServiceSummaryProjection = {
       movements: [

@@ -13,6 +13,10 @@ import type {
 import type { AthleteMembershipPlan } from "@/lib/athlete-credits";
 import type { AthleteCreditType } from "@/lib/athlete-credits";
 import type { AthleteMembershipServiceSummary } from "@/lib/athlete-membership-service-summary";
+import type {
+  AthleteAdminServiceRealization,
+  AthleteRealizationCancellation,
+} from "@/lib/athlete-membership-service-realizations";
 import { ATHLETE_SUBSCRIPTION_SUMMARY, formatAthleteSubscriptionPrice } from "@/lib/athlete-subscription-terms";
 
 type MembershipForm = {
@@ -71,6 +75,9 @@ const formatExpiration = (days: number | null): string => {
   return `Expire dans ${days} jour${days === 1 ? "" : "s"}`;
 };
 
+const formatTimestamp = (value: string): string =>
+  new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+
 const subscriptionEnd = (startsAt: string, plan: AthleteMembershipPlan | undefined): string => {
   if (!startsAt || !plan?.durationMonths) return "";
   const date = new Date(startsAt);
@@ -94,9 +101,19 @@ const createForm = (membership: CurrentAthleteMembership, plans: AthleteMembersh
 };
 
 export function AthleteMembershipAdminCard({ athleteId }: { athleteId: string }) {
+  return <AthleteMembershipAdminCardContent key={athleteId} athleteId={athleteId} />;
+}
+
+function AthleteMembershipAdminCardContent({ athleteId }: { athleteId: string }) {
   const [membership, setMembership] = useState<CurrentAthleteMembership | null>(null);
   const [plans, setPlans] = useState<AthleteMembershipPlan[]>([]);
   const [serviceSummary, setServiceSummary] = useState<AthleteMembershipServiceSummary | null>(null);
+  const [realizations, setRealizations] = useState<AthleteAdminServiceRealization[]>([]);
+  const [cancellationTarget, setCancellationTarget] = useState<AthleteAdminServiceRealization | null>(null);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [cancellationSaving, setCancellationSaving] = useState(false);
+  const [cancellationError, setCancellationError] = useState("");
+  const [refreshNotice, setRefreshNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -107,35 +124,57 @@ export function AthleteMembershipAdminCard({ athleteId }: { athleteId: string })
   const [realizationSaving, setRealizationSaving] = useState(false);
   const [realizationError, setRealizationError] = useState("");
   const realizationSubmittingRef = useRef(false);
+  const cancellationSubmittingRef = useRef(false);
+  const loadGenerationRef = useRef(0);
+  const athleteIdRef = useRef(athleteId);
+  const membershipIdRef = useRef<string | null>(null);
 
-  const loadMembership = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/admin/athletes/${encodeURIComponent(athleteId)}/membership`, {
-        credentials: "include",
-        cache: "no-store",
-      });
+  const loadMembership = useCallback((background = false) => {
+    const generation = ++loadGenerationRef.current;
+    const isCurrent = () => generation === loadGenerationRef.current && athleteIdRef.current === athleteId;
+    return fetch(`/api/admin/athletes/${encodeURIComponent(athleteId)}/membership`, {
+      credentials: "include",
+      cache: "no-store",
+    }).then(async (response) => {
       const payload = (await response.json().catch(() => null)) as {
         membership?: CurrentAthleteMembership;
         plans?: AthleteMembershipPlan[];
         serviceSummary?: AthleteMembershipServiceSummary | null;
+        realizations?: AthleteAdminServiceRealization[];
         error?: string;
       } | null;
       if (!response.ok || !payload?.membership) throw new Error(payload?.error || "Impossible de charger l’adhésion.");
+      if (!isCurrent()) return false;
+      membershipIdRef.current = payload.membership.membership?.id ?? null;
+      setError("");
+      if (!background) {
+        setCancellationTarget(null);
+        setCancellationError("");
+        setRealizationForm(null);
+      }
       setMembership(payload.membership);
       setPlans(payload.plans ?? []);
       setServiceSummary(payload.serviceSummary ?? null);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Impossible de charger l’adhésion.");
-    } finally {
-      setLoading(false);
-    }
+      setRealizations(payload.realizations ?? []);
+      setRefreshNotice("");
+      return true;
+    }).catch((loadError: unknown) => {
+      if (isCurrent() && !background) setError(loadError instanceof Error ? loadError.message : "Impossible de charger l’adhésion.");
+      return false;
+    }).finally(() => {
+      if (isCurrent() && !background) setLoading(false);
+    });
   }, [athleteId]);
 
   useEffect(() => {
+    athleteIdRef.current = athleteId;
+    membershipIdRef.current = null;
     void loadMembership();
-  }, [loadMembership]);
+    return () => {
+      loadGenerationRef.current += 1;
+      membershipIdRef.current = null;
+    };
+  }, [athleteId, loadMembership]);
 
   const openManagement = () => {
     if (!membership) return;
@@ -223,16 +262,89 @@ export function AthleteMembershipAdminCard({ athleteId }: { athleteId: string })
     }
   };
 
+  const cancelRealization = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!cancellationTarget || cancellationSubmittingRef.current) return;
+    const reason = cancellationReason.trim();
+    if (!reason) {
+      setCancellationError("Le motif est obligatoire.");
+      return;
+    }
+    const target = cancellationTarget;
+    const targetAthleteId = athleteId;
+    const isCurrent = () => athleteIdRef.current === targetAthleteId
+      && membershipIdRef.current === target.membershipId;
+    cancellationSubmittingRef.current = true;
+    setCancellationSaving(true);
+    setCancellationError("");
+    setRefreshNotice("");
+    try {
+      const response = await fetch(
+        `/api/admin/athletes/${encodeURIComponent(targetAthleteId)}/membership/realizations/${encodeURIComponent(target.realizationId)}/cancel`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ membershipId: target.membershipId, reason }),
+        },
+      );
+      const payload = (await response.json().catch(() => null)) as {
+        requestId?: string;
+        cancellation?: AthleteRealizationCancellation;
+        serviceSummary?: AthleteMembershipServiceSummary;
+        realizations?: AthleteAdminServiceRealization[];
+        refreshError?: string;
+        error?: string;
+      } | null;
+      if (!response.ok || payload?.requestId !== target.realizationId || !payload.cancellation) {
+        throw new Error(payload?.error || "Impossible d’annuler cette réalisation.");
+      }
+      if (!isCurrent()) return;
+      const cancellation = payload.cancellation;
+      setCancellationTarget(null);
+      if (payload.serviceSummary?.membershipId === target.membershipId && payload.realizations) {
+        setServiceSummary(payload.serviceSummary);
+        setRealizations(payload.realizations);
+      } else {
+        setServiceSummary(null);
+        setRealizations((items) => items.map((item) => item.realizationId === target.realizationId
+          ? { ...item, cancellation } : item));
+        setRefreshNotice(payload.refreshError || "Annulation enregistrée. Rafraîchissement de la synthèse en cours.");
+      }
+      const refreshed = await loadMembership(true);
+      if (!refreshed && isCurrent()) {
+        setRefreshNotice(payload.refreshError || "Annulation enregistrée, mais le rafraîchissement a échoué. Rechargez l’adhésion.");
+      }
+    } catch (failure) {
+      if (isCurrent()) {
+        setCancellationError(failure instanceof Error ? failure.message : "Impossible d’annuler cette réalisation.");
+      }
+    } finally {
+      cancellationSubmittingRef.current = false;
+      setCancellationSaving(false);
+    }
+  };
+
   const record = membership?.membership ?? null;
 
   return (
     <>
       <article className="crm-person-card-shell">
         <header><h2>Adhésion KLIQUE</h2></header>
+        {refreshNotice ? (
+          <div>
+            <p role="alert" style={{ color: "#92400e" }}>{refreshNotice}</p>
+            <button type="button" className="crm-secondary-action-link" onClick={() => void loadMembership(true)}>Rafraîchir l’adhésion</button>
+          </div>
+        ) : null}
         {loading ? <p>Chargement de l’adhésion…</p> : error ? (
           <div style={{ display: "grid", gap: "0.6rem" }}>
             <p style={{ margin: 0, color: "#b91c1c" }}>{error}</p>
-            <button type="button" className="crm-secondary-action-link" onClick={() => void loadMembership()}>Réessayer</button>
+            <button type="button" className="crm-secondary-action-link" onClick={() => {
+              setLoading(true);
+              setError("");
+              void loadMembership();
+            }}>Réessayer</button>
           </div>
         ) : membership ? (
           <div style={{ display: "grid", gap: "0.85rem" }}>
@@ -338,6 +450,56 @@ export function AthleteMembershipAdminCard({ athleteId }: { athleteId: string })
               </section>
             ) : record && membership.isActive ? (
               <p style={{ margin: 0, color: "#6b7280" }}>Aucune synthèse de prestations disponible pour cette adhésion.</p>
+            ) : null}
+            {record ? (
+              <section aria-labelledby={`athlete-realization-history-${athleteId}`} style={{ display: "grid", gap: "0.65rem", borderTop: "1px solid #e5e7eb", paddingTop: "0.85rem" }}>
+                <h3 id={`athlete-realization-history-${athleteId}`} style={{ margin: 0, fontSize: "1rem" }}>Historique des réalisations Admin</h3>
+                {realizations.length === 0 ? (
+                  <p style={{ margin: 0 }}>Aucune réalisation Admin sur cette adhésion.</p>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
+                      <thead>
+                        <tr>
+                          {["Type", "Date réelle", "Note", "Enregistrement", "Admin", "État", "Annulation", "Action"].map((label) => (
+                            <th key={label} scope="col" style={{ textAlign: "left", padding: "0.4rem" }}>{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {realizations.map((item) => (
+                          <tr key={item.realizationId}>
+                            <th scope="row" style={{ textAlign: "left", padding: "0.4rem" }}>{item.creditType === "production" ? "Productions" : "Contenus personnalisés"}</th>
+                            <td style={{ padding: "0.4rem" }}>{formatDate(item.occurredAt)}</td>
+                            <td style={{ padding: "0.4rem", whiteSpace: "pre-wrap" }}>{item.note || "—"}</td>
+                            <td style={{ padding: "0.4rem" }}>{formatTimestamp(item.recordedAt)}</td>
+                            <td style={{ padding: "0.4rem" }}>{item.adminClerkUserId}</td>
+                            <td style={{ padding: "0.4rem" }}>{item.cancellation ? "Annulée" : "Réalisée"}</td>
+                            <td style={{ padding: "0.4rem", whiteSpace: "pre-wrap" }}>
+                              {item.cancellation ? `${item.cancellation.reason} · ${formatTimestamp(item.cancellation.cancelledAt)} · ${item.cancellation.adminClerkUserId}` : "—"}
+                            </td>
+                            <td style={{ padding: "0.4rem" }}>
+                              {!item.cancellation ? (
+                                <button
+                                  type="button"
+                                  className="crm-secondary-action-link"
+                                  disabled={!membership.isActive || cancellationSaving || realizationSaving}
+                                  title={membership.isActive ? undefined : "L’adhésion n’est plus active."}
+                                  onClick={() => {
+                                    setCancellationTarget(item);
+                                    setCancellationReason("");
+                                    setCancellationError("");
+                                  }}
+                                >Annuler la réalisation</button>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
             ) : null}
             <button type="button" className="crm-secondary-action-link" onClick={openManagement}>Gérer l’adhésion</button>
           </div>
@@ -448,6 +610,30 @@ export function AthleteMembershipAdminCard({ athleteId }: { athleteId: string })
               </button>
               <button type="submit" className="primary-button" disabled={realizationSaving}>
                 {realizationSaving ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+      {cancellationTarget ? (
+        <Modal title="Annuler la réalisation Admin" onClose={() => !cancellationSaving && setCancellationTarget(null)}>
+          <form className="modal-form" onSubmit={cancelRealization}>
+            <p>Confirmez l’annulation de cette réalisation du {formatDate(cancellationTarget.occurredAt)}. Un droit sera restitué sur cette adhésion. L’enregistrement initial sera conservé.</p>
+            <label>Motif obligatoire
+              <textarea
+                value={cancellationReason}
+                onChange={(event) => setCancellationReason(event.target.value)}
+                required
+                maxLength={2_000}
+                rows={4}
+                disabled={cancellationSaving}
+              />
+            </label>
+            {cancellationError ? <p role="alert" style={{ color: "#b91c1c" }}>{cancellationError}</p> : null}
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" disabled={cancellationSaving} onClick={() => setCancellationTarget(null)}>Retour</button>
+              <button type="submit" className="primary-button" disabled={cancellationSaving || !cancellationReason.trim()}>
+                {cancellationSaving ? "Annulation…" : "Confirmer l’annulation"}
               </button>
             </div>
           </form>

@@ -282,6 +282,7 @@ export const calculateAthleteMembershipServiceSummary = ({
     const movements = projection.movements.filter((movement) => movement.creditType === creditType);
     const activeEntitlements = movements.filter((movement) => (
       movement.source !== "usage"
+      && movement.source !== "usage_reversal"
       && movement.source !== "purchase"
       && (!movement.expiresAt || new Date(movement.expiresAt).getTime() > nowTimestamp)
     ));
@@ -295,7 +296,10 @@ export const calculateAthleteMembershipServiceSummary = ({
       : 0;
     const quota = Math.max(0, ledgerQuota + founderFallbackQuota + legacyQuota);
     const ledgerUsed = -movements
-      .filter((movement) => movement.source === "usage" && movement.quantity < 0)
+      .filter((movement) => (
+        (movement.source === "usage" && movement.quantity < 0)
+        || movement.source === "usage_reversal"
+      ))
       .reduce((total, movement) => total + movement.quantity, 0);
     const legacyUsed = creditType === "custom_content"
       ? legacyRequests.filter((request) => request.status === "completed").length
