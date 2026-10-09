@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { calculatePublicKliqueStats } from "@/lib/public-klique-stats";
+import { describe, expect, it, vi } from "vitest";
+import {
+  calculatePublicKliqueStats,
+  loadPublicKliqueStats,
+} from "@/lib/public-klique-stats";
 
 describe("public KLIQUE statistics", () => {
   it("counts only canonical public athletes and deduplicates normalized sports", () => {
@@ -17,7 +20,12 @@ describe("public KLIQUE statistics", () => {
       [],
     );
 
-    expect(stats).toEqual({ athleteCount: 4, partnerExpertCount: 0, sportCount: 2 });
+    expect(stats).toEqual({
+      athleteCount: 4,
+      partnerExpertCount: 0,
+      sportCount: 2,
+      creativeCount: 0,
+    });
   });
 
   it("counts only active canonical partner and expert records", () => {
@@ -32,7 +40,12 @@ describe("public KLIQUE statistics", () => {
       ],
     );
 
-    expect(stats).toEqual({ athleteCount: 0, partnerExpertCount: 2, sportCount: 0 });
+    expect(stats).toEqual({
+      athleteCount: 0,
+      partnerExpertCount: 2,
+      sportCount: 0,
+      creativeCount: 0,
+    });
   });
 
   it.each(["Test", " test ", "TEST"])("excludes active partner and expert records in the %j category", (category) => {
@@ -56,7 +69,12 @@ describe("public KLIQUE statistics", () => {
 
     const stats = calculatePublicKliqueStats(athletes, partners);
 
-    expect(stats).toEqual({ athleteCount: 2, partnerExpertCount: 2, sportCount: 2 });
+    expect(stats).toEqual({
+      athleteCount: 2,
+      partnerExpertCount: 2,
+      sportCount: 2,
+      creativeCount: 0,
+    });
     expect(testPartner).toEqual({
       row: 6,
       name: "Fiche interne",
@@ -74,5 +92,41 @@ describe("public KLIQUE statistics", () => {
     ]);
 
     expect(stats.partnerExpertCount).toBe(1);
+  });
+
+  it("loads the creative aggregate only for the explicit public workspace", async () => {
+    const countActiveCreatives = vi.fn().mockResolvedValue(7);
+
+    await expect(loadPublicKliqueStats({
+      getAthletes: vi.fn().mockResolvedValue([]),
+      getPartners: vi.fn().mockResolvedValue([]),
+      countActiveCreatives,
+    })).resolves.toEqual({
+      athleteCount: 0,
+      partnerExpertCount: 0,
+      sportCount: 0,
+      creativeCount: 7,
+    });
+    expect(countActiveCreatives).toHaveBeenCalledWith("klique-os");
+  });
+
+  it("uses the provenance-agnostic active aggregate so manual profiles are included", async () => {
+    const countActiveCreatives = vi.fn().mockResolvedValue(1);
+
+    const stats = await loadPublicKliqueStats({
+      getAthletes: vi.fn().mockResolvedValue([]),
+      getPartners: vi.fn().mockResolvedValue([]),
+      countActiveCreatives,
+    });
+
+    expect(stats.creativeCount).toBe(1);
+    expect(countActiveCreatives).toHaveBeenCalledExactlyOnceWith("klique-os");
+  });
+
+  it("keeps a zero creative result safe and rejects invalid aggregates", async () => {
+    expect(calculatePublicKliqueStats([], [], 0).creativeCount).toBe(0);
+    expect(() => calculatePublicKliqueStats([], [], -1)).toThrow(
+      "Le compteur public des creatifs est invalide.",
+    );
   });
 });

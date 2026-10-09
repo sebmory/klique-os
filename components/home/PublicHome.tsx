@@ -43,8 +43,15 @@ export default function PublicHome() {
     void fetch("/api/public/klique-stats")
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as PublicKliqueStats | null;
-        const values = payload ? [payload.athleteCount, payload.partnerExpertCount, payload.sportCount] : [];
-        if (!response.ok || values.length !== 3 || values.some((value) => !Number.isInteger(value) || value < 0)) {
+        const values = payload
+          ? [
+              payload.athleteCount,
+              payload.partnerExpertCount,
+              payload.sportCount,
+              payload.creativeCount,
+            ]
+          : [];
+        if (!response.ok || values.length !== 4 || values.some((value) => !Number.isInteger(value) || value < 0)) {
           throw new Error("Statistiques indisponibles");
         }
         if (active) setStats(payload);
@@ -101,6 +108,7 @@ export default function PublicHome() {
               <div><strong>{stats.athleteCount}</strong><span>Athlètes accompagnés</span></div>
               <div><strong>{stats.partnerExpertCount}</strong><span>Partenaires &amp; experts</span></div>
               <div><strong>{stats.sportCount}</strong><span>Disciplines représentées</span></div>
+              <div><strong>{stats.creativeCount}</strong><span>Créatifs</span></div>
             </div>
           </section>
         ) : null}

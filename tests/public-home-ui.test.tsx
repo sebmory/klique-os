@@ -32,7 +32,12 @@ let root: Root;
 const response = (payload: unknown, ok = true) => ({ ok, json: async () => payload }) as Response;
 
 const mount = async (
-  statsResponse: Promise<Response> = Promise.resolve(response({ athleteCount: 14, partnerExpertCount: 9, sportCount: 6 })),
+  statsResponse: Promise<Response> = Promise.resolve(response({
+    athleteCount: 14,
+    partnerExpertCount: 9,
+    sportCount: 6,
+    creativeCount: 4,
+  })),
 ) => {
   fetchMock.mockImplementation((url: string) => {
     if (url === "/api/public/membership-plans") return Promise.resolve(response({ plans }));
@@ -99,14 +104,30 @@ describe("Public KLIQUE home", () => {
     expect(container.querySelectorAll('a[href="/sign-in"]')).toHaveLength(4);
   });
 
-  it("renders the three real statistics in an accessible band", async () => {
+  it("renders the four real statistics in an accessible band", async () => {
     await mount();
 
     const statsBand = container.querySelector('[aria-label="KLIQUE en chiffres"]');
     expect(statsBand?.textContent).toContain("14Athlètes accompagnés");
     expect(statsBand?.textContent).toContain("9Partenaires & experts");
     expect(statsBand?.textContent).toContain("6Disciplines représentées");
-    expect(statsBand?.querySelectorAll("strong")).toHaveLength(3);
+    expect(statsBand?.textContent).toContain("4Créatifs");
+    expect(statsBand?.querySelectorAll("strong")).toHaveLength(4);
+  });
+
+  it("renders a safe zero creative count without changing the other counters", async () => {
+    await mount(Promise.resolve(response({
+      athleteCount: 14,
+      partnerExpertCount: 9,
+      sportCount: 6,
+      creativeCount: 0,
+    })));
+
+    const statsBand = container.querySelector('[aria-label="KLIQUE en chiffres"]');
+    expect(statsBand?.textContent).toContain("14Athlètes accompagnés");
+    expect(statsBand?.textContent).toContain("9Partenaires & experts");
+    expect(statsBand?.textContent).toContain("6Disciplines représentées");
+    expect(statsBand?.textContent).toContain("0Créatifs");
   });
 
   it("shows no false counters while statistics are loading", async () => {

@@ -28,7 +28,16 @@ export const createPublicKliqueStatsHandlers = (
 
     try {
       const stats = await dependencies.loadStats();
-      return NextResponse.json(stats, {
+      const response: PublicKliqueStats = {
+        athleteCount: stats.athleteCount,
+        partnerExpertCount: stats.partnerExpertCount,
+        sportCount: stats.sportCount,
+        creativeCount: stats.creativeCount,
+      };
+      if (Object.values(response).some((value) => !Number.isSafeInteger(value) || value < 0)) {
+        throw new Error("Compteurs publics invalides.");
+      }
+      return NextResponse.json(response, {
         headers: {
           "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
         },

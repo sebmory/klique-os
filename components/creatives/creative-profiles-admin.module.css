@@ -1,0 +1,295 @@
+.panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.panelHeader h2 {
+  margin: 0;
+  color: #17211d;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  font-weight: 500;
+}
+
+.panelHeader p {
+  margin: 0.35rem 0 0;
+  color: #68726d;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.headerActions > span {
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+  background: #ece7dc;
+  color: #5b625e;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.15rem;
+  border: 1px solid #e4ded3;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(23, 33, 29, 0.05);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.cardHeader h3 {
+  margin: 0;
+  color: #17211d;
+  font-size: 1.08rem;
+}
+
+.cardHeader p {
+  margin: 0.25rem 0 0;
+  color: #68726d;
+  font-size: 0.87rem;
+}
+
+.active,
+.inactive {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.active {
+  background: #e6f5eb;
+  color: #21613f;
+}
+
+.inactive {
+  background: #f0efec;
+  color: #626964;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.summary > div {
+  min-width: 0;
+  padding: 0.7rem;
+  border-radius: 8px;
+  background: #f7f5f0;
+}
+
+.summary dt {
+  color: #7b5b38;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.summary dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  color: #27332e;
+  line-height: 1.45;
+}
+
+.bio {
+  margin: 0;
+  color: #4f5b55;
+  line-height: 1.55;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.form label {
+  display: grid;
+  min-width: 0;
+  gap: 0.3rem;
+  color: #45504b;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+  border-radius: 7px;
+}
+
+.form textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 7px;
+  font-weight: 800;
+}
+
+.primaryButton {
+  border: 1px solid #173c34;
+  background: #173c34;
+  color: #fff;
+}
+
+.secondaryButton {
+  border: 1px solid #cfc8bc;
+  background: #fff;
+  color: #37423d;
+}
+
+.dangerButton {
+  border: 1px solid #b34a45;
+  background: #fff;
+  color: #9d342f;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.externalLink {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 36px;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #d8d2c7;
+  border-radius: 7px;
+  color: #315f54;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.success,
+.error {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+}
+
+.success {
+  border: 1px solid #a7c8b6;
+  background: #edf8f1;
+  color: #1f633f;
+}
+
+.error {
+  border: 1px solid #e6b6b2;
+  background: #fff1f0;
+  color: #9b2929;
+}
+
+.state {
+  display: grid;
+  min-height: 190px;
+  place-items: center;
+  align-content: center;
+  gap: 0.65rem;
+  padding: 2rem;
+  border: 1px dashed #cfc8bc;
+  border-radius: 12px;
+  background: #fff;
+  color: #66716c;
+  text-align: center;
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .panelHeader,
+  .headerActions,
+  .cardHeader {
+    flex-direction: column;
+  }
+
+  .headerActions,
+  .headerActions button {
+    width: 100%;
+  }
+
+  .form,
+  .summary {
+    grid-template-columns: 1fr;
+  }
+
+  .wide {
+    grid-column: auto;
+  }
+
+  .actions,
+  .actions button {
+    width: 100%;
+  }
+}
