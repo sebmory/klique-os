@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { AthleteMembershipAdminCard } from "@/components/crm/AthleteMembershipAdminCard";
+import { AthleteServiceCreativeAssignmentPanel } from "@/components/creatives/AthleteServiceCreativeAssignmentPanel";
 import { KliquePassCard } from "@/components/klique-pass/KliquePassCard";
 import { buildKliquePassViewModel } from "@/lib/klique-pass";
 import type { Partner, PartnerResponse } from "@/types/partner";
@@ -875,6 +876,7 @@ export function PersonCockpitScreen({ id }: PersonCockpitScreenProps) {
           </article>
 
           {isAdmin ? <AthleteMembershipAdminCard athleteId={id} /> : null}
+          {isAdmin ? <AthleteServiceCreativeAssignmentPanel athleteId={id} /> : null}
 
           <article className="crm-person-card-shell">
             <header>

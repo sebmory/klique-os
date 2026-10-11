@@ -54,6 +54,11 @@ export function AthleteServicePlanningCard({
                     .map((service) => `${service.available} ${service.label.toLowerCase()}`)
                     .join(" · ")}
                 </small>
+                <small>
+                  Créatif : {priority.assignedCreatives.length > 0
+                    ? priority.assignedCreatives.map((creative) => creative.displayName).join(", ")
+                    : "Non affecté"}
+                </small>
               </div>
               <div className="service-planning-deadline">
                 <span className={`priority-badge ${levelClasses[priority.level]}`}>

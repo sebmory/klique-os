@@ -36,6 +36,7 @@ describe("AthleteServicePlanningCard", () => {
             { creditType: "production", label: "Productions", available: 1 },
             { creditType: "custom_content", label: "Contenus personnalisés", available: 2 },
           ],
+          assignedCreatives: [{ id: "creative-1", displayName: "Camille Photo", creativeType: "photographer", area: "Vaud" }],
         },
         {
           athleteId: "athlete-plan",
@@ -48,6 +49,7 @@ describe("AthleteServicePlanningCard", () => {
           remainingServices: [
             { creditType: "production", label: "Productions", available: 1 },
           ],
+          assignedCreatives: [],
         },
         {
           athleteId: "athlete-anticipate",
@@ -60,6 +62,7 @@ describe("AthleteServicePlanningCard", () => {
           remainingServices: [
             { creditType: "custom_content", label: "Contenus personnalisés", available: 1 },
           ],
+          assignedCreatives: [],
         },
         {
           athleteId: "athlete-future",
@@ -72,6 +75,7 @@ describe("AthleteServicePlanningCard", () => {
           remainingServices: [
             { creditType: "production", label: "Productions", available: 1 },
           ],
+          assignedCreatives: [],
         },
       ]} />,
     ));
@@ -84,6 +88,8 @@ describe("AthleteServicePlanningCard", () => {
     expect(container.textContent).toContain("À planifier");
     expect(container.textContent).toContain("À anticiper");
     expect(container.textContent).toContain("À venir");
+    expect(container.textContent).toContain("Créatif : Camille Photo");
+    expect(container.textContent).toContain("Créatif : Non affecté");
     expect(container.querySelector<HTMLAnchorElement>('a[href="/crm/personnes/athlete%2Furgent"]')).toBeTruthy();
   });
 
