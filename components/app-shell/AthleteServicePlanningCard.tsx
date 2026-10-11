@@ -23,6 +23,12 @@ const levelClasses: Record<AthleteServicePlanningPriorityLevel, string> = {
   future: "priority-normale",
 };
 
+const missionLabels: Record<AthleteServicePlanningPriority["missionState"], string> = {
+  absent: "Mission absente",
+  draft: "Mission en brouillon",
+  ready: "Mission prête",
+};
+
 const formatDate = (value: string): string => new Intl.DateTimeFormat("fr-CH", {
   day: "2-digit",
   month: "2-digit",
@@ -59,6 +65,7 @@ export function AthleteServicePlanningCard({
                     ? priority.assignedCreatives.map((creative) => creative.displayName).join(", ")
                     : "Non affecté"}
                 </small>
+                <small>{missionLabels[priority.missionState]}</small>
               </div>
               <div className="service-planning-deadline">
                 <span className={`priority-badge ${levelClasses[priority.level]}`}>

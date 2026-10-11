@@ -15,6 +15,7 @@ import type {
 import type { AssignmentCreativeSummary } from "@/lib/athlete-service-creative-assignments";
 
 export type AthleteServicePlanningPriorityLevel = "urgent" | "plan" | "anticipate" | "future";
+export type AthleteServicePlanningMissionState = "absent" | "draft" | "ready";
 
 export type AthleteServicePlanningPriority = {
   athleteId: string;
@@ -29,12 +30,14 @@ export type AthleteServicePlanningPriority = {
     available: number;
   }>;
   assignedCreatives: AssignmentCreativeSummary[];
+  missionState: AthleteServicePlanningMissionState;
 };
 
 export type AthleteServicePlanningPriorityProjection = {
   membership: AthleteMembership;
   projection: AthleteMembershipServiceSummaryProjection;
   assignedCreatives?: AssignmentCreativeSummary[];
+  missionState?: AthleteServicePlanningMissionState;
 };
 
 export type AthleteServicePlanningPriorityRepository = {
@@ -85,6 +88,10 @@ type PriorityRow = {
     creativeType: AssignmentCreativeSummary["creativeType"];
     area: string;
   }>;
+  mission_request_count: number | string;
+  mission_missing_count: number | string;
+  mission_draft_count: number | string;
+  mission_ready_count: number | string;
 };
 
 const toIsoString = (value: string | Date): string => new Date(value).toISOString();
@@ -106,6 +113,10 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
                COALESCE(movement_projection.items, '[]'::jsonb) AS movements,
                COALESCE(request_projection.items, '[]'::jsonb) AS service_requests,
                COALESCE(assigned_creative_projection.items, '[]'::jsonb) AS assigned_creatives,
+               COALESCE(mission_projection.request_count, 0) AS mission_request_count,
+               COALESCE(mission_projection.missing_count, 0) AS mission_missing_count,
+               COALESCE(mission_projection.draft_count, 0) AS mission_draft_count,
+               COALESCE(mission_projection.ready_count, 0) AS mission_ready_count,
                CASE
                  WHEN legacy_projection.subscription_id IS NULL THEN NULL
                  ELSE jsonb_build_object(
@@ -181,6 +192,21 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
           ) assigned
         ) assigned_creative_projection ON TRUE
         LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS request_count,
+                 COUNT(*) FILTER (
+                   WHERE mission.id IS NULL OR mission.status = 'cancelled'
+                 ) AS missing_count,
+                 COUNT(*) FILTER (WHERE mission.status = 'draft') AS draft_count,
+                 COUNT(*) FILTER (WHERE mission.status = 'ready') AS ready_count
+          FROM athlete_service_requests request
+          LEFT JOIN athlete_service_request_missions mission
+            ON mission.workspace_id = request.workspace_id
+           AND mission.service_request_id = request.id
+          WHERE request.workspace_id = ${workspaceId}
+            AND request.athlete_id = membership.athlete_id
+            AND request.status IN ('received', 'to_confirm', 'scheduled', 'in_progress')
+        ) mission_projection ON TRUE
+        LEFT JOIN LATERAL (
           SELECT selected.id AS subscription_id,
                  selected.custom_contents_included,
                  selected.ends_on,
@@ -255,6 +281,12 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
           purchases: [],
         },
         assignedCreatives: row.assigned_creatives,
+        missionState: Number(row.mission_request_count) === 0
+          || Number(row.mission_missing_count) > 0
+          ? "absent"
+          : Number(row.mission_draft_count) > 0
+            ? "draft"
+            : "ready",
       }));
     },
   };
@@ -274,7 +306,7 @@ export const calculateAthleteServicePlanningPriorities = ({
   projections: AthleteServicePlanningPriorityProjection[];
   now: Date;
 }): AthleteServicePlanningPriority[] => projections
-  .flatMap(({ membership, projection, assignedCreatives = [] }) => {
+  .flatMap(({ membership, projection, assignedCreatives = [], missionState = "absent" }) => {
     const summary = calculateAthleteMembershipServiceSummary({ membership, projection, now });
     const remainingServices = summary.included
       .filter((service) => service.available > 0)
@@ -292,6 +324,7 @@ export const calculateAthleteServicePlanningPriorities = ({
       availableTotal,
       remainingServices,
       assignedCreatives,
+      missionState,
     }];
   })
   .sort((left, right) => (

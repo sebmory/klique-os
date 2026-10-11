@@ -11,6 +11,7 @@ import type {
   AthleteServiceRequestFulfillmentMode,
 } from "@/lib/athlete-service-requests";
 import { AthleteServiceCreativeAssignmentPanel } from "@/components/creatives/AthleteServiceCreativeAssignmentPanel";
+import { AthleteServiceMissionPanel } from "@/components/creatives/AthleteServiceMissionPanel";
 
 type RequestsPayload = {
   requests?: AdminAthleteServiceRequest[];
@@ -258,6 +259,7 @@ export function AthleteServiceRequestsCrmSection({
             {selectedRequest.fulfillmentMode === "no_charge" ? <div className="is-wide"><dt>Motif de la prise en charge KLIQUE</dt><dd>{selectedRequest.noChargeReason || "Non renseigné"}</dd></div> : null}
           </dl>
           <AthleteServiceCreativeAssignmentPanel requestId={selectedRequest.id} editable />
+          <AthleteServiceMissionPanel requestId={selectedRequest.id} editable />
           {errorMessage ? <p className="crm-requests-inline-error" role="alert">{errorMessage}</p> : null}
           {scheduleOpen ? (
             <label className="athlete-service-schedule-date">Date et heure de planification<input autoFocus type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label>

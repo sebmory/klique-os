@@ -37,6 +37,7 @@ describe("AthleteServicePlanningCard", () => {
             { creditType: "custom_content", label: "Contenus personnalisés", available: 2 },
           ],
           assignedCreatives: [{ id: "creative-1", displayName: "Camille Photo", creativeType: "photographer", area: "Vaud" }],
+          missionState: "ready",
         },
         {
           athleteId: "athlete-plan",
@@ -50,6 +51,7 @@ describe("AthleteServicePlanningCard", () => {
             { creditType: "production", label: "Productions", available: 1 },
           ],
           assignedCreatives: [],
+          missionState: "draft",
         },
         {
           athleteId: "athlete-anticipate",
@@ -63,6 +65,7 @@ describe("AthleteServicePlanningCard", () => {
             { creditType: "custom_content", label: "Contenus personnalisés", available: 1 },
           ],
           assignedCreatives: [],
+          missionState: "absent",
         },
         {
           athleteId: "athlete-future",
@@ -76,6 +79,7 @@ describe("AthleteServicePlanningCard", () => {
             { creditType: "production", label: "Productions", available: 1 },
           ],
           assignedCreatives: [],
+          missionState: "absent",
         },
       ]} />,
     ));
@@ -90,6 +94,9 @@ describe("AthleteServicePlanningCard", () => {
     expect(container.textContent).toContain("À venir");
     expect(container.textContent).toContain("Créatif : Camille Photo");
     expect(container.textContent).toContain("Créatif : Non affecté");
+    expect(container.textContent).toContain("Mission prête");
+    expect(container.textContent).toContain("Mission en brouillon");
+    expect(container.textContent).toContain("Mission absente");
     expect(container.querySelector<HTMLAnchorElement>('a[href="/crm/personnes/athlete%2Furgent"]')).toBeTruthy();
   });
 
