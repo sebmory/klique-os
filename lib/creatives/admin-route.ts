@@ -1,5 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
+import { createContentStorageClient } from "@/lib/content-storage/db";
 import { CreativeApplicationAdminError } from "@/lib/creatives/admin-application-service";
 import { CreativeProfileAdminError } from "@/lib/creatives/admin-profile-service";
 
@@ -19,14 +20,25 @@ export type GetCreativeAdminAccess = (
   request: Request,
 ) => Promise<CreativeAdminAccess>;
 
-export const getDefaultCreativeAdminAccess: GetCreativeAdminAccess = async (request) => {
-  const profile = await getCurrentUserAccessProfile(request);
-  if (!profile) return null;
+export const getDefaultCreativeAdminAccess: GetCreativeAdminAccess = async () => {
+  const { userId } = await auth();
+  if (!userId) return null;
+
+  const sql = createContentStorageClient();
+  const rows = await sql`
+    SELECT role, status, workspace_id
+    FROM user_access
+    WHERE clerk_user_id = ${userId}
+    LIMIT 1
+  `;
+
+  const row = rows[0] as { role?: string | null; status?: string | null; workspace_id?: string | null } | undefined;
+
   return {
-    clerkUserId: profile.clerkUser.id,
-    role: profile.userAccess?.role,
-    status: profile.userAccess?.status,
-    workspaceId: profile.userAccess?.workspaceId,
+    clerkUserId: userId,
+    role: row?.role ?? undefined,
+    status: row?.status ?? undefined,
+    workspaceId: row?.workspace_id ?? null,
   };
 };
 

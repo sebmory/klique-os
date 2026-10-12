@@ -17,6 +17,7 @@ type SidebarProps = {
   userIsAthlete?: boolean;
   userIsMedia?: boolean;
   userIsPartner?: boolean;
+  userIsCreative?: boolean;
   userPartnerLabel?: "Expert" | "Partenaire" | "Partenaire / Expert" | null;
   userName?: string | null;
 };
@@ -77,6 +78,7 @@ export function Sidebar({
   userIsAthlete,
   userIsMedia,
   userIsPartner,
+  userIsCreative,
   userPartnerLabel,
   userName,
 }: SidebarProps) {
@@ -88,14 +90,18 @@ export function Sidebar({
   const isAthlete = userIsAthlete ?? userRole === "athlete";
   const isMedia = (userIsMedia ?? userRole === "media") && !isAthlete;
   const isPartner = (userIsPartner ?? userRole === "partner_expert") && !isAthlete && !isMedia;
-  const profileName = isAthlete || isMedia || isPartner ? (userName ?? "Compte Clerk") : "Sebastien Mory";
+  const isCreative = (userIsCreative ?? userRole === "creative") && !isAthlete && !isMedia && !isPartner;
+  const isCreativeOnly = isCreative && userRole !== "admin";
+  const profileName = isAthlete || isMedia || isPartner || isCreativeOnly ? (userName ?? "Compte Clerk") : "Sebastien Mory";
   const profileLabel = isAthlete
     ? "Athlète"
     : isMedia
       ? "Média"
       : isPartner
         ? (userPartnerLabel ?? "Partenaire / Expert")
-        : "Administrateur";
+        : isCreativeOnly
+          ? "Créatif"
+          : "Administrateur";
   const profileInitials = isPartner
     ? profileName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "PE"
     : "SM";
@@ -128,10 +134,17 @@ export function Sidebar({
             { id: "community", label: "Communauté", href: "/partner/community", icon: "messages" as const },
             { id: "contact-requests", label: "Mes mises en relation", href: "/partner/contact-requests", icon: "messages" as const },
           ]
-        : mainNavigation;
+        : isCreativeOnly
+          ? [{ id: "creative", label: "Mes missions", href: "/creative", icon: "contents" as const }]
+          : isCreative
+            ? [
+                ...mainNavigation,
+                { id: "creative", label: "Espace créatif", href: "/creative", icon: "contents" as const },
+              ]
+            : mainNavigation;
 
-  const visibleSecondaryNavigation = isAthlete || isMedia || isPartner ? [] : secondaryNavigation;
-  const homeHref = isPartner ? "/partner" : "/";
+  const visibleSecondaryNavigation = isAthlete || isMedia || isPartner || isCreativeOnly ? [] : secondaryNavigation;
+  const homeHref = isPartner ? "/partner" : isCreativeOnly ? "/creative" : "/";
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -211,7 +224,7 @@ export function Sidebar({
             />
           </nav>
 
-          {!isAthlete && !isMedia && !isPartner ? (
+          {!isAthlete && !isMedia && !isPartner && !isCreativeOnly ? (
             <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
               <NavigationSection
                 items={visibleSecondaryNavigation}
@@ -312,7 +325,7 @@ export function Sidebar({
                 />
               </nav>
 
-              {!isAthlete && !isMedia && !isPartner ? (
+              {!isAthlete && !isMedia && !isPartner && !isCreativeOnly ? (
                 <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
                   <NavigationSection
                     items={visibleSecondaryNavigation}

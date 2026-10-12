@@ -40,6 +40,17 @@ const defaultDependencies: HandlerDependencies = {
   changeAssignment: changeAthleteServiceCreativeAssignment,
 };
 
+export const logAdminCreativeAssignmentReadError = (error: unknown): void => {
+  const diagnostic = error && typeof error === "object"
+    ? error as { code?: unknown; constraint?: unknown; name?: unknown }
+    : null;
+  console.error("[admin_athlete_service_creative_assignments][get_failed]", {
+    code: typeof diagnostic?.code === "string" ? diagnostic.code : null,
+    constraint: typeof diagnostic?.constraint === "string" ? diagnostic.constraint : null,
+    type: typeof diagnostic?.name === "string" ? diagnostic.name : typeof error,
+  });
+};
+
 const readPatchBody = async (request: Request) => {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") throw new Error("invalid_input");
@@ -93,6 +104,7 @@ export const createAdminAthleteServiceCreativeAssignmentHandlers = (
       if (error instanceof Error && /UUID|requis/.test(error.message)) {
         return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
       }
+      logAdminCreativeAssignmentReadError(error);
       return NextResponse.json(
         { error: "Impossible de charger les affectations créatives." },
         { status: 500 },

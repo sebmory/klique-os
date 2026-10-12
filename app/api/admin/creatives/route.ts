@@ -21,6 +21,7 @@ import {
   invalidatePublicKliqueStats,
   PUBLIC_KLIQUE_STATS_WORKSPACE_ID,
 } from "@/lib/public-klique-stats-cache";
+import { getCreativeAccessState } from "@/lib/clerk-access/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,6 +35,7 @@ type HandlerDependencies = {
     input: CreateManualCreativeProfileInput,
   ) => Promise<CreativeProfile>;
   invalidateStats?: () => void;
+  getAccessState?: typeof getCreativeAccessState;
 };
 
 const defaultDependencies: HandlerDependencies = {
@@ -41,6 +43,7 @@ const defaultDependencies: HandlerDependencies = {
   listProfiles: listCreativeProfilesForAdmin,
   createManualProfile: createManualCreativeProfileForAdmin,
   invalidateStats: invalidatePublicKliqueStats,
+  getAccessState: getCreativeAccessState,
 };
 
 const allowedFields = new Set([
@@ -147,7 +150,13 @@ export const createAdminCreativeProfilesHandlers = (
       if ("response" in access) return access.response;
       rejectQueryParameters(request);
       const profiles = await dependencies.listProfiles(access.context.workspaceId);
-      return NextResponse.json({ profiles }, {
+      const accessByProfileId = dependencies.getAccessState
+        ? Object.fromEntries(await Promise.all(profiles.map(async (profile) => [
+            profile.id,
+            await dependencies.getAccessState!(access.context.workspaceId, profile.id),
+          ])))
+        : undefined;
+      return NextResponse.json({ profiles, accessByProfileId }, {
         headers: { "Cache-Control": "private, no-store" },
       });
     } catch (error) {

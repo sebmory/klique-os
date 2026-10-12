@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  authMock,
   clerkClientMock,
   authenticateRequestMock,
   getUserMock,
@@ -12,6 +13,7 @@ const {
   getPartnersFromGoogleSheetsMock,
   getMediaFromGoogleSheetsMock,
 } = vi.hoisted(() => ({
+  authMock: vi.fn(),
   clerkClientMock: vi.fn(),
   authenticateRequestMock: vi.fn(),
   getUserMock: vi.fn(),
@@ -25,6 +27,7 @@ const {
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: authMock,
   clerkClient: clerkClientMock,
 }));
 
@@ -90,6 +93,7 @@ const mockClerkUser = (options: {
   verification?: string;
   publicMetadata?: Record<string, unknown>;
 }) => {
+  authMock.mockResolvedValue({ userId: options.userId });
   authenticateRequestMock.mockResolvedValue({
     isAuthenticated: true,
     toAuth: () => ({ userId: options.userId }),
@@ -244,7 +248,8 @@ describe("media invitation access linking", () => {
     [{ role: "media", mediaId }, "missing workspace"],
     [{ role: "media", workspaceId: "workspace-1" }, "missing mediaId"],
     [{ role: "athlete", workspaceId: "workspace-1", mediaId }, "wrong role"],
-  ])("does not link when Clerk metadata is incomplete: %s", async (publicMetadata, _scenario: string) => {
+  ])("does not link when Clerk metadata is incomplete: %s", async (publicMetadata, scenario: string) => {
+    void scenario;
     mockClerkUser({
       userId: "user-media",
       email: "journalist@example.com",

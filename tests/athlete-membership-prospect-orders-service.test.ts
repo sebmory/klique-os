@@ -22,6 +22,7 @@ vi.mock("@/lib/content-storage/db", () => ({
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: vi.fn(),
   clerkClient: vi.fn(),
 }));
 

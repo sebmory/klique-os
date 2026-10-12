@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  authMock,
   clerkClientMock,
   authenticateRequestMock,
   getUserMock,
@@ -9,6 +10,7 @@ const {
   getDefaultWorkspaceIdMock,
   getPartnersFromGoogleSheetsMock,
 } = vi.hoisted(() => ({
+  authMock: vi.fn(),
   clerkClientMock: vi.fn(),
   authenticateRequestMock: vi.fn(),
   getUserMock: vi.fn(),
@@ -19,6 +21,7 @@ const {
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: authMock,
   clerkClient: clerkClientMock,
 }));
 
@@ -61,6 +64,7 @@ describe("partner invitation redirect", () => {
     vi.resetAllMocks();
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.klique.ch");
     getDefaultWorkspaceIdMock.mockReturnValue("workspace-1");
+    authMock.mockResolvedValue({ userId: "user_admin" });
     authenticateRequestMock.mockResolvedValue({
       isAuthenticated: true,
       toAuth: () => ({ userId: "user_admin" }),
@@ -106,6 +110,7 @@ describe("partner business identifiers", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     getDefaultWorkspaceIdMock.mockReturnValue("workspace-1");
+    authMock.mockResolvedValue({ userId: "user_partner" });
     authenticateRequestMock.mockResolvedValue({
       isAuthenticated: true,
       toAuth: () => ({ userId: "user_partner" }),

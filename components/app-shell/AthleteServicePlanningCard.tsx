@@ -29,6 +29,14 @@ const missionLabels: Record<AthleteServicePlanningPriority["missionState"], stri
   ready: "Mission prête",
 };
 
+const responseLabels = {
+  pending: "En attente de réponse",
+  accepted: "Acceptée",
+  refused: "Refusée",
+  assignment_changed: "Affectation modifiée depuis la réponse",
+  cancelled: "Mission annulée",
+} as const;
+
 const formatDate = (value: string): string => new Intl.DateTimeFormat("fr-CH", {
   day: "2-digit",
   month: "2-digit",
@@ -66,6 +74,13 @@ export function AthleteServicePlanningCard({
                     : "Non affecté"}
                 </small>
                 <small>{missionLabels[priority.missionState]}</small>
+                {priority.creativeResponseStates?.length ? (
+                  <small>
+                    Réponse créative : {priority.creativeResponseStates
+                      .map((state) => responseLabels[state])
+                      .join(", ")}
+                  </small>
+                ) : null}
               </div>
               <div className="service-planning-deadline">
                 <span className={`priority-badge ${levelClasses[priority.level]}`}>

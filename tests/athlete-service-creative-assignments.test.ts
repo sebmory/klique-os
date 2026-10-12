@@ -78,6 +78,45 @@ const createMemoryRepository = () => {
 };
 
 describe("Athlete service creative assignments", () => {
+  it("returns assignments for a requestId with an active Admin+creative account after 6C", async () => {
+    const assignment: AthleteServiceCreativeAssignment = {
+      requestId,
+      athleteId: "athlete-1",
+      productName: "Session photo",
+      creative: creative(creativeAId, "Alice Photo"),
+      history: [],
+    };
+    const listCreatives = vi.fn().mockResolvedValue([creative(creativeAId, "Alice Photo")]);
+    const listAssignments = vi.fn().mockResolvedValue([assignment]);
+    const handlers = createAdminAthleteServiceCreativeAssignmentHandlers({
+      getAccess: vi.fn().mockResolvedValue({
+        clerkUserId: "admin-creative-1",
+        role: "admin",
+        status: "active",
+        workspaceId: "workspace-a",
+      }),
+      listCreatives,
+      listAssignments,
+      changeAssignment: vi.fn(),
+    });
+
+    const response = await handlers.GET(new Request(
+      `http://localhost/api/admin/athlete-service-creative-assignments?requestId=${requestId}`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(listCreatives).toHaveBeenCalledWith({ workspaceId: "workspace-a" });
+    expect(listAssignments).toHaveBeenCalledWith({
+      workspaceId: "workspace-a",
+      requestId,
+    });
+    await expect(response.json()).resolves.toEqual({
+      creatives: [creative(creativeAId, "Alice Photo")],
+      assignments: [assignment],
+    });
+  });
+
   it("assigns, replaces and removes by canonical UUID with append-only Admin history", async () => {
     const { repository } = createMemoryRepository();
 
@@ -212,10 +251,10 @@ describe("Athlete service creative assignments", () => {
   });
 
   it.each([
-    null,
-    { clerkUserId: "user-1", role: "athlete", status: "active", workspaceId: "workspace-a" },
-    { clerkUserId: "user-1", role: "admin", status: "inactive", workspaceId: "workspace-a" },
-  ])("blocks missing or non-Admin access before reading data", async (access) => {
+    [null, 401],
+    [{ clerkUserId: "user-1", role: "athlete", status: "active", workspaceId: "workspace-a" }, 403],
+    [{ clerkUserId: "user-1", role: "admin", status: "inactive", workspaceId: "workspace-a" }, 403],
+  ] as const)("blocks missing or non-Admin access before reading data", async (access, status) => {
     const listAssignments = vi.fn();
     const handlers = createAdminAthleteServiceCreativeAssignmentHandlers({
       getAccess: vi.fn().mockResolvedValue(access),
@@ -227,7 +266,7 @@ describe("Athlete service creative assignments", () => {
       `http://localhost/api/admin/athlete-service-creative-assignments?requestId=${requestId}`,
     ));
 
-    expect([401, 403]).toContain(response.status);
+    expect(response.status).toBe(status);
     expect(listAssignments).not.toHaveBeenCalled();
   });
 

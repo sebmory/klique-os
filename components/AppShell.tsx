@@ -20,6 +20,7 @@ type ClerkUserAccessState = {
   status: string | null;
   clerkDisplayName: string | null;
   partnerProfileLabel: "Expert" | "Partenaire" | "Partenaire / Expert" | null;
+  isCreative: boolean;
 };
 
 type AccessLoadStatus = "loading" | "authorized" | "denied";
@@ -48,6 +49,7 @@ export function AppShell({ children }: AppShellProps) {
     status: null,
     clerkDisplayName: null,
     partnerProfileLabel: null,
+    isCreative: false,
   });
   const [accessLoadStatus, setAccessLoadStatus] = useState<AccessLoadStatus>("loading");
 
@@ -85,6 +87,10 @@ export function AppShell({ children }: AppShellProps) {
         }
 
         const access = data?.userAccess ?? null;
+        const creativeAccess = data?.creativeAccess ?? null;
+        const isActiveCreative = data?.permissions?.isCreative === true
+          && creativeAccess?.status === "active"
+          && creativeAccess?.creativeProfileStatus === "active";
         const hasWorkspace = typeof access?.workspaceId === "string" && access.workspaceId.trim().length > 0;
         const hasActiveAccess =
           access?.status === "active" &&
@@ -94,12 +100,12 @@ export function AppShell({ children }: AppShellProps) {
             (access?.role === "athlete" && typeof access?.athleteId === "string" && access.athleteId.trim().length > 0) ||
             (access?.role === "partner_expert" && typeof access?.partnerId === "string" && access.partnerId.trim().length > 0));
 
-        if (!hasActiveAccess) {
+        if (!hasActiveAccess && !isActiveCreative) {
           denyAccess();
           return;
         }
 
-        setAuthenticatedContentStorageRole(access.role);
+        setAuthenticatedContentStorageRole(access?.role ?? (isActiveCreative ? "creative" : null));
 
         const resolvedDisplayName =
           user?.fullName ||
@@ -130,7 +136,7 @@ export function AppShell({ children }: AppShellProps) {
         }
 
         setUserAccess({
-          role: access?.role ?? null,
+          role: access?.role ?? (isActiveCreative ? "creative" : null),
           isAthlete: Boolean(data?.permissions?.isAthlete && data?.permissions?.isActive),
           athleteId: access?.athleteId ?? null,
           partnerId: access?.partnerId ?? null,
@@ -138,6 +144,7 @@ export function AppShell({ children }: AppShellProps) {
           status: access?.status ?? null,
           clerkDisplayName: resolvedDisplayName,
           partnerProfileLabel,
+          isCreative: isActiveCreative,
         });
         setAccessLoadStatus("authorized");
       } catch {
@@ -151,7 +158,19 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
       setAuthenticatedContentStorageRole(null);
     };
-  }, [isAccessPendingRoute, isPassFlowRoute, isPublicAuthRoute, isPublicHomeRoute, router, user?.id]);
+  }, [
+    isAccessPendingRoute,
+    isPassFlowRoute,
+    isPublicAuthRoute,
+    isPublicHomeRoute,
+    router,
+    user?.emailAddresses,
+    user?.firstName,
+    user?.fullName,
+    user?.id,
+    user?.lastName,
+    user?.primaryEmailAddress?.emailAddress,
+  ]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -184,6 +203,7 @@ export function AppShell({ children }: AppShellProps) {
         userIsAthlete={userAccess.isAthlete}
         userIsMedia={userAccess.role === "media" && userAccess.status === "active"}
         userIsPartner={userAccess.role === "partner_expert" && userAccess.status === "active"}
+        userIsCreative={userAccess.isCreative}
         userPartnerLabel={userAccess.partnerProfileLabel}
         userName={userAccess.clerkDisplayName}
       />

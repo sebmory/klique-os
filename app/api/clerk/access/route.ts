@@ -10,11 +10,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, message: "Utilisateur Clerk non connecte." }, { status: 401 });
   }
 
+  const permissions = buildUserAccessPermissionContext(
+    profile?.userAccess ?? null,
+    profile?.creativeAccess ?? null,
+  );
+  const { creativeProfileId: _creativeProfileId, ...publicPermissions } = permissions;
+  void _creativeProfileId;
   return NextResponse.json({
     ok: true,
     clerkUser: profile.clerkUser,
     userAccess: profile.userAccess,
-    permissions: buildUserAccessPermissionContext(profile?.userAccess ?? null),
+    creativeAccess: profile.creativeAccess ? {
+      status: profile.creativeAccess.status,
+      creativeProfileStatus: profile.creativeAccess.creativeProfileStatus,
+    } : null,
+    permissions: publicPermissions,
   });
 }
 

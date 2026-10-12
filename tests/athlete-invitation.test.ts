@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  authMock,
   clerkClientMock,
   authenticateRequestMock,
   getUserMock,
@@ -11,6 +12,7 @@ const {
   getPartnersFromGoogleSheetsMock,
   getMediaFromGoogleSheetsMock,
 } = vi.hoisted(() => ({
+  authMock: vi.fn(),
   clerkClientMock: vi.fn(),
   authenticateRequestMock: vi.fn(),
   getUserMock: vi.fn(),
@@ -23,6 +25,7 @@ const {
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: authMock,
   clerkClient: clerkClientMock,
 }));
 
@@ -65,6 +68,7 @@ describe("athlete invitation authorization", () => {
     role: string | null;
     extraHandlers?: Array<{ match: string; result: unknown[] }>;
   }) => {
+    authMock.mockResolvedValue({ userId: options.userId });
     authenticateRequestMock.mockResolvedValue({
       isAuthenticated: true,
       toAuth: () => ({ userId: options.userId }),
@@ -278,6 +282,7 @@ describe("athlete invitation acceptance linking", () => {
     publicMetadata?: Record<string, unknown>;
     emailAddresses?: Array<{ emailAddress: string; verification?: { status: string } }>;
   }) => {
+    authMock.mockResolvedValue({ userId: options.userId });
     authenticateRequestMock.mockResolvedValue({
       isAuthenticated: true,
       toAuth: () => ({ userId: options.userId }),
@@ -303,11 +308,6 @@ describe("athlete invitation acceptance linking", () => {
     createContentStorageClientMock.mockReturnValue(
       buildQueryMock([
         { match: "create table if not exists", result: [] },
-        { match: "where clerk_user_id", result: [] },
-        {
-          match: "from athlete_invitations",
-          result: [{ athlete_id: "athlete-42", email: "target@example.com", clerk_invitation_id: "inv_123", status: "invited" }],
-        },
         {
           match: "insert into user_access",
           result: [
@@ -324,6 +324,11 @@ describe("athlete invitation acceptance linking", () => {
               updated_at: "2026-08-10T00:00:00.000Z",
             },
           ],
+        },
+        { match: "where clerk_user_id", result: [] },
+        {
+          match: "from athlete_invitations",
+          result: [{ athlete_id: "athlete-42", email: "target@example.com", clerk_invitation_id: "inv_123", status: "invited" }],
         },
       ]) as never,
     );

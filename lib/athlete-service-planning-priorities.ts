@@ -13,6 +13,7 @@ import type {
   AthleteServiceRequestStatus,
 } from "@/lib/athlete-service-requests";
 import type { AssignmentCreativeSummary } from "@/lib/athlete-service-creative-assignments";
+import type { CreativeMissionResponseDisplayState } from "@/lib/creative-missions";
 
 export type AthleteServicePlanningPriorityLevel = "urgent" | "plan" | "anticipate" | "future";
 export type AthleteServicePlanningMissionState = "absent" | "draft" | "ready";
@@ -31,6 +32,7 @@ export type AthleteServicePlanningPriority = {
   }>;
   assignedCreatives: AssignmentCreativeSummary[];
   missionState: AthleteServicePlanningMissionState;
+  creativeResponseStates?: CreativeMissionResponseDisplayState[];
 };
 
 export type AthleteServicePlanningPriorityProjection = {
@@ -38,6 +40,7 @@ export type AthleteServicePlanningPriorityProjection = {
   projection: AthleteMembershipServiceSummaryProjection;
   assignedCreatives?: AssignmentCreativeSummary[];
   missionState?: AthleteServicePlanningMissionState;
+  creativeResponseStates?: CreativeMissionResponseDisplayState[];
 };
 
 export type AthleteServicePlanningPriorityRepository = {
@@ -92,6 +95,7 @@ type PriorityRow = {
   mission_missing_count: number | string;
   mission_draft_count: number | string;
   mission_ready_count: number | string;
+  creative_response_states: CreativeMissionResponseDisplayState[];
 };
 
 const toIsoString = (value: string | Date): string => new Date(value).toISOString();
@@ -117,6 +121,7 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
                COALESCE(mission_projection.missing_count, 0) AS mission_missing_count,
                COALESCE(mission_projection.draft_count, 0) AS mission_draft_count,
                COALESCE(mission_projection.ready_count, 0) AS mission_ready_count,
+               COALESCE(response_projection.states, ARRAY[]::text[]) AS creative_response_states,
                CASE
                  WHEN legacy_projection.subscription_id IS NULL THEN NULL
                  ELSE jsonb_build_object(
@@ -207,6 +212,32 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
             AND request.status IN ('received', 'to_confirm', 'scheduled', 'in_progress')
         ) mission_projection ON TRUE
         LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT CASE
+                   WHEN mission.status = 'cancelled' THEN 'cancelled'
+                   WHEN response.status IS NOT NULL
+                     AND response.creative_profile_id IS DISTINCT FROM request.assigned_creative_profile_id
+                     THEN 'assignment_changed'
+                   WHEN response.status IS NOT NULL THEN response.status
+                   ELSE 'pending'
+                 END) AS states
+          FROM athlete_service_requests request
+          JOIN athlete_service_request_missions mission
+            ON mission.workspace_id = request.workspace_id
+           AND mission.service_request_id = request.id
+          LEFT JOIN LATERAL (
+            SELECT current_response.creative_profile_id, current_response.status
+            FROM creative_mission_responses current_response
+            WHERE current_response.workspace_id = request.workspace_id
+              AND current_response.service_request_id = request.id
+            ORDER BY current_response.updated_at DESC, current_response.id DESC
+            LIMIT 1
+          ) response ON TRUE
+          WHERE request.workspace_id = ${workspaceId}
+            AND request.athlete_id = membership.athlete_id
+            AND request.assigned_creative_profile_id IS NOT NULL
+            AND request.status IN ('received', 'to_confirm', 'scheduled', 'in_progress')
+        ) response_projection ON TRUE
+        LEFT JOIN LATERAL (
           SELECT selected.id AS subscription_id,
                  selected.custom_contents_included,
                  selected.ends_on,
@@ -281,6 +312,7 @@ const createRepository = (): AthleteServicePlanningPriorityRepository => {
           purchases: [],
         },
         assignedCreatives: row.assigned_creatives,
+        creativeResponseStates: row.creative_response_states,
         missionState: Number(row.mission_request_count) === 0
           || Number(row.mission_missing_count) > 0
           ? "absent"
@@ -306,7 +338,13 @@ export const calculateAthleteServicePlanningPriorities = ({
   projections: AthleteServicePlanningPriorityProjection[];
   now: Date;
 }): AthleteServicePlanningPriority[] => projections
-  .flatMap(({ membership, projection, assignedCreatives = [], missionState = "absent" }) => {
+  .flatMap(({
+    membership,
+    projection,
+    assignedCreatives = [],
+    missionState = "absent",
+    creativeResponseStates = [],
+  }) => {
     const summary = calculateAthleteMembershipServiceSummary({ membership, projection, now });
     const remainingServices = summary.included
       .filter((service) => service.available > 0)
@@ -325,6 +363,7 @@ export const calculateAthleteServicePlanningPriorities = ({
       remainingServices,
       assignedCreatives,
       missionState,
+      creativeResponseStates,
     }];
   })
   .sort((left, right) => (

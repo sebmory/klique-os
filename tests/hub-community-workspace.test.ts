@@ -7,6 +7,7 @@ const { createContentStorageClientMock, getCurrentUserAccessProfileMock, sqlMock
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: vi.fn(),
   clerkClient: vi.fn(),
 }));
 

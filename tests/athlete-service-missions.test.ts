@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { auth } from "@clerk/nextjs/server";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { createContentStorageClient } from "@/lib/content-storage/db";
 import {
   AthleteServiceMissionValidationError,
   buildMissionWhatsAppAnnouncement,
@@ -16,6 +18,10 @@ import {
   type AthleteServiceMissionRepository,
 } from "@/lib/athlete-service-missions";
 import { createAdminAthleteServiceMissionHandlers } from "@/app/api/admin/athlete-service-missions/route";
+import { getDefaultCreativeAdminAccess, requireCreativeAdminContext } from "@/lib/creatives/admin-route";
+
+vi.mock("@clerk/nextjs/server", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/content-storage/db", () => ({ createContentStorageClient: vi.fn() }));
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const creativeId = "22222222-2222-4222-8222-222222222222";
@@ -133,6 +139,43 @@ const createMemoryRepository = () => {
   };
   return { repository, getRecord: () => record };
 };
+
+describe("Creative admin access guard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses auth() and user_access to authorize Admin without remote Clerk user lookup", async () => {
+    const sql = vi.fn().mockResolvedValue([
+      { clerk_user_id: "user_123", role: "admin", status: "active", workspace_id: "workspace-a" },
+    ]);
+    vi.mocked(auth).mockResolvedValue({ userId: "user_123" } as never);
+    vi.mocked(createContentStorageClient).mockReturnValue(sql as never);
+
+    const access = await getDefaultCreativeAdminAccess(new Request("http://localhost/api/admin/athlete-service-missions?requestId=11111111-1111-4111-8111-111111111111"));
+
+    expect(access).toEqual({
+      clerkUserId: "user_123",
+      role: "admin",
+      status: "active",
+      workspaceId: "workspace-a",
+    });
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [null, 401],
+    [{ clerkUserId: "user-1", role: "athlete", status: "active", workspaceId: "workspace-a" }, 403],
+    [{ clerkUserId: "user-1", role: "admin", status: "inactive", workspaceId: "workspace-a" }, 403],
+  ])("enforces auth and admin-only access %j", async (access, expectedStatus) => {
+    const result = await requireCreativeAdminContext(new Request("http://localhost/api/admin/athlete-service-missions?requestId=11111111-1111-4111-8111-111111111111"), async () => access);
+    if ("response" in result) {
+      expect(result.response.status).toBe(expectedStatus);
+      return;
+    }
+    throw new Error("Expected denial response");
+  });
+});
 
 describe("Athlete service mission domain", () => {
   it("validates strict dates and local Europe/Zurich times without date-to-timestamp conversion", () => {
@@ -323,6 +366,52 @@ describe("Athlete service mission lifecycle", () => {
 });
 
 describe("Admin athlete service mission API", () => {
+  it("returns a mission with its creative response and history for a requestId after 6C", async () => {
+    const record: AthleteServiceMissionRecord = {
+      requestId,
+      athleteId: "athlete-1",
+      productName: "Session photo",
+      assignedCreativeProfileId: creativeId,
+      mission: toMission(missionInput({ status: "ready" })),
+      history: [],
+      creativeResponse: {
+        state: "accepted",
+        note: "Disponible pour cette mission.",
+        respondedAt: "2026-10-12T08:05:52.406Z",
+        history: [{
+          action: "accepted",
+          note: "Disponible pour cette mission.",
+          authoredBy: "creative",
+          createdAt: "2026-10-12T08:05:52.406Z",
+        }],
+      },
+    };
+    const listMissions = vi.fn().mockResolvedValue([record]);
+    const handlers = createAdminAthleteServiceMissionHandlers({
+      getAccess: vi.fn().mockResolvedValue({
+        clerkUserId: "admin-creative-1",
+        role: "admin",
+        status: "active",
+        workspaceId: "workspace-a",
+      }),
+      listMissions,
+      saveMission: vi.fn(),
+      cancelMission: vi.fn(),
+    });
+
+    const response = await handlers.GET(new Request(
+      `http://localhost/api/admin/athlete-service-missions?requestId=${requestId}`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(listMissions).toHaveBeenCalledWith({
+      workspaceId: "workspace-a",
+      requestId,
+    });
+    await expect(response.json()).resolves.toEqual({ records: [record] });
+  });
+
   it("uses only the authenticated Admin workspace and author", async () => {
     const saveMission = vi.fn().mockResolvedValue({
       outcome: "changed",
@@ -371,10 +460,10 @@ describe("Admin athlete service mission API", () => {
   });
 
   it.each([
-    null,
-    { clerkUserId: "user-1", role: "athlete", status: "active", workspaceId: "workspace-a" },
-    { clerkUserId: "user-1", role: "admin", status: "inactive", workspaceId: "workspace-a" },
-  ])("blocks missing or non-Admin access", async (access) => {
+    [null, 401],
+    [{ clerkUserId: "user-1", role: "athlete", status: "active", workspaceId: "workspace-a" }, 403],
+    [{ clerkUserId: "user-1", role: "admin", status: "inactive", workspaceId: "workspace-a" }, 403],
+  ] as const)("blocks missing or non-Admin access with the expected status", async (access, status) => {
     const listMissions = vi.fn();
     const handlers = createAdminAthleteServiceMissionHandlers({
       getAccess: vi.fn().mockResolvedValue(access),
@@ -385,7 +474,7 @@ describe("Admin athlete service mission API", () => {
     const response = await handlers.GET(new Request(
       `http://localhost/api/admin/athlete-service-missions?requestId=${requestId}`,
     ));
-    expect([401, 403]).toContain(response.status);
+    expect(response.status).toBe(status);
     expect(listMissions).not.toHaveBeenCalled();
   });
 

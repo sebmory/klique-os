@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
+import { getLocalUserAccessProfileByClerkUserId } from "@/lib/clerk-access/service";
 import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 
 const isPublicRoute = createRouteMatcher([
@@ -199,6 +199,12 @@ export const isPartnerAllowedApi = (pathname: string, method: string): boolean =
     || /^\/api\/partner\/athletes\/[^/]+$/.test(pathname);
 };
 
+export const isCreativeAllowedRoute = (pathname: string, method: string): boolean =>
+  pathname === "/creative"
+  || pathname.startsWith("/creative/")
+  || pathname === "/api/creative/missions"
+  || (pathname === "/api/clerk/access" && method === "GET");
+
 export const isHiddenExternalAthleteProfileRoute = (pathname: string): boolean => {
   const match = /^\/(?:partner|media)\/athletes\/([^/]+)$/.exec(pathname);
   if (!match) return false;
@@ -212,104 +218,132 @@ export const isHiddenExternalAthleteProfileRoute = (pathname: string): boolean =
 
 const apiAccessDenied = () => NextResponse.json({ error: "Accès refusé." }, { status: 403 });
 
-export default clerkMiddleware(
-  async (auth, request: NextRequest) => {
-    const { pathname } = request.nextUrl;
-    if (
-      isPublicRoute(request)
-      || isPublicHomePage(pathname)
-      || isPublicPassPage(pathname)
-      || isPublicKliqueStatsApi(pathname, request.method)
-      || isPublicMembershipPlansApi(pathname, request.method)
-    ) {
+type ProxyAuth = {
+  protect: () => Promise<unknown>;
+};
+
+type CallableProxyAuth = ProxyAuth & (() => Promise<{ userId?: string | null }>);
+
+export const handleKliqueProxyRequest = async (
+  auth: ProxyAuth,
+  request: NextRequest,
+) => {
+  const { pathname } = request.nextUrl;
+  const authResult = typeof auth === "function" ? await (auth as CallableProxyAuth)() : null;
+  const clerkUserId = authResult?.userId ?? null;
+
+  if (
+    isPublicRoute(request)
+    || isPublicHomePage(pathname)
+    || isPublicPassPage(pathname)
+    || isPublicKliqueStatsApi(pathname, request.method)
+    || isPublicMembershipPlansApi(pathname, request.method)
+  ) {
+    return NextResponse.next();
+  }
+
+  await auth.protect();
+
+  if (isProspectPassPage(pathname) || isProspectMembershipOrderApi(pathname, request.method)) {
+    return NextResponse.next();
+  }
+
+  if (pathname === accessPendingPath) {
+    return NextResponse.next();
+  }
+
+  if (!clerkUserId) {
+    return isApiRoute(pathname)
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL("/sign-in", request.url));
+  }
+
+  const profile = await getLocalUserAccessProfileByClerkUserId(clerkUserId);
+  const access = profile?.userAccess;
+  const creativeAccess = profile?.creativeAccess;
+  const hasWorkspace = Boolean(access?.workspaceId?.trim());
+  const hasActiveUserAccess =
+    access?.status === "active" &&
+    hasWorkspace &&
+    (access.role === "admin" ||
+      access.role === "media" ||
+      (access.role === "athlete" && Boolean(access.athleteId?.trim())) ||
+      (access.role === "partner_expert" && Boolean(access.partnerId?.trim())));
+  const hasActiveCreativeAccess =
+    creativeAccess?.status === "active"
+    && creativeAccess.creativeProfileStatus === "active"
+    && Boolean(creativeAccess.workspaceId?.trim())
+    && Boolean(creativeAccess.creativeProfileId?.trim());
+
+  if (!hasActiveUserAccess && !hasActiveCreativeAccess) {
+    return isApiRoute(pathname)
+      ? NextResponse.next()
+      : NextResponse.redirect(new URL(accessPendingPath, request.url));
+  }
+
+  if (!hasActiveUserAccess || !access) {
+    if (hasActiveCreativeAccess && isCreativeAllowedRoute(pathname, request.method)) {
       return NextResponse.next();
     }
+    return isApiRoute(pathname)
+      ? apiAccessDenied()
+      : NextResponse.redirect(new URL("/creative", request.url));
+  }
 
-    await auth.protect();
+  const adminAuditPath = "/api/admin/partner-benefit-reservations";
+  if (
+    access.role === "admin"
+    && (pathname === adminAuditPath || pathname.startsWith(`${adminAuditPath}/`))
+    && !isAdminPartnerBenefitReservationAuditApi(pathname, request.method)
+  ) {
+    return apiAccessDenied();
+  }
 
-    if (isProspectPassPage(pathname) || isProspectMembershipOrderApi(pathname, request.method)) {
-      return NextResponse.next();
+  if (access.role === "athlete" && !isAthleteAllowedRoute(pathname, request.method)) {
+    return isApiRoute(pathname)
+      ? apiAccessDenied()
+      : NextResponse.redirect(new URL("/athlete", request.url));
+  }
+
+  if (access.role === "partner_expert") {
+    if (isHiddenExternalAthleteProfileRoute(pathname)) {
+      return new NextResponse(null, { status: 404 });
     }
-
-    if (pathname === accessPendingPath) {
-      return NextResponse.next();
+    if (isApiRoute(pathname) && !isPartnerAllowedApi(pathname, request.method)) {
+      return apiAccessDenied();
     }
+    if (!isApiRoute(pathname) && !isPartnerAllowedPage(pathname)) {
+      return NextResponse.redirect(new URL("/partner", request.url));
+    }
+  }
 
-    try {
-      const profile = await getCurrentUserAccessProfile(request);
-      const access = profile?.userAccess;
-      const hasWorkspace = Boolean(access?.workspaceId?.trim());
-      const hasActiveAccess =
-        access?.status === "active" &&
-        hasWorkspace &&
-        (access.role === "admin" ||
-          access.role === "media" ||
-          (access.role === "athlete" && Boolean(access.athleteId?.trim())) ||
-          (access.role === "partner_expert" && Boolean(access.partnerId?.trim())));
-
-      if (!hasActiveAccess) {
-        return isApiRoute(pathname)
-          ? NextResponse.next()
-          : NextResponse.redirect(new URL(accessPendingPath, request.url));
-      }
-
-      const adminAuditPath = "/api/admin/partner-benefit-reservations";
-      if (
-        access.role === "admin"
-        && (pathname === adminAuditPath || pathname.startsWith(`${adminAuditPath}/`))
-        && !isAdminPartnerBenefitReservationAuditApi(pathname, request.method)
-      ) {
-        return apiAccessDenied();
-      }
-
-      if (access.role === "athlete" && !isAthleteAllowedRoute(pathname, request.method)) {
-        return isApiRoute(pathname)
-          ? apiAccessDenied()
-          : NextResponse.redirect(new URL("/athlete", request.url));
-      }
-
-      if (access.role === "partner_expert") {
-        if (isHiddenExternalAthleteProfileRoute(pathname)) {
-          return new NextResponse(null, { status: 404 });
-        }
-        if (isApiRoute(pathname) && !isPartnerAllowedApi(pathname, request.method)) {
-          return apiAccessDenied();
-        }
-        if (!isApiRoute(pathname) && !isPartnerAllowedPage(pathname)) {
-          return NextResponse.redirect(new URL("/partner", request.url));
-        }
-      }
-
-      // Les routes API conservent leurs propres controles : jamais de redirection HTML.
-      if (access.role === "media") {
-        if (isHiddenExternalAthleteProfileRoute(pathname)) {
-          return new NextResponse(null, { status: 404 });
-        }
-        const isMediaAthleteDirectory = pathname === "/media/athletes"
-          || /^\/media\/athletes\/[^/]+$/.test(pathname)
-          || pathname === "/api/media/athletes"
-          || /^\/api\/media\/athletes\/[^/]+$/.test(pathname);
-        if (isMediaAthleteDirectory && !access.mediaId?.trim()) {
-          return isApiRoute(pathname)
-            ? apiAccessDenied()
-            : NextResponse.redirect(new URL(accessPendingPath, request.url));
-        }
-        if (isApiRoute(pathname)) {
-          if (!isMediaAllowedApi(pathname, request.method)) {
-            return apiAccessDenied();
-          }
-        } else if (!isMediaAllowedRoute(pathname)) {
-          return NextResponse.redirect(new URL("/media-desk", request.url));
-        }
-      }
-    } catch {
+  if (access.role === "media") {
+    if (isHiddenExternalAthleteProfileRoute(pathname)) {
+      return new NextResponse(null, { status: 404 });
+    }
+    const isMediaAthleteDirectory = pathname === "/media/athletes"
+      || /^\/media\/athletes\/[^/]+$/.test(pathname)
+      || pathname === "/api/media/athletes"
+      || /^\/api\/media\/athletes\/[^/]+$/.test(pathname);
+    if (isMediaAthleteDirectory && !access.mediaId?.trim()) {
       return isApiRoute(pathname)
-        ? NextResponse.next()
+        ? apiAccessDenied()
         : NextResponse.redirect(new URL(accessPendingPath, request.url));
     }
+    if (isApiRoute(pathname)) {
+      if (!isMediaAllowedApi(pathname, request.method)) {
+        return apiAccessDenied();
+      }
+    } else if (!isMediaAllowedRoute(pathname)) {
+      return NextResponse.redirect(new URL("/media-desk", request.url));
+    }
+  }
 
-    return NextResponse.next();
-  },
+  return NextResponse.next();
+};
+
+export default clerkMiddleware(
+  handleKliqueProxyRequest,
   {
     signInUrl: "/sign-in",
   },

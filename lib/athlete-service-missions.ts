@@ -61,6 +61,15 @@ type MissionRow = {
   event_snapshot: Record<string, unknown> | null;
   event_author: string | null;
   event_created_at: string | Date | null;
+  response_creative_profile_id: string | null;
+  response_status: "accepted" | "refused" | null;
+  response_note: string | null;
+  response_updated_at: string | Date | null;
+  response_history: Array<{
+    action: "accepted" | "refused";
+    note: string | null;
+    createdAt: string;
+  }>;
 };
 
 type OutcomeRow = {
@@ -155,6 +164,23 @@ const mapRecords = (rows: MissionRow[]): AthleteServiceMissionRecord[] => {
         assignedCreativeProfileId: row.assigned_creative_profile_id,
         mission: mapMission(row),
         history: [],
+        creativeResponse: {
+          state: row.mission_status === "cancelled"
+            ? "cancelled"
+            : row.response_status && row.response_creative_profile_id !== row.assigned_creative_profile_id
+              ? "assignment_changed"
+              : row.response_status ?? "pending",
+          note: row.response_note,
+          respondedAt: row.response_updated_at
+            ? new Date(row.response_updated_at).toISOString()
+            : null,
+          history: (row.response_history ?? []).map((event) => ({
+            action: event.action,
+            note: event.note,
+            authoredBy: "creative",
+            createdAt: new Date(event.createdAt).toISOString(),
+          })),
+        },
       };
       records.set(row.request_id, record);
     }
@@ -231,7 +257,11 @@ const createRepository = (): AthleteServiceMissionRepository => {
                event.id AS event_id, event.action AS event_action,
                event.changed_fields, event.snapshot AS event_snapshot,
                event.authored_by_clerk_user_id AS event_author,
-               event.created_at AS event_created_at
+               event.created_at AS event_created_at,
+               response.creative_profile_id AS response_creative_profile_id,
+               response.status AS response_status, response.note AS response_note,
+               response.updated_at AS response_updated_at,
+               COALESCE(response_history.items, '[]'::jsonb) AS response_history
         FROM athlete_service_requests request
         JOIN athlete_service_products product ON product.code = request.product_code
         LEFT JOIN athlete_service_request_missions mission
@@ -240,6 +270,27 @@ const createRepository = (): AthleteServiceMissionRepository => {
         LEFT JOIN athlete_service_request_mission_events event
           ON event.workspace_id = request.workspace_id
          AND event.service_request_id = request.id
+        LEFT JOIN LATERAL (
+          SELECT current_response.*
+          FROM creative_mission_responses current_response
+          WHERE current_response.workspace_id = request.workspace_id
+            AND current_response.service_request_id = request.id
+          ORDER BY current_response.updated_at DESC, current_response.id DESC
+          LIMIT 1
+        ) response ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'action', response_event.action,
+              'note', response_event.note,
+              'createdAt', response_event.created_at
+            )
+            ORDER BY response_event.created_at DESC, response_event.id DESC
+          ) AS items
+          FROM creative_mission_response_events response_event
+          WHERE response_event.workspace_id = request.workspace_id
+            AND response_event.service_request_id = request.id
+        ) response_history ON TRUE
         WHERE request.workspace_id = $1
           AND ($2::uuid IS NULL OR request.id = $2::uuid)
           AND ($3::text IS NULL OR request.athlete_id = $3)

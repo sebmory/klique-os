@@ -67,6 +67,7 @@ export type AthleteServiceMissionRecord = {
   assignedCreativeProfileId: string | null;
   mission: AthleteServiceMission | null;
   history: AthleteServiceMissionEvent[];
+  creativeResponse?: import("@/lib/creative-missions").CreativeMissionResponse;
 };
 
 export class AthleteServiceMissionValidationError extends Error {

@@ -12,6 +12,7 @@ import {
   type AthleteServiceMissionStatus,
   type AthleteServiceMissionType,
 } from "@/lib/athlete-service-mission-domain";
+import { CreativeMissionResponsePanel } from "@/components/creatives/CreativeMissionResponsePanel";
 
 type Payload = {
   records?: AthleteServiceMissionRecord[];
@@ -324,6 +325,9 @@ export function AthleteServiceMissionPanel({
               <section key={item.requestId} style={{ display: "grid", gap: "0.45rem" }}>
                 <h3 style={{ margin: 0, fontSize: "1rem" }}>{item.productName}</h3>
                 <MissionSummary record={item} />
+                {item.creativeResponse ? (
+                  <CreativeMissionResponsePanel response={item.creativeResponse} />
+                ) : null}
               </section>
             ))}
           </div>
@@ -349,10 +353,15 @@ export function AthleteServiceMissionPanel({
       </div>
 
       {!editorOpen ? (
-        <MissionSummary
-          record={record}
-          onCopy={mission ? () => void copyAnnouncement(mission) : undefined}
-        />
+        <>
+          <MissionSummary
+            record={record}
+            onCopy={mission ? () => void copyAnnouncement(mission) : undefined}
+          />
+          {mission && record.creativeResponse ? (
+            <CreativeMissionResponsePanel response={record.creativeResponse} />
+          ) : null}
+        </>
       ) : (
         <form onSubmit={(event) => { event.preventDefault(); void mutate("save"); }} style={{ display: "grid", gap: "0.8rem" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>

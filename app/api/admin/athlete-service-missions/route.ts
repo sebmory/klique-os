@@ -49,6 +49,17 @@ const defaultDependencies: HandlerDependencies = {
   cancelMission: cancelAthleteServiceMission,
 };
 
+export const logAdminMissionReadError = (error: unknown): void => {
+  const diagnostic = error && typeof error === "object"
+    ? error as { code?: unknown; constraint?: unknown; name?: unknown }
+    : null;
+  console.error("[admin_athlete_service_missions][get_failed]", {
+    code: typeof diagnostic?.code === "string" ? diagnostic.code : null,
+    constraint: typeof diagnostic?.constraint === "string" ? diagnostic.constraint : null,
+    type: typeof diagnostic?.name === "string" ? diagnostic.name : typeof error,
+  });
+};
+
 const readJson = async (request: Request): Promise<Record<string, unknown>> => {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/json") {
@@ -154,6 +165,7 @@ export const createAdminAthleteServiceMissionHandlers = (
       ) {
         return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
       }
+      logAdminMissionReadError(error);
       return NextResponse.json(
         { error: "Impossible de charger les fiches mission." },
         { status: 500 },

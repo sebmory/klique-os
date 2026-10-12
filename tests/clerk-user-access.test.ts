@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  authMock,
   clerkClientMock,
   authenticateRequestMock,
   getUserMock,
@@ -10,6 +11,7 @@ const {
   getPartnersFromGoogleSheetsMock,
   getMediaFromGoogleSheetsMock,
 } = vi.hoisted(() => ({
+  authMock: vi.fn(),
   clerkClientMock: vi.fn(),
   authenticateRequestMock: vi.fn(),
   getUserMock: vi.fn(),
@@ -21,6 +23,7 @@ const {
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
+  auth: authMock,
   clerkClient: clerkClientMock,
 }));
 
@@ -46,6 +49,7 @@ import {
 describe("clerk user access service", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    authMock.mockResolvedValue({ userId: "user_123" });
     getDefaultWorkspaceIdMock.mockReturnValue("klique-os");
     getAthletesFromGoogleSheetsMock.mockResolvedValue([]);
     getPartnersFromGoogleSheetsMock.mockResolvedValue([]);
