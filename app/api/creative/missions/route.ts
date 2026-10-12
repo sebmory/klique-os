@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  parseCreativeMissionExecutionInput,
+  transitionCreativeMissionExecution,
+  type CreativeMissionExecutionMutationOutcome,
+} from "@/lib/creative-mission-execution";
 import { getCurrentUserCreativeAccessProfile } from "@/lib/clerk-access/service";
 import {
   listCreativePortalMissions,
@@ -34,12 +39,14 @@ type HandlerDependencies = {
     note: string | null;
     idempotencyKey: string;
   }) => Promise<CreativeMissionResponseMutationOutcome>;
+  transitionExecution?: typeof transitionCreativeMissionExecution;
 };
 
 const defaultDependencies: HandlerDependencies = {
   getAccess: getCurrentUserCreativeAccessProfile,
   listMissions: listCreativePortalMissions,
   respond: respondToCreativeMission,
+  transitionExecution: transitionCreativeMissionExecution,
 };
 
 export const logUnexpectedCreativeMissionPostError = (error: unknown): void => {
@@ -66,6 +73,36 @@ const requireActiveAccess = async (
     return NextResponse.json({ error: "Accès créatif refusé." }, { status: 403 });
   }
   return access;
+};
+
+const executionErrorForOutcome = (
+  outcome: CreativeMissionExecutionMutationOutcome,
+): NextResponse => {
+  if (outcome === "mission_not_found") {
+    return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
+  }
+  if (outcome === "access_denied") {
+    return NextResponse.json({ error: "Acc?s cr?atif refus?." }, { status: 403 });
+  }
+  if (outcome === "assignment_changed") {
+    return NextResponse.json(
+      { error: "Cette mission ne vous est plus affect?e." },
+      { status: 409 },
+    );
+  }
+  if (outcome === "idempotency_conflict") {
+    return NextResponse.json(
+      { error: "Cette op?ration a d?j? ?t? utilis?e avec un autre contenu." },
+      { status: 409 },
+    );
+  }
+  if (outcome === "mission_cancelled") {
+    return NextResponse.json({ error: "Cette mission est annul?e." }, { status: 409 });
+  }
+  return NextResponse.json(
+    { error: "Cette transition n?est pas autoris?e." },
+    { status: 409 },
+  );
 };
 
 const errorForOutcome = (outcome: CreativeMissionResponseMutationOutcome): NextResponse => {
@@ -159,8 +196,63 @@ export const createCreativeMissionHandlers = (
       );
     }
   },
+
+  async PATCH(request: Request) {
+    try {
+      if (
+        [...new URL(request.url).searchParams.keys()].length > 0
+        || request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase()
+          !== "application/json"
+      ) {
+        return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+      }
+      const access = await requireActiveAccess(request, dependencies.getAccess);
+      if (access instanceof NextResponse) return access;
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+      }
+      const { reference, ...executionInput } = body as Record<string, unknown>;
+      if (typeof reference !== "string") {
+        return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+      }
+      const parsed = parseCreativeMissionExecutionInput(executionInput);
+      const transition = dependencies.transitionExecution
+        ?? defaultDependencies.transitionExecution!;
+      const outcome = await transition({
+        workspaceId: access.workspaceId,
+        creativeProfileId: access.creativeProfileId,
+        clerkUserId: access.clerkUserId,
+        reference,
+        ...parsed,
+      });
+      if (outcome !== "changed" && outcome !== "unchanged") {
+        return executionErrorForOutcome(outcome);
+      }
+      return NextResponse.json({ ok: true, unchanged: outcome === "unchanged" });
+    } catch (error) {
+      if (error instanceof Error && /invalide|obligatoire|dépasser|HTTPS|UUID/.test(error.message)) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      const databaseError = error && typeof error === "object"
+        ? error as { code?: unknown; constraint?: unknown; name?: unknown }
+        : null;
+      console.error("[creative_missions][execution_failed]", {
+        code: typeof databaseError?.code === "string" ? databaseError.code : null,
+        constraint: typeof databaseError?.constraint === "string"
+          ? databaseError.constraint
+          : null,
+        type: typeof databaseError?.name === "string" ? databaseError.name : typeof error,
+      });
+      return NextResponse.json(
+        { error: "Impossible de mettre à jour la mission." },
+        { status: 500 },
+      );
+    }
+  },
 });
 
 const handlers = createCreativeMissionHandlers();
 export const GET = handlers.GET;
 export const POST = handlers.POST;
+export const PATCH = handlers.PATCH;

@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
+import {
+  mapCreativeMissionExecution,
+  type CreativeMissionExecution,
+  type CreativeMissionExecutionRow,
+} from "@/lib/creative-mission-execution";
 
 export type CreativeMissionResponseStatus = "accepted" | "refused";
 export type CreativeMissionResponseDisplayState =
@@ -42,6 +47,7 @@ export type CreativePortalMission = {
   expenseDetails: string | null;
   missionStatus: "ready" | "cancelled";
   response: CreativeMissionResponse;
+  execution?: CreativeMissionExecution | null;
 };
 
 export type CreativeMissionResponseMutationOutcome =
@@ -53,7 +59,7 @@ export type CreativeMissionResponseMutationOutcome =
   | "access_denied"
   | "mission_cancelled";
 
-type PortalMissionRow = {
+type PortalMissionRow = CreativeMissionExecutionRow & {
   reference_code: string;
   title: string;
   sport_discipline: string;
@@ -204,7 +210,15 @@ export const createCreativeMissionRepository = (): CreativeMissionRepository => 
                mission.expense_details, mission.status AS mission_status,
                response.status AS response_status, response.note AS response_note,
                response.updated_at AS response_updated_at,
-               COALESCE(history.items, '[]'::jsonb) AS response_history
+               COALESCE(history.items, '[]'::jsonb) AS response_history,
+               execution.status AS execution_status,
+               COALESCE(execution.delivery_links, '[]'::jsonb) AS execution_delivery_links,
+               execution.delivery_note AS execution_delivery_note,
+               execution.change_request_note AS execution_change_request_note,
+               execution.started_at AS execution_started_at,
+               execution.delivered_at AS execution_delivered_at,
+               execution.completed_at AS execution_completed_at,
+               COALESCE(execution_history.items, '[]'::jsonb) AS execution_history
         FROM athlete_service_requests request
         JOIN athlete_service_request_missions mission
           ON mission.workspace_id = request.workspace_id
@@ -227,6 +241,25 @@ export const createCreativeMissionRepository = (): CreativeMissionRepository => 
             AND event.service_request_id = request.id
             AND event.creative_profile_id = $2::uuid
         ) history ON TRUE
+        LEFT JOIN creative_mission_executions execution
+          ON execution.workspace_id = request.workspace_id
+         AND execution.service_request_id = request.id
+         AND execution.creative_profile_id = $2::uuid
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'action', event.action,
+              'note', event.note,
+              'deliveryLinks', event.delivery_links_snapshot,
+              'createdAt', event.created_at
+            )
+            ORDER BY event.created_at DESC, event.id DESC
+          ) AS items
+          FROM creative_mission_execution_events event
+          WHERE event.workspace_id = request.workspace_id
+            AND event.service_request_id = request.id
+            AND event.creative_profile_id = $2::uuid
+        ) execution_history ON TRUE
         WHERE request.workspace_id = $1
           AND request.assigned_creative_profile_id = $2::uuid
           AND mission.status IN ('ready', 'cancelled')
@@ -262,6 +295,10 @@ export const createCreativeMissionRepository = (): CreativeMissionRepository => 
           response_updated_at: row.response_updated_at,
           response_history: row.response_history,
         }),
+        execution: mapCreativeMissionExecution(
+          row,
+          row.mission_status === "ready" && row.response_status === "accepted",
+        ),
       }));
     },
 
