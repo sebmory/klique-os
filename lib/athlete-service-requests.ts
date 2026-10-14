@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
+import {
+  buildAthleteServiceRequestCommercialCompletionTransaction,
+  readAthleteServiceRequestCommercialCompletionResult,
+} from "@/lib/athlete-service-request-commercial-completion";
 import type {
   AthleteCreditBalance,
   AthleteCreditType,
@@ -678,267 +682,42 @@ const createAdminRepository = (): AdminAthleteServiceRequestRepository => {
       };
     },
     async complete({ workspaceId, requestId, deliveryKey }) {
-      const movementId = randomUUID();
-      const executionId = randomUUID();
-      const referenceId = `athlete_service_request:${requestId}`;
-      const deliveryReferenceId = `${referenceId}:delivery:${deliveryKey}`;
-      const lockAthleteBalance = sql`
-        SELECT membership.id
-        FROM athlete_service_requests request
-        JOIN athlete_memberships membership
-          ON membership.workspace_id = request.workspace_id
-          AND membership.athlete_id = request.athlete_id
-          AND membership.status = 'active'
-        WHERE request.workspace_id = ${workspaceId}
-          AND request.id = ${requestId}::uuid
-          AND request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right')
-        FOR UPDATE OF membership
-      `;
-      const completeRequest = sql`
-        WITH candidate AS (
-          SELECT request.*, product.name AS product_name, membership.id AS membership_id,
-                 purchase.status AS purchase_status, purchase.quantity AS purchase_quantity,
-                 COALESCE(delivered.quantity, 0) AS delivered_quantity,
-                 existing_delivery.id AS existing_delivery_id
-          FROM athlete_service_requests request
-          JOIN athlete_service_products product ON product.code = request.product_code
-          LEFT JOIN athlete_memberships membership
-            ON membership.workspace_id = request.workspace_id
-            AND membership.athlete_id = request.athlete_id
-            AND membership.status = 'active'
-          LEFT JOIN athlete_credit_purchases purchase
-            ON purchase.id = request.purchase_id
-            AND purchase.workspace_id = request.workspace_id
-            AND purchase.athlete_id = request.athlete_id
-          LEFT JOIN LATERAL (
-            SELECT SUM(execution.quantity) AS quantity
-            FROM athlete_credit_purchase_executions execution
-            WHERE execution.purchase_id = request.purchase_id
-          ) delivered ON TRUE
-          LEFT JOIN LATERAL (
-            SELECT execution.id
-            FROM athlete_credit_purchase_executions execution
-            WHERE execution.purchase_id = request.purchase_id
-              AND execution.reference_id = ${deliveryReferenceId}
-            LIMIT 1
-          ) existing_delivery ON TRUE
-          WHERE request.workspace_id = ${workspaceId}
-            AND request.id = ${requestId}::uuid
-            AND request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right', 'no_charge')
-          LIMIT 1
-        ),
-        existing_movement AS (
-          SELECT movement.*
-          FROM athlete_credit_movements movement
-          JOIN candidate
-            ON movement.workspace_id = candidate.workspace_id
-            AND movement.athlete_id = candidate.athlete_id
-            AND movement.credit_type = candidate.snapshot_credit_type
-            AND movement.quantity = -candidate.snapshot_credit_quantity
-          WHERE movement.source = 'usage'
-            AND movement.reference_id = ${referenceId}
-        ),
-        inserted_movement AS (
-          INSERT INTO athlete_credit_movements (
-            id, workspace_id, athlete_id, membership_id, credit_type, quantity,
-            source, reference_id, expires_at, created_at
-          )
-          SELECT ${movementId}::uuid, candidate.workspace_id, candidate.athlete_id,
-                 candidate.membership_id, candidate.snapshot_credit_type,
-                 -candidate.snapshot_credit_quantity, 'usage', ${referenceId}, NULL, NOW()
-          FROM candidate
-          WHERE candidate.status = 'in_progress'
-            AND candidate.fulfillment_mode IN ('included_right', 'paid_with_right')
-            AND candidate.membership_id IS NOT NULL
-            AND candidate.snapshot_credit_type IS NOT NULL
-            AND candidate.snapshot_credit_quantity IS NOT NULL
-            AND (candidate.fulfillment_mode <> 'paid_with_right' OR candidate.purchase_status = 'paid')
-            AND NOT EXISTS (SELECT 1 FROM existing_movement)
-          ON CONFLICT DO NOTHING
-          RETURNING *
-        ),
-        coherent_movement AS (
-          SELECT * FROM existing_movement
-          UNION ALL
-          SELECT * FROM inserted_movement
-        ),
-        inserted_execution AS (
-          INSERT INTO athlete_credit_purchase_executions (
-            id, purchase_id, quantity, executed_at, reference_id, created_at
-          )
-          SELECT ${executionId}::uuid, candidate.purchase_id, 1, NOW(),
-                 ${deliveryReferenceId}, NOW()
-          FROM candidate
-          WHERE candidate.status = 'in_progress'
-            AND candidate.fulfillment_mode IN ('paid_extra', 'paid_with_right')
-            AND candidate.purchase_id IS NOT NULL
-            AND candidate.purchase_status = 'paid'
-            AND candidate.purchase_quantity IS NOT NULL
-            AND candidate.delivered_quantity < candidate.purchase_quantity
-            AND candidate.existing_delivery_id IS NULL
-            AND (candidate.fulfillment_mode <> 'paid_with_right' OR EXISTS (SELECT 1 FROM coherent_movement))
-          ON CONFLICT DO NOTHING
-          RETURNING *
-        ),
-        transitioned AS (
-          UPDATE athlete_service_requests request
-          SET status = CASE
-                WHEN candidate.fulfillment_mode = 'paid_extra'
-                  AND candidate.delivered_quantity + 1 < candidate.purchase_quantity
-                  THEN request.status
-                ELSE 'completed'
-              END,
-              completed_at = CASE
-                WHEN candidate.fulfillment_mode = 'paid_extra'
-                  AND candidate.delivered_quantity + 1 < candidate.purchase_quantity
-                  THEN request.completed_at
-                ELSE NOW()
-              END,
-              usage_movement_id = COALESCE(movement.id, request.usage_movement_id),
-              updated_at = NOW()
-          FROM candidate
-          LEFT JOIN inserted_movement movement ON TRUE
-          WHERE request.id = candidate.id
-            AND request.status = 'in_progress'
-            AND (
-              (candidate.fulfillment_mode = 'included_right' AND EXISTS (SELECT 1 FROM coherent_movement))
-              OR (
-                candidate.fulfillment_mode = 'paid_with_right'
-                AND EXISTS (SELECT 1 FROM coherent_movement)
-                AND EXISTS (SELECT 1 FROM inserted_execution)
-              )
-              OR (candidate.fulfillment_mode = 'paid_extra' AND EXISTS (SELECT 1 FROM inserted_execution))
-              OR candidate.fulfillment_mode = 'no_charge'
-            )
-          RETURNING request.*
-        )
-        SELECT transitioned.id, transitioned.athlete_id, transitioned.product_code,
-               candidate.product_name, transitioned.fulfillment_mode, transitioned.status,
-               transitioned.requested_details, transitioned.requested_at, transitioned.scheduled_at,
-               transitioned.started_at, transitioned.completed_at, transitioned.refused_at,
-               transitioned.refusal_reason, transitioned.snapshot_credit_type,
-               transitioned.snapshot_credit_quantity, transitioned.snapshot_price_chf,
-               transitioned.purchase_id, candidate.purchase_status, candidate.purchase_quantity,
-               (candidate.delivered_quantity + CASE WHEN EXISTS (SELECT 1 FROM inserted_execution) THEN 1 ELSE 0 END) AS delivered_quantity,
-               candidate.no_charge_reason,
-               'transitioned' AS transition_outcome
-        FROM transitioned
-        JOIN candidate ON candidate.id = transitioned.id
-        UNION ALL
-        SELECT candidate.id, candidate.athlete_id, candidate.product_code, candidate.product_name,
-               candidate.fulfillment_mode, candidate.status, candidate.requested_details,
-               candidate.requested_at, candidate.scheduled_at, candidate.started_at,
-               candidate.completed_at, candidate.refused_at, candidate.refusal_reason,
-               candidate.snapshot_credit_type, candidate.snapshot_credit_quantity,
-               candidate.snapshot_price_chf, candidate.purchase_id, candidate.purchase_status,
-               candidate.purchase_quantity, candidate.delivered_quantity,
-               candidate.no_charge_reason,
-               CASE
-                 WHEN candidate.status = 'completed'
-                   AND candidate.fulfillment_mode = 'included_right'
-                   AND EXISTS (
-                     SELECT 1 FROM coherent_movement movement
-                     WHERE movement.id = candidate.usage_movement_id
-                       AND movement.workspace_id = candidate.workspace_id
-                       AND movement.athlete_id = candidate.athlete_id
-                       AND movement.credit_type = candidate.snapshot_credit_type
-                       AND movement.quantity = -candidate.snapshot_credit_quantity
-                   ) THEN 'unchanged'
-                 WHEN candidate.status = 'completed'
-                   AND candidate.fulfillment_mode = 'paid_with_right'
-                   AND candidate.purchase_quantity IS NOT NULL
-                   AND candidate.delivered_quantity = candidate.purchase_quantity
-                   AND EXISTS (
-                     SELECT 1 FROM coherent_movement movement
-                     WHERE movement.id = candidate.usage_movement_id
-                       AND movement.workspace_id = candidate.workspace_id
-                       AND movement.athlete_id = candidate.athlete_id
-                       AND movement.credit_type = candidate.snapshot_credit_type
-                       AND movement.quantity = -candidate.snapshot_credit_quantity
-                   ) THEN 'unchanged'
-                 WHEN candidate.status = 'completed'
-                   AND candidate.fulfillment_mode = 'paid_extra'
-                   AND candidate.purchase_quantity IS NOT NULL
-                   AND candidate.delivered_quantity = candidate.purchase_quantity
-                   THEN 'unchanged'
-                 WHEN candidate.status = 'completed'
-                   AND candidate.fulfillment_mode = 'no_charge'
-                   THEN 'unchanged'
-                 WHEN candidate.fulfillment_mode IN ('paid_extra', 'paid_with_right')
-                   AND candidate.existing_delivery_id IS NOT NULL
-                   THEN 'unchanged'
-                 WHEN candidate.fulfillment_mode IN ('paid_extra', 'paid_with_right')
-                   AND candidate.purchase_status IS DISTINCT FROM 'paid' THEN 'conflict'
-                 WHEN candidate.membership_id IS NULL
-                   AND candidate.fulfillment_mode IN ('included_right', 'paid_with_right') THEN 'ineligible'
-                 ELSE 'conflict'
-               END AS transition_outcome
-        FROM candidate
-        WHERE NOT EXISTS (SELECT 1 FROM transitioned)
-        LIMIT 1
-      `;
-      const assertCompletionConsistency = sql`
-        SELECT 1 / CASE
-          WHEN (
-            NOT EXISTS (
-              SELECT 1
-              FROM athlete_credit_movements movement
-              WHERE movement.source = 'usage'
-                AND movement.reference_id = ${referenceId}
-            ) OR EXISTS (
-              SELECT 1
-              FROM athlete_service_requests request
-              JOIN athlete_credit_movements movement ON movement.id = request.usage_movement_id
-              WHERE request.workspace_id = ${workspaceId}
-                AND request.id = ${requestId}::uuid
-                AND request.status = 'completed'
-                AND request.fulfillment_mode IN ('included_right', 'paid_with_right')
-                AND movement.source = 'usage'
-                AND movement.reference_id = ${referenceId}
-                AND movement.workspace_id = request.workspace_id
-                AND movement.athlete_id = request.athlete_id
-                AND movement.credit_type = request.snapshot_credit_type
-                AND movement.quantity = -request.snapshot_credit_quantity
-            )
-          )
-          AND (
-            NOT EXISTS (
-              SELECT 1
-              FROM athlete_service_requests request
-              WHERE request.workspace_id = ${workspaceId}
-                AND request.id = ${requestId}::uuid
-                AND request.fulfillment_mode IN ('paid_extra', 'paid_with_right')
-                AND request.purchase_id IS NOT NULL
-            ) OR EXISTS (
-              SELECT 1
-              FROM athlete_service_requests request
-              JOIN athlete_credit_purchases purchase ON purchase.id = request.purchase_id
-              LEFT JOIN LATERAL (
-                SELECT COALESCE(SUM(execution.quantity), 0) AS quantity
-                FROM athlete_credit_purchase_executions execution
-                WHERE execution.purchase_id = request.purchase_id
-              ) delivered ON TRUE
-              WHERE request.workspace_id = ${workspaceId}
-                AND request.id = ${requestId}::uuid
-                AND delivered.quantity <= purchase.quantity
-                AND (request.status <> 'completed' OR delivered.quantity = purchase.quantity)
-            )
-          ) THEN 1 ELSE 0
-        END AS completion_consistent
-      `;
-      const results = await sql.transaction([
-        lockAthleteBalance,
-        completeRequest,
-        assertCompletionConsistency,
-      ]);
-      const row = (results[1] as (AthleteServiceRequestRow & { transition_outcome: string })[])[0];
-      if (!row) return { outcome: "missing", request: null };
-      if (row.transition_outcome === "conflict" || row.transition_outcome === "ineligible") {
-        return { outcome: row.transition_outcome, request: null };
+      let resultIndex = 0;
+      const results = await sql.transaction((transactionSql) => {
+        const plan = buildAthleteServiceRequestCommercialCompletionTransaction(transactionSql, {
+          workspaceId,
+          requestId,
+          deliveryKey,
+          movementId: randomUUID(),
+          executionId: randomUUID(),
+        });
+        resultIndex = plan.resultIndex;
+        return plan.queries;
+      });
+      const result = readAthleteServiceRequestCommercialCompletionResult<
+        AthleteServiceRequestRow & {
+          transition_outcome:
+            | "transitioned"
+            | "unchanged"
+            | "conflict"
+            | "insufficient_rights"
+            | "ineligible";
+        }
+      >(results, resultIndex);
+      if (!result.row) return { outcome: "missing", request: null };
+      if (
+        result.outcome === "conflict"
+        || result.outcome === "insufficient_rights"
+        || result.outcome === "ineligible"
+      ) {
+        return { outcome: result.outcome, request: null };
+      }
+      if (result.outcome !== "transitioned" && result.outcome !== "unchanged") {
+        throw new Error("Résultat de clôture commerciale invalide.");
       }
       return {
-        outcome: row.transition_outcome === "transitioned" ? "transitioned" : "unchanged",
-        request: mapAdminRequest(row),
+        outcome: result.outcome,
+        request: mapAdminRequest(result.row),
       };
     },
     async confirmPayment({ workspaceId, requestId, paymentReference }) {

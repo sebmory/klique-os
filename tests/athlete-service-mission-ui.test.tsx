@@ -48,6 +48,27 @@ const initialRecord = {
   }],
 };
 
+const deliveredRecord = {
+  ...initialRecord,
+  assignedCreativeProfileId: "77777777-7777-4777-8777-777777777777",
+  creativeResponse: {
+    state: "accepted" as const,
+    note: null,
+    respondedAt: "2026-10-11T13:00:00.000Z",
+    history: [],
+  },
+  creativeExecution: {
+    status: "delivered" as const,
+    deliveryLinks: ["https://drive.example.test/livraison"],
+    deliveryNote: "Sélection finale disponible.",
+    changeRequestNote: null,
+    startedAt: "2026-10-11T14:00:00.000Z",
+    deliveredAt: "2026-10-12T10:00:00.000Z",
+    completedAt: null,
+    history: [],
+  },
+};
+
 const jsonResponse = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), {
   status: 200,
   headers: { "content-type": "application/json" },
@@ -184,5 +205,84 @@ describe("AthleteServiceMissionPanel", () => {
       requestId,
     });
     expect(container.textContent).toContain("Mission annulée.");
+  });
+
+  it("shows delivered assets and requires a reason before requesting changes", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ records: [deliveredRecord] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => root.render(
+      <AthleteServiceMissionPanel requestId={requestId} editable />,
+    ));
+    await flush();
+
+    expect(container.textContent).toContain("Revue de la livraison");
+    expect(container.textContent).toContain("Sélection finale disponible.");
+    expect(container.querySelector('a[href="https://drive.example.test/livraison"]')).not.toBeNull();
+
+    const changesButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Demander des modifications")!;
+    await act(async () => changesButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(container.querySelector("textarea[required]")).not.toBeNull();
+    expect(changesButton.disabled).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one stable key across validation retry and blocks double clicks", async () => {
+    const completedRecord = {
+      ...deliveredRecord,
+      creativeExecution: {
+        ...deliveredRecord.creativeExecution,
+        status: "completed" as const,
+        completedAt: "2026-10-12T11:00:00.000Z",
+      },
+    };
+    let resolveFirstPatch: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => jsonResponse({ records: [deliveredRecord] }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFirstPatch = resolve; }))
+      .mockImplementationOnce(() => jsonResponse({ ok: true }))
+      .mockImplementationOnce(() => jsonResponse({ records: [completedRecord] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const randomUUID = vi.fn()
+      .mockReturnValueOnce("33333333-3333-4333-8333-333333333333")
+      .mockReturnValueOnce("44444444-4444-4444-8444-444444444444");
+    vi.stubGlobal("crypto", { randomUUID });
+
+    await act(async () => root.render(
+      <AthleteServiceMissionPanel requestId={requestId} editable />,
+    ));
+    await flush();
+    const validateButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Valider la prestation")!;
+
+    await act(async () => {
+      validateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      validateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenCalledWith(
+      "Cette action validera la livraison, terminera la demande et enregistrera la consommation applicable.",
+    );
+
+    await act(async () => {
+      resolveFirstPatch!(new Response(JSON.stringify({ error: "Échec récupérable." }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }));
+      await Promise.resolve();
+    });
+    const retryButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Valider la prestation")!;
+    await act(async () => {
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const firstBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    const retryBody = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body));
+    expect(firstBody.idempotencyKey).toBe("33333333-3333-4333-8333-333333333333");
+    expect(retryBody.idempotencyKey).toBe(firstBody.idempotencyKey);
+    expect(randomUUID).toHaveBeenCalledTimes(1);
   });
 });

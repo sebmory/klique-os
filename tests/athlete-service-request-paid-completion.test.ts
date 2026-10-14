@@ -6,14 +6,14 @@ const source = fs.readFileSync(
   path.resolve(process.cwd(), "lib/athlete-service-requests.ts"),
   "utf8",
 );
+const completionPrimitiveSource = fs.readFileSync(
+  path.resolve(process.cwd(), "lib/athlete-service-request-commercial-completion.ts"),
+  "utf8",
+);
 
 const startSource = source.slice(
   source.indexOf("async start({ workspaceId, requestId })"),
   source.indexOf("async complete({ workspaceId, requestId, deliveryKey })"),
-);
-const completeSource = source.slice(
-  source.indexOf("async complete({ workspaceId, requestId, deliveryKey })"),
-  source.indexOf("async confirmPayment({ workspaceId, requestId, paymentReference })"),
 );
 
 type DeliveryStatus = "scheduled" | "in_progress" | "completed";
@@ -102,10 +102,10 @@ describe("athlete service request paid start/complete", () => {
   });
 
   it("consumes reserved credit and completes a paid_with_right conversion in one atomic step", async () => {
-    expect(completeSource).toContain("candidate.fulfillment_mode = 'paid_with_right'");
-    expect(completeSource).toContain("candidate.fulfillment_mode <> 'paid_with_right' OR EXISTS (SELECT 1 FROM coherent_movement)");
-    expect(completeSource).toContain("AND EXISTS (SELECT 1 FROM coherent_movement)");
-    expect(completeSource).toContain("AND EXISTS (SELECT 1 FROM inserted_execution)");
+    expect(completionPrimitiveSource).toContain("candidate.fulfillment_mode = 'paid_with_right'");
+    expect(completionPrimitiveSource).toContain("candidate.fulfillment_mode <> 'paid_with_right' OR EXISTS (SELECT 1 FROM coherent_movement)");
+    expect(completionPrimitiveSource).toContain("AND EXISTS (SELECT 1 FROM coherent_movement)");
+    expect(completionPrimitiveSource).toContain("AND EXISTS (SELECT 1 FROM inserted_execution)");
 
     const model = new SerializedDeliveryModel("paid_with_right", 1, "paid");
     expect(model.start()).toBe("transitioned");
@@ -128,9 +128,9 @@ describe("athlete service request paid start/complete", () => {
   });
 
   it("delivers a 5-pack progressively and only completes after the fifth delivery", async () => {
-    expect(completeSource).toContain("candidate.purchase_quantity IS NOT NULL");
-    expect(completeSource).toContain("candidate.delivered_quantity < candidate.purchase_quantity");
-    expect(completeSource).toContain("candidate.delivered_quantity + 1 < candidate.purchase_quantity");
+    expect(completionPrimitiveSource).toContain("candidate.purchase_quantity IS NOT NULL");
+    expect(completionPrimitiveSource).toContain("candidate.delivered_quantity < candidate.purchase_quantity");
+    expect(completionPrimitiveSource).toContain("candidate.delivered_quantity + 1 < candidate.purchase_quantity");
 
     const model = new SerializedDeliveryModel("paid_extra", 5, "paid");
     model.start();
@@ -201,29 +201,28 @@ describe("athlete service request paid start/complete", () => {
   });
 
   it("creates each delivery as an immutable execution referenced by the caller's stable delivery key", () => {
-    expect(completeSource).toContain("const deliveryReferenceId = `${referenceId}:delivery:${deliveryKey}`");
-    expect(completeSource).toContain("INSERT INTO athlete_credit_purchase_executions");
-    expect(completeSource).toContain("SELECT ${executionId}::uuid, candidate.purchase_id, 1, NOW(),");
-    expect(completeSource).toContain("${deliveryReferenceId}, NOW()");
-    expect(completeSource).toContain("ON CONFLICT DO NOTHING");
-    expect(completeSource).not.toMatch(/delivery:'\s*\|\|\s*\(candidate\.delivered_quantity/);
+    expect(completionPrimitiveSource).toContain("const deliveryReferenceId = `${referenceId}:delivery:${input.deliveryKey}`");
+    expect(completionPrimitiveSource).toContain("INSERT INTO athlete_credit_purchase_executions");
+    expect(completionPrimitiveSource).toContain("SELECT ${input.executionId}::uuid, candidate.purchase_id, 1, NOW(),");
+    expect(completionPrimitiveSource).toContain("${deliveryReferenceId}, NOW()");
+    expect(completionPrimitiveSource).toContain("ON CONFLICT DO NOTHING");
+    expect(completionPrimitiveSource).not.toMatch(/delivery:'\s*\|\|\s*\(candidate\.delivered_quantity/);
   });
 
   it("treats a retry with the same delivery key as an idempotent no-op instead of a new delivery", () => {
-    expect(completeSource).toContain("existing_delivery.id AS existing_delivery_id");
-    expect(completeSource).toContain("execution.reference_id = ${deliveryReferenceId}");
-    expect(completeSource).toContain("AND candidate.existing_delivery_id IS NULL");
-    expect(completeSource).toContain("AND candidate.existing_delivery_id IS NOT NULL");
-    expect(completeSource).toContain("THEN 'unchanged'");
+    expect(completionPrimitiveSource).toContain("execution.reference_id = ${deliveryReferenceId}");
+    expect(completionPrimitiveSource).toContain("candidate.delivery_match_count = 0");
+    expect(completionPrimitiveSource).toContain("candidate.coherent_delivery_count <> candidate.delivery_match_count");
+    expect(completionPrimitiveSource).toContain("THEN 'unchanged'");
   });
 
   it("asserts delivered quantity never exceeds and matches the purchased quantity when completed", () => {
-    expect(completeSource).toContain("delivered.quantity <= purchase.quantity");
-    expect(completeSource).toContain("request.status <> 'completed' OR delivered.quantity = purchase.quantity");
+    expect(completionPrimitiveSource).toContain("delivered.quantity <= purchase.quantity");
+    expect(completionPrimitiveSource).toContain("request.status <> 'completed' OR delivered.quantity = purchase.quantity");
   });
 
   it("does not call any external payment provider while starting or completing", () => {
     expect(startSource).not.toMatch(/stripe|checkout|payment_intent|(?<!no_)charge|debit/i);
-    expect(completeSource).not.toMatch(/stripe|checkout|payment_intent|(?<!no_)charge|debit/i);
+    expect(completionPrimitiveSource).not.toMatch(/stripe|checkout|payment_intent|(?<!no_)charge|debit/i);
   });
 });

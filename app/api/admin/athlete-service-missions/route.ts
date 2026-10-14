@@ -16,6 +16,11 @@ import {
   requireCreativeAdminContext,
   type GetCreativeAdminAccess,
 } from "@/lib/creatives/admin-route";
+import {
+  parseAdminCreativeMissionReviewInput,
+  reviewAdminCreativeMissionDelivery,
+  type AdminCreativeMissionReviewResult,
+} from "@/lib/creative-mission-admin-review";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,6 +45,14 @@ type HandlerDependencies = {
     idempotencyKey: string;
     authoredByClerkUserId: string;
   }) => Promise<AthleteServiceMissionMutationResult>;
+  reviewDelivery?: (input: {
+    workspaceId: string;
+    requestId: string;
+    action: "changes_requested" | "completed";
+    note: string | null;
+    idempotencyKey: string;
+    clerkUserId: string;
+  }) => Promise<AdminCreativeMissionReviewResult>;
 };
 
 const defaultDependencies: HandlerDependencies = {
@@ -47,6 +60,7 @@ const defaultDependencies: HandlerDependencies = {
   listMissions: listAthleteServiceMissions,
   saveMission: saveAthleteServiceMission,
   cancelMission: cancelAthleteServiceMission,
+  reviewDelivery: reviewAdminCreativeMissionDelivery,
 };
 
 export const logAdminMissionReadError = (error: unknown): void => {
@@ -74,6 +88,12 @@ const readJson = async (request: Request): Promise<Record<string, unknown>> => {
 
 const parseMutationBody = async (request: Request) => {
   const body = await readJson(request);
+  if (body.action === "changes_requested" || body.action === "completed") {
+    return {
+      kind: "review" as const,
+      ...parseAdminCreativeMissionReviewInput(body),
+    };
+  }
   if (
     typeof body.requestId !== "string"
     || typeof body.idempotencyKey !== "string"
@@ -89,6 +109,7 @@ const parseMutationBody = async (request: Request) => {
       throw new AthleteServiceMissionValidationError("Requête invalide.");
     }
     return {
+      kind: "mission" as const,
       action: "cancel" as const,
       requestId: body.requestId,
       idempotencyKey: body.idempotencyKey,
@@ -101,11 +122,43 @@ const parseMutationBody = async (request: Request) => {
     throw new AthleteServiceMissionValidationError("Requête invalide.");
   }
   return {
+    kind: "mission" as const,
     action: "save" as const,
     requestId: body.requestId,
     idempotencyKey: body.idempotencyKey,
     mission: parseAthleteServiceMissionInput(body.mission),
   };
+};
+
+const reviewResponse = (result: AdminCreativeMissionReviewResult): NextResponse => {
+  if (result.outcome === "changed" || result.outcome === "unchanged") {
+    return NextResponse.json({ ok: true, unchanged: result.outcome === "unchanged" });
+  }
+  if (result.outcome === "mission_not_found") {
+    return NextResponse.json({ error: "Mission créative introuvable." }, { status: 404 });
+  }
+  if (result.outcome === "pack_not_supported") {
+    return NextResponse.json(
+      { error: "Cette prestation comporte plusieurs livraisons et ne peut pas être validée ici." },
+      { status: 409 },
+    );
+  }
+  if (result.outcome === "insufficient_rights") {
+    return NextResponse.json({ error: "Les droits disponibles sont insuffisants." }, { status: 409 });
+  }
+  if (result.outcome === "ineligible") {
+    return NextResponse.json({ error: "L’adhésion active ne permet plus cette clôture." }, { status: 409 });
+  }
+  if (result.outcome === "idempotency_conflict") {
+    return NextResponse.json(
+      { error: "Cette opération a déjà été utilisée avec un autre contenu." },
+      { status: 409 },
+    );
+  }
+  return NextResponse.json(
+    { error: "La mission, la livraison ou la demande n’est plus dans un état compatible." },
+    { status: 409 },
+  );
 };
 
 const mutationResponse = (result: AthleteServiceMissionMutationResult): NextResponse => {
@@ -180,6 +233,18 @@ export const createAdminAthleteServiceMissionHandlers = (
         return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
       }
       const body = await parseMutationBody(request);
+      if (body.kind === "review") {
+        const reviewDelivery = dependencies.reviewDelivery ?? reviewAdminCreativeMissionDelivery;
+        const result = await reviewDelivery({
+          workspaceId: access.context.workspaceId,
+          requestId: body.requestId,
+          action: body.action,
+          note: body.note,
+          idempotencyKey: body.idempotencyKey,
+          clerkUserId: access.context.clerkUserId,
+        });
+        return reviewResponse(result);
+      }
       const common = {
         workspaceId: access.context.workspaceId,
         requestId: body.requestId,
@@ -193,7 +258,7 @@ export const createAdminAthleteServiceMissionHandlers = (
     } catch (error) {
       if (
         error instanceof AthleteServiceMissionValidationError
-        || (error instanceof Error && /UUID|requis/.test(error.message))
+        || (error instanceof Error && /UUID|requis|obligatoire|invalide|dépasser/.test(error.message))
       ) {
         return NextResponse.json(
           { error: error instanceof AthleteServiceMissionValidationError ? error.message : "Requête invalide." },

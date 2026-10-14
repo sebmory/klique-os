@@ -68,6 +68,7 @@ export type AthleteServiceMissionRecord = {
   mission: AthleteServiceMission | null;
   history: AthleteServiceMissionEvent[];
   creativeResponse?: import("@/lib/creative-missions").CreativeMissionResponse;
+  creativeExecution?: import("@/lib/creative-mission-execution").CreativeMissionExecution | null;
 };
 
 export class AthleteServiceMissionValidationError extends Error {

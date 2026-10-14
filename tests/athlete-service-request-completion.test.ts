@@ -7,6 +7,10 @@ const source = fs.readFileSync(
   path.resolve(process.cwd(), "lib/athlete-service-requests.ts"),
   "utf8",
 );
+const completionPrimitiveSource = fs.readFileSync(
+  path.resolve(process.cwd(), "lib/athlete-service-request-commercial-completion.ts"),
+  "utf8",
+);
 
 const startSource = source.slice(
   source.indexOf("async start({ workspaceId, requestId })"),
@@ -67,24 +71,24 @@ describe("athlete service request completion", () => {
     expect(startSource).toContain("candidate.status = 'scheduled'");
     expect(startSource).toContain("candidate.purchase_status = 'paid'");
     expect(startSource).toContain("candidate.fulfillment_mode IN ('included_right', 'no_charge')");
-    expect(completeSource).toContain("candidate.status = 'in_progress'");
-    expect(completeSource).toContain("request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right')");
-    expect(completeSource).toContain("OR candidate.fulfillment_mode = 'no_charge'");
+    expect(completionPrimitiveSource).toContain("candidate.status = 'in_progress'");
+    expect(completionPrimitiveSource).toContain("request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right')");
+    expect(completionPrimitiveSource).toContain("OR candidate.fulfillment_mode = 'no_charge'");
   });
 
   it("creates one coherent usage movement and links it in the same transaction", () => {
-    expect(completeSource).toContain("sql.transaction([");
-    expect(completeSource).toContain("FOR UPDATE OF membership");
-    expect(completeSource).toContain("INSERT INTO athlete_credit_movements");
-    expect(completeSource).toContain("'usage', ${referenceId}");
-    expect(completeSource).toContain("athlete_service_request:${requestId}");
-    expect(completeSource).toContain("movement.workspace_id = request.workspace_id");
-    expect(completeSource).toContain("movement.athlete_id = request.athlete_id");
-    expect(completeSource).toContain("movement.credit_type = request.snapshot_credit_type");
-    expect(completeSource).toContain("movement.quantity = -request.snapshot_credit_quantity");
-    expect(completeSource).toContain("usage_movement_id = COALESCE(movement.id, request.usage_movement_id)");
-    expect(completeSource).toContain("ELSE NOW()");
-    expect(completeSource).toContain("assertCompletionConsistency");
+    expect(completeSource).toContain("sql.transaction((transactionSql)");
+    expect(completionPrimitiveSource).toContain("FOR UPDATE OF membership");
+    expect(completionPrimitiveSource).toContain("INSERT INTO athlete_credit_movements");
+    expect(completionPrimitiveSource).toContain("'usage', ${referenceId}");
+    expect(completionPrimitiveSource).toContain("athlete_service_request:${input.requestId}");
+    expect(completionPrimitiveSource).toContain("movement.workspace_id = request.workspace_id");
+    expect(completionPrimitiveSource).toContain("movement.athlete_id = request.athlete_id");
+    expect(completionPrimitiveSource).toContain("movement.credit_type = request.snapshot_credit_type");
+    expect(completionPrimitiveSource).toContain("movement.quantity = -request.snapshot_credit_quantity");
+    expect(completionPrimitiveSource).toContain("usage_movement_id = COALESCE(movement.id, request.usage_movement_id)");
+    expect(completionPrimitiveSource).toContain("ELSE NOW()");
+    expect(completionPrimitiveSource).toContain("assertCompletionConsistency");
   });
 
   it("allows only one movement under concurrent completion calls", async () => {
@@ -124,7 +128,7 @@ describe("athlete service request completion", () => {
   });
 
   it("does not create purchases or contact any external payment provider", () => {
-    expect(completeSource).not.toMatch(/INSERT\s+INTO\s+athlete_credit_purchases\b/i);
-    expect(completeSource).not.toMatch(/stripe|checkout|payment_intent|(?<!no_)charge|debit/i);
+    expect(completionPrimitiveSource).not.toMatch(/INSERT\s+INTO\s+athlete_credit_purchases\b/i);
+    expect(completionPrimitiveSource).not.toMatch(/stripe|checkout|payment_intent|(?<!no_)charge|debit/i);
   });
 });

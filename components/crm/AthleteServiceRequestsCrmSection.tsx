@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Eye, Inbox, X } from "lucide-react";
 import {
   getAthleteServiceRequestProductLabel,
@@ -64,6 +64,16 @@ const formatDeliveryProgress = (request: AdminAthleteServiceRequest) =>
     ? `Livraisons : ${request.deliveredQuantity}/${request.purchasedQuantity}`
     : null;
 
+export const getCommercialCompletionSurface = (
+  status: AdminAthleteServiceRequest["status"],
+  hasCreativeWorkflow: boolean | undefined,
+): "generic" | "creative_review" | "checking" | "hidden" => {
+  if (status !== "in_progress") return "hidden";
+  if (hasCreativeWorkflow === true) return "creative_review";
+  if (hasCreativeWorkflow === false) return "generic";
+  return "checking";
+};
+
 export function AthleteServiceRequestsCrmSection({
   resolveAthleteLabel,
   initialRequestId,
@@ -85,31 +95,34 @@ export function AthleteServiceRequestsCrmSection({
   const [paymentReceived, setPaymentReceived] = useState(false);
   const [noChargeOpen, setNoChargeOpen] = useState(false);
   const [noChargeReasonInput, setNoChargeReasonInput] = useState("");
+  const [creativeWorkflowByRequest, setCreativeWorkflowByRequest] = useState<Record<string, boolean>>({});
   // Kept across retries of the same click so a lost response never records a second delivery.
   const pendingDeliveryKeyRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      try {
-        const response = await fetch("/api/admin/athlete-service-requests", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        const payload = (await response.json().catch(() => null)) as RequestsPayload | null;
-        if (!response.ok) throw new Error(payload?.error || "Impossible de charger les demandes de services.");
-        if (active) setRequests(payload?.requests ?? []);
-      } catch (error) {
-        if (active) {
-          setErrorMessage(error instanceof Error ? error.message : "Impossible de charger les demandes de services.");
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    void load();
-    return () => { active = false; };
+  const loadRequests = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/athlete-service-requests", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => null)) as RequestsPayload | null;
+      if (!response.ok) throw new Error(payload?.error || "Impossible de charger les demandes de services.");
+      setRequests(payload?.requests ?? []);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Impossible de charger les demandes de services.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+  const handleWorkflowPresenceChange = useCallback((requestId: string, present: boolean) => {
+    setCreativeWorkflowByRequest((current) => (
+      current[requestId] === present ? current : { ...current, [requestId]: present }
+    ));
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadRequests);
+  }, [loadRequests]);
 
   const sortedRequests = useMemo(() => [...requests].sort((left, right) => {
     const statusRank = Number(left.status !== "received") - Number(right.status !== "received");
@@ -118,6 +131,15 @@ export function AthleteServiceRequestsCrmSection({
   }), [requests]);
 
   const selectedRequest = requests.find((request) => request.id === selectedRequestId) ?? null;
+  const selectedRequestHasCreativeWorkflow = selectedRequest
+    ? creativeWorkflowByRequest[selectedRequest.id]
+    : undefined;
+  const completionSurface = selectedRequest
+    ? getCommercialCompletionSurface(
+        selectedRequest.status,
+        selectedRequestHasCreativeWorkflow,
+      )
+    : "hidden";
   const selectedRequestIsPaid = selectedRequest?.fulfillmentMode === "paid_extra"
     || selectedRequest?.fulfillmentMode === "paid_with_right";
   const selectedRequestCanBeScheduled = !selectedRequestIsPaid
@@ -261,7 +283,12 @@ export function AthleteServiceRequestsCrmSection({
             {selectedRequest.fulfillmentMode === "no_charge" ? <div className="is-wide"><dt>Motif de la prise en charge KLIQUE</dt><dd>{selectedRequest.noChargeReason || "Non renseigné"}</dd></div> : null}
           </dl>
           <AthleteServiceCreativeAssignmentPanel requestId={selectedRequest.id} editable />
-          <AthleteServiceMissionPanel requestId={selectedRequest.id} editable />
+          <AthleteServiceMissionPanel
+            requestId={selectedRequest.id}
+            editable
+            onWorkflowPresenceChange={handleWorkflowPresenceChange}
+            onWorkflowChanged={loadRequests}
+          />
           {errorMessage ? <p className="crm-requests-inline-error" role="alert">{errorMessage}</p> : null}
           {scheduleOpen ? (
             <label className="athlete-service-schedule-date">Date et heure de planification<input autoFocus type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></label>
@@ -305,8 +332,21 @@ export function AthleteServiceRequestsCrmSection({
             {selectedRequest.status === "scheduled" && selectedRequestCanBeStarted ? (
               <button type="button" className="crm-partner-approve" disabled={updating || refusalOpen} onClick={() => void transition("start")}><Check size={16} aria-hidden /> {updating ? "Mise à jour..." : "Démarrer"}</button>
             ) : null}
-            {selectedRequest.status === "in_progress" && selectedRequestCanBeStarted ? (
+            {completionSurface === "generic"
+              && selectedRequestCanBeStarted
+              ? (
               <button type="button" className="crm-partner-approve" disabled={updating} onClick={() => void transition("complete")}><Check size={16} aria-hidden /> {updating ? "Mise à jour..." : selectedRequestDeliveryLabel}</button>
+            ) : null}
+            {completionSurface === "creative_review" ? (
+              <a
+                className="crm-secondary-action-link"
+                href={`#delivery-review-${selectedRequest.id}`}
+              >
+                La clôture s’effectue depuis la revue de livraison.
+              </a>
+            ) : null}
+            {completionSurface === "checking" ? (
+              <span role="status">Vérification du workflow créatif…</span>
             ) : null}
           </footer>
         </section>

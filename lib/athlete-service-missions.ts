@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import {
+  mapCreativeMissionExecution,
+  type CreativeMissionExecutionRow,
+} from "@/lib/creative-mission-execution";
+import {
   parseAthleteServiceMissionInput,
   type AthleteServiceMission,
   type AthleteServiceMissionEvent,
@@ -27,7 +31,7 @@ export type AthleteServiceMissionMutationResult =
       record: null;
     };
 
-type MissionRow = {
+type MissionRow = CreativeMissionExecutionRow & {
   request_id: string;
   athlete_id: string;
   product_name: string;
@@ -181,6 +185,11 @@ const mapRecords = (rows: MissionRow[]): AthleteServiceMissionRecord[] => {
             createdAt: new Date(event.createdAt).toISOString(),
           })),
         },
+        creativeExecution: mapCreativeMissionExecution(
+          row,
+          row.response_status === "accepted"
+            && row.response_creative_profile_id === row.assigned_creative_profile_id,
+        ),
       };
       records.set(row.request_id, record);
     }
@@ -261,7 +270,15 @@ const createRepository = (): AthleteServiceMissionRepository => {
                response.creative_profile_id AS response_creative_profile_id,
                response.status AS response_status, response.note AS response_note,
                response.updated_at AS response_updated_at,
-               COALESCE(response_history.items, '[]'::jsonb) AS response_history
+               COALESCE(response_history.items, '[]'::jsonb) AS response_history,
+               execution.status AS execution_status,
+               COALESCE(execution.delivery_links, '[]'::jsonb) AS execution_delivery_links,
+               execution.delivery_note AS execution_delivery_note,
+               execution.change_request_note AS execution_change_request_note,
+               execution.started_at AS execution_started_at,
+               execution.delivered_at AS execution_delivered_at,
+               execution.completed_at AS execution_completed_at,
+               COALESCE(execution_history.items, '[]'::jsonb) AS execution_history
         FROM athlete_service_requests request
         JOIN athlete_service_products product ON product.code = request.product_code
         LEFT JOIN athlete_service_request_missions mission
@@ -291,6 +308,23 @@ const createRepository = (): AthleteServiceMissionRepository => {
           WHERE response_event.workspace_id = request.workspace_id
             AND response_event.service_request_id = request.id
         ) response_history ON TRUE
+        LEFT JOIN creative_mission_executions execution
+          ON execution.workspace_id = request.workspace_id
+         AND execution.service_request_id = request.id
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'action', execution_event.action,
+              'note', execution_event.note,
+              'deliveryLinks', execution_event.delivery_links_snapshot,
+              'createdAt', execution_event.created_at
+            )
+            ORDER BY execution_event.created_at DESC, execution_event.id DESC
+          ) AS items
+          FROM creative_mission_execution_events execution_event
+          WHERE execution_event.workspace_id = request.workspace_id
+            AND execution_event.service_request_id = request.id
+        ) execution_history ON TRUE
         WHERE request.workspace_id = $1
           AND ($2::uuid IS NULL OR request.id = $2::uuid)
           AND ($3::text IS NULL OR request.athlete_id = $3)

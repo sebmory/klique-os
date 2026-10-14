@@ -6,6 +6,10 @@ const source = fs.readFileSync(
   path.resolve(process.cwd(), "lib/athlete-service-requests.ts"),
   "utf8",
 );
+const completionPrimitiveSource = fs.readFileSync(
+  path.resolve(process.cwd(), "lib/athlete-service-request-commercial-completion.ts"),
+  "utf8",
+);
 const migration = fs.readFileSync(
   path.resolve(process.cwd(), "db/migrations/20260909_athlete_service_request_no_charge.sql"),
   "utf8",
@@ -18,10 +22,6 @@ const assumeNoChargeSource = source.slice(
 const startSource = source.slice(
   source.indexOf("async start({ workspaceId, requestId })"),
   source.indexOf("async complete({ workspaceId, requestId, deliveryKey })"),
-);
-const completeSource = source.slice(
-  source.indexOf("async complete({ workspaceId, requestId, deliveryKey })"),
-  source.indexOf("async confirmPayment({ workspaceId, requestId, paymentReference })"),
 );
 const parseInputSource = source.slice(
   source.indexOf("export const parseAthleteServiceRequestInput"),
@@ -113,13 +113,13 @@ describe("athlete service request no_charge classification", () => {
 
   it("allows no_charge to be scheduled, started, and completed like other modes", () => {
     expect(startSource).toContain("candidate.fulfillment_mode IN ('included_right', 'no_charge')");
-    expect(completeSource).toContain("AND request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right', 'no_charge')");
-    expect(completeSource).toContain("OR candidate.fulfillment_mode = 'no_charge'");
+    expect(completionPrimitiveSource).toContain("AND request.fulfillment_mode IN ('included_right', 'paid_extra', 'paid_with_right', 'no_charge')");
+    expect(completionPrimitiveSource).toContain("OR candidate.fulfillment_mode = 'no_charge'");
   });
 
   it("completes no_charge without any movement or purchase execution", () => {
-    expect(completeSource).toContain("AND candidate.fulfillment_mode = 'no_charge'");
-    expect(completeSource).toContain("THEN 'unchanged'");
+    expect(completionPrimitiveSource).toContain("AND candidate.fulfillment_mode = 'no_charge'");
+    expect(completionPrimitiveSource).toContain("THEN 'unchanged'");
   });
 
   it("never proposes no_charge to the member", () => {

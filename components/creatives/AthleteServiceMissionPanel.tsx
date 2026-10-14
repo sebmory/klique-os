@@ -187,10 +187,14 @@ export function AthleteServiceMissionPanel({
   requestId,
   athleteId,
   editable = false,
+  onWorkflowPresenceChange,
+  onWorkflowChanged,
 }: {
   requestId?: string;
   athleteId?: string;
   editable?: boolean;
+  onWorkflowPresenceChange?: (requestId: string, present: boolean) => void;
+  onWorkflowChanged?: () => void | Promise<void>;
 }) {
   const [records, setRecords] = useState<AthleteServiceMissionRecord[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -199,8 +203,13 @@ export function AthleteServiceMissionPanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [reviewAction, setReviewAction] = useState<"changes_requested" | null>(null);
+  const [changeRequestNote, setChangeRequestNote] = useState("");
+  const [reviewing, setReviewing] = useState(false);
   const submittingRef = useRef(false);
+  const reviewSubmittingRef = useRef(false);
   const idempotencyRef = useRef<{ fingerprint: string; key: string } | null>(null);
+  const reviewIdempotencyRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,16 +227,21 @@ export function AthleteServiceMissionPanel({
       const nextRecords = payload?.records ?? [];
       setRecords(nextRecords);
       if (requestId) {
-        const mission = nextRecords[0]?.mission;
+        const nextRecord = nextRecords[0];
+        const mission = nextRecord?.mission;
         setForm(mission ? toForm(mission) : emptyForm());
         setEditorOpen(!mission);
+        onWorkflowPresenceChange?.(
+          requestId,
+          Boolean(nextRecord?.mission || nextRecord?.creativeExecution),
+        );
       }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Impossible de charger les fiches mission.");
     } finally {
       setLoading(false);
     }
-  }, [athleteId, requestId]);
+  }, [athleteId, onWorkflowPresenceChange, requestId]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -291,6 +305,67 @@ export function AthleteServiceMissionPanel({
     }
   };
 
+  const reviewDelivery = async (action: "changes_requested" | "completed") => {
+    if (!requestId || reviewSubmittingRef.current) return;
+    const note = action === "changes_requested" ? changeRequestNote.trim() : null;
+    if (action === "changes_requested" && !note) {
+      setError("Le motif des modifications est obligatoire.");
+      return;
+    }
+    if (
+      action === "completed"
+      && !window.confirm(
+        "Cette action validera la livraison, terminera la demande et enregistrera la consommation applicable.",
+      )
+    ) {
+      return;
+    }
+
+    const requestFingerprint = JSON.stringify({ action, note });
+    reviewIdempotencyRef.current = reviewIdempotencyRef.current?.fingerprint === requestFingerprint
+      ? reviewIdempotencyRef.current
+      : { fingerprint: requestFingerprint, key: crypto.randomUUID() };
+    reviewSubmittingRef.current = true;
+    setReviewing(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/athlete-service-missions", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId,
+          action,
+          note,
+          idempotencyKey: reviewIdempotencyRef.current.key,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+      if (!response.ok || !payload?.ok) {
+        throw new Error(payload?.error || "Impossible de traiter la livraison.");
+      }
+      reviewIdempotencyRef.current = null;
+      setReviewAction(null);
+      setChangeRequestNote("");
+      await load();
+      await onWorkflowChanged?.();
+      setMessage(
+        action === "changes_requested"
+          ? "Modifications demandées au créatif."
+          : "Livraison validée et prestation terminée.",
+      );
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Impossible de traiter la livraison.");
+    } finally {
+      reviewSubmittingRef.current = false;
+      setReviewing(false);
+    }
+  };
+
   const copyAnnouncement = async (mission: AthleteServiceMission) => {
     try {
       await navigator.clipboard.writeText(buildMissionWhatsAppAnnouncement(mission));
@@ -338,6 +413,7 @@ export function AthleteServiceMissionPanel({
 
   if (!record) return <p role="alert">Demande de prestation introuvable.</p>;
   const mission = record.mission;
+  const execution = record.creativeExecution;
   const readyWithoutCreative = (editorOpen ? form.status : mission?.status) === "ready"
     && !record.assignedCreativeProfileId;
 
@@ -361,6 +437,86 @@ export function AthleteServiceMissionPanel({
           {mission && record.creativeResponse ? (
             <CreativeMissionResponsePanel response={record.creativeResponse} />
           ) : null}
+          {execution?.status === "delivered"
+            || execution?.status === "changes_requested"
+            || execution?.status === "completed" ? (
+              <section
+                id={`delivery-review-${requestId}`}
+                aria-label="Revue de la livraison"
+                style={{
+                  display: "grid",
+                  gap: "0.65rem",
+                  padding: "0.8rem",
+                  border: "1px solid #e5d59b",
+                  borderRadius: "8px",
+                  background: "#fffdf5",
+                }}
+              >
+                <h4 style={{ margin: 0 }}>Revue de la livraison</h4>
+                {execution.deliveryLinks.length > 0 ? (
+                  <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
+                    {execution.deliveryLinks.map((link) => (
+                      <li key={link}>
+                        <a href={link} target="_blank" rel="noreferrer">Ouvrir le livrable</a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {execution.deliveryNote ? (
+                  <p style={{ margin: 0 }}><strong>Note du créatif :</strong> {execution.deliveryNote}</p>
+                ) : null}
+                {execution.status === "delivered" ? (
+                  <>
+                    {reviewAction === "changes_requested" ? (
+                      <label style={{ display: "grid", gap: "0.35rem" }}>
+                        Motif des modifications
+                        <textarea
+                          autoFocus
+                          required
+                          maxLength={2000}
+                          rows={3}
+                          value={changeRequestNote}
+                          onChange={(event) => setChangeRequestNote(event.target.value)}
+                        />
+                      </label>
+                    ) : null}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem" }}>
+                      <button
+                        type="button"
+                        className="crm-partner-reject"
+                        disabled={reviewing || (reviewAction === "changes_requested" && !changeRequestNote.trim())}
+                        onClick={() => reviewAction === "changes_requested"
+                          ? void reviewDelivery("changes_requested")
+                          : setReviewAction("changes_requested")}
+                      >
+                        {reviewing && reviewAction === "changes_requested"
+                          ? "Enregistrement…"
+                          : "Demander des modifications"}
+                      </button>
+                      <button
+                        type="button"
+                        className="crm-partner-approve"
+                        disabled={reviewing}
+                        onClick={() => void reviewDelivery("completed")}
+                      >
+                        {reviewing && reviewAction !== "changes_requested"
+                          ? "Validation…"
+                          : "Valider la prestation"}
+                      </button>
+                    </div>
+                  </>
+                ) : execution.status === "changes_requested" ? (
+                  <p role="status" style={{ margin: 0 }}>
+                    <strong>Modifications demandées.</strong>
+                    {execution.changeRequestNote ? ` ${execution.changeRequestNote}` : ""}
+                  </p>
+                ) : (
+                  <p role="status" style={{ margin: 0, color: "#166534" }}>
+                    Livraison validée et prestation terminée.
+                  </p>
+                )}
+              </section>
+            ) : null}
         </>
       ) : (
         <form onSubmit={(event) => { event.preventDefault(); void mutate("save"); }} style={{ display: "grid", gap: "0.8rem" }}>
