@@ -95,7 +95,7 @@ const resolveOperationalState = ({
     return { queueStatus: "cancelled", nextAction: "Aucune action", executionStatus: execution?.status ?? null };
   }
   if (!mission) {
-    return { queueStatus: "to_prepare", nextAction: "Créer la fiche mission", executionStatus: null };
+    return { queueStatus: "to_prepare", nextAction: "Préparer la mission", executionStatus: null };
   }
   if (mission.status === "draft") {
     return { queueStatus: "to_prepare", nextAction: "Finaliser la fiche mission", executionStatus: null };

@@ -27,6 +27,12 @@ const filters: Array<{ value: MissionFilter; label: string }> = [
   { value: "cancelled", label: "Annulées" },
 ];
 
+const adminActionStatuses = new Set<AdminCreativeMissionQueueStatus>([
+  "to_prepare",
+  "to_assign",
+  "delivery_review",
+]);
+
 const missionStatusLabels: Record<NonNullable<AdminCreativeMissionListItem["missionStatus"]>, string> = {
   draft: "Brouillon",
   ready: "Prête",
@@ -210,6 +216,8 @@ export function AdminMissionsScreen() {
         <ul className="admin-missions-list">
           {visibleMissions.map((mission) => {
             const athleteName = athleteNames[mission.athleteId];
+            const requestHref = `/crm/demandes?tab=services&requestId=${encodeURIComponent(mission.requestId)}`;
+            const isAdminAction = adminActionStatuses.has(mission.queueStatus);
             return (
               <li key={mission.requestId} className="admin-mission-card">
                 <header>
@@ -217,9 +225,19 @@ export function AdminMissionsScreen() {
                     <small>{mission.reference ?? "Fiche à créer"}</small>
                     <h2>{mission.title}</h2>
                   </div>
-                  <span className={`admin-mission-priority is-${mission.queueStatus}`}>
-                    {mission.nextAction}
-                  </span>
+                  {isAdminAction ? (
+                    <Link
+                      href={requestHref}
+                      className={`admin-mission-priority is-admin-action is-${mission.queueStatus}`}
+                      aria-label={`${mission.nextAction} pour ${mission.title}`}
+                    >
+                      {mission.nextAction}
+                    </Link>
+                  ) : (
+                    <span className={`admin-mission-priority is-informational is-${mission.queueStatus}`}>
+                      {mission.nextAction}
+                    </span>
+                  )}
                 </header>
 
                 <dl>
@@ -242,7 +260,7 @@ export function AdminMissionsScreen() {
                 </dl>
 
                 <footer>
-                  <Link href={`/crm/demandes?tab=services&requestId=${encodeURIComponent(mission.requestId)}`}>
+                  <Link href={requestHref}>
                     Ouvrir la demande
                   </Link>
                 </footer>

@@ -159,6 +159,7 @@ describe("Admin creative mission read model", () => {
       [ids[8]]: "completed",
       [ids[9]]: "cancelled",
     });
+    expect(result.find((item) => item.requestId === ids[0])?.nextAction).toBe("Préparer la mission");
     expect(result[0]).toMatchObject({
       requestId: ids[6],
       queueStatus: "delivery_review",

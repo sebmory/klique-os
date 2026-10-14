@@ -107,8 +107,9 @@ describe("Admin missions UI", () => {
   it("renders counters, canonical athlete links and safe request deep links", async () => {
     const missions = [
       mission("1", "delivery_review", { athleteId: "athlete-1", creative: { id: "creative-1", displayName: "Alice Photo" } }),
-      mission("2", "to_prepare", { athleteId: "athlete-2", reference: null, missionStatus: null, responseStatus: "pending", executionStatus: null }),
+      mission("2", "to_prepare", { athleteId: "athlete-2", reference: null, missionStatus: null, responseStatus: "pending", executionStatus: null, nextAction: "Préparer la mission" }),
       mission("3", "completed", { athleteId: "athlete-3", executionStatus: "completed", nextAction: "Aucune action" }),
+      mission("4", "to_assign", { athleteId: "athlete-4", creative: null, responseStatus: "pending", executionStatus: null, nextAction: "Affecter un créatif" }),
     ];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -123,13 +124,28 @@ describe("Admin missions UI", () => {
     await renderScreen();
 
     expect(container.textContent).toContain("Suivi centralisé des missions");
-    expect(container.querySelectorAll(".admin-mission-card")).toHaveLength(3);
+    expect(container.querySelectorAll(".admin-mission-card")).toHaveLength(4);
     expect(container.querySelector(".admin-mission-card")?.textContent).toContain("Vérifier la livraison");
     expect(container.querySelector('a[href="/crm/personnes/athlete-1"]')?.textContent).toBe("Léa Martin");
     expect(container.querySelector('a[href="/crm/personnes/athlete-2"]')).toBeNull();
     expect(container.querySelector(
       'a[href="/crm/demandes?tab=services&requestId=1"]',
     )).not.toBeNull();
+    const deliveryAction = container.querySelector<HTMLAnchorElement>(
+      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=1"]',
+    );
+    const prepareAction = container.querySelector<HTMLAnchorElement>(
+      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=2"]',
+    );
+    expect(deliveryAction?.textContent).toBe("Vérifier la livraison");
+    expect(deliveryAction?.getAttribute("aria-label")).toBe("Vérifier la livraison pour Mission 1");
+    expect(prepareAction?.textContent).toBe("Préparer la mission");
+    expect(prepareAction?.classList.contains("is-admin-action")).toBe(true);
+    expect(container.querySelector<HTMLAnchorElement>(
+      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=4"]',
+    )?.textContent).toBe("Affecter un créatif");
+    expect(container.querySelector(".admin-mission-card:nth-child(3) .admin-mission-priority")?.tagName).toBe("SPAN");
+    expect(container.querySelector(".admin-mission-card:nth-child(3) .admin-mission-priority")?.classList.contains("is-informational")).toBe(true);
     const deliveryFilter = Array.from(container.querySelectorAll("button"))
       .find((button) => button.textContent?.includes("Livraison à vérifier"));
     expect(deliveryFilter?.textContent).toContain("1");
