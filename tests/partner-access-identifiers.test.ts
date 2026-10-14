@@ -6,6 +6,7 @@ const {
   authenticateRequestMock,
   getUserMock,
   createInvitationMock,
+  getInvitationListMock,
   createContentStorageClientMock,
   getDefaultWorkspaceIdMock,
   getPartnersFromGoogleSheetsMock,
@@ -15,6 +16,7 @@ const {
   authenticateRequestMock: vi.fn(),
   getUserMock: vi.fn(),
   createInvitationMock: vi.fn(),
+  getInvitationListMock: vi.fn(),
   createContentStorageClientMock: vi.fn(),
   getDefaultWorkspaceIdMock: vi.fn(),
   getPartnersFromGoogleSheetsMock: vi.fn(),
@@ -74,10 +76,14 @@ describe("partner invitation redirect", () => {
       emailAddresses: [{ emailAddress: "admin@example.com", verification: { status: "verified" } }],
     });
     createInvitationMock.mockResolvedValue({ id: "inv_partner_1" });
+    getInvitationListMock.mockResolvedValue({ data: [], totalCount: 0 });
     clerkClientMock.mockResolvedValue({
       authenticateRequest: authenticateRequestMock,
       users: { getUser: getUserMock },
-      invitations: { createInvitation: createInvitationMock },
+      invitations: {
+        createInvitation: createInvitationMock,
+        getInvitationList: getInvitationListMock,
+      },
     });
     createContentStorageClientMock.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join(" ").toLowerCase();
@@ -86,7 +92,13 @@ describe("partner invitation redirect", () => {
         return [adminAccessRow];
       }
       if (sql.includes("select workspace_id from user_access")) return [adminAccessRow];
-      if (sql.includes("insert into partner_invitations")) {
+      if (sql.includes("set clerk_invitation_attempt_id = coalesce")) {
+        return [{ clerk_invitation_attempt_id: "11111111-1111-4111-8111-111111111111" }];
+      }
+      if (sql.includes("set clerk_creation_started_at = now()")) {
+        return [{ partner_id: "row-7" }];
+      }
+      if (sql.includes("set clerk_invitation_id =")) {
         return [{ clerk_invitation_id: "inv_partner_1" }];
       }
       return [];

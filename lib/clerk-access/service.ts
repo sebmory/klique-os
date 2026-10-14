@@ -1,7 +1,13 @@
 import { randomUUID } from "crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { createContentStorageClient, getDefaultWorkspaceId } from "@/lib/content-storage/db";
-import { getAthletesFromGoogleSheets, getMediaFromGoogleSheets, getPartnersFromGoogleSheets } from "@/lib/google-sheets";
+import {
+  getAthletesFromGoogleSheets,
+  getEcosystemPartnersFrom06Partenaires,
+  getMediaFromGoogleSheets,
+  getPartnersFromGoogleSheets,
+  isPartnerUuid,
+} from "@/lib/google-sheets";
 import {
   getActiveMediaOrganization,
   MediaOrganizationError,
@@ -135,6 +141,13 @@ export type InvitePartnerResult =
       message?: string;
     };
 
+type ClerkPartnerInvitation = {
+  id: string;
+  emailAddress: string;
+  publicMetadata: Record<string, unknown> | null;
+  status: "pending" | "accepted" | "revoked" | "expired";
+};
+
 export type InviteCreativeResult =
   | { ok: true; creativeProfileId: string; email: string; clerkInvitationId: string; workspaceId: string }
   | {
@@ -210,7 +223,7 @@ const createMediaInvitationsTable = async () => {
       media_id UUID NULL,
       email TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'accepted', 'revoked')),
-      invited_by_clerk_user_id TEXT NOT NULL,
+      invited_by_clerk_user_id TEXT,
       clerk_invitation_id TEXT NULL,
       accepted_clerk_user_id TEXT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -232,7 +245,9 @@ const createPartnerInvitationsTable = async () => {
       partner_id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       email TEXT NOT NULL,
-      clerk_invitation_id TEXT NOT NULL,
+      clerk_invitation_id TEXT,
+      clerk_invitation_attempt_id UUID,
+      clerk_creation_started_at TIMESTAMPTZ,
       status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'accepted', 'revoked')),
       invited_by_clerk_user_id TEXT NOT NULL,
       accepted_clerk_user_id TEXT,
@@ -341,6 +356,55 @@ const normalizeInvitationStatus = (value: unknown): AthleteInvitationStatus => {
 };
 
 const isValidEmail = (value: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const normalizeEmail = (value: unknown): string => String(value ?? "").trim().toLowerCase();
+const normalizeFrenchValue = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr");
+
+const getPartnerInvitationMetadata = (invitation: ClerkPartnerInvitation) => {
+  const metadata = invitation.publicMetadata ?? {};
+  return {
+    role: typeof metadata.role === "string" ? metadata.role : "",
+    workspaceId: typeof metadata.workspaceId === "string" ? metadata.workspaceId.trim() : "",
+    partnerId: typeof metadata.partnerId === "string" ? metadata.partnerId.trim().toLowerCase() : "",
+    attemptId: typeof metadata.invitationAttemptId === "string" ? metadata.invitationAttemptId.trim() : "",
+  };
+};
+
+const listMatchingClerkPartnerInvitations = async (
+  client: Awaited<ReturnType<typeof clerkClient>>,
+  input: {
+    email: string;
+    workspaceId: string;
+    partnerId: string;
+    statuses: Array<"pending" | "accepted">;
+    attemptId?: string;
+  },
+): Promise<ClerkPartnerInvitation[]> => {
+  const normalizedEmail = normalizeEmail(input.email);
+  const batches = await Promise.all(input.statuses.map((status) =>
+    client.invitations.getInvitationList({
+      status,
+      query: normalizedEmail,
+      limit: 100,
+      orderBy: "-created_at",
+    })
+  ));
+
+  return batches
+    .flatMap((batch) => batch.data as ClerkPartnerInvitation[])
+    .filter((invitation) => {
+      const metadata = getPartnerInvitationMetadata(invitation);
+      return normalizeEmail(invitation.emailAddress) === normalizedEmail
+        && metadata.role === "partner_expert"
+        && metadata.workspaceId === input.workspaceId
+        && metadata.partnerId === input.partnerId.toLowerCase()
+        && (!input.attemptId || metadata.attemptId === input.attemptId);
+    });
+};
 
 const mapInvitationRow = (row: Record<string, unknown>): AthleteInvitationRecord => ({
   athleteId: String(row.athlete_id ?? ""),
@@ -937,6 +1001,147 @@ const linkPartnerAccessFromInvitation = async (
   return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
 
+const reconcileAcceptedPartnerInvitation = async (
+  userId: string,
+  clerkUser: LinkableClerkUser,
+): Promise<ClerkUserAccessRecord | null> => {
+  const verifiedEmails = (clerkUser.emailAddresses ?? [])
+    .filter((entry) => entry.verification?.status === "verified")
+    .map((entry) => normalizeEmail(entry.emailAddress))
+    .filter(Boolean);
+  if (verifiedEmails.length === 0) return null;
+
+  const userMetadata = clerkUser.publicMetadata ?? {};
+  const userRole = typeof userMetadata.role === "string" ? userMetadata.role : "";
+  const userWorkspaceId = typeof userMetadata.workspaceId === "string" ? userMetadata.workspaceId.trim() : "";
+  const userPartnerId = typeof userMetadata.partnerId === "string" ? userMetadata.partnerId.trim().toLowerCase() : "";
+  const workspaceId = getDefaultWorkspaceId();
+  if (
+    userRole !== "partner_expert"
+    || userWorkspaceId !== workspaceId
+    || !isPartnerUuid(userPartnerId)
+  ) {
+    return null;
+  }
+
+  const client = await clerkClient();
+  const invitations = (
+    await Promise.all(verifiedEmails.map((email) =>
+      listMatchingClerkPartnerInvitations(client, {
+        email,
+        workspaceId,
+        partnerId: userPartnerId,
+        statuses: ["accepted"],
+      })
+    ))
+  ).flat();
+  const invitation = invitations.find((candidate) => candidate.status === "accepted");
+  if (!invitation) return null;
+
+  const invitationEmail = normalizeEmail(invitation.emailAddress);
+  if (!verifiedEmails.includes(invitationEmail)) return null;
+
+  const partners = await getEcosystemPartnersFrom06Partenaires();
+  const matchingPartners = partners.filter((partner) =>
+    partner.id.trim().toLowerCase() === userPartnerId
+    && normalizeFrenchValue(partner.status) === "actif"
+    && normalizeEmail(partner.email) === invitationEmail
+  );
+  if (matchingPartners.length !== 1) return null;
+
+  await createUserAccessTable();
+  await createPartnerInvitationsTable();
+  const sql = getSql();
+  const rows = await sql`
+    WITH existing_access AS (
+      SELECT clerk_user_id
+      FROM user_access
+      WHERE clerk_user_id = ${userId}
+      FOR UPDATE
+    ),
+    reconciled_invitation AS (
+      INSERT INTO partner_invitations (
+        partner_id,
+        workspace_id,
+        email,
+        clerk_invitation_id,
+        status,
+        invited_by_clerk_user_id,
+        accepted_clerk_user_id,
+        created_at,
+        updated_at,
+        accepted_at
+      )
+      VALUES (
+        ${userPartnerId},
+        ${workspaceId},
+        ${invitationEmail},
+        ${invitation.id},
+        'accepted',
+        NULL,
+        ${userId},
+        NOW(),
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT (partner_id) DO UPDATE SET
+        clerk_invitation_id = EXCLUDED.clerk_invitation_id,
+        status = 'accepted',
+        accepted_clerk_user_id = EXCLUDED.accepted_clerk_user_id,
+        accepted_at = COALESCE(partner_invitations.accepted_at, NOW()),
+        updated_at = NOW()
+      WHERE partner_invitations.workspace_id = EXCLUDED.workspace_id
+        AND lower(btrim(partner_invitations.email)) = lower(btrim(EXCLUDED.email))
+        AND partner_invitations.status IN ('invited', 'accepted')
+      RETURNING partner_id, workspace_id, email
+    ),
+    inserted_access AS (
+      INSERT INTO user_access (
+        clerk_user_id,
+        email,
+        role,
+        workspace_id,
+        athlete_id,
+        partner_id,
+        media_id,
+        status,
+        created_at,
+        updated_at
+      )
+      SELECT
+        ${userId},
+        reconciled_invitation.email,
+        'partner_expert',
+        reconciled_invitation.workspace_id,
+        NULL,
+        reconciled_invitation.partner_id,
+        NULL,
+        'active',
+        NOW(),
+        NOW()
+      FROM reconciled_invitation
+      WHERE NOT EXISTS (SELECT 1 FROM existing_access)
+      ON CONFLICT (clerk_user_id) DO NOTHING
+      RETURNING clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    )
+    SELECT clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    FROM inserted_access
+  `;
+  if (rows[0]) return mapRow(rows[0] as Record<string, unknown>);
+
+  const replayRows = await sql`
+    SELECT clerk_user_id, email, role, workspace_id, athlete_id, partner_id, media_id, status, created_at, updated_at
+    FROM user_access
+    WHERE clerk_user_id = ${userId}
+      AND role = 'partner_expert'
+      AND workspace_id = ${workspaceId}
+      AND partner_id = ${userPartnerId}
+      AND status = 'active'
+    LIMIT 1
+  `;
+  return replayRows[0] ? mapRow(replayRows[0] as Record<string, unknown>) : null;
+};
+
 // L acces est accorde par media_invitations, jamais sur la seule foi des publicMetadata Clerk.
 const linkMediaAccessFromInvitation = async (
   userId: string,
@@ -1156,6 +1361,10 @@ export const getCurrentUserAccessProfile = async (request?: Request): Promise<Cu
 
   if (!userAccess) {
     userAccess = await linkPartnerAccessFromInvitation(userId, clerkUser);
+  }
+
+  if (!userAccess) {
+    userAccess = await reconcileAcceptedPartnerInvitation(userId, clerkUser);
   }
 
   if (!userAccess) {
@@ -1472,81 +1681,203 @@ export const invitePartnerToKlique = async (
   if (activeRows[0]) return { ok: false, reason: "already_active" };
 
   const pendingRows = await sql`
-    SELECT partner_id, email, clerk_invitation_id FROM partner_invitations
+    SELECT partner_id, email, clerk_invitation_id, clerk_invitation_attempt_id
+    FROM partner_invitations
     WHERE status = 'invited'
-      AND NULLIF(btrim(clerk_invitation_id), '') IS NOT NULL
       AND (
         partner_id IN (${exactPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
         OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail})
       )
   `;
-  const pending = pendingRows[0] as { partner_id?: string; email?: string; clerk_invitation_id?: string } | undefined;
+  const pending = pendingRows[0] as {
+    partner_id?: string;
+    email?: string;
+    clerk_invitation_id?: string | null;
+    clerk_invitation_attempt_id?: string | null;
+  } | undefined;
   const isResend = options?.resend === true;
   const acceptedPartnerIds = new Set([exactPartnerId, legacyPartnerId1, legacyPartnerId2, legacyPartnerId3].filter(Boolean));
   const pendingPartnerId = pending?.partner_id?.trim() ?? "";
-  if (pending && (!isResend || !acceptedPartnerIds.has(pendingPartnerId) || pending.email?.trim().toLowerCase() !== normalizedEmail)) {
+  const pendingInvitationId = pending?.clerk_invitation_id?.trim() ?? "";
+  if (
+    pending
+    && (
+      !acceptedPartnerIds.has(pendingPartnerId)
+      || normalizeEmail(pending.email) !== normalizedEmail
+      || (!isResend && Boolean(pendingInvitationId))
+    )
+  ) {
     return { ok: false, reason: "already_invited" };
   }
 
-  const incompleteRows = await sql`
-    SELECT partner_id FROM partner_invitations
-    WHERE status = 'invited'
-      AND NULLIF(btrim(clerk_invitation_id), '') IS NULL
-      AND (
-        partner_id IN (${exactPartnerId}, ${legacyPartnerId1}, ${legacyPartnerId2}, ${legacyPartnerId3})
-        OR (workspace_id = ${workspaceId} AND lower(btrim(email)) = ${normalizedEmail})
+  const storedPartnerId = pendingPartnerId || exactPartnerId;
+  const nextAttemptId = randomUUID();
+  if (!pending) {
+    await sql`
+      INSERT INTO partner_invitations (
+        partner_id,
+        workspace_id,
+        email,
+        clerk_invitation_id,
+        clerk_invitation_attempt_id,
+        clerk_creation_started_at,
+        status,
+        invited_by_clerk_user_id,
+        created_at,
+        updated_at
       )
-    LIMIT 1
-  `;
-  const incompletePartnerId = String((incompleteRows[0] as { partner_id?: unknown } | undefined)?.partner_id ?? "").trim();
-  const hasIncompleteInvitation = Boolean(incompletePartnerId);
-  const storedPartnerId = pendingPartnerId || (acceptedPartnerIds.has(incompletePartnerId) ? incompletePartnerId : exactPartnerId);
+      VALUES (
+        ${storedPartnerId},
+        ${workspaceId},
+        ${email},
+        NULL,
+        ${nextAttemptId}::uuid,
+        NULL,
+        'invited',
+        ${authResult.userId},
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT DO NOTHING
+    `;
+  } else if (isResend && pendingInvitationId) {
+    await sql`
+      UPDATE partner_invitations
+      SET clerk_invitation_id = NULL,
+          clerk_invitation_attempt_id = ${nextAttemptId}::uuid,
+          clerk_creation_started_at = NULL,
+          invited_by_clerk_user_id = ${authResult.userId},
+          updated_at = NOW()
+      WHERE partner_id = ${storedPartnerId}
+        AND workspace_id = ${workspaceId}
+        AND lower(btrim(email)) = ${normalizedEmail}
+        AND status = 'invited'
+        AND clerk_invitation_id = ${pendingInvitationId}
+    `;
+  }
 
-  let clerkInvitationId = "";
+  const intentRows = await sql`
+    UPDATE partner_invitations
+    SET clerk_invitation_attempt_id = COALESCE(clerk_invitation_attempt_id, ${nextAttemptId}::uuid),
+        updated_at = NOW()
+    WHERE partner_id = ${storedPartnerId}
+      AND workspace_id = ${workspaceId}
+      AND lower(btrim(email)) = ${normalizedEmail}
+      AND status = 'invited'
+      AND clerk_invitation_id IS NULL
+    RETURNING clerk_invitation_attempt_id
+  `;
+  const invitationAttemptId = String(
+    (intentRows[0] as { clerk_invitation_attempt_id?: unknown } | undefined)?.clerk_invitation_attempt_id ?? "",
+  ).trim();
+  if (!invitationAttemptId) {
+    return { ok: false, reason: "already_invited" };
+  }
+
+  const client = await clerkClient();
+  const persistClerkInvitation = async (invitation: ClerkPartnerInvitation): Promise<string> => {
+    const finalizedRows = await sql`
+      UPDATE partner_invitations
+      SET clerk_invitation_id = ${invitation.id},
+          clerk_creation_started_at = NULL,
+          updated_at = NOW()
+      WHERE partner_id = ${storedPartnerId}
+        AND workspace_id = ${workspaceId}
+        AND lower(btrim(email)) = ${normalizedEmail}
+        AND status = 'invited'
+        AND clerk_invitation_attempt_id = ${invitationAttemptId}::uuid
+        AND clerk_invitation_id IS NULL
+      RETURNING clerk_invitation_id
+    `;
+    return String(
+      (finalizedRows[0] as { clerk_invitation_id?: unknown } | undefined)?.clerk_invitation_id ?? "",
+    ).trim();
+  };
+
+  const recoverRemoteInvitation = async (): Promise<ClerkPartnerInvitation | null> => {
+    const matches = await listMatchingClerkPartnerInvitations(client, {
+      email,
+      workspaceId,
+      partnerId: storedPartnerId,
+      statuses: ["pending", "accepted"],
+      attemptId: invitationAttemptId,
+    });
+    return matches[0] ?? null;
+  };
+
   try {
-    const client = await clerkClient();
+    const recovered = await recoverRemoteInvitation();
+    if (recovered) {
+      const recoveredId = await persistClerkInvitation(recovered);
+      if (!recoveredId) {
+        return { ok: false, reason: "clerk_error", message: "L'invitation Clerk n'a pas été confirmée localement." };
+      }
+      return { ok: true, partnerId: exactPartnerId, email, clerkInvitationId: recoveredId };
+    }
+  } catch {
+    return { ok: false, reason: "clerk_error", message: "Impossible de vérifier l'état de l'invitation Clerk." };
+  }
+
+  const claimRows = await sql`
+    UPDATE partner_invitations
+    SET clerk_creation_started_at = NOW(),
+        updated_at = NOW()
+    WHERE partner_id = ${storedPartnerId}
+      AND workspace_id = ${workspaceId}
+      AND lower(btrim(email)) = ${normalizedEmail}
+      AND status = 'invited'
+      AND clerk_invitation_id IS NULL
+      AND clerk_invitation_attempt_id = ${invitationAttemptId}::uuid
+      AND (
+        clerk_creation_started_at IS NULL
+        OR clerk_creation_started_at < NOW() - INTERVAL '5 minutes'
+      )
+    RETURNING partner_id
+  `;
+  if (!claimRows[0]) {
+    return { ok: false, reason: "already_invited", message: "La création de l'invitation est déjà en cours." };
+  }
+
+  try {
     const invitation = await client.invitations.createInvitation({
       emailAddress: email,
-      publicMetadata: { role: "partner_expert", workspaceId, partnerId: storedPartnerId },
+      publicMetadata: {
+        role: "partner_expert",
+        workspaceId,
+        partnerId: storedPartnerId,
+        invitationAttemptId,
+      },
       redirectUrl: `${getAppOrigin()}/sign-up?portal=partner`,
       notify: true,
-      ignoreExisting: isResend || hasIncompleteInvitation,
+      ignoreExisting: isResend,
     });
-    clerkInvitationId = invitation.id?.trim() ?? "";
+    const clerkInvitationId = await persistClerkInvitation(invitation as ClerkPartnerInvitation);
     if (!clerkInvitationId) {
-      return { ok: false, reason: "clerk_error", message: "Clerk n'a retourné aucun identifiant d'invitation." };
+      return { ok: false, reason: "clerk_error", message: "L'invitation Clerk n'a pas été confirmée localement." };
     }
-  } catch (error) {
-    const clerkError = error as { message?: unknown };
-    return { ok: false, reason: "clerk_error", message: String(clerkError.message ?? "Échec de l'invitation Clerk.") };
+    return { ok: true, partnerId: exactPartnerId, email, clerkInvitationId };
+  } catch {
+    try {
+      const recovered = await recoverRemoteInvitation();
+      if (recovered) {
+        const recoveredId = await persistClerkInvitation(recovered);
+        if (recoveredId) {
+          return { ok: true, partnerId: exactPartnerId, email, clerkInvitationId: recoveredId };
+        }
+      }
+    } catch {
+      // The local intent remains available for a later retry.
+    }
+    await sql`
+      UPDATE partner_invitations
+      SET clerk_creation_started_at = NULL,
+          updated_at = NOW()
+      WHERE partner_id = ${storedPartnerId}
+        AND clerk_invitation_attempt_id = ${invitationAttemptId}::uuid
+        AND clerk_invitation_id IS NULL
+    `;
+    return { ok: false, reason: "clerk_error", message: "Échec de la création de l'invitation Clerk." };
   }
-
-  const savedRows = await sql`
-    INSERT INTO partner_invitations (
-      partner_id, workspace_id, email, clerk_invitation_id, status, invited_by_clerk_user_id, created_at, updated_at
-    ) VALUES (
-      ${storedPartnerId}, ${workspaceId}, ${email}, ${clerkInvitationId}, 'invited', ${authResult.userId}, NOW(), NOW()
-    )
-    ON CONFLICT (partner_id) DO UPDATE SET
-      workspace_id = EXCLUDED.workspace_id,
-      email = EXCLUDED.email,
-      clerk_invitation_id = EXCLUDED.clerk_invitation_id,
-      status = 'invited',
-      invited_by_clerk_user_id = EXCLUDED.invited_by_clerk_user_id,
-      accepted_clerk_user_id = NULL,
-      accepted_at = NULL,
-      updated_at = NOW()
-    RETURNING clerk_invitation_id
-  `;
-
-  const savedClerkInvitationId = String(
-    (savedRows[0] as { clerk_invitation_id?: unknown } | undefined)?.clerk_invitation_id ?? "",
-  ).trim();
-  if (!savedClerkInvitationId || savedClerkInvitationId !== clerkInvitationId) {
-    return { ok: false, reason: "clerk_error", message: "L'identifiant de l'invitation Clerk n'a pas été confirmé dans Neon." };
-  }
-
-  return { ok: true, partnerId: exactPartnerId, email, clerkInvitationId: savedClerkInvitationId };
 };
 
 export const getCreativeAccessState = async (
