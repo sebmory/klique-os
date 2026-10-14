@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { commandEntries, openNotificationsEvent, partnerCommandEntries } from "./data";
+import {
+  athleteCommandEntries,
+  commandEntries,
+  creativeCommandEntries,
+  mediaCommandEntries,
+  openNotificationsEvent,
+  partnerCommandEntries,
+  type SearchEntry,
+} from "./data";
 import { Search } from "./icons";
 
 const groupedOrder = ["Personnes", "Organisations", "Projets", "Medias", "Actions rapides"] as const;
@@ -18,12 +26,23 @@ type GlobalSearchProps = {
   userRole?: string | null;
 };
 
+const entriesByRole: Record<string, SearchEntry[]> = {
+  admin: commandEntries,
+  athlete: athleteCommandEntries,
+  creative: creativeCommandEntries,
+  media: mediaCommandEntries,
+  partner_expert: partnerCommandEntries,
+};
+
 export function GlobalSearch({ compact = false, userRole }: GlobalSearchProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const availableEntries = userRole === "partner_expert" ? partnerCommandEntries : commandEntries;
+  const availableEntries = useMemo(
+    () => userRole ? (entriesByRole[userRole] ?? []) : [],
+    [userRole],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -73,13 +73,36 @@ describe("GlobalSearch role filtering", () => {
     expect(hrefs.every((href) => href === "/partner" || href === "/partner/community" || href === "/partner/athletes" || href === "/partner/contact-requests" || href === "/partner/benefit-reservations")).toBe(true);
   });
 
-  it.each(["admin", "athlete", "media"])("keeps the existing catalog for the %s role", async (userRole) => {
+  it("shows the Admin catalog only to Admins", async () => {
+    await mount("admin");
+
+    const hrefs = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+    expect(hrefs).toContain("/crm/personnes");
+    expect(hrefs).toContain("/production");
+    expect(hrefs).toContain("/settings");
+    expect(hrefs).not.toContain("/athlete");
+    expect(hrefs).not.toContain("/media/athletes");
+    expect(hrefs).not.toContain("/creative");
+  });
+
+  it.each([
+    ["athlete", ["/athlete", "/athlete/profile", "/athlete/services", "/athlete/community"]],
+    ["media", ["/media-desk", "/media/athletes", "/contents"]],
+    ["creative", ["/creative"]],
+  ] as const)("limits the %s catalog to its own destinations", async (userRole, allowedHrefs) => {
     await mount(userRole);
 
-    const content = container.textContent ?? "";
-    expect(content).toContain("Mila Benjak");
-    expect(content).toContain("Creer un projet");
-    expect(content).not.toContain("Accueil Partenaire");
+    const hrefs = Array.from(container.querySelectorAll("a")).map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual(expect.arrayContaining([...allowedHrefs]));
+    expect(hrefs.every((href) => href !== null && allowedHrefs.includes(href as never))).toBe(true);
+    expect(hrefs).not.toContain("/crm/personnes");
+    expect(hrefs).not.toContain("/settings");
+  });
+
+  it("does not expose commands to an unknown role", async () => {
+    await mount("unknown");
+    expect(container.querySelectorAll(".command-results a")).toHaveLength(0);
+    expect(container.textContent).toContain("Aucun resultat");
   });
 
   it("dispatches the local notifications command without navigating", async () => {

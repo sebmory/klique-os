@@ -15,6 +15,13 @@ export type NavItem = {
   badge?: string;
 };
 
+export type NavGroup = {
+  id: string;
+  label: string;
+  icon: IconName;
+  items: NavItem[];
+};
+
 export type SearchEntry = {
   id: string;
   label: string;
@@ -32,42 +39,110 @@ export const workspaces: Workspace[] = [
   { id: "personnel", name: "Personnel", description: "Espace prive", monogram: "PM" },
 ];
 
-export const mainNavigation: NavItem[] = [
-  { id: "today", label: "Aujourd'hui", href: "/today", icon: "house" },
-  { id: "crm", label: "Athlètes", href: "/crm", icon: "users" },
-  { id: "creatives", label: "Créatifs", href: "/crm/creatifs", icon: "image" },
-  { id: "contact-requests", label: "Demandes KLIQUE", href: "/crm/demandes", icon: "messages" },
-  { id: "ecosysteme", label: "Écosystème", href: "/ecosysteme", icon: "network" },
-  { id: "contents", label: "Contenus", href: "/contents", icon: "contents" },
-  { id: "production", label: "Production", href: "/production", icon: "production" },
-  { id: "projects", label: "Projets", href: "/projects", icon: "folder" },
-  { id: "media", label: "Medias", href: "/media", icon: "image" },
-  { id: "ai-studio", label: "AI Studio", href: "/ai-studio", icon: "sparkles", badge: "IA" },
-  { id: "hub", label: "Communauté", href: "/hub", icon: "messages" },
-  { id: "media-desk", label: "Media Desk", href: "/media-desk", icon: "newspaper" },
-  { id: "media-days", label: "Media Days", href: "/media-days", icon: "calendar" },
-  { id: "calendar", label: "Calendrier", href: "/calendar", icon: "calendar" },
+export const adminNavigationGroups: NavGroup[] = [
+  {
+    id: "pilotage",
+    label: "Pilotage",
+    icon: "chart",
+    items: [
+      { id: "today", label: "Tableau de bord", href: "/today", icon: "house" },
+      { id: "visibility", label: "Visibilité", href: "/analytics/visibilite", icon: "chart" },
+    ],
+  },
+  {
+    id: "relations",
+    label: "Relations",
+    icon: "users",
+    items: [
+      { id: "athletes", label: "Athlètes", href: "/crm/personnes", icon: "users" },
+      { id: "creatives", label: "Créatifs", href: "/crm/creatifs", icon: "image" },
+      { id: "partners", label: "Partenaires & experts", href: "/ecosysteme", icon: "network" },
+      { id: "requests", label: "Demandes", href: "/crm/demandes", icon: "messages" },
+    ],
+  },
+  {
+    id: "production",
+    label: "Production",
+    icon: "production",
+    items: [
+      { id: "productions", label: "Productions", href: "/production", icon: "production" },
+      { id: "media-bank", label: "Banque médias", href: "/media", icon: "image" },
+      { id: "media-days", label: "Journées média", href: "/media-days", icon: "calendar" },
+      { id: "media-desk", label: "Sujets médias", href: "/media-desk", icon: "newspaper" },
+      { id: "shooting-assistant", label: "Assistant shooting", href: "/shooting/assistant", icon: "sparkles" },
+    ],
+  },
+  {
+    id: "contents",
+    label: "Contenus",
+    icon: "contents",
+    items: [
+      { id: "content-studio", label: "Studio de contenus", href: "/contents", icon: "contents" },
+      { id: "story-studio", label: "Story Studio", href: "/contents/story-studio/brand-kits", icon: "image" },
+    ],
+  },
+  {
+    id: "community",
+    label: "Communauté",
+    icon: "messages",
+    items: [
+      { id: "community-overview", label: "Vue Communauté", href: "/hub", icon: "messages" },
+    ],
+  },
+  {
+    id: "administration",
+    label: "Administration",
+    icon: "settings",
+    items: [
+      { id: "settings", label: "Paramètres", href: "/settings", icon: "settings" },
+      { id: "notifications", label: "Notifications & annonces", href: "/settings/notifications", icon: "messages" },
+    ],
+  },
 ];
 
+export const adminCreativeNavigationGroup: NavGroup = {
+  id: "personal-space",
+  label: "Espace personnel",
+  icon: "contents",
+  items: [
+    { id: "creative", label: "Espace créatif", href: "/creative", icon: "contents" },
+  ],
+};
+
+export const mainNavigation: NavItem[] = adminNavigationGroups
+  .filter((group) => group.id !== "administration")
+  .flatMap((group) => group.items);
+
 export const secondaryNavigation: NavItem[] = [
-  { id: "analytics", label: "Analytics", href: "/analytics", icon: "chart" },
-  { id: "integrations", label: "Integrations", href: "/integrations", icon: "plug" },
-  { id: "settings", label: "Parametres", href: "/settings", icon: "settings" },
+  ...adminNavigationGroups.find((group) => group.id === "administration")?.items ?? [],
 ];
 
 export const commandEntries: SearchEntry[] = [
-  { id: "person-1", label: "Mila Benjak", category: "Personnes", href: "/crm" },
-  { id: "person-2", label: "Liban Maxamed", category: "Personnes", href: "/crm" },
-  { id: "org-1", label: "Elfic Fribourg", category: "Organisations", href: "/crm" },
-  {
-    id: "project-1",
-    label: "Shooting portraits KLIQUE",
-    category: "Projets",
-    href: "/projects",
-  },
-  { id: "media-1", label: "Portraits Premium Avril", category: "Medias", href: "/media" },
-  { id: "action-1", label: "Creer une personne", category: "Actions rapides", href: "/crm" },
-  { id: "action-2", label: "Creer un projet", category: "Actions rapides", href: "/projects" },
+  { id: "admin-athletes", label: "Athlètes", category: "Personnes", href: "/crm/personnes" },
+  { id: "admin-creatives", label: "Créatifs", category: "Personnes", href: "/crm/creatifs" },
+  { id: "admin-partners", label: "Partenaires & experts", category: "Organisations", href: "/ecosysteme" },
+  { id: "admin-productions", label: "Productions", category: "Projets", href: "/production" },
+  { id: "admin-media", label: "Banque médias", category: "Medias", href: "/media" },
+  { id: "admin-dashboard", label: "Tableau de bord", category: "Actions rapides", href: "/today" },
+  { id: "admin-requests", label: "Demandes", category: "Actions rapides", href: "/crm/demandes" },
+  { id: "admin-settings", label: "Paramètres", category: "Actions rapides", href: "/settings" },
+];
+
+export const athleteCommandEntries: SearchEntry[] = [
+  { id: "athlete-home", label: "Mon espace", category: "Actions rapides", href: "/athlete" },
+  { id: "athlete-profile", label: "Mon profil", category: "Personnes", href: "/athlete/profile" },
+  { id: "athlete-services", label: "Services", category: "Actions rapides", href: "/athlete/services" },
+  { id: "athlete-community", label: "Communauté", category: "Actions rapides", href: "/athlete/community" },
+];
+
+export const mediaCommandEntries: SearchEntry[] = [
+  { id: "media-desk", label: "Media Desk", category: "Actions rapides", href: "/media-desk" },
+  { id: "media-athletes", label: "Athlètes", category: "Personnes", href: "/media/athletes" },
+  { id: "media-contents", label: "Contenus", category: "Actions rapides", href: "/contents" },
+];
+
+export const creativeCommandEntries: SearchEntry[] = [
+  { id: "creative-missions", label: "Mes missions", category: "Actions rapides", href: "/creative" },
 ];
 
 export const partnerCommandEntries: SearchEntry[] = [

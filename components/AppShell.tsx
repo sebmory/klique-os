@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { Header } from "@/components/app-shell/Header";
+import { ModuleGuideForRoute } from "@/components/app-shell/ModuleGuide";
 import { Sidebar } from "@/components/app-shell/Sidebar";
 import { setAuthenticatedContentStorageRole } from "@/services/content-storage-access";
 
@@ -221,7 +222,10 @@ export function AppShell({ children }: AppShellProps) {
           userName={userAccess.clerkDisplayName}
           userRole={userAccess.role}
         />
-        <main className="klique-main-content">{children}</main>
+        <main className="klique-main-content">
+          <ModuleGuideForRoute route={pathname} role={userAccess.role} />
+          {children}
+        </main>
       </div>
     </div>
   );

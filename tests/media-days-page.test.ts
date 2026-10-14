@@ -119,7 +119,7 @@ afterEach(async () => {
 
 describe("Media Days admin page", () => {
   it("is reachable from the admin navigation", () => {
-    expect(mainNavigation.find((item) => item.href === "/media-days")).toMatchObject({ label: "Media Days" });
+    expect(mainNavigation.find((item) => item.href === "/media-days")).toMatchObject({ label: "Journées média" });
   });
 
   it("loads the media days and renders their details", async () => {

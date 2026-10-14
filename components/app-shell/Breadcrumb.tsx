@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type BreadcrumbItem = {
@@ -53,22 +52,25 @@ const resolveContentResultLabel = (): string => {
   }
 };
 
-export function buildBreadcrumb(pathname: string): BreadcrumbItem[] {
+export function buildBreadcrumb(pathname: string, isAdmin = false): BreadcrumbItem[] {
   const cleaned = pathname.split("?")[0] ?? pathname;
   const segments = cleaned.split("/").filter(Boolean);
+  const homeItem = isAdmin
+    ? { label: "Tableau de bord", href: "/today" }
+    : { label: "Accueil", href: "/" };
 
   if (segments.length === 0) {
-    return [
-      { label: "Accueil", href: "/" },
-      { label: "Aujourd'hui", href: "/today" },
-    ];
+    return isAdmin
+      ? [homeItem]
+      : [homeItem, { label: "Aujourd'hui", href: "/today" }];
   }
 
-  const items: BreadcrumbItem[] = [{ label: "Accueil", href: "/" }];
+  const items: BreadcrumbItem[] = [homeItem];
   let current = "";
 
   for (const segment of segments) {
     current += `/${segment}`;
+    if (isAdmin && current === homeItem.href) continue;
     items.push({
       label: segmentLabelMap[segment] ?? titleCase(segment),
       href: current,
@@ -78,17 +80,11 @@ export function buildBreadcrumb(pathname: string): BreadcrumbItem[] {
   return items;
 }
 
-export function Breadcrumb({ pathname }: { pathname: string }) {
+export function Breadcrumb({ pathname, isAdmin = false }: { pathname: string; isAdmin?: boolean }) {
   const isContentResult = pathname.split("?")[0] === "/contents/create/result";
-  const [contentResultLabel, setContentResultLabel] = useState("Interview");
+  const contentResultLabel = isContentResult ? resolveContentResultLabel() : "Interview";
 
-  useEffect(() => {
-    if (isContentResult) {
-      setContentResultLabel(resolveContentResultLabel());
-    }
-  }, [isContentResult]);
-
-  const items = buildBreadcrumb(pathname).map((item, index, breadcrumbs) =>
+  const items = buildBreadcrumb(pathname, isAdmin).map((item, index, breadcrumbs) =>
     isContentResult && index === breadcrumbs.length - 1 ? { ...item, label: contentResultLabel } : item,
   );
 

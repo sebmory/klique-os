@@ -62,13 +62,24 @@ describe("partner community navigation", () => {
       href: "/partner/community",
     }));
     expect(mainNavigation.find((item) => item.href === "/hub")).toMatchObject({
-      id: "hub",
-      label: "Communauté",
+      id: "community-overview",
+      label: "Vue Communauté",
       href: "/hub",
     });
     expect(buildBreadcrumb("/hub")).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Communauté", href: "/hub" }),
     ]));
+  });
+
+  it("uses the Admin dashboard as the first Admin breadcrumb without changing public breadcrumbs", () => {
+    expect(buildBreadcrumb("/crm/personnes", true)[0]).toEqual({
+      label: "Tableau de bord",
+      href: "/today",
+    });
+    expect(buildBreadcrumb("/today", true)).toEqual([
+      { label: "Tableau de bord", href: "/today" },
+    ]);
+    expect(buildBreadcrumb("/hub")[0]).toEqual({ label: "Accueil", href: "/" });
   });
 
   it("labels the Partner benefit reservations breadcrumb", () => {

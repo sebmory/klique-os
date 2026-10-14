@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useClerk } from "@clerk/nextjs";
-import { mainNavigation, secondaryNavigation } from "./data";
+import {
+  adminCreativeNavigationGroup,
+  adminNavigationGroups,
+  type NavGroup,
+  type NavItem,
+} from "./data";
 import { ChevronDown, iconByName, LayoutGrid, X } from "./icons";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
@@ -29,22 +34,24 @@ function NavigationSection({
   group,
   onNavigate,
 }: {
-  items: typeof mainNavigation;
+  items: NavItem[];
   pathname: string;
   collapsed: boolean;
   group: string;
   onNavigate?: () => void;
 }) {
+  const matchingItems = items
+    .filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    .sort((left, right) => right.href.length - left.href.length);
+  const activeItemId = matchingItems[0]?.id ?? null;
+
   return (
     <>
       {!collapsed ? <p className="sidebar-group-label">{group}</p> : null}
       <ul className="sidebar-nav-list">
         {items.map((item) => {
           const Icon = iconByName[item.icon];
-          const active =
-            pathname === item.href ||
-            pathname.startsWith(`${item.href}/`) ||
-            (item.href === "/today" && pathname === "/");
+          const active = item.id === activeItemId;
           return (
             <li key={item.id}>
               <Link
@@ -65,6 +72,97 @@ function NavigationSection({
         })}
       </ul>
     </>
+  );
+}
+
+const getActiveAdminGroupId = (groups: NavGroup[], pathname: string): string | null => {
+  const matches = groups
+    .flatMap((group) => group.items.map((item) => ({ groupId: group.id, href: item.href })))
+    .filter((entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`))
+    .sort((left, right) => right.href.length - left.href.length);
+  return matches[0]?.groupId ?? null;
+};
+
+function AdminNavigation({
+  groups,
+  pathname,
+  collapsed,
+  idPrefix,
+  onNavigate,
+  onExpandCollapsed,
+}: {
+  groups: NavGroup[];
+  pathname: string;
+  collapsed: boolean;
+  idPrefix: string;
+  onNavigate?: () => void;
+  onExpandCollapsed?: () => void;
+}) {
+  const activeGroupId = getActiveAdminGroupId(groups, pathname);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(activeGroupId ? [activeGroupId] : []),
+  );
+
+  return (
+    <ul className="sidebar-nav-groups">
+      {groups.map((group) => {
+        const GroupIcon = iconByName[group.icon];
+        const isOpen = openGroups.has(group.id);
+        const containsActiveRoute = activeGroupId === group.id;
+        const submenuId = `${idPrefix}-sidebar-group-${group.id}`;
+        const triggerClassName = [
+          "sidebar-group-trigger",
+          containsActiveRoute ? "is-active" : "",
+          isOpen ? "is-open" : "",
+        ].filter(Boolean).join(" ");
+
+        return (
+          <li key={group.id} className="sidebar-nav-group">
+            <button
+              type="button"
+              className={triggerClassName}
+              aria-expanded={!collapsed && isOpen}
+              aria-controls={submenuId}
+              title={collapsed ? group.label : undefined}
+              data-tooltip={collapsed ? group.label : undefined}
+              onClick={() => {
+                if (collapsed) {
+                  onExpandCollapsed?.();
+                  setOpenGroups((current) => new Set([...current, group.id]));
+                  return;
+                }
+                setOpenGroups((current) => {
+                  const next = new Set(current);
+                  if (next.has(group.id)) next.delete(group.id);
+                  else next.add(group.id);
+                  return next;
+                });
+              }}
+            >
+              <span className="sidebar-link-icon-wrap" aria-hidden>
+                <GroupIcon className="app-icon" />
+              </span>
+              {!collapsed ? <span>{group.label}</span> : null}
+              {!collapsed ? (
+                <ChevronDown className={isOpen ? "app-icon sidebar-group-chevron is-open" : "app-icon sidebar-group-chevron"} />
+              ) : null}
+            </button>
+
+            {!collapsed && isOpen ? (
+              <div id={submenuId} className="sidebar-group-items">
+                <NavigationSection
+                  items={group.items}
+                  pathname={pathname}
+                  collapsed={false}
+                  group=""
+                  onNavigate={onNavigate}
+                />
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -92,7 +190,8 @@ export function Sidebar({
   const isPartner = (userIsPartner ?? userRole === "partner_expert") && !isAthlete && !isMedia;
   const isCreative = (userIsCreative ?? userRole === "creative") && !isAthlete && !isMedia && !isPartner;
   const isCreativeOnly = isCreative && userRole !== "admin";
-  const profileName = isAthlete || isMedia || isPartner || isCreativeOnly ? (userName ?? "Compte Clerk") : "Sebastien Mory";
+  const isAdmin = userRole === "admin" || (!userRole && !isAthlete && !isMedia && !isPartner && !isCreativeOnly);
+  const profileName = userName?.trim() || "Compte Clerk";
   const profileLabel = isAthlete
     ? "Athlète"
     : isMedia
@@ -102,9 +201,9 @@ export function Sidebar({
         : isCreativeOnly
           ? "Créatif"
           : "Administrateur";
-  const profileInitials = isPartner
-    ? profileName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "PE"
-    : "SM";
+  const profileInitials =
+    profileName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("")
+    || "CK";
   const visibleMainNavigation = isAthlete
     ? [
         { id: "today", label: "Aujourd’hui", href: "/athlete", icon: "house" as const },
@@ -136,15 +235,11 @@ export function Sidebar({
           ]
         : isCreativeOnly
           ? [{ id: "creative", label: "Mes missions", href: "/creative", icon: "contents" as const }]
-          : isCreative
-            ? [
-                ...mainNavigation,
-                { id: "creative", label: "Espace créatif", href: "/creative", icon: "contents" as const },
-              ]
-            : mainNavigation;
-
-  const visibleSecondaryNavigation = isAthlete || isMedia || isPartner || isCreativeOnly ? [] : secondaryNavigation;
-  const homeHref = isPartner ? "/partner" : isCreativeOnly ? "/creative" : "/";
+          : [];
+  const visibleAdminGroups = isAdmin && isCreative
+    ? [...adminNavigationGroups, adminCreativeNavigationGroup]
+    : adminNavigationGroups;
+  const homeHref = isAdmin ? "/today" : isPartner ? "/partner" : isCreativeOnly ? "/creative" : "/";
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -216,24 +311,24 @@ export function Sidebar({
 
         <div className="sidebar-scroll">
           <nav aria-label="Navigation principale" className="sidebar-nav-block">
-            <NavigationSection
-              items={visibleMainNavigation}
-              pathname={pathname}
-              collapsed={collapsed}
-              group="Navigation"
-            />
-          </nav>
-
-          {!isAthlete && !isMedia && !isPartner && !isCreativeOnly ? (
-            <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
-              <NavigationSection
-                items={visibleSecondaryNavigation}
+            {isAdmin ? (
+              <AdminNavigation
+                key={pathname}
+                groups={visibleAdminGroups}
                 pathname={pathname}
                 collapsed={collapsed}
-                group="Espace"
+                idPrefix="desktop"
+                onExpandCollapsed={onToggleCollapsed}
               />
-            </nav>
-          ) : null}
+            ) : (
+              <NavigationSection
+                items={visibleMainNavigation}
+                pathname={pathname}
+                collapsed={collapsed}
+                group="Navigation"
+              />
+            )}
+          </nav>
         </div>
 
         <div className="header-dropdown" ref={profileMenuRootRef}>
@@ -316,26 +411,25 @@ export function Sidebar({
 
             <div className="sidebar-scroll">
               <nav aria-label="Navigation principale" className="sidebar-nav-block">
-                <NavigationSection
-                  items={visibleMainNavigation}
-                  pathname={pathname}
-                  collapsed={false}
-                  group="Navigation"
-                  onNavigate={onCloseMobile}
-                />
-              </nav>
-
-              {!isAthlete && !isMedia && !isPartner && !isCreativeOnly ? (
-                <nav aria-label="Navigation secondaire" className="sidebar-nav-block sidebar-nav-secondary">
-                  <NavigationSection
-                    items={visibleSecondaryNavigation}
+                {isAdmin ? (
+                  <AdminNavigation
+                    key={pathname}
+                    groups={visibleAdminGroups}
                     pathname={pathname}
                     collapsed={false}
-                    group="Espace"
+                    idPrefix="mobile"
                     onNavigate={onCloseMobile}
                   />
-                </nav>
-              ) : null}
+                ) : (
+                  <NavigationSection
+                    items={visibleMainNavigation}
+                    pathname={pathname}
+                    collapsed={false}
+                    group="Navigation"
+                    onNavigate={onCloseMobile}
+                  />
+                )}
+              </nav>
             </div>
           </aside>
         </div>

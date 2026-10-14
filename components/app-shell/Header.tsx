@@ -36,7 +36,7 @@ export function Header({
         >
           <Menu className="app-icon" />
         </button>
-        <Breadcrumb pathname={pathname} />
+        <Breadcrumb pathname={pathname} isAdmin={isAdmin} />
       </div>
 
       <div className="header-center">
