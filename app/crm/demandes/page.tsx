@@ -3,8 +3,15 @@ import { ContactRequestsCrmScreen } from "@/components/crm/ContactRequestsCrmScr
 export default async function CrmContactRequestsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<{ tab?: string | string[]; requestId?: string | string[] }>;
 }) {
-  const tab = (await searchParams).tab;
-  return <ContactRequestsCrmScreen initialView={tab === "partners" ? "partners" : "services"} />;
+  const params = await searchParams;
+  const tab = params.tab;
+  const requestId = typeof params.requestId === "string" ? params.requestId : undefined;
+  return (
+    <ContactRequestsCrmScreen
+      initialView={tab === "partners" ? "partners" : "services"}
+      initialServiceRequestId={requestId}
+    />
+  );
 }

@@ -142,6 +142,7 @@ describe("Sidebar responsive scrolling", () => {
       "/ecosysteme",
       "/crm/demandes",
       "/production",
+      "/missions",
       "/media",
       "/media-days",
       "/media-desk",

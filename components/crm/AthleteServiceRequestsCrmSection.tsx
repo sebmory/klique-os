@@ -66,11 +66,13 @@ const formatDeliveryProgress = (request: AdminAthleteServiceRequest) =>
 
 export function AthleteServiceRequestsCrmSection({
   resolveAthleteLabel,
+  initialRequestId,
 }: {
   resolveAthleteLabel: (athleteId: string) => string;
+  initialRequestId?: string;
 }) {
   const [requests, setRequests] = useState<AdminAthleteServiceRequest[]>([]);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(initialRequestId ?? null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);

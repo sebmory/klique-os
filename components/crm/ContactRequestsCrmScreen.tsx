@@ -106,8 +106,10 @@ const createPartnerForm = (partner: PartnerApplication): PartnerForm => ({
 
 export function ContactRequestsCrmScreen({
   initialView = "services",
+  initialServiceRequestId,
 }: {
   initialView?: RequestView;
+  initialServiceRequestId?: string;
 }) {
   const [requests, setRequests] = useState<ContactRequest[]>([]);
   const [partnerApplications, setPartnerApplications] = useState<PartnerApplication[]>([]);
@@ -374,7 +376,10 @@ export function ContactRequestsCrmScreen({
       </section>
 
       {activeView === "services" ? (
-        <AthleteServiceRequestsCrmSection resolveAthleteLabel={resolveAthleteLabel} />
+        <AthleteServiceRequestsCrmSection
+          resolveAthleteLabel={resolveAthleteLabel}
+          initialRequestId={initialServiceRequestId}
+        />
       ) : null}
 
       {activeView !== "services" && updateError ? (

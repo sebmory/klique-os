@@ -26,6 +26,13 @@ export type CreativeMissionExecution = {
   history: CreativeMissionExecutionEvent[];
 };
 
+export type AdminCreativeMissionExecutionSummary = {
+  requestId: string;
+  creativeProfileId: string;
+  status: CreativeMissionExecutionStatus;
+  updatedAt: string;
+};
+
 export type CreativeMissionExecutionRow = {
   execution_status: CreativeMissionExecutionStatus | null;
   execution_delivery_links: unknown;
@@ -161,6 +168,33 @@ export const mapCreativeMissionExecution = (
       createdAt: new Date(event.createdAt).toISOString(),
     })),
   };
+};
+
+export const listAdminCreativeMissionExecutions = async ({
+  workspaceId,
+}: {
+  workspaceId: string;
+}): Promise<AdminCreativeMissionExecutionSummary[]> => {
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) throw new Error("workspaceId est requis.");
+  const sql = createContentStorageClient();
+  const rows = await sql.query(`
+    SELECT service_request_id, creative_profile_id, status, updated_at
+    FROM creative_mission_executions
+    WHERE workspace_id = $1
+    ORDER BY updated_at DESC, service_request_id
+  `, [normalizedWorkspaceId]) as Array<{
+    service_request_id: string;
+    creative_profile_id: string;
+    status: CreativeMissionExecutionStatus;
+    updated_at: string | Date;
+  }>;
+  return rows.map((row) => ({
+    requestId: row.service_request_id,
+    creativeProfileId: row.creative_profile_id,
+    status: row.status,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  }));
 };
 
 export const transitionCreativeMissionExecution = async (input: {

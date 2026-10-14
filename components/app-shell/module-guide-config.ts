@@ -84,6 +84,16 @@ const adminGuides = {
       { label: "Préparer les contenus", description: "Créez ou reprenez les contenus liés au projet.", href: "/contents" },
     ],
   },
+  "/missions": {
+    name: "Missions créatives",
+    purpose: "Centralise la préparation, l’affectation et l’avancement des missions confiées aux créatifs.",
+    start: "Commencez par les livraisons à vérifier, puis traitez les missions à préparer ou à affecter.",
+    actions: [
+      { label: "Prioriser les missions", description: "Filtrez la liste selon la prochaine action attendue.", href: "/missions" },
+      { label: "Ouvrir une demande", description: "Utilisez la demande pour modifier la fiche ou l’affectation existante.", href: "/crm/demandes?tab=services" },
+      { label: "Consulter les créatifs", description: "Vérifiez les profils et accès avant une affectation.", href: "/crm/creatifs" },
+    ],
+  },
   "/media": {
     name: "Banque médias",
     purpose: "Centralise les photos et vidéos internes utiles aux équipes KLIQUE.",
@@ -213,4 +223,3 @@ export const resolveModuleGuide = (
 };
 
 export const adminModuleGuideRoutes = Object.keys(adminGuides);
-

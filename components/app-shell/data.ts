@@ -66,6 +66,7 @@ export const adminNavigationGroups: NavGroup[] = [
     icon: "production",
     items: [
       { id: "productions", label: "Productions", href: "/production", icon: "production" },
+      { id: "creative-missions", label: "Missions créatives", href: "/missions", icon: "folder" },
       { id: "media-bank", label: "Banque médias", href: "/media", icon: "image" },
       { id: "media-days", label: "Journées média", href: "/media-days", icon: "calendar" },
       { id: "media-desk", label: "Sujets médias", href: "/media-desk", icon: "newspaper" },
@@ -122,6 +123,7 @@ export const commandEntries: SearchEntry[] = [
   { id: "admin-creatives", label: "Créatifs", category: "Personnes", href: "/crm/creatifs" },
   { id: "admin-partners", label: "Partenaires & experts", category: "Organisations", href: "/ecosysteme" },
   { id: "admin-productions", label: "Productions", category: "Projets", href: "/production" },
+  { id: "admin-creative-missions", label: "Missions créatives", category: "Projets", href: "/missions" },
   { id: "admin-media", label: "Banque médias", category: "Medias", href: "/media" },
   { id: "admin-dashboard", label: "Tableau de bord", category: "Actions rapides", href: "/today" },
   { id: "admin-requests", label: "Demandes", category: "Actions rapides", href: "/crm/demandes" },

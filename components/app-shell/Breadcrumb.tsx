@@ -15,6 +15,7 @@ const segmentLabelMap: Record<string, string> = {
   create: "Assistant de creation",
   result: "Interview",
   production: "Production",
+  missions: "Missions créatives",
   projects: "Projets",
   media: "Medias",
   "ai-studio": "AI Studio",

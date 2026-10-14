@@ -900,6 +900,290 @@ button {
   }
 }
 
+.admin-missions-screen {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-missions-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-missions-header p {
+  margin: 0;
+  color: #8a6c00;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-missions-header h1 {
+  margin: 4px 0;
+  color: #1f1f1f;
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+}
+
+.admin-missions-header span {
+  color: #6b6b6b;
+}
+
+.admin-missions-toolbar {
+  border: 1px solid #e8e2d8;
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  background: #ffffff;
+}
+
+.admin-missions-search {
+  display: grid;
+  gap: 5px;
+  color: #555555;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-missions-search input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #d9d5ce;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #ffffff;
+  color: #252525;
+  font: inherit;
+}
+
+.admin-missions-search input:focus-visible {
+  outline: 2px solid #d6a900;
+  outline-offset: 2px;
+}
+
+.admin-missions-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  overflow-x: visible;
+  padding-bottom: 2px;
+}
+
+.admin-missions-filters button {
+  min-height: 34px;
+  border: 1px solid #dedad3;
+  border-radius: 999px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  background: #ffffff;
+  color: #555555;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-missions-filters button span {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: #f0ede8;
+  color: #555555;
+  font-size: 0.7rem;
+}
+
+.admin-missions-filters button.is-active {
+  border-color: #d6a900;
+  background: #fff8dc;
+  color: #554500;
+}
+
+.admin-missions-filters button:focus-visible {
+  outline: 2px solid #d6a900;
+  outline-offset: 2px;
+}
+
+.admin-missions-state {
+  border: 1px solid #e8e2d8;
+  border-radius: 14px;
+  padding: 28px 18px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.admin-missions-state p {
+  margin: 6px 0 0;
+  color: #707070;
+}
+
+.admin-missions-state.is-error {
+  border-color: #efcaca;
+  background: #fffafa;
+}
+
+.admin-missions-state button {
+  margin-top: 12px;
+  border: 1px solid #d6a900;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: #ffd54a;
+  color: #252525;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.admin-missions-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-mission-card {
+  border: 1px solid #e8e2d8;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.035);
+}
+
+.admin-mission-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-mission-card small {
+  color: #777777;
+  font-weight: 700;
+}
+
+.admin-mission-card h2 {
+  margin: 3px 0 0;
+  color: #222222;
+  font-size: 1.08rem;
+}
+
+.admin-mission-priority {
+  max-width: 260px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f1eee8;
+  color: #5f5a50;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.admin-mission-priority.is-delivery_review,
+.admin-mission-priority.is-to_prepare,
+.admin-mission-priority.is-to_assign {
+  background: #fff3bf;
+  color: #6b5400;
+}
+
+.admin-mission-priority.is-completed,
+.admin-mission-priority.is-cancelled {
+  background: #eeeeee;
+  color: #686868;
+}
+
+.admin-mission-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.admin-mission-card dl div {
+  min-width: 0;
+}
+
+.admin-mission-card dt {
+  margin-bottom: 3px;
+  color: #858585;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-mission-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #303030;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.admin-mission-card a {
+  color: #665200;
+  font-weight: 750;
+  text-underline-offset: 3px;
+}
+
+.admin-mission-card a:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid #d6a900;
+  outline-offset: 3px;
+}
+
+.admin-mission-card footer {
+  border-top: 1px solid #efebe5;
+  padding-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .admin-mission-card {
+    padding: 13px;
+  }
+
+  .admin-mission-card > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-mission-priority {
+    max-width: none;
+    width: fit-content;
+  }
+
+  .admin-mission-card dl {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-missions-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-mission-card dl {
+    grid-template-columns: 1fr;
+  }
+}
+
 .workspace-landing {
   display: grid;
   gap: 24px;
