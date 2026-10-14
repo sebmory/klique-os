@@ -9,6 +9,7 @@ import type { AthleteServiceMissionRecord } from "@/lib/athlete-service-mission-
 import {
   listAdminAthleteServiceRequests,
   type AdminAthleteServiceRequest,
+  type AthleteServiceRequestStatus,
 } from "@/lib/athlete-service-requests";
 import {
   listAdminCreativeMissionExecutions,
@@ -35,8 +36,12 @@ export type AdminCreativeMissionListItem = {
   title: string;
   discipline: string | null;
   missionDate: string | null;
+  deliveryDueDate: string | null;
   startTime: string | null;
   locationName: string | null;
+  requestStatus: AthleteServiceRequestStatus;
+  preferredDate: string | null;
+  scheduledAt: string | null;
   creative: {
     id: string;
     displayName: string;
@@ -172,8 +177,12 @@ export const buildAdminCreativeMissionList = ({
         title: mission?.title ?? record.productName,
         discipline: mission?.sportDiscipline ?? null,
         missionDate: mission?.missionDate ?? null,
+        deliveryDueDate: mission?.deliveryDueDate ?? null,
         startTime: mission?.startTime ?? null,
         locationName: mission?.locationName ?? null,
+        requestStatus: request?.status ?? "received",
+        preferredDate: request?.preferredDate ?? null,
+        scheduledAt: request?.scheduledAt ?? null,
         creative: assignment?.creative
           ? { id: assignment.creative.id, displayName: assignment.creative.displayName }
           : null,

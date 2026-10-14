@@ -408,6 +408,13 @@ export const listMediaDays = async (access: MediaDayAccessContext): Promise<Medi
   return rows.map((row) => mapRow(row));
 };
 
+export const listMediaDaysReadOnly = async (
+  access: MediaDayAccessContext,
+): Promise<MediaDayRecord[]> => {
+  const rows = await selectMediaDays(access, null);
+  return rows.map((row) => mapRow(row));
+};
+
 export const getMediaDayById = async (
   access: MediaDayAccessContext,
   mediaDayId: string,

@@ -24,6 +24,16 @@ const adminGuides = {
       { label: "Préparer une annonce", description: "Informez les publics concernés depuis les notifications.", href: "/settings/notifications" },
     ],
   },
+  "/calendar": {
+    name: "Calendrier opérationnel",
+    purpose: "Réunit les dates fiables des missions, demandes, productions et journées média.",
+    start: "Commencez par la vue À venir, puis ouvrez chaque élément dans son module d’origine pour le traiter.",
+    actions: [
+      { label: "Voir les prochaines échéances", description: "Filtrez les événements à venir par source métier.", href: "/calendar" },
+      { label: "Traiter les missions", description: "Retrouvez les missions qui nécessitent une action.", href: "/missions" },
+      { label: "Préparer les productions", description: "Ouvrez le suivi opérationnel des shootings.", href: "/production" },
+    ],
+  },
   "/analytics/visibilite": {
     name: "Visibilité",
     purpose: "Suit les publications KLIQUE, leur diffusion et les retombées obtenues.",

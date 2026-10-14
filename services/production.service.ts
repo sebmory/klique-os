@@ -30,7 +30,7 @@ const inferStatus = (shooting: Shooting): string => {
   return "En cours";
 };
 
-const toProduction = (shooting: Shooting): Production => {
+export const mapShootingToProduction = (shooting: Shooting): Production => {
   const idFromRow = shooting.row ? `production-${shooting.row}` : "";
   const idFromValues = stableKey(`${shooting.date}-${shooting.athlete}-${shooting.type}`) || "production";
 
@@ -99,7 +99,7 @@ export const ProductionService = {
     const data = payload as ShootingsResponse;
 
     return {
-      productions: data.shootings.map(toProduction),
+      productions: data.shootings.map(mapShootingToProduction),
       source: data.source,
       message: data.message,
     };

@@ -17,6 +17,7 @@ import {
 
 const expectedAdminRoutes = [
   "/today",
+  "/calendar",
   "/analytics/visibilite",
   "/crm/personnes",
   "/crm/creatifs",
@@ -37,6 +38,7 @@ const expectedAdminRoutes = [
 
 const existingLinkedRoutes = new Set([
   "/today",
+  "/calendar",
   "/analytics/visibilite",
   "/crm/personnes",
   "/crm/creatifs",

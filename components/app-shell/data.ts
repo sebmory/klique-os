@@ -46,6 +46,7 @@ export const adminNavigationGroups: NavGroup[] = [
     icon: "chart",
     items: [
       { id: "today", label: "Tableau de bord", href: "/today", icon: "house" },
+      { id: "calendar", label: "Calendrier", href: "/calendar", icon: "calendar" },
       { id: "visibility", label: "Visibilité", href: "/analytics/visibilite", icon: "chart" },
     ],
   },
@@ -126,6 +127,7 @@ export const commandEntries: SearchEntry[] = [
   { id: "admin-creative-missions", label: "Missions créatives", category: "Projets", href: "/missions" },
   { id: "admin-media", label: "Banque médias", category: "Medias", href: "/media" },
   { id: "admin-dashboard", label: "Tableau de bord", category: "Actions rapides", href: "/today" },
+  { id: "admin-calendar", label: "Calendrier opérationnel", category: "Actions rapides", href: "/calendar" },
   { id: "admin-requests", label: "Demandes", category: "Actions rapides", href: "/crm/demandes" },
   { id: "admin-settings", label: "Paramètres", category: "Actions rapides", href: "/settings" },
 ];

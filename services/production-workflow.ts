@@ -409,4 +409,21 @@ export const getProductionWorkflow = (production: Production): ProductionWorkflo
   };
 };
 
+export const isProductionClosed = (
+  production: Production,
+  workflow: ProductionWorkflowResult = getProductionWorkflow(production),
+): boolean => {
+  if (workflow.isComplete || production.published) return true;
+  const status = normalize(production.statut);
+  if (status.includes("pret") && status.includes("publi")) return false;
+  return status.includes("termine")
+    || status.includes("completed")
+    || status === "done"
+    || status.includes("archive")
+    || status.includes("annul")
+    || status.includes("cancel")
+    || status === "publie"
+    || status === "published";
+};
+
 export const buildProductionWorkflow = getProductionWorkflow;

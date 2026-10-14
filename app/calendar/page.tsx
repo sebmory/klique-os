@@ -1,5 +1,5 @@
-import { WorkspaceLanding } from "@/components/app-shell/WorkspaceLanding";
+import { AdminCalendarScreen } from "@/components/calendar/AdminCalendarScreen";
 
 export default function CalendarPage() {
-  return <WorkspaceLanding sectionTitle="Calendrier" />;
+  return <AdminCalendarScreen />;
 }
