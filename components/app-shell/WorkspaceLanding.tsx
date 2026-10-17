@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/src/design-system/components";
-import type { Athlete, AthletesResponse, MonthlyFormResponse, WeeklyFormResponse } from "@/types/athlete";
+import type { Athlete, AthletesResponse, MonthlyFormResponse } from "@/types/athlete";
 import type { ShootingsResponse, Shooting } from "@/types/shooting";
 import type { ContentDocument } from "@/types/content-document";
 import { ShootingService } from "@/services/shooting.service";
@@ -12,6 +12,12 @@ import {
   AthleteServicePlanningCard,
   type AthleteServicePlanningPriorityView,
 } from "@/components/app-shell/AthleteServicePlanningCard";
+import { WeeklyResponsesCockpit } from "@/components/app-shell/WeeklyResponsesCockpit";
+import {
+  getWeeklyResponseKey,
+  parseWeeklyResponseDate,
+  selectWeeklyResponses,
+} from "@/lib/weekly-responses";
 
 type WorkspaceLandingProps = {
   sectionTitle?: string;
@@ -102,9 +108,6 @@ const loadAthleteOfTheMonth = async (awardPeriod: string) => {
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
-const getWeeklyResponseKey = (athleteId: string, responseTimestamp: string): string =>
-  JSON.stringify([athleteId, responseTimestamp]);
-
 const parseDateRank = (value: string): number => {
   const raw = normalize(value);
   if (!raw) return Number.MIN_SAFE_INTEGER;
@@ -147,11 +150,11 @@ const isActiveProduction = (shooting: Shooting): boolean => {
   return !shooting.published && !ShootingService.isComplete(shooting) && !hasTerminalStatus;
 };
 
-const getProductionUrgencyRank = (shooting: Shooting): number => {
+const getProductionUrgencyRank = (shooting: Shooting, now: number): number => {
   const status = normalizeProductionStatus(shooting.status);
   if (["urgent", "retard", "verif", "bloqu", "action"].some((token) => status.includes(token))) return 0;
   if (shooting.shootingDone) return 1;
-  if (parseDateRank(shooting.date) <= Date.now()) return 2;
+  if (parseDateRank(shooting.date) <= now) return 2;
   return 3;
 };
 
@@ -207,45 +210,9 @@ const getMonthlyPreviewInformation = (
     .slice(0, 2);
 };
 
-const hasUsefulWeeklyInformation = (response: WeeklyFormResponse): boolean => {
-  return response.contactRequested || [
-    response.competition,
-    response.result,
-    response.notableEvent,
-    response.notableEventExplanation,
-    response.media,
-    response.mediaLink,
-    response.appointment,
-  ].some(isMeaningfulWeeklyValue);
-};
-
-const parseWeeklyResponseDate = (value: string): number | null => {
-  const raw = normalize(value);
-  const european = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-  const parts = european
-    ? { year: european[3], month: european[2], day: european[1], hour: european[4], minute: european[5], second: european[6] }
-    : iso
-      ? { year: iso[1], month: iso[2], day: iso[3], hour: iso[4], minute: iso[5], second: iso[6] }
-      : null;
-  if (!parts) {
-    const fallback = Date.parse(raw);
-    return Number.isNaN(fallback) ? null : fallback;
-  }
-  const parsed = new Date(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour ?? 0),
-    Number(parts.minute ?? 0),
-    Number(parts.second ?? 0),
-  );
-  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
-};
-
 export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
-  const now = new Date();
-  const lastCompletedAwardPeriod = getLastCompletedAwardPeriod(now);
+  const [dashboardNow] = useState(() => Date.now());
+  const lastCompletedAwardPeriod = getLastCompletedAwardPeriod(new Date(dashboardNow));
   const [selectedAwardPeriod, setSelectedAwardPeriod] = useState(lastCompletedAwardPeriod);
   const selectedAwardPeriodRef = useRef(selectedAwardPeriod);
   const { awardMonth: selectedAwardMonth, awardYear: selectedAwardYear } = parseAwardPeriod(selectedAwardPeriod);
@@ -440,7 +407,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   }, [selectedAwardPeriod]);
 
   const athletesToFollow = useMemo(() => {
-    const now = Date.now();
+    const now = dashboardNow;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const renewalWindowEnd = today.getTime() + 30 * 24 * 60 * 60 * 1000;
@@ -482,27 +449,11 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         || left.membershipEndRank - right.membershipEndRank
         || left.athlete.name.localeCompare(right.athlete.name, "fr")
       );
-  }, [athletes]);
+  }, [athletes, dashboardNow]);
 
   const weeklyResponses = useMemo(() => {
-    const today = new Date();
-    const now = today.getTime();
-    const rollingWindowStart = now - 14 * 24 * 60 * 60 * 1000;
-    return athletes
-      .flatMap((athlete) => {
-        const response = athlete.weeklyFormResponse;
-        if (!response) return [];
-        if (processedWeeklyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))) return [];
-        const responseTime = parseWeeklyResponseDate(response.timestamp);
-        if (responseTime === null || responseTime < rollingWindowStart || responseTime > now) return [];
-        return [{ athlete, response, responseTime }];
-      })
-      .sort((a, b) =>
-        Number(b.response.contactRequested) - Number(a.response.contactRequested)
-        || b.responseTime - a.responseTime
-      )
-      .slice(0, 4);
-  }, [athletes, processedWeeklyResponseKeys]);
+    return selectWeeklyResponses(athletes, processedWeeklyResponseKeys, dashboardNow);
+  }, [athletes, dashboardNow, processedWeeklyResponseKeys]);
 
   const markWeeklyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
     const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
@@ -535,7 +486,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
   };
 
   const monthlyResponses = useMemo(() => {
-    const now = Date.now();
+    const now = dashboardNow;
     const rollingWindowStart = now - 45 * 24 * 60 * 60 * 1000;
 
     return athletes
@@ -549,7 +500,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         return [{ athlete, response, responseTime, hasPriority }];
       })
       .sort((a, b) => Number(b.hasPriority) - Number(a.hasPriority) || b.responseTime - a.responseTime);
-  }, [athletes, processedMonthlyResponseKeys]);
+  }, [athletes, dashboardNow, processedMonthlyResponseKeys]);
 
   const markMonthlyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
     const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
@@ -585,11 +536,11 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     return shootings
       .filter(isActiveProduction)
       .sort((left, right) => {
-        const urgencyDifference = getProductionUrgencyRank(left) - getProductionUrgencyRank(right);
+        const urgencyDifference = getProductionUrgencyRank(left, dashboardNow) - getProductionUrgencyRank(right, dashboardNow);
         if (urgencyDifference !== 0) return urgencyDifference;
         return parseDateRank(left.date) - parseDateRank(right.date);
       });
-  }, [shootings]);
+  }, [dashboardNow, shootings]);
 
   const recentDocuments = useMemo(() => savedDocuments.slice(0, 4), [savedDocuments]);
 
@@ -608,7 +559,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     const futureSlotDates = opportunitySlots.reduce<Map<string, number>>((dates, slot) => {
       if (slot.status !== "open") return dates;
       const startsAt = parseDateRank(slot.startsAt);
-      if (!Number.isFinite(startsAt) || startsAt === Number.MIN_SAFE_INTEGER || startsAt < Date.now()) return dates;
+      if (!Number.isFinite(startsAt) || startsAt === Number.MIN_SAFE_INTEGER || startsAt < dashboardNow) return dates;
       const current = dates.get(slot.opportunityId);
       if (current === undefined || startsAt < current) dates.set(slot.opportunityId, startsAt);
       return dates;
@@ -644,7 +595,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         && (opportunity.hasResponseToProcess || opportunity.isAwaitingResponse || opportunity.isUpcomingValidated),
       )
       .sort((first, second) => first.urgency - second.urgency || first.dateRank - second.dateRank);
-  }, [opportunities, opportunityRequests, opportunitySlots]);
+  }, [dashboardNow, opportunities, opportunityRequests, opportunitySlots]);
 
   const monthLabel = useMemo(() => {
     const monthText = MONTH_LABELS[selectedAwardMonth - 1] ?? "mois";
@@ -795,7 +746,7 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(now);
+  }).format(new Date(dashboardNow));
   const lastRefreshedLabel = lastRefreshedAt
     ? new Intl.DateTimeFormat("fr-CH", { hour: "2-digit", minute: "2-digit" }).format(lastRefreshedAt)
     : "en cours";
@@ -1084,56 +1035,14 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
         ) : null}
 
         {athletesAvailable ? (
-          <Card className="workspace-dashboard-card card-priorities dashboard-weekly-card">
-            <header className="dashboard-card-head">
-              <h2>Réponses hebdomadaires</h2>
-              <div className="dashboard-card-head-right">
-                <span className="card-pill">{weeklyResponses.length} athlète{weeklyResponses.length === 1 ? "" : "s"}</span>
-              </div>
-            </header>
-
-            {weeklyResponses.length > 0 ? (
-              <ul className="priority-list">
-                {weeklyResponses.map(({ athlete, response, responseTime }) => {
-                  const responseKey = getWeeklyResponseKey(athlete.key, response.timestamp);
-                  const isProcessing = processingWeeklyResponseKeys.has(responseKey);
-
-                  return (
-                  <li key={responseKey} className="priority-item weekly-response-item">
-                    <input
-                      type="checkbox"
-                      className="priority-check"
-                      checked={isProcessing}
-                      disabled={isProcessing}
-                      aria-label={`Marquer la réponse de ${athlete.name} comme traitée`}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={() => void markWeeklyResponseAsProcessed(athlete.key, response.timestamp)}
-                    />
-                    <div className="priority-main weekly-response-main">
-                      <strong>
-                        <Link href={`/crm/personnes/${athlete.key}`}>{athlete.name}</Link>
-                      </strong>
-                      {response.contactRequested ? <span className="priority-badge priority-urgent">Contact demandé</span> : null}
-                      {isMeaningfulWeeklyValue(response.competition) ? <small>Compétition : {response.competition}</small> : null}
-                      {isMeaningfulWeeklyValue(response.result) ? <small>Résultat : {response.result}</small> : null}
-                      {isMeaningfulWeeklyValue(response.notableEvent) ? <small>Actualité : {response.notableEvent}</small> : null}
-                      {isMeaningfulWeeklyValue(response.notableEventExplanation) ? <small>Explication : {response.notableEventExplanation}</small> : null}
-                      {isMeaningfulWeeklyValue(response.media) ? <small>Média : {response.media}</small> : null}
-                      {isMeaningfulWeeklyValue(response.mediaLink) ? <small>Lien : {response.mediaLink}</small> : null}
-                      {isMeaningfulWeeklyValue(response.appointment) ? <small>Rendez-vous : {response.appointment}</small> : null}
-                      {response.contactRequested && isMeaningfulWeeklyValue(response.quickContactReason) ? <small>Raison du contact : {response.quickContactReason}</small> : null}
-                      {!hasUsefulWeeklyInformation(response) ? <small>Aucune actualité signalée</small> : null}
-                      <small className="priority-date weekly-response-date">Réponse du {formatDate(new Date(responseTime).toISOString())}</small>
-                    </div>
-                  </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p>Aucun athlète n’a répondu cette semaine.</p>
-            )}
-            {weeklyResponseError ? <p style={{ color: "#b91c1c" }}>{weeklyResponseError}</p> : null}
-          </Card>
+          <WeeklyResponsesCockpit
+            items={weeklyResponses}
+            processingResponseKeys={processingWeeklyResponseKeys}
+            error={weeklyResponseError}
+            onMarkProcessed={(athleteId, responseTimestamp) => {
+              void markWeeklyResponseAsProcessed(athleteId, responseTimestamp);
+            }}
+          />
         ) : null}
 
         {athletesAvailable ? (

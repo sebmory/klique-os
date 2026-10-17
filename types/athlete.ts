@@ -1,5 +1,6 @@
 export type WeeklyFormResponse = {
   timestamp: string;
+  competitionParticipation: string;
   competition: string;
   result: string;
   notableEvent: string;
@@ -10,6 +11,9 @@ export type WeeklyFormResponse = {
   quickContact: string;
   quickContactReason: string;
   contactRequested: boolean;
+  firstAppointmentDate: string;
+  secondAppointmentDate: string;
+  thirdAppointmentDate: string;
 };
 
 export type MonthlyFormResponse = {

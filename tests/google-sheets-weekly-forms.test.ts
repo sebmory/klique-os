@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const valuesGetMock = vi.fn();
 
@@ -27,6 +27,10 @@ const WEEKLY_RESPONSES_RANGE = "'Forms_Hebdo_Responses'!A:Z";
 const MONTHLY_RESPONSES_RANGE = "'Forms_Mensuel_Responses'!A:H";
 
 describe("getAthletesFromGoogleSheets weekly and monthly form responses", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     valuesGetMock.mockReset();
     process.env.GOOGLE_APPLICATION_CREDENTIALS = "./credentials/test.json";
@@ -163,5 +167,82 @@ describe("getAthletesFromGoogleSheets weekly and monthly form responses", () => 
     expect(athletes).toHaveLength(1);
     expect(athletes[0]?.lastResponseWeekly).toContain("04/08/2026");
     expect(athletes[0]?.lastResponseMonthly).toContain("04/08/2026");
+  });
+
+  it("maps the real weekly business headers without losing Liban's competition, result, or appointment", async () => {
+    valuesGetMock.mockImplementation(async ({ range }: { range: string }) => {
+      if (range === ATHLETES_RANGE) {
+        return {
+          data: {
+            values: [
+              ["Nom", "Sport", "Club", "Instagram", "Telephone", "Email", "Statut"],
+              ["Liban Maxamed", "Basketball", "Sarine", "", "", "", "Actif"],
+            ],
+          },
+        };
+      }
+      if (range === FORMS_ADHESION_RANGE) {
+        return { data: { values: [["Horodateur", "Email"]] } };
+      }
+      if (range === WEEKLY_RESPONSES_RANGE) {
+        return {
+          data: {
+            values: [
+              [
+                "Horodateur",
+                "Nom et prénom",
+                "As-tu participé cette semaine à une compétition, un match ou un tournoi?",
+                "Si oui, lequel?",
+                "Quel(s) résultat(s) as-tu obtenu(s) ?",
+                "As-tu vécu récemment l'un des événements suivants ?",
+                "Explique-nous cette actualité en quelques mots",
+                "As-tu des photos ou vidéos de cette actualité ?",
+                "Lien vers les résultats, un article ou une publication",
+                "As-tu des rendez-vous importants cette semaine ? Si oui, lesquels ? (match, compétition, ...)",
+                "As-tu besoin que Klique te contacte rapidement cette semaine ? (besoin de conseil, mise en relation, problème, etc.)",
+                "Si oui, pourquoi ?",
+                "Date du premier rendez-vous important de la semaine",
+                "Date du deuxième (éventuel) rendez-vous important de la semaine",
+                "Date du troisième (éventuel) rendez-vous important de la semaine",
+              ],
+              [
+                "15/10/2026 04:35:30",
+                "Liban Maxamed",
+                "Oui",
+                "Coupe suisse",
+                "Win avec un bon apport défensif",
+                "",
+                "",
+                "",
+                "https://example.com/resultats",
+                "Match de championnat vs Sarine",
+                "Non",
+                "",
+                "18/10/2026",
+                "",
+                "",
+              ],
+            ],
+          },
+        };
+      }
+      if (range === MONTHLY_RESPONSES_RANGE) {
+        return { data: { values: [["Horodateur", "Nom et prénom"]] } };
+      }
+      throw new Error(`Unexpected range: ${range}`);
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 17, 14, 0, 0));
+
+    const athletes = await getAthletesFromGoogleSheets({ weeklyResponseDays: 14 });
+
+    expect(athletes[0]?.weeklyFormResponse).toMatchObject({
+      competitionParticipation: "Oui",
+      competition: "Coupe suisse",
+      result: "Win avec un bon apport défensif",
+      appointment: "Match de championnat vs Sarine",
+      mediaLink: "https://example.com/resultats",
+      firstAppointmentDate: "18/10/2026",
+    });
   });
 });

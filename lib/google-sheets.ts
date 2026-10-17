@@ -165,6 +165,7 @@ export type AthleteAdhesionSyncResult = {
 
 type WeeklyResponseValue = {
   timestamp: string;
+  competitionParticipation: string;
   competition: string;
   result: string;
   notableEvent: string;
@@ -175,6 +176,9 @@ type WeeklyResponseValue = {
   quickContact: string;
   quickContactReason: string;
   contactRequested: boolean;
+  firstAppointmentDate: string;
+  secondAppointmentDate: string;
+  thirdAppointmentDate: string;
 };
 
 type MonthlyResponseValue = {
@@ -678,12 +682,20 @@ async function buildWeeklyResponsesMap(
     const timestampColumn = findColumn(headers, ["horodateur", "timestamp", "date"], 0);
     const emailColumn = findColumn(headers, ["email", "adresse e-mail", "adresse mail"], -1);
     const nameColumn = findColumn(headers, ["nom et prénom", "nom et prenom", "name", "nom"], 2);
+    const competitionParticipationColumn = findColumnExact(
+      headers,
+      "As-tu participé cette semaine à une compétition, un match ou un tournoi?",
+    );
     const competitionColumn = findColumn(
       headers,
-      ["quelle compétition", "quelle competition", "compétition cette semaine", "competition cette semaine", "participé à une compétition", "participe a une competition"],
+      ["si oui, lequel?", "si oui, lequel ?", "quelle compétition", "quelle competition", "compétition cette semaine", "competition cette semaine"],
       -1,
     );
-    const resultColumn = findColumn(headers, ["quel résultat", "quel resultat", "résultat obtenu", "resultat obtenu"], -1);
+    const resultColumn = findColumn(
+      headers,
+      ["quel(s) résultat(s) as-tu obtenu(s) ?", "quel(s) resultat(s) as-tu obtenu(s) ?", "quel résultat", "quel resultat", "résultat obtenu", "resultat obtenu"],
+      -1,
+    );
     const notableEventColumn = findColumn(
       headers,
       ["as-tu vécu récemment l’un des événements", "as-tu vécu récemment l'un des événements", "as-tu vécu récemment", "événement ou actualité marquante", "evenement ou actualite marquante", "actualité marquante", "actualite marquante", "événement marquant", "evenement marquant"],
@@ -699,7 +711,11 @@ async function buildWeeklyResponsesMap(
       ["photos ou vidéos", "photos ou videos", "photos et vidéos", "photos et videos", "photos/vidéos", "photos/videos", "médias disponibles", "medias disponibles"],
       -1,
     );
-    const mediaLinkColumn = findColumn(headers, ["lien vers les photos", "lien vers les vidéos", "lien vers les videos", "lien disponible", "lien média", "lien media"], -1);
+    const mediaLinkColumn = findColumn(
+      headers,
+      ["lien vers les résultats, un article ou une publication", "lien vers les resultats, un article ou une publication", "lien vers les photos", "lien vers les vidéos", "lien vers les videos", "lien disponible", "lien média", "lien media"],
+      -1,
+    );
     const importantAppointmentsColumn = findColumn(
       headers,
       [
@@ -718,8 +734,20 @@ async function buildWeeklyResponsesMap(
     );
     const quickContactReasonColumn = findColumn(
       headers,
-      ["raison du contact", "raison de ce contact", "pour quelle raison", "pourquoi souhaites-tu être contacté", "pourquoi souhaites-tu etre contacte"],
+      ["si oui, pourquoi ?", "si oui, pourquoi?", "raison du contact", "raison de ce contact", "pour quelle raison", "pourquoi souhaites-tu être contacté", "pourquoi souhaites-tu etre contacte"],
       -1,
+    );
+    const firstAppointmentDateColumn = findColumnExact(
+      headers,
+      "Date du premier rendez-vous important de la semaine",
+    );
+    const secondAppointmentDateColumn = findColumnExact(
+      headers,
+      "Date du deuxième (éventuel) rendez-vous important de la semaine",
+    );
+    const thirdAppointmentDateColumn = findColumnExact(
+      headers,
+      "Date du troisième (éventuel) rendez-vous important de la semaine",
     );
 
     const weeklyResponses = new Map<string, WeeklyResponseValue>();
@@ -740,6 +768,7 @@ async function buildWeeklyResponsesMap(
 
       const weeklyResponse: WeeklyResponseValue = {
         timestamp,
+        competitionParticipation: readResponse(competitionParticipationColumn),
         competition: readResponse(competitionColumn),
         result: readResponse(resultColumn),
         notableEvent: readResponse(notableEventColumn),
@@ -750,6 +779,9 @@ async function buildWeeklyResponsesMap(
         quickContact,
         quickContactReason: readResponse(quickContactReasonColumn),
         contactRequested: boolValue(quickContact) || normalize(quickContact).startsWith("oui"),
+        firstAppointmentDate: readResponse(firstAppointmentDateColumn),
+        secondAppointmentDate: readResponse(secondAppointmentDateColumn),
+        thirdAppointmentDate: readResponse(thirdAppointmentDateColumn),
       };
 
       for (const key of keys) {
