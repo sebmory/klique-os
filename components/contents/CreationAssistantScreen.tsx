@@ -31,6 +31,7 @@ import type {
   ContextConnectorReport,
   ContextDateRange,
   ContextItem,
+  ContextItemCategory,
 } from "@/types/context-intelligence";
 import { EntitySelector } from "@/components/ui/EntitySelector";
 import { getMediaSubscriptionPlan } from "@/lib/media-subscriptions/plans";
@@ -270,15 +271,36 @@ const getConnectorStatusLabel = (status: ContextConnectorReport["status"]): stri
   return "Erreur";
 };
 
-const getConnectorStatusMessage = (report: ContextConnectorReport): string => {
+export const getConnectorStatusMessage = (report: ContextConnectorReport): string => {
   if (report.message) return report.message;
+  if (report.status === "completed" && report.itemCount > 0) {
+    return `${report.itemCount} element${report.itemCount === 1 ? "" : "s"} recupere${report.itemCount === 1 ? "" : "s"}.`;
+  }
   if (report.connectorId === "manual") return "Aucun contexte manuel fourni.";
-  if (report.connectorId === "crm") return "Sujet CRM introuvable.";
+  if (report.connectorId === "crm" && report.status === "empty") return "Aucune donnee editoriale disponible pour ce sujet CRM.";
+  if (report.connectorId === "crm") return "Le sujet CRM n a pas pu etre charge.";
   if (report.connectorId === "productions") return "Aucune production liee.";
   if (report.connectorId === "external_news" && report.status === "empty") return "Aucune actualite recente verifiable n a ete trouvee pour cette periode.";
   if (report.connectorId === "external_news" && report.status === "unavailable") return "La recherche externe n est pas configuree ou n a pas pu demarrer.";
   if (report.connectorId === "external_news" && report.status === "error") return "L actualite externe a rencontre une erreur.";
   return "Aucune information disponible.";
+};
+
+const contextCategoryLabels: Record<ContextItemCategory, string> = {
+  profile: "Profil",
+  club_or_organization: "Club ou organisation",
+  recent_news: "Actualite recente",
+  performance: "Performance",
+  result: "Resultat",
+  schedule: "Calendrier",
+  transfer_or_contract: "Transfert ou contrat",
+  injury_or_return: "Sante ou retour",
+  selection: "Selection",
+  production: "Production",
+  previous_content: "Contenu precedent",
+  user_note: "Note utilisateur",
+  event: "Evenement",
+  other: "Autre",
 };
 
 const DRAFT_STORAGE_KEY = "klique.contents.creation-assistant.draft.v1";
@@ -2923,7 +2945,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               return (
                 <article key={group.category} className="creation-context-category">
                   <div className="creation-context-category-head">
-                    <h4>{group.category}</h4>
+                    <h4>{contextCategoryLabels[group.category as ContextItemCategory] ?? group.category}</h4>
                     <p>{selectedInCategory}/{group.items.length} selectionne(s)</p>
                     <div className="creation-toggle-row">
                       <button type="button" className="contents-ghost-button" onClick={() => toggleContextCategory(group.category, true)}>
