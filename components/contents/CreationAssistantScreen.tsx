@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -23,7 +23,7 @@ import {
   Handshake,
   Shapes,
 } from "lucide-react";
-import type { Athlete, AthletesResponse } from "@/types/athlete";
+import type { Athlete, AthletesResponse, MediaAthleteDirectoryEntry } from "@/types/athlete";
 import type { GenerateContentApiResponse, PublicationAngleSuggestion } from "@/types/content-generation";
 import type {
   ContextCollectionResponse,
@@ -46,6 +46,7 @@ import {
   type CreationSubjectType,
 } from "@/services/content-creation-assistant";
 import { buildResultUrl, saveInterviewResultSession } from "@/services/content-result-sessions";
+import { navigateToContentResult } from "@/services/content-result-navigation";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
@@ -69,6 +70,8 @@ type StepValidationResult = {
 type ContextCollectState = {
   loading: boolean;
   errorMessage: string | null;
+  collectionId?: string;
+  expiresAt?: string;
   items: ContextItem[];
   reports: ContextConnectorReport[];
   researchedAt?: string;
@@ -298,7 +301,6 @@ type PublicationAngleState = {
 };
 
 export function CreationAssistantScreen({ context }: CreationAssistantScreenProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const summaryStepRequested = searchParams.get("step") === "summary";
 
@@ -321,7 +323,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     [draft.objective.objective, hasPreselectedObjective, draft.presetId]
   );
   const [stepIndex, setStepIndex] = useState(summaryStepRequested ? initialStepCount - 1 : 0);
-  const [people, setPeople] = useState<Athlete[]>([]);
+  const [people, setPeople] = useState<PersonSelectorItem[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [generateState, setGenerateState] = useState<CreationGenerateState>({ loading: false, errorMessage: null });
@@ -339,6 +341,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     suggestions: [],
   });
   const generationAbortRef = useRef<AbortController | null>(null);
+  const generationInFlightRef = useRef(false);
+  const resultNavigationStartedRef = useRef(false);
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
@@ -477,22 +481,45 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     setPeopleLoading(true);
     setPeopleError(null);
     try {
-      const response = await fetch("/api/athletes", { cache: "no-store" });
-      const payload = (await response.json()) as AthletesResponse | { error?: string };
+      let response = await fetch(mediaCreditRole === "media" ? "/api/media/athletes" : "/api/athletes", { cache: "no-store" });
+      if (response.status === 403) {
+        response = await fetch("/api/media/athletes", { cache: "no-store" });
+      }
+      const payload = (await response.json()) as
+        | AthletesResponse
+        | { athletes?: MediaAthleteDirectoryEntry[]; error?: string };
 
       if (!response.ok) {
         throw new Error("error" in payload ? payload.error || "Impossible de charger les personnes" : "Impossible de charger les personnes");
       }
 
-      if (!("athletes" in payload)) {
+      if (!Array.isArray(payload.athletes)) {
         throw new Error("Impossible de charger les personnes");
       }
 
-      if (payload.source !== "google-sheets") {
-        throw new Error("Impossible de charger les personnes");
-      }
-
-      setPeople(payload.athletes);
+      setPeople(payload.athletes.map((athlete) => {
+        if ("key" in athlete) {
+          const fullAthlete = athlete as Athlete;
+          return {
+            id: fullAthlete.key,
+            displayName: normalize(fullAthlete.name) || "Sans nom",
+            sport: normalize(fullAthlete.sport),
+            organization: normalize(fullAthlete.club),
+            status: normalize(fullAthlete.status),
+            initials: normalize(fullAthlete.initials) || getInitials(fullAthlete.name),
+            hasPhoto: Boolean(fullAthlete.competitionPhoto),
+          };
+        }
+        return {
+          id: athlete.athleteId,
+          displayName: normalize(athlete.name) || "Sans nom",
+          sport: normalize(athlete.sport),
+          organization: normalize(athlete.club),
+          status: "Public",
+          initials: getInitials(athlete.name),
+          hasPhoto: Boolean(athlete.portraitUrl),
+        };
+      }));
     } catch {
       setPeople([]);
       setPeopleError("Impossible de charger les personnes");
@@ -502,17 +529,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const personItems = useMemo<PersonSelectorItem[]>(() => {
-    return people
-      .map((athlete) => ({
-        id: athlete.key,
-        displayName: normalize(athlete.name) || "Sans nom",
-        sport: normalize(athlete.sport),
-        organization: normalize(athlete.club),
-        status: normalize(athlete.status),
-        initials: normalize(athlete.initials) || getInitials(athlete.name),
-        hasPhoto: Boolean(athlete.competitionPhoto),
-      }))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" }));
+    return [...people].sort((a, b) => a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" }));
   }, [people]);
 
   const validateStep = useCallback((stepId: StepId): StepValidationResult => {
@@ -736,11 +753,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     return ContentCreationAssistantService.preparePayload({
       context,
       draft,
+      contextCollectionId: contextState.collectionId,
       selectedContextItems: contextState.items.filter((item) => item.isSelected),
       contextResearchedAt: contextState.researchedAt,
       contextDateRange: contextState.dateRange,
     });
-  }, [context, contextState.dateRange, contextState.items, contextState.researchedAt, draft]);
+  }, [context, contextState.collectionId, contextState.dateRange, contextState.items, contextState.researchedAt, draft]);
 
   const selectedObjectiveTitle = useMemo(() => {
     const target = template.objectives.find((objective) => objective.id === draft.objective.objective);
@@ -887,8 +905,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const runInterviewGeneration = async () => {
-    if (!preparedPayload || generateState.loading) return;
+    if (!preparedPayload || generationInFlightRef.current || resultNavigationStartedRef.current) return;
 
+    generationInFlightRef.current = true;
     const controller = new AbortController();
     generationAbortRef.current = controller;
     setGenerateState({ loading: true, errorMessage: null });
@@ -938,9 +957,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           sessionId: sessionRecord.sessionId,
         })
       );
-      setGenerateState({ loading: false, errorMessage: null });
-      router.push(buildResultUrl(sessionRecord.sessionId, `document-${sessionRecord.createdAt}`));
+      resultNavigationStartedRef.current = true;
+      navigateToContentResult(buildResultUrl(sessionRecord.sessionId, `document-${sessionRecord.createdAt}`));
     } catch (error) {
+      resultNavigationStartedRef.current = false;
+      generationInFlightRef.current = false;
       if (error instanceof DOMException && error.name === "AbortError") {
         setGenerateState({ loading: false, errorMessage: "Generation annulee." });
       } else {
@@ -951,7 +972,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
     } finally {
       generationAbortRef.current = null;
-      void loadCreditBalance();
+      if (!resultNavigationStartedRef.current) {
+        generationInFlightRef.current = false;
+        void loadCreditBalance();
+      }
     }
   };
 
@@ -978,6 +1002,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       ...previous,
       loading: true,
       errorMessage: null,
+      collectionId: undefined,
+      expiresAt: undefined,
     }));
 
     try {
@@ -1023,6 +1049,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         errorMessage: null,
         items: payload.items,
         reports: payload.reports,
+        collectionId: payload.collectionId,
+        expiresAt: payload.expiresAt,
         researchedAt: payload.summary.researchedAt,
         dateRange: payload.summary.dateRange,
         hasCollected: true,
@@ -2943,7 +2971,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-              {generateState.loading ? "Generation en cours" : "Generer 3 propositions"}
+              {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 propositions"}
             </button>
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
@@ -2997,7 +3025,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-              {generateState.loading ? "Generation en cours" : "Generer 3 concepts Reel"}
+              {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 concepts Reel"}
             </button>
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
@@ -3050,7 +3078,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
               {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-              {generateState.loading ? "Generation en cours" : "Generer 3 sequences Story"}
+              {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 sequences Story"}
             </button>
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
@@ -3125,7 +3153,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
           >
             {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-            {generateState.loading ? "Creation en cours" : params?.finalActionLabel ?? "Creer le contenu"}
+            {generateState.loading ? "Creation en cours" : generateState.errorMessage ? "Reessayer" : params?.finalActionLabel ?? "Creer le contenu"}
           </button>
           {generateState.errorMessage ? (
             <p className="creation-error" role="alert">{generateState.errorMessage}</p>

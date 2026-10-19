@@ -209,18 +209,18 @@ export const saveInterviewResultSession = async (record: StoredInterviewResult):
       }),
     });
 
-    if (!response.ok) {
-      return storedRecord;
-    }
+    if (!response.ok) throw new Error("La session de resultat n a pas ete enregistree.");
 
     const payload = await parseJsonResponse(response);
     if (payload.sessionId && payload.sessionId !== sessionId) {
-      return storedRecord;
+      throw new Error("La session de resultat enregistree est incoherente.");
     }
 
     return storedRecord;
-  } catch {
-    return storedRecord;
+  } catch (error) {
+    throw error instanceof Error
+      ? error
+      : new Error("La session de resultat n a pas ete enregistree.");
   }
 };
 

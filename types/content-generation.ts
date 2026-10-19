@@ -240,6 +240,9 @@ type ContentGenerationRequestBase = {
   context: ContentContext;
   selectedContextItems: ContextItem[];
   contextSelection: {
+    collectionId?: string;
+    selectedItemIds?: string[];
+    manualEdits?: Array<{ itemId: string; text: string }>;
     researchedAt?: string;
     dateRange?: { preset: "last_7_days" | "last_30_days" | "last_90_days" | "last_12_months" | "custom"; from: string; to: string };
   };

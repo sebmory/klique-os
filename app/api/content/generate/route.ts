@@ -17,6 +17,8 @@ import { buildContentGenerationRequest } from "@/services/content-intelligence/c
 import { runContentVariationEngine } from "@/services/content-intelligence/variation-engine";
 import { validateVariationRequest } from "@/services/content-variants/request-validation";
 import type { PublicationGenerationRequest, PublicationGenerationResult } from "@/types/content-generation";
+import { resolveEditorialContextSelection } from "@/services/context-intelligence/collection-service";
+import { secureGenerationContext } from "@/services/content-intelligence/article-request-security";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -135,6 +137,7 @@ export async function POST(request: Request) {
       workspaceId: accessContext.workspaceId,
       clerkUserId: accessContext.clerkUserId,
       role: accessContext.role,
+      mediaId: accessContext.mediaId,
       requestGroupId: randomUUID(),
     };
 
@@ -183,7 +186,11 @@ export async function POST(request: Request) {
 
     if (body?.operation === "publication_angles") {
       const payload = validateCreationPayload(body?.payload);
-      const { request: generationRequest } = await buildContentGenerationRequest(payload);
+      payload.parameters.contextIntelligence.selectedContextItems = await resolveEditorialContextSelection(
+        payload.parameters.contextIntelligence,
+        accessContext,
+      );
+      const { request: generationRequest } = await buildContentGenerationRequest(payload, accessContext);
       if (generationRequest.requestType !== "publication") {
         throw new ContentGenerationError("INVALID_REQUEST", "Operation reservee aux publications");
       }
@@ -210,10 +217,27 @@ export async function POST(request: Request) {
       if (!proposalId) {
         throw new ContentGenerationError("INVALID_REQUEST", "Proposition cible manquante");
       }
+      const trustedItems = await resolveEditorialContextSelection(
+        {
+          collectionId: publicationRequest.contextSelection?.collectionId,
+          selectedItemIds: publicationRequest.contextSelection?.selectedItemIds ?? [],
+          manualEdits: publicationRequest.contextSelection?.manualEdits ?? [],
+        },
+        accessContext,
+      );
+      const securedPublicationRequest: PublicationGenerationRequest = {
+        ...(publicationRequest as PublicationGenerationRequest),
+        context: await secureGenerationContext(
+          publicationRequest as PublicationGenerationRequest,
+          trustedItems,
+          accessContext,
+        ),
+        selectedContextItems: trustedItems,
+      };
 
       const regenerated = await runPublicationRegenerateOneEngine(
         {
-          request: publicationRequest as PublicationGenerationRequest,
+          request: securedPublicationRequest,
           result: publicationResult as PublicationGenerationResult,
           proposalId,
         },
@@ -239,6 +263,10 @@ export async function POST(request: Request) {
     }
 
     const payload = validateCreationPayload(body?.payload);
+    payload.parameters.contextIntelligence.selectedContextItems = await resolveEditorialContextSelection(
+      payload.parameters.contextIntelligence,
+      accessContext,
+    );
 
     const output = await runContentIntelligenceEngine(payload, usageContext);
 

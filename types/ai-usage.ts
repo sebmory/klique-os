@@ -34,7 +34,8 @@ export type AiUsageEventRecord = AiUsageEventInput & {
 export type AiUsageGenerationContext = {
   workspaceId: string;
   clerkUserId: string;
-  role: string;
+  role: "admin" | "media";
+  mediaId?: string | null;
   requestGroupId: string;
 };
 

@@ -4,6 +4,10 @@ import type { ContextCollectionResponse } from "@/types/context-intelligence";
 import { collectContextIntelligence, toContextCollectionErrorResponse } from "@/services/context-intelligence/collector";
 import { validateContextCollectionRequest } from "@/services/context-intelligence/request-validation";
 import { contentAccessErrorResponse, requireContentAccess } from "@/lib/content-storage/access";
+import {
+  createEditorialContextCollection,
+  projectEditorialCollectionForAccess,
+} from "@/services/context-intelligence/collection-service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,11 +17,20 @@ export async function POST(request: Request) {
   try {
     const accessContext = await requireContentAccess(request);
     const body = await request.json();
-    const payload = validateContextCollectionRequest(body);
+    const validatedPayload = validateContextCollectionRequest(body);
+    const payload = {
+      ...validatedPayload,
+      workspaceId: accessContext.workspaceId,
+      subject: {
+        ...validatedPayload.subject,
+        workspaceId: accessContext.workspaceId,
+      },
+    };
     const usageContext = {
       workspaceId: accessContext.workspaceId,
       clerkUserId: accessContext.clerkUserId,
       role: accessContext.role,
+      mediaId: accessContext.mediaId,
       requestGroupId: randomUUID(),
     };
     const response = await collectContextIntelligence(payload, usageContext);
@@ -33,7 +46,13 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json(response satisfies ContextCollectionResponse);
+    const securedResponse = projectEditorialCollectionForAccess(response, accessContext);
+    const collection = await createEditorialContextCollection(securedResponse, accessContext);
+    return NextResponse.json({
+      ...securedResponse,
+      collectionId: collection.id,
+      expiresAt: collection.expiresAt,
+    } satisfies ContextCollectionResponse);
   } catch (error) {
     const accessResponse = contentAccessErrorResponse(error);
     if (accessResponse) return accessResponse;

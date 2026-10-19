@@ -107,7 +107,10 @@ export async function runContentIntelligenceEngine(payload: CreationPreparationP
   result: AnyContentGenerationResult;
 }> {
   try {
-    const { request, missingInformation } = await buildContentGenerationRequest(payload);
+    if (!usageContext) {
+      throw new ContentGenerationError("INVALID_REQUEST", "Contexte d acces serveur obligatoire");
+    }
+    const { request, missingInformation } = await buildContentGenerationRequest(payload, usageContext);
     const provider = resolveProvider();
 
     let lastError: unknown = null;

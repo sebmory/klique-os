@@ -170,6 +170,9 @@ export type CreationPreparationPayload = {
       dateRange: ContextDateRange;
       sourcePreference: ContextSourcePreference;
       searchDepth: ContextSearchDepth;
+      collectionId?: string;
+      selectedItemIds: string[];
+      manualEdits: Array<{ itemId: string; text: string }>;
       selectedContextItems: ContextItem[];
       researchedAt?: string;
     };
@@ -456,6 +459,7 @@ export const ContentCreationAssistantService = {
   preparePayload(args: {
     context: ContentCreationContext;
     draft: CreationAssistantDraft;
+    contextCollectionId?: string;
     selectedContextItems?: ContextItem[];
     contextResearchedAt?: string;
     contextDateRange?: ContextDateRange;
@@ -579,7 +583,12 @@ export const ContentCreationAssistantService = {
             ),
           sourcePreference: args.draft.parameters.contextSourcePreference,
           searchDepth: args.draft.parameters.contextSearchDepth,
-          selectedContextItems: args.selectedContextItems ?? [],
+          collectionId: args.contextCollectionId,
+          selectedItemIds: (args.selectedContextItems ?? []).map((item) => item.id),
+          manualEdits: (args.selectedContextItems ?? [])
+            .filter((item) => normalize(item.editedSummary ?? "") && normalize(item.editedSummary ?? "") !== normalize(item.originalSummary ?? item.summary))
+            .map((item) => ({ itemId: item.id, text: normalize(item.editedSummary ?? "") })),
+          selectedContextItems: [],
           researchedAt: args.contextResearchedAt,
         },
         publication: isPublication

@@ -157,6 +157,7 @@ export const isMediaAllowedApi = (pathname: string, method: string): boolean => 
   if (pathname === "/api/media/athletes") return method === "GET";
   if (/^\/api\/media\/athletes\/[^/]+$/.test(pathname)) return method === "GET";
   if (pathname === "/api/content/generate") return method === "POST";
+  if (pathname === "/api/contents/generate/interview") return method === "POST";
   if (pathname === "/api/context/collect") return method === "POST";
   if (pathname === "/api/contents/generate/article") return method === "POST";
   if (pathname === "/api/contents/storage/drafts") return method === "GET" || method === "POST";

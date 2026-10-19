@@ -12,8 +12,7 @@ import type {
   ReelFormatId,
   ReelPlatformId,
 } from "@/types/content-generation";
-import type { ContextConnectorId, ContextDateRangePreset, ContextItem, ContextSearchDepth, ContextSourcePreference } from "@/types/context-intelligence";
-import { isSafeHttpUrl } from "@/services/context-intelligence/utils";
+import type { ContextConnectorId, ContextDateRangePreset, ContextSearchDepth, ContextSourcePreference } from "@/types/context-intelligence";
 
 const MAX_SUBJECT_NAME = 140;
 const MAX_FREE_TEXT = 1600;
@@ -86,26 +85,18 @@ const sanitizeReelPlatform = (value: unknown): ReelPlatformId => {
   return allowed.includes(normalized as ReelPlatformId) ? (normalized as ReelPlatformId) : "instagram";
 };
 
-const sanitizeContextItems = (items: unknown): ContextItem[] => {
-  if (!Array.isArray(items)) return [];
+const sanitizeSelectedItemIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalize).filter(Boolean).slice(0, 40);
+};
 
-  return items
-    .filter((item) => item && typeof item === "object")
-    .map((item) => item as ContextItem)
-    .map((item) => ({
-      ...item,
-      id: normalize(item.id),
-      title: normalize(item.title),
-      summary: normalize(item.summary),
-      factualStatement: normalize(item.factualStatement),
-      sourceName: normalize(item.sourceName),
-      sourceUrl: normalize(item.sourceUrl) || undefined,
-      publishedAt: normalize(item.publishedAt) || undefined,
-      editedSummary: normalize(item.editedSummary) || undefined,
-      originalSummary: normalize(item.originalSummary) || undefined,
-    }))
-    .filter((item) => item.id && item.title && item.summary)
-    .filter((item) => !item.sourceUrl || isSafeHttpUrl(item.sourceUrl));
+const sanitizeManualEdits = (value: unknown): Array<{ itemId: string; text: string }> => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({ itemId: normalize(item.itemId), text: normalize(item.text) }))
+    .filter((item) => item.itemId && item.text)
+    .slice(0, 40);
 };
 
 export const validateCreationPayload = (value: unknown): CreationPreparationPayload => {
@@ -167,7 +158,9 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
 
   const requiredTopics = sanitizeTopics(payload.parameters.requiredTopics ?? []);
   const avoidedTopics = sanitizeTopics(payload.parameters.avoidedTopics ?? []);
-  const selectedContextItems = sanitizeContextItems(payload.parameters.contextIntelligence?.selectedContextItems);
+  const collectionId = normalize(payload.parameters.contextIntelligence?.collectionId);
+  const selectedItemIds = sanitizeSelectedItemIds(payload.parameters.contextIntelligence?.selectedItemIds);
+  const manualEdits = sanitizeManualEdits(payload.parameters.contextIntelligence?.manualEdits);
 
   const publication = payload.parameters.publication
     ? {
@@ -248,7 +241,10 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
         },
         sourcePreference: (normalize(payload.parameters.contextIntelligence?.sourcePreference) || "official_and_reliable") as ContextSourcePreference,
         searchDepth: (normalize(payload.parameters.contextIntelligence?.searchDepth) || "standard") as ContextSearchDepth,
-        selectedContextItems,
+        collectionId: collectionId || undefined,
+        selectedItemIds,
+        manualEdits,
+        selectedContextItems: [],
         researchedAt: normalize(payload.parameters.contextIntelligence?.researchedAt) || undefined,
       },
       publication,

@@ -24,6 +24,12 @@ Quand les variables de `.env.local` sont renseignées, l’API lit automatiqueme
 
 Copier `.env.local.example` vers `.env.local`, puis compléter :
 
-- GOOGLE_SHEETS_SPREADSHEET_ID
+- GOOGLE_SHEET_ID
 - GOOGLE_SERVICE_ACCOUNT_EMAIL
 - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+
+## Limite d isolation editoriale
+
+Le moteur editorial utilise actuellement un unique `GOOGLE_SHEET_ID` global. Les lignes de cette feuille ne portent pas de cle de workspace permettant une isolation fiable. En consequence, les connecteurs editoriaux Athlete et Productions refusent Google Sheets lorsque le workspace authentifie est different de `KLIQUE_DEFAULT_WORKSPACE_ID`.
+
+Le `workspaceId` envoye par le navigateur n est jamais utilise pour autoriser cette lecture. Une erreur Google Sheets rend le connecteur editorial indisponible et ne declenche aucun jeu de donnees de demonstration.

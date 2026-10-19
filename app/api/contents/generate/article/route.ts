@@ -20,6 +20,7 @@ import type {
   ArticleLengthId,
   ArticleStructureSuggestion,
 } from "@/types/content-generation";
+import { secureArticleRequest } from "@/services/content-intelligence/article-request-security";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -111,7 +112,13 @@ export async function POST(request: Request) {
       throw new ContentGenerationError("INVALID_REQUEST", "requestId Article obligatoire et invalide");
     }
 
-    const articleRequest = body.request as ArticleGenerationRequest | ArticleAngleSuggestionsRequest;
+    if (!body.request || typeof body.request !== "object") {
+      throw new ContentGenerationError("INVALID_REQUEST", "Requete Article obligatoire");
+    }
+    const articleRequest = await secureArticleRequest(
+      body.request as ArticleGenerationRequest | ArticleAngleSuggestionsRequest,
+      accessContext,
+    );
     if (body.action === "angles") {
       validateArticleAngleSuggestionsRequest(articleRequest as ArticleAngleSuggestionsRequest);
     } else {
@@ -129,6 +136,7 @@ export async function POST(request: Request) {
       workspaceId: accessContext.workspaceId,
       clerkUserId: accessContext.clerkUserId,
       role: accessContext.role,
+      mediaId: accessContext.mediaId,
       requestGroupId: randomUUID(),
     };
     const creditOperation = `article_${body.action}`;

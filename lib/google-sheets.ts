@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { google } from "googleapis";
 import path from "path";
 import type { Athlete, AthleteUpdate, PublicAthleteDirectoryEntry, PublicAthleteProfile } from "@/types/athlete";
+import type { EditorialAthleteProjection } from "@/types/editorial-athlete";
 import { isAthleteVisibleToExternalRoles, isPublicDirectoryAthleteStatus, normalizePublicSportLabel } from "@/lib/public-athletes";
 import type { NewShooting, Shooting, ShootingUpdate } from "@/types/shooting";
 import type { NewMediaLot, MediaLot } from "@/types/media";
@@ -1018,6 +1019,83 @@ export async function getPublicAthleteProfileFromGoogleSheets(
     journey: read(row, publicJourneyColumn),
     goals: read(row, publicGoalsColumn),
     socialLinks,
+  };
+}
+
+const splitEditorialPublicValues = (value: string): string[] =>
+  value
+    .split(/\r?\n|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+export async function getEditorialAthleteProjectionFromGoogleSheets(
+  requestedAthleteId: string,
+  role: "admin" | "media",
+): Promise<EditorialAthleteProjection | null> {
+  const athleteId = requestedAthleteId.trim();
+  if (!athleteId) return null;
+  if (role === "media" && !isAthleteVisibleToExternalRoles(athleteId)) return null;
+
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: getSpreadsheetId(),
+    range: athleteSheetRange,
+  });
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return null;
+
+  const headers = rows[0].map(String);
+  const normalizedHeaders = headers.map(normalize);
+  const column = athleteColumns(headers);
+  const publicColumn = (candidates: string[]): number => {
+    const normalizedCandidates = candidates.map(normalize);
+    return normalizedHeaders.findIndex((header) => normalizedCandidates.includes(header));
+  };
+  const publicNameColumn = publicColumn(["nom public", "nom affiche", "nom affiché"]);
+  const publicPositionColumn = publicColumn(["poste public", "position publique", "discipline publique"]);
+  const publicBiographyColumn = publicColumn(["presentation publique", "présentation publique", "bio publique"]);
+  const publicPalmaresColumn = publicColumn(["palmares public", "palmarès public"]);
+  const publicObjectivesColumn = publicColumn([
+    "objectifs communication autorises",
+    "objectifs communication autorisés",
+    "objectifs publics",
+  ]);
+  const publishedFactsColumn = publicColumn([
+    "faits medias valides",
+    "faits médias validés",
+    "faits publics",
+  ]);
+  const read = (row: unknown[], index: number): string =>
+    index >= 0 ? String(row[index] ?? "").trim() : "";
+
+  const row = rows.slice(1).find((candidate) => {
+    const internalName = read(candidate, column.name);
+    const publicName = read(candidate, publicNameColumn);
+    const resolvedId = resolveAthleteIdentifier(candidate[column.athleteId], publicName || internalName);
+    if (resolvedId !== athleteId) return false;
+    return role === "admin" || isPublicDirectoryAthleteStatus(candidate[column.status]);
+  });
+  if (!row) return null;
+
+  const internalName = read(row, column.name);
+  const publicName = read(row, publicNameColumn);
+  const displayName = publicName || internalName;
+  if (!displayName) return null;
+
+  const biography = read(row, publicBiographyColumn);
+  const palmares = read(row, publicPalmaresColumn);
+  const position = read(row, publicPositionColumn);
+
+  return {
+    id: athleteId,
+    displayName,
+    sport: read(row, column.sport) || undefined,
+    club: read(row, column.club) || undefined,
+    position: position || undefined,
+    biography: biography || undefined,
+    palmares: palmares || undefined,
+    communicationObjectives: splitEditorialPublicValues(read(row, publicObjectivesColumn)),
+    publishedFacts: splitEditorialPublicValues(read(row, publishedFactsColumn)),
   };
 }
 

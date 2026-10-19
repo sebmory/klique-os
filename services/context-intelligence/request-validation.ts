@@ -80,7 +80,7 @@ export const validateContextCollectionRequest = (value: unknown): ContextCollect
   const language = languageRaw === "fr" ? "fr" : "fr-CH";
 
   return {
-    workspaceId: normalize(payload.workspaceId) || undefined,
+    workspaceId: "",
     subject: {
       id: normalize(subject.id) || normalize(subject.subjectId) || undefined,
       source: normalize(subject.source) === "crm" ? "crm" : "temporary",
@@ -90,7 +90,7 @@ export const validateContextCollectionRequest = (value: unknown): ContextCollect
       clubOrOrganization: normalize(subject.clubOrOrganization) || normalize(subject.organization) || undefined,
       disciplineOrPosition: normalize(subject.disciplineOrPosition) || undefined,
       photoUrl: normalize(subject.photoUrl) || undefined,
-      workspaceId: normalize(subject.workspaceId) || normalize(payload.workspaceId) || undefined,
+      workspaceId: undefined,
       description: normalize(subject.description) || undefined,
     },
     selectedConnectorIds,

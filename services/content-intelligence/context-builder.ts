@@ -1,5 +1,4 @@
-import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
-import type { Athlete } from "@/types/athlete";
+import type { ContentAccessContext } from "@/lib/content-storage/access";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import { ContentGenerationError } from "@/services/content-generation/errors";
 import { activeTemplateByFamily } from "@/services/content-intelligence/templates";
@@ -12,6 +11,8 @@ import type {
   StoryGenerationRequest,
 } from "@/types/content-generation";
 import type { ContextItem } from "@/types/context-intelligence";
+import { readEditorialAthleteProjection } from "@/services/context-intelligence/editorial-athlete-projection";
+import type { EditorialAthleteProjection } from "@/types/editorial-athlete";
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -26,22 +27,24 @@ const resolveTemplateKeyForObjective = (objectiveId: CreationPreparationPayload[
   return activeTemplateByFamily.interview;
 };
 
-const findAthleteByKey = async (subjectId: string): Promise<Athlete | null> => {
-  const athletes = await getAthletesFromGoogleSheets();
-  return athletes.find((athlete) => athlete.key === subjectId) ?? null;
-};
-
-const buildKnownFacts = (athlete: Athlete): string[] => {
+const buildKnownFacts = (athlete: EditorialAthleteProjection): string[] => {
   return compact([
     athlete.sport ? `Sport: ${athlete.sport}` : undefined,
     athlete.club ? `Organisation: ${athlete.club}` : undefined,
     athlete.position ? `Discipline ou poste: ${athlete.position}` : undefined,
     athlete.palmares ? `Palmares: ${athlete.palmares}` : undefined,
-    athlete.objective ? `Objectif actuel: ${athlete.objective}` : undefined,
-    athlete.longTerm ? `Objectif long terme: ${athlete.longTerm}` : undefined,
-    athlete.desiredAreas ? `Domaines souhaites: ${athlete.desiredAreas}` : undefined,
+    ...athlete.communicationObjectives.map((objective) => `Objectif autorise a la communication: ${objective}`),
+    ...athlete.publishedFacts.map((fact) => `Fait publie ou valide pour les medias: ${fact}`),
   ]);
 };
+
+const buildContextSelection = (payload: CreationPreparationPayload) => ({
+  collectionId: payload.parameters.contextIntelligence.collectionId,
+  selectedItemIds: payload.parameters.contextIntelligence.selectedItemIds,
+  manualEdits: payload.parameters.contextIntelligence.manualEdits,
+  researchedAt: payload.parameters.contextIntelligence.researchedAt,
+  dateRange: payload.parameters.contextIntelligence.dateRange,
+});
 
 const formatContextItem = (item: ContextItem): string => {
   const base = normalize(item.editedSummary) || normalize(item.summary) || normalize(item.factualStatement);
@@ -57,6 +60,7 @@ const buildContextBuckets = (items: ContextItem[]) => {
 
   const internalFacts = selected
     .filter((item) => item.sourceType === "internal" && item.statementType === "fact")
+    .filter((item) => item.verificationStatus === "verified" || item.verificationStatus === "reported")
     .map((item) => formatContextItem(item));
 
   const externalVerifiedFacts = selected
@@ -69,7 +73,7 @@ const buildContextBuckets = (items: ContextItem[]) => {
     .map((item) => formatContextItem(item));
 
   const editorialLeads = selected
-    .filter((item) => item.statementType === "editorial_lead")
+    .filter((item) => item.statementType === "editorial_lead" || item.verificationStatus === "unverified")
     .map((item) => formatContextItem(item));
 
   return {
@@ -82,7 +86,10 @@ const buildContextBuckets = (items: ContextItem[]) => {
   };
 };
 
-const buildContentContext = async (payload: CreationPreparationPayload): Promise<{ context: ContentContext; missingInformation: string[] }> => {
+const buildContentContext = async (
+  payload: CreationPreparationPayload,
+  access: Pick<ContentAccessContext, "workspaceId" | "role">,
+): Promise<{ context: ContentContext; missingInformation: string[] }> => {
   const missingInformation: string[] = [];
   const interviewType = payload.objective.id === "interview" ? payload.objective.subtypeId : undefined;
   const templateKey = resolveTemplateKeyForObjective(payload.objective.id);
@@ -94,24 +101,24 @@ const buildContentContext = async (payload: CreationPreparationPayload): Promise
       throw new ContentGenerationError("MISSING_SUBJECT", "Sujet CRM introuvable");
     }
 
-    const athlete = await findAthleteByKey(payload.subject.id);
+    const athlete = await readEditorialAthleteProjection(payload.subject.id, access);
     if (!athlete) {
       throw new ContentGenerationError("MISSING_SUBJECT", "Sujet CRM introuvable");
     }
 
     if (!normalize(athlete.position)) missingInformation.push("Discipline ou poste non renseigne");
-    if (!normalize(athlete.notes)) missingInformation.push("Biographie limitee dans la fiche CRM");
+    if (!normalize(athlete.biography)) missingInformation.push("Biographie publique non renseignee");
 
     return {
       context: {
-        subjectId: athlete.key,
+        subjectId: athlete.id,
         source: "crm",
         subjectType: payload.subject.type,
-        displayName: normalize(athlete.name) || payload.subject.displayName,
+        displayName: normalize(athlete.displayName),
         sport: normalize(athlete.sport) || undefined,
         disciplineOrPosition: normalize(athlete.position) || undefined,
         clubOrOrganization: normalize(athlete.club) || undefined,
-        biography: normalize(athlete.notes) || undefined,
+        biography: normalize(athlete.biography) || undefined,
         knownFacts: buildKnownFacts(athlete),
         manualContext: normalize(payload.parameters.additionalContext) || undefined,
         objective: payload.objective.id,
@@ -134,6 +141,7 @@ const buildContentContext = async (payload: CreationPreparationPayload): Promise
       },
       missingInformation,
     };
+
   }
 
   if (!normalize(payload.subject.sport)) missingInformation.push("Sport ou secteur non renseigne");
@@ -175,8 +183,11 @@ const buildContentContext = async (payload: CreationPreparationPayload): Promise
   };
 };
 
-export const buildContentGenerationRequest = async (payload: CreationPreparationPayload): Promise<{ request: AnyContentGenerationRequest; missingInformation: string[] }> => {
-  const { context, missingInformation } = await buildContentContext(payload);
+export const buildContentGenerationRequest = async (
+  payload: CreationPreparationPayload,
+  access: Pick<ContentAccessContext, "workspaceId" | "role">,
+): Promise<{ request: AnyContentGenerationRequest; missingInformation: string[] }> => {
+  const { context, missingInformation } = await buildContentContext(payload, access);
 
   if (payload.objective.id === "publication") {
     const publication = payload.parameters.publication;
@@ -214,10 +225,7 @@ export const buildContentGenerationRequest = async (payload: CreationPreparation
         additionalContext: payload.parameters.additionalContext,
       },
       selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
-      contextSelection: {
-        researchedAt: payload.parameters.contextIntelligence.researchedAt,
-        dateRange: payload.parameters.contextIntelligence.dateRange,
-      },
+      contextSelection: buildContextSelection(payload),
       rulesVersion: "editorial-rules-v1",
       externalContext: null,
     };
@@ -258,10 +266,7 @@ export const buildContentGenerationRequest = async (payload: CreationPreparation
         additionalContext: payload.parameters.additionalContext,
       },
       selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
-      contextSelection: {
-        researchedAt: payload.parameters.contextIntelligence.researchedAt,
-        dateRange: payload.parameters.contextIntelligence.dateRange,
-      },
+      contextSelection: buildContextSelection(payload),
       rulesVersion: "editorial-rules-v1",
       externalContext: null,
     };
@@ -301,10 +306,7 @@ export const buildContentGenerationRequest = async (payload: CreationPreparation
         additionalContext: payload.parameters.additionalContext,
       },
       selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
-      contextSelection: {
-        researchedAt: payload.parameters.contextIntelligence.researchedAt,
-        dateRange: payload.parameters.contextIntelligence.dateRange,
-      },
+      contextSelection: buildContextSelection(payload),
       rulesVersion: "editorial-rules-v1",
       externalContext: null,
     };
@@ -337,10 +339,7 @@ export const buildContentGenerationRequest = async (payload: CreationPreparation
       additionalContext: payload.parameters.additionalContext,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
-    contextSelection: {
-      researchedAt: payload.parameters.contextIntelligence.researchedAt,
-      dateRange: payload.parameters.contextIntelligence.dateRange,
-    },
+    contextSelection: buildContextSelection(payload),
     rulesVersion: "editorial-rules-v1",
     externalContext: null,
   };

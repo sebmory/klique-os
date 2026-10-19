@@ -4,6 +4,7 @@ import {
   isHiddenExternalAthleteProfileRoute,
   isMediaAllowedApi,
   isMediaAllowedRoute,
+  isPartnerAllowedApi,
 } from "@/proxy";
 
 describe("media desk proxy access", () => {
@@ -47,6 +48,7 @@ describe("media desk proxy access", () => {
     ["/api/media/athletes", "GET"],
     ["/api/media/athletes/athlete-1", "GET"],
     ["/api/content/generate", "POST"],
+    ["/api/contents/generate/interview", "POST"],
     ["/api/context/collect", "POST"],
     ["/api/contents/generate/article", "POST"],
     ["/api/contents/storage/drafts", "GET"],
@@ -95,6 +97,10 @@ describe("media desk proxy access", () => {
     expect(isAthleteAllowedRoute("/media-desk", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/media-desk/subject-1", "GET")).toBe(false);
     expect(isAthleteAllowedRoute("/api/media-subjects", "GET")).toBe(false);
+    expect(isAthleteAllowedRoute("/api/contents/generate/interview", "POST")).toBe(false);
+    expect(isAthleteAllowedRoute("/api/contents/generate/article", "POST")).toBe(false);
+    expect(isPartnerAllowedApi("/api/contents/generate/interview", "POST")).toBe(false);
+    expect(isPartnerAllowedApi("/api/contents/generate/article", "POST")).toBe(false);
   });
 
   it("identifies the hidden media athlete profile route", () => {

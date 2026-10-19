@@ -109,7 +109,7 @@ export type ExternalNewsSearchResult = {
 export type ContextSubject = ContentSubject;
 
 export type ContextCollectionRequest = {
-  workspaceId?: string;
+  workspaceId: string;
   subject: ContextSubject;
   selectedConnectorIds: ContextConnectorId[];
   dateRange: ContextDateRange;
@@ -119,6 +119,17 @@ export type ContextCollectionRequest = {
   manualContext?: string;
   contentType: string;
   interviewType?: string;
+};
+
+export type ContextManualEdit = {
+  itemId: string;
+  text: string;
+};
+
+export type ContextSelectionReference = {
+  collectionId?: string;
+  selectedItemIds: string[];
+  manualEdits: ContextManualEdit[];
 };
 
 export type ContextSourceReference = {
@@ -211,6 +222,8 @@ export type ContextCollectionSummary = {
 
 export type ContextCollectionResponseSuccess = {
   ok: true;
+  collectionId?: string;
+  expiresAt?: string;
   items: ContextItem[];
   reports: ContextConnectorReport[];
   summary: ContextCollectionSummary;

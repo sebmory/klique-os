@@ -1,5 +1,4 @@
-import { demoShootings } from "@/lib/demo-shootings";
-import { getAthletesFromGoogleSheets, getShootingsFromGoogleSheets } from "@/lib/google-sheets";
+import { getShootingsFromGoogleSheets } from "@/lib/google-sheets";
 import type {
   ContextCollectionRequest,
   ContextConfidence,
@@ -23,6 +22,10 @@ import {
 } from "@/services/context-intelligence/utils";
 import { ExternalContextProviderFactory } from "@/services/context-intelligence/external-provider";
 import type { AiUsageGenerationContext } from "@/types/ai-usage";
+import {
+  EditorialGoogleSheetsWorkspaceError,
+  readEditorialAthleteProjection,
+} from "@/services/context-intelligence/editorial-athlete-projection";
 
 export interface ContextConnector {
   id: ContextConnectorId;
@@ -81,7 +84,7 @@ class CRMContextConnector implements ContextConnector {
     return true;
   }
 
-  async collect(request: ContextCollectionRequest): Promise<ContextConnectorResult> {
+  async collect(request: ContextCollectionRequest, _signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ContextConnectorResult> {
     if (request.subject.source !== "crm") {
       return {
         connectorId: this.id,
@@ -101,8 +104,34 @@ class CRMContextConnector implements ContextConnector {
       };
     }
 
-    const athletes = await getAthletesFromGoogleSheets();
-    const athlete = athletes.find((item) => item.key === request.subject.id);
+    if (!usageContext || (usageContext.role !== "admin" && usageContext.role !== "media")) {
+      return {
+        connectorId: this.id,
+        status: "error",
+        items: [],
+        errorCode: "INVALID_CONTEXT_REQUEST",
+        message: "Acces editorial serveur manquant.",
+      };
+    }
+
+    let athlete;
+    try {
+      athlete = await readEditorialAthleteProjection(request.subject.id, {
+        workspaceId: usageContext.workspaceId,
+        role: usageContext.role,
+      });
+    } catch (error) {
+      if (error instanceof EditorialGoogleSheetsWorkspaceError) {
+        return {
+          connectorId: this.id,
+          status: "unavailable",
+          items: [],
+          errorCode: "CONNECTOR_NOT_AVAILABLE",
+          message: error.message,
+        };
+      }
+      throw error;
+    }
     if (!athlete) {
       return {
         connectorId: this.id,
@@ -119,14 +148,14 @@ class CRMContextConnector implements ContextConnector {
       fieldId: string,
       category: ContextItemCategory,
       title: string,
-      factualStatement: string,
-      confidence: ContextConfidence = "high"
+      factualStatement: string | undefined,
+      confidence: ContextConfidence = "medium"
     ) => {
       const value = normalize(factualStatement);
       if (!value) return;
       items.push(
         buildItem({
-          id: `crm-${athlete.key}-${fieldId}`,
+          id: `crm-${athlete.id}-${fieldId}`,
           connectorId: this.id,
           category,
           title,
@@ -134,27 +163,31 @@ class CRMContextConnector implements ContextConnector {
           factualStatement: value,
           statementType: "fact",
           sourceType: "internal",
-          sourceName: "CRM du workspace",
+          sourceName: "Projection editoriale Athlete",
           confidence,
-          verificationStatus: "verified",
-          isEditable: true,
-          internalReference: athlete.key,
+          verificationStatus: "reported",
+          isEditable: false,
+          internalReference: athlete.id,
           metadata: {
-            subjectId: athlete.key,
+            subjectId: athlete.id,
             fieldId,
           },
         })
       );
     };
 
-    push("name", "profile", "Nom", athlete.name);
+    push("name", "profile", "Nom public", athlete.displayName);
     push("sport", "profile", "Sport", athlete.sport);
-    push("position", "profile", "Discipline ou poste", athlete.position, "medium");
+    push("position", "profile", "Discipline ou poste public", athlete.position);
     push("club", "club_or_organization", "Club ou organisation", athlete.club);
-    push("bio", "profile", "Biographie", athlete.notes, "medium");
-    push("objective", "profile", "Objectif actuel", athlete.objective, "medium");
-    push("longTerm", "profile", "Objectif long terme", athlete.longTerm, "medium");
-    push("palmares", "performance", "Palmares", athlete.palmares, "medium");
+    push("bio", "profile", "Biographie publique", athlete.biography);
+    push("palmares", "performance", "Palmares public", athlete.palmares);
+    athlete.communicationObjectives.forEach((objective, index) => {
+      push(`communication-objective-${index + 1}`, "profile", "Objectif autorise a la communication", objective);
+    });
+    athlete.publishedFacts.forEach((fact, index) => {
+      push(`published-fact-${index + 1}`, "other", "Fait publie ou valide pour les medias", fact);
+    });
 
     return {
       connectorId: this.id,
@@ -171,12 +204,42 @@ class ProductionsContextConnector implements ContextConnector {
     return true;
   }
 
-  async collect(request: ContextCollectionRequest): Promise<ContextConnectorResult> {
-    let shootings = [] as Awaited<ReturnType<typeof getShootingsFromGoogleSheets>>;
+  async collect(request: ContextCollectionRequest, _signal?: AbortSignal, usageContext?: AiUsageGenerationContext): Promise<ContextConnectorResult> {
+    if (!usageContext || (usageContext.role !== "admin" && usageContext.role !== "media")) {
+      return {
+        connectorId: this.id,
+        status: "error",
+        items: [],
+        errorCode: "INVALID_CONTEXT_REQUEST",
+        message: "Acces editorial serveur manquant.",
+      };
+    }
+    try {
+      const defaultWorkspaceId = process.env.KLIQUE_DEFAULT_WORKSPACE_ID?.trim() ?? "";
+      if (!defaultWorkspaceId || request.workspaceId !== defaultWorkspaceId) {
+        throw new EditorialGoogleSheetsWorkspaceError();
+      }
+    } catch (error) {
+      return {
+        connectorId: this.id,
+        status: "unavailable",
+        items: [],
+        errorCode: "CONNECTOR_NOT_AVAILABLE",
+        message: error instanceof Error ? error.message : "Productions indisponibles.",
+      };
+    }
+
+    let shootings: Awaited<ReturnType<typeof getShootingsFromGoogleSheets>>;
     try {
       shootings = await getShootingsFromGoogleSheets();
     } catch {
-      shootings = demoShootings;
+      return {
+        connectorId: this.id,
+        status: "unavailable",
+        items: [],
+        errorCode: "CONNECTOR_NOT_AVAILABLE",
+        message: "La source Google Sheets Productions est indisponible.",
+      };
     }
 
     const byName = normalize(request.subject.displayName).toLowerCase();
@@ -189,7 +252,9 @@ class ProductionsContextConnector implements ContextConnector {
       };
     }
 
-    const related = shootings.filter((shooting) => normalize(shooting.athlete).toLowerCase() === byName);
+    const related = shootings.filter((shooting) =>
+      normalize(shooting.athlete).toLowerCase() === byName
+      && (usageContext.role === "admin" || shooting.published));
 
     const items = related.slice(0, contextIntelligenceConfig.limits.maxExternalResults).map((shooting, index) => {
       const title = `${normalize(shooting.type) || "Production"} - ${normalize(shooting.date) || "Date inconnue"}`;
@@ -206,12 +271,12 @@ class ProductionsContextConnector implements ContextConnector {
         title,
         summary,
         factualStatement: summary,
-        statementType: "fact",
+        statementType: "editorial_lead",
         sourceType: "internal",
         sourceName: "Production KLIQUE OS",
-        confidence: "high",
-        verificationStatus: "verified",
-        isEditable: true,
+        confidence: "low",
+        verificationStatus: "unverified",
+        isEditable: false,
         internalReference: shooting.row ? String(shooting.row) : undefined,
         metadata: {
           row: shooting.row ?? null,
@@ -219,6 +284,7 @@ class ProductionsContextConnector implements ContextConnector {
           type: normalize(shooting.type),
           objective: normalize(shooting.objective),
           status: normalize(shooting.status),
+          fragileNameMatch: true,
         },
       });
     });
@@ -228,7 +294,9 @@ class ProductionsContextConnector implements ContextConnector {
       status: safeStatus(items),
       items,
       errorCode: items.length ? undefined : "PRODUCTION_LINK_NOT_FOUND",
-      message: items.length ? undefined : "Aucune production liee trouvee.",
+      message: items.length
+        ? "Rapprochement temporaire par nom, fragile et non verifie."
+        : "Aucune production liee trouvee par le rapprochement nominatif temporaire.",
     };
   }
 }

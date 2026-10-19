@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { InterviewResultScreen } from "@/components/contents/InterviewResultScreen";
 import { ArticleResultScreen } from "@/components/contents/ArticleResultScreen";
 import { ArticleDocumentEditor } from "@/components/contents/ArticleDocumentEditor";
@@ -34,76 +34,87 @@ export function InterviewResultPageClient() {
   const [restoredDraftVersion, setRestoredDraftVersion] = useState<number | undefined>(undefined);
   const [restoredDraftStorageUpdatedAt, setRestoredDraftStorageUpdatedAt] = useState<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const restoreAttemptRef = useRef(0);
 
   useEffect(() => {
     let active = true;
+    const attempt = restoreAttemptRef.current + 1;
+    restoreAttemptRef.current = attempt;
+    const canCommit = () => active && restoreAttemptRef.current === attempt;
 
-    void runContentsBackfill();
+    void runContentsBackfill().catch(() => undefined);
 
     const restore = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const sessionId = params.get("sessionId")?.trim() || "";
-      const documentId = params.get("documentId")?.trim() || "";
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get("sessionId")?.trim() || "";
+        const documentId = params.get("documentId")?.trim() || "";
 
-      if (documentId) {
-        const storedDraft = await ContentDocumentDraftService.loadDraftRecord(documentId);
-        if (!active) return;
-        if (storedDraft) {
-          const storedDocument = storedDraft.document;
-          setArticleDocument(storedDocument.type === "article" ? storedDocument : null);
-          setArticleResult(null);
-          setParsed(null);
-          setRestoredDraft(storedDocument.type === "article" ? null : storedDocument);
-          setRestoredDraftVersion(storedDraft.version);
-          setRestoredDraftStorageUpdatedAt(storedDraft.storageUpdatedAt);
-          setReady(true);
-          return;
+        if (documentId) {
+          const storedDraft = await ContentDocumentDraftService.loadDraftRecord(documentId);
+          if (!canCommit()) return;
+          if (storedDraft) {
+            const storedDocument = storedDraft.document;
+            setArticleDocument(storedDocument.type === "article" ? storedDocument : null);
+            setArticleResult(null);
+            setParsed(null);
+            setRestoredDraft(storedDocument.type === "article" ? null : storedDocument);
+            setRestoredDraftVersion(storedDraft.version);
+            setRestoredDraftStorageUpdatedAt(storedDraft.storageUpdatedAt);
+            setReady(true);
+            return;
+          }
         }
-      }
 
-      const restoredArticle = await restoreArticleResultSession(sessionId);
-      if (!active) return;
-      if (restoredArticle) {
-        setArticleResult(restoredArticle);
-        setArticleDocument(null);
-        setParsed(null);
-        setRestoredDraft(null);
-        setReady(true);
-        return;
-      }
-
-      if (!sessionId) {
-        const legacyArticle = restoreLegacyArticlePreviewSession();
-        if (legacyArticle) {
-          setArticleResult(legacyArticle);
+        const restoredArticle = await restoreArticleResultSession(sessionId);
+        if (!canCommit()) return;
+        if (restoredArticle) {
+          setArticleResult(restoredArticle);
           setArticleDocument(null);
           setParsed(null);
           setRestoredDraft(null);
           setReady(true);
           return;
         }
-      }
 
-      const restored = await restoreInterviewResultSession(sessionId, documentId);
-      if (!active) return;
+        if (!sessionId) {
+          const legacyArticle = restoreLegacyArticlePreviewSession();
+          if (legacyArticle) {
+            setArticleResult(legacyArticle);
+            setArticleDocument(null);
+            setParsed(null);
+            setRestoredDraft(null);
+            setReady(true);
+            return;
+          }
+        }
 
-      if (restored.source === "cloud" || restored.source === "sessionStorage") {
-        setParsed(restored.result);
+        const restored = await restoreInterviewResultSession(sessionId, documentId);
+        if (!canCommit()) return;
+
+        if (restored.source === "cloud" || restored.source === "sessionStorage") {
+          setParsed(restored.result);
+          setRestoredDraft(null);
+          setReady(true);
+          return;
+        }
+
+        if (restored.source === "draft") {
+          setParsed(null);
+          setRestoredDraft(restored.document);
+          setReady(true);
+          return;
+        }
+
+        setParsed(null);
         setRestoredDraft(null);
         setReady(true);
-        return;
-      }
-
-      if (restored.source === "draft") {
-        setParsed(null);
-        setRestoredDraft(restored.document);
+      } catch {
+        if (!canCommit()) return;
+        setRestoreError("Impossible de charger la session de resultat.");
         setReady(true);
-        return;
       }
-
-      setParsed(null);
-      setRestoredDraft(null);
-      setReady(true);
     };
 
     void restore();
@@ -196,7 +207,12 @@ export function InterviewResultPageClient() {
   };
 
   if (!ready) {
-    return null;
+    return (
+      <section className="interview-loading" aria-live="polite" aria-busy="true">
+        <h1>Chargement du resultat</h1>
+        <p>Resolution de la session en cours.</p>
+      </section>
+    );
   }
 
   if (!parsed) {
@@ -238,7 +254,7 @@ export function InterviewResultPageClient() {
     return (
       <section className="interview-error" role="alert">
         <h1>Resultat indisponible</h1>
-        <p>Relancez une generation depuis l assistant de creation.</p>
+        <p>{restoreError || "Relancez une generation depuis l assistant de creation."}</p>
         <Link href="/contents/create?step=summary" className="crm-primary-action">
           Revenir aux parametres
         </Link>
