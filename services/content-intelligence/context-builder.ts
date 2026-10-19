@@ -13,6 +13,7 @@ import type {
 import type { ContextItem } from "@/types/context-intelligence";
 import { readEditorialAthleteProjection } from "@/services/context-intelligence/editorial-athlete-projection";
 import type { EditorialAthleteProjection } from "@/types/editorial-athlete";
+import type { EditorialModelContext } from "@/types/content-generation";
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
@@ -89,7 +90,44 @@ const buildContextBuckets = (items: ContextItem[]) => {
 const buildContentContext = async (
   payload: CreationPreparationPayload,
   access: Pick<ContentAccessContext, "workspaceId" | "role">,
+  editorialContext?: EditorialModelContext,
 ): Promise<{ context: ContentContext; missingInformation: string[] }> => {
+  if (editorialContext) {
+    return {
+      context: {
+        source: payload.subject.source,
+        subjectType: editorialContext.subject.type,
+        displayName: editorialContext.subject.displayName,
+        sport: editorialContext.subject.sport,
+        disciplineOrPosition: editorialContext.subject.publicRoleOrPosition,
+        clubOrOrganization: editorialContext.subject.clubOrOrganization,
+        knownFacts: editorialContext.facts.map((fact) => fact.text),
+        objective: payload.objective.id,
+        audience: payload.parameters.audienceId,
+        templateKey: resolveTemplateKeyForObjective(payload.objective.id),
+        contentType: payload.objective.id,
+        interviewType: payload.objective.id === "interview" ? payload.objective.subtypeId : undefined,
+        format: payload.parameters.formatId,
+        tone: payload.parameters.toneId,
+        internalFacts: [],
+        externalVerifiedFacts: editorialContext.facts
+          .filter((fact) => fact.verificationStatus === "verified")
+          .map((fact) => fact.text),
+        userProvidedContextItems: editorialContext.editorialLeads
+          .filter((lead) => lead.verificationStatus === "user_provided")
+          .map((lead) => lead.text),
+        editorialLeads: editorialContext.editorialLeads.map((lead) => lead.text),
+        excludedContext: [],
+        constraints: {
+          requiredTopics: payload.parameters.requiredTopics,
+          avoidedTopics: payload.parameters.avoidedTopics,
+          questionCount: payload.parameters.questionCount,
+        },
+      },
+      missingInformation: editorialContext.missingInformation,
+    };
+  }
+
   const missingInformation: string[] = [];
   const interviewType = payload.objective.id === "interview" ? payload.objective.subtypeId : undefined;
   const templateKey = resolveTemplateKeyForObjective(payload.objective.id);
@@ -186,8 +224,9 @@ const buildContentContext = async (
 export const buildContentGenerationRequest = async (
   payload: CreationPreparationPayload,
   access: Pick<ContentAccessContext, "workspaceId" | "role">,
+  editorialContext?: EditorialModelContext,
 ): Promise<{ request: AnyContentGenerationRequest; missingInformation: string[] }> => {
-  const { context, missingInformation } = await buildContentContext(payload, access);
+  const { context, missingInformation } = await buildContentContext(payload, access, editorialContext);
 
   if (payload.objective.id === "publication") {
     const publication = payload.parameters.publication;
@@ -336,12 +375,13 @@ export const buildContentGenerationRequest = async (
       audience: payload.parameters.audienceId as InterviewGenerationRequest["brief"]["audience"],
       requiredTopics: payload.parameters.requiredTopics,
       avoidedTopics: payload.parameters.avoidedTopics,
-      additionalContext: payload.parameters.additionalContext,
+      additionalContext: editorialContext ? "" : payload.parameters.additionalContext,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
     contextSelection: buildContextSelection(payload),
     rulesVersion: "editorial-rules-v1",
     externalContext: null,
+    ...(editorialContext ? { editorialContext } : {}),
   };
 
   return {

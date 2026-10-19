@@ -13,6 +13,7 @@ import type {
   ReelGenerationResult,
   StoryGenerationRequest,
   StoryGenerationResult,
+  EditorialGenerationMetadata,
 } from "@/types/content-generation";
 import type { ContentDocument } from "@/types/content-document";
 
@@ -22,6 +23,7 @@ export type StoredInterviewResult = {
   result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   createdAt: string;
   sessionId?: string;
+  editorialMetadata?: EditorialGenerationMetadata;
 };
 
 export type StoredArticleGenerationMetadata = {
@@ -29,6 +31,7 @@ export type StoredArticleGenerationMetadata = {
   model: string;
   generatedAt: string;
   generationDurationMs: number;
+  editorial?: EditorialGenerationMetadata;
 };
 
 export type StoredArticleResult = {
@@ -39,6 +42,7 @@ export type StoredArticleResult = {
   generationMetadata: StoredArticleGenerationMetadata;
   createdAt: string;
   sessionId?: string;
+  editorialMetadata?: EditorialGenerationMetadata;
 };
 
 export type StoredContentResult = StoredInterviewResult | StoredArticleResult;
@@ -48,6 +52,7 @@ export type StoredArticlePreviewResult = {
   result: ArticleFinalResult;
   createdAt?: string;
   sessionId?: string;
+  editorialMetadata?: EditorialGenerationMetadata;
 };
 
 type StoredSessionRecord = StoredInterviewResult & {
@@ -90,6 +95,49 @@ const parseJsonResponse = async (response: Response): Promise<CloudSessionRespon
   }
 };
 
+const normalizeInterviewResult = (record: StoredInterviewResult): StoredInterviewResult => {
+  const editorialMetadata =
+    record.editorialMetadata
+    ?? record.result.metadata?.editorial
+    ?? record.request.editorialGeneration;
+  if (!editorialMetadata) return record;
+  return {
+    ...record,
+    editorialMetadata,
+    result: {
+      ...record.result,
+      metadata: {
+        ...record.result.metadata,
+        editorial: editorialMetadata,
+      },
+    },
+  };
+};
+
+const normalizeArticleResult = (record: StoredArticleResult): StoredArticleResult => {
+  const editorialMetadata =
+    record.editorialMetadata
+    ?? record.result.metadata?.editorial
+    ?? record.generationMetadata.editorial
+    ?? record.request.editorialGeneration;
+  if (!editorialMetadata) return record;
+  return {
+    ...record,
+    editorialMetadata,
+    generationMetadata: {
+      ...record.generationMetadata,
+      editorial: editorialMetadata,
+    },
+    result: {
+      ...record.result,
+      metadata: {
+        ...record.result.metadata,
+        editorial: editorialMetadata,
+      },
+    },
+  };
+};
+
 const readStoredSession = (): StoredSessionRecord | null => {
   if (!hasWindow()) return null;
 
@@ -97,7 +145,7 @@ const readStoredSession = (): StoredSessionRecord | null => {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as StoredSessionRecord;
+    const parsed = normalizeInterviewResult(JSON.parse(raw) as StoredSessionRecord) as StoredSessionRecord;
     if (!parsed?.payload || !parsed?.request || !parsed?.result || !parsed?.createdAt) {
       return null;
     }
@@ -153,7 +201,9 @@ const readStoredArticleSession = (sessionId: string): RestoredArticleResultSessi
 
   try {
     const parsed = JSON.parse(raw) as StoredArticleResult;
-    return isStoredArticleResult(parsed) && parsed.sessionId === sessionId ? { ...parsed, sessionId } : null;
+    return isStoredArticleResult(parsed) && parsed.sessionId === sessionId
+      ? { ...normalizeArticleResult(parsed), sessionId }
+      : null;
   } catch {
     return null;
   }
@@ -190,8 +240,9 @@ export const buildResultUrl = (sessionId: string, documentId: string): string =>
 };
 
 export const saveInterviewResultSession = async (record: StoredInterviewResult): Promise<StoredSessionRecord> => {
-  const sessionId = record.sessionId || createResultSessionId();
-  const storedRecord: StoredSessionRecord = { ...record, sessionId };
+  const normalizedRecord = normalizeInterviewResult(record);
+  const sessionId = normalizedRecord.sessionId || createResultSessionId();
+  const storedRecord: StoredSessionRecord = { ...normalizedRecord, sessionId };
   if (canUseLocalContentStorage()) writeStoredSession(storedRecord);
 
   const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
@@ -204,7 +255,7 @@ export const saveInterviewResultSession = async (record: StoredInterviewResult):
       },
       body: JSON.stringify({
         sessionId,
-        session: record,
+        session: normalizedRecord,
         expiresAt,
       }),
     });
@@ -237,7 +288,7 @@ const readCloudSession = async (sessionId: string): Promise<StoredSessionRecord 
   if (!payload.session) return null;
 
   return {
-    ...payload.session,
+    ...normalizeInterviewResult(payload.session),
     sessionId: payload.sessionId || sessionId,
   };
 };
@@ -278,8 +329,9 @@ export const restoreInterviewResultSession = async (sessionId: string, documentI
 };
 
 export const saveArticleResultSession = async (record: StoredArticleResult): Promise<StoredArticleSessionRecord> => {
-  const sessionId = record.sessionId || createResultSessionId();
-  const storedRecord: StoredArticleSessionRecord = { ...record, sessionId };
+  const normalizedRecord = normalizeArticleResult(record);
+  const sessionId = normalizedRecord.sessionId || createResultSessionId();
+  const storedRecord: StoredArticleSessionRecord = { ...normalizedRecord, sessionId };
   if (canUseLocalContentStorage()) writeStoredArticleSession(storedRecord);
 
   const expiresAt = new Date(Date.now() + DEFAULT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
@@ -288,7 +340,7 @@ export const saveArticleResultSession = async (record: StoredArticleResult): Pro
     const response = await fetch("/api/contents/storage/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId, session: record, expiresAt }),
+      body: JSON.stringify({ sessionId, session: normalizedRecord, expiresAt }),
     });
     if (!response.ok) return storedRecord;
 
@@ -308,7 +360,10 @@ export const restoreArticleResultSession = async (sessionId: string): Promise<Re
     if (response.ok) {
       const payload = (await response.json().catch(() => null)) as { sessionId?: string; session?: unknown } | null;
       if (payload?.sessionId === normalizedSessionId && isStoredArticleResult(payload.session)) {
-        const restored = { ...payload.session, sessionId: normalizedSessionId };
+        const restored = {
+          ...normalizeArticleResult(payload.session),
+          sessionId: normalizedSessionId,
+        };
         if (canUseLocalContentStorage()) writeStoredArticleSession(restored);
         return restored;
       }

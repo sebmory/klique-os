@@ -21,6 +21,7 @@ import type {
   ArticleStructureSuggestion,
 } from "@/types/content-generation";
 import { secureArticleRequest } from "@/services/content-intelligence/article-request-security";
+import { EditorialGenerationBlockedError } from "@/services/editorial-generation/server-context";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -76,6 +77,21 @@ const errorResponse = (error: unknown) => {
         message: error.message,
         issues: error.assessment.issues,
         metrics: error.assessment.metrics,
+      },
+      { status: 422 },
+    );
+  }
+  if (error instanceof EditorialGenerationBlockedError) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        editorial: {
+          missingInformation: error.eligibility.missingInformation,
+          contradictions: error.eligibility.contradictionSummaries,
+          warnings: error.eligibility.warnings,
+        },
       },
       { status: 422 },
     );
@@ -200,11 +216,25 @@ export async function POST(request: Request) {
 
     if (body.action === "angles") {
       const output = await runArticleAngleSuggestionsEngine(articleRequest as ArticleAngleSuggestionsRequest, usageContext);
-      return NextResponse.json({ ok: true, action: body.action, result: output });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        result: {
+          ...output,
+          editorial: articleRequest.editorialGeneration,
+        },
+      });
     }
     if (body.action === "structures") {
       const output = await runArticleStructureSuggestionsEngine(articleRequest as ArticleGenerationRequest, usageContext);
-      return NextResponse.json({ ok: true, action: body.action, result: output });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        result: {
+          ...output,
+          editorial: articleRequest.editorialGeneration,
+        },
+      });
     }
 
     const output = await runArticleFinalEngine(
@@ -212,7 +242,21 @@ export async function POST(request: Request) {
       body.selectedStructure as ArticleStructureSuggestion,
       usageContext,
     );
-    return NextResponse.json({ ok: true, action: body.action, result: output });
+    return NextResponse.json({
+      ok: true,
+      action: body.action,
+      result: {
+        ...output,
+        article: {
+          ...output.article,
+          metadata: {
+            ...output.article.metadata,
+            editorial: articleRequest.editorialGeneration,
+          },
+        },
+        editorial: articleRequest.editorialGeneration,
+      },
+    });
   } catch (error) {
     const refundContext = creditContext;
     if (refundContext && consumedCreditKeys.length > 0) {

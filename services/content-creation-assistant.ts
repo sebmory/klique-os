@@ -9,6 +9,8 @@ import type {
   ContextSourcePreference,
 } from "@/types/context-intelligence";
 import type {
+  ArticleLengthId,
+  ArticleTypeId,
   PublicationLengthId,
   PublicationObjectiveId,
   PublicationPlatformId,
@@ -23,6 +25,7 @@ export type CreationSubjectType = "person" | "team" | "club" | "organization" | 
 
 export type CreationObjectiveType =
   | "interview"
+  | "article"
   | "publication"
   | "reel"
   | "story"
@@ -127,6 +130,8 @@ export type CreationParametersDraft = {
   storySelectedAngle: string;
   storyFrameCount: string;
   storyPlatform: StoryPlatformId;
+  articleLength: ArticleLengthId;
+  articleSelectedAngle: string;
 };
 
 export type AfterMatchPresetDraft = {
@@ -200,6 +205,11 @@ export type CreationPreparationPayload = {
       frameCount: number;
       platform: StoryPlatformId;
     };
+    article?: {
+      articleType: ArticleTypeId;
+      length: ArticleLengthId;
+      selectedAngle: string;
+    };
   };
 };
 
@@ -211,6 +221,13 @@ const objectiveDefinitions: CreationObjectiveDefinition[] = [
     id: "interview",
     title: "Interview",
     description: "Construisez une interview claire et engageante selon votre contexte.",
+    enabled: true,
+    availabilityLabel: "Disponible",
+  },
+  {
+    id: "article",
+    title: "Article",
+    description: "Construisez un article editorial documente a partir de sources verifiees.",
     enabled: true,
     availabilityLabel: "Disponible",
   },
@@ -284,12 +301,29 @@ const interviewParametersTemplate: CreationObjectiveParametersTemplate = {
   finalActionLabel: "Creer l interview",
 };
 
+const articleParametersTemplate: CreationObjectiveParametersTemplate = {
+  configurationTitle: "Parametres de l article",
+  subtypeLabel: "Type d article",
+  subtypeOptions: [
+    { id: "actualite", label: "Actualite", description: "Traiter un fait recent et documente.", enabled: true },
+    { id: "portrait", label: "Portrait", description: "Presenter un parcours et une identite.", enabled: true },
+    { id: "analyse", label: "Analyse", description: "Mettre les faits en perspective sans invention.", enabled: true },
+    { id: "reportage", label: "Reportage", description: "Construire un recit documente autour du sujet.", enabled: true },
+  ],
+  toneOptions: CONTENT_TONE_OPTIONS.map((option) => ({ ...option, enabled: true })),
+  questionCountOptions: [],
+  formatOptions: [],
+  audienceOptions: CONTENT_AUDIENCE_OPTIONS.map((option) => ({ ...option, enabled: true })),
+  finalActionLabel: "Creer l article",
+};
+
 const assistantTemplate: CreationAssistantTemplate = {
   id: "core_content_assistant_v1",
   title: "Assistant de creation",
   objectives: objectiveDefinitions,
   parametersByObjective: {
     interview: interviewParametersTemplate,
+    article: articleParametersTemplate,
   },
 };
 
@@ -371,6 +405,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isCrmContext = isContextual && Boolean(context.subjectId);
   const initialObjective = context.objective ?? "interview";
   const isPublication = initialObjective === "publication";
+  const isArticle = initialObjective === "article";
   const isReel = initialObjective === "reel";
   const isStory = initialObjective === "story";
   // Le preset n a de sens que pour l objectif Publication, seul flux qui le consommera.
@@ -392,17 +427,17 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: isPublication || isReel || isStory ? "authentic" : "",
+      toneId: isPublication || isArticle || isReel || isStory ? "authentic" : "",
       customTone: "",
       questionCountId: "",
       customQuestionCount: "",
       formatId: "",
-      audienceId: isPublication || isReel || isStory ? "general" : "",
+      audienceId: isPublication || isArticle || isReel || isStory ? "general" : "",
       customAudience: "",
       additionalContext: "",
       requiredTopics: "",
       avoidedTopics: "",
-      useContextIntelligence: false,
+      useContextIntelligence: isArticle,
       contextDateRangePreset: "last_30_days",
       contextCustomFrom: "",
       contextCustomTo: "",
@@ -430,6 +465,8 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       storySelectedAngle: "",
       storyFrameCount: "5",
       storyPlatform: "instagram",
+      articleLength: "moyen",
+      articleSelectedAngle: "",
     },
     presetId: initialPresetId,
     afterMatch:
@@ -472,6 +509,7 @@ export const ContentCreationAssistantService = {
     const params = this.parametersForObjective(objectiveId);
     const isInterview = objectiveId === "interview";
     const isPublication = objectiveId === "publication";
+    const isArticle = objectiveId === "article";
     const isReel = objectiveId === "reel";
     const isStory = objectiveId === "story";
     const isAfterMatch = isPublication && args.draft.presetId === "after-match";
@@ -492,8 +530,9 @@ export const ContentCreationAssistantService = {
       if (!questionCount) return null;
       if (questionCount < CREATION_MIN_QUESTION_COUNT || questionCount > CREATION_MAX_QUESTION_COUNT) return null;
       if (!args.draft.parameters.toneId || !args.draft.parameters.formatId || !args.draft.parameters.audienceId) return null;
-    } else if (isPublication || isReel || isStory) {
+    } else if (isPublication || isArticle || isReel || isStory) {
       if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
+      if (isArticle && !args.draft.objective.subtypeId) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
       if (isStory) {
         if (!normalize(args.draft.parameters.storySelectedAngle)) return null;
@@ -554,7 +593,9 @@ export const ContentCreationAssistantService = {
             ? args.draft.parameters.reelFormat
             : isStory
               ? args.draft.parameters.storyPlatform
-              : args.draft.parameters.formatId,
+              : isArticle
+                ? args.draft.objective.subtypeId
+                : args.draft.parameters.formatId,
         audienceId: resolveFreeOptionValue(args.draft.parameters.audienceId, args.draft.parameters.customAudience),
         additionalContext: isAfterMatch && args.draft.afterMatch
           ? [
@@ -619,6 +660,13 @@ export const ContentCreationAssistantService = {
               selectedAngle: normalize(args.draft.parameters.storySelectedAngle),
               frameCount: storyFrameCount,
               platform: args.draft.parameters.storyPlatform,
+            }
+          : undefined,
+        article: isArticle
+          ? {
+              articleType: args.draft.objective.subtypeId as ArticleTypeId,
+              length: args.draft.parameters.articleLength,
+              selectedAngle: normalize(args.draft.parameters.articleSelectedAngle),
             }
           : undefined,
       },

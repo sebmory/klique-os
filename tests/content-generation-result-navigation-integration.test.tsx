@@ -100,6 +100,7 @@ describe("content generation to result integration", () => {
   let releaseSessionRead: () => void;
   let sessionReadGate: Promise<void>;
   let sessionCreationStatus: number;
+  let generationResponse: Response;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -115,13 +116,14 @@ describe("content generation to result integration", () => {
       releaseSessionRead = resolve;
     });
     sessionCreationStatus = 201;
+    generationResponse = jsonResponse({ ok: true, request: generatedRequest, result: generatedResult }, 200);
 
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
 
       if (url === "/api/content/generate" && method === "POST") {
-        return jsonResponse({ ok: true, request: generatedRequest, result: generatedResult }, 200);
+        return generationResponse.clone();
       }
       if (url === "/api/contents/storage/sessions" && method === "POST") {
         const body = JSON.parse(String(init?.body)) as { sessionId: string };
@@ -194,6 +196,7 @@ describe("content generation to result integration", () => {
     expect(generateButton).toBeDefined();
 
     await act(async () => {
+      generateButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       generateButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
       await Promise.resolve();
@@ -270,6 +273,85 @@ describe("content generation to result integration", () => {
       await Promise.resolve();
     });
 
+    expect(container.textContent).toContain("Reessayer");
+    expect(container.textContent).toContain("Mila Martin");
+    expect(mocks.navigateToContentResult).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/content/generate"))
+      .toHaveLength(1);
+  });
+
+  it("keeps the workflow and creates no empty session when editorial policy blocks", async () => {
+    generationResponse = jsonResponse({
+      ok: false,
+      code: "EDITORIAL_GENERATION_BLOCKED",
+      message: "Un article factuel exige au moins un fait exploitable.",
+      editorial: {
+        missingInformation: ["Aucun fait exploitable."],
+        contradictions: [],
+        warnings: [],
+      },
+    }, 422);
+    await act(async () => {
+      root.render(
+        <CreationAssistantScreen
+          context={{
+            mode: "contextual",
+            subjectId: "athlete-1",
+            subjectName: "Mila Martin",
+            subjectType: "athlete",
+            objective: "interview",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const generateButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Creer l interview"));
+
+    await act(async () => {
+      generateButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Un article factuel exige au moins un fait exploitable.");
+    expect(container.textContent).toContain("Reessayer");
+    expect(container.textContent).toContain("Mila Martin");
+    expect(mocks.navigateToContentResult).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/contents/storage/sessions"))
+      .toHaveLength(0);
+  });
+
+  it("preserves the same recoverable form after a provider failure", async () => {
+    generationResponse = jsonResponse({
+      ok: false,
+      code: "GENERATION_FAILED",
+      message: "Le fournisseur est temporairement indisponible.",
+    }, 502);
+    await act(async () => {
+      root.render(
+        <CreationAssistantScreen
+          context={{
+            mode: "contextual",
+            subjectId: "athlete-1",
+            subjectName: "Mila Martin",
+            subjectType: "athlete",
+            objective: "interview",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const generateButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Creer l interview"));
+
+    await act(async () => {
+      generateButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Le fournisseur est temporairement indisponible.");
     expect(container.textContent).toContain("Reessayer");
     expect(container.textContent).toContain("Mila Martin");
     expect(mocks.navigateToContentResult).not.toHaveBeenCalled();

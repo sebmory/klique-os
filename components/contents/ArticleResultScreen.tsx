@@ -1,6 +1,11 @@
 "use client";
 
-import type { ArticleFinalResult, ArticleGenerationRequest } from "@/types/content-generation";
+import type {
+  ArticleFinalResult,
+  ArticleGenerationRequest,
+  EditorialGenerationMetadata,
+} from "@/types/content-generation";
+import { EditorialReliabilityPanel } from "@/components/contents/EditorialReliabilityPanel";
 
 const articleTypeLabels: Record<string, string> = {
   actualite: "Actualité",
@@ -32,6 +37,7 @@ export function ArticleResultScreen({
   onRegenerate,
   regenerating = false,
   regenerationError = null,
+  editorialMetadata,
 }: {
   request: ArticleGenerationRequest;
   result: ArticleFinalResult;
@@ -41,6 +47,7 @@ export function ArticleResultScreen({
   onRegenerate?: () => void;
   regenerating?: boolean;
   regenerationError?: string | null;
+  editorialMetadata?: EditorialGenerationMetadata;
 }) {
   const isBrief = request.brief.length === "breve";
   const regenerationCost = articleRegenerationCostByLength[request.brief.length];
@@ -52,6 +59,7 @@ export function ArticleResultScreen({
   return (
     <section className="interview-result-screen" aria-label="Resultat Article">
       <header className="interview-result-hero"><div className="interview-result-title-stack"><p className="interview-result-kicker">ARTICLE</p><h1>{result.title}</h1>{result.subtitle ? <p>{result.subtitle}</p> : null}</div></header>
+      <EditorialReliabilityPanel metadata={editorialMetadata ?? result.metadata.editorial} />
       <section className="interview-section">
         <p>{result.lead}</p>
         {isBrief
@@ -60,7 +68,7 @@ export function ArticleResultScreen({
         {result.conclusion ? <p>{result.conclusion}</p> : null}
         <div className="interview-chip-row"><span className="interview-chip">{`${result.estimatedWordCount} mots estimés`}</span><span className="interview-chip">{articleTypeLabels[request.brief.articleType]}</span><span className="interview-chip">{articleLengthLabels[request.brief.length]}</span></div>
         {result.usedCitations.length ? <section><h2>Citations utilisées</h2><ul>{result.usedCitations.map((citation) => <li key={`${citation.text}-${citation.author}`}><q>{citation.text}</q> - {citation.author}, {citation.source}</li>)}</ul></section> : null}
-        {result.usedSources.length ? <section><h2>Sources utilisées</h2><ul>{result.usedSources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul></section> : null}
+        {result.usedSources.length && !(editorialMetadata ?? result.metadata.editorial) ? <section><h2>Sources utilisées</h2><ul>{result.usedSources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>)}</ul></section> : null}
         {result.metadata.templateVersion ? <p className="creation-muted">{`Version ${result.metadata.templateVersion}`}</p> : null}
         {editError ? <p className="creation-error" role="alert">{editError}</p> : null}
         {regenerationError ? <p className="creation-error" role="alert">{regenerationError}</p> : null}

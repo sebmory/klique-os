@@ -2,25 +2,12 @@ import type { ContentDocument } from "@/types/content-document";
 import type { ContentVariant } from "@/types/content-variant";
 import type {
   ArticleStructureSuggestion,
-  ContentGenerationRequest,
-  InterviewGenerationRequest,
-  InterviewGenerationResult,
-  PublicationGenerationRequest,
-  PublicationGenerationResult,
-  ReelGenerationRequest,
-  ReelGenerationResult,
-  StoryGenerationRequest,
-  StoryGenerationResult,
 } from "@/types/content-generation";
-import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
-import type { StoredArticleResult, StoredContentResult } from "@/services/content-result-sessions";
-
-export type StoredInterviewResult = {
-  payload: CreationPreparationPayload;
-  request: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
-  result: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
-  createdAt: string;
-};
+import type {
+  StoredArticleResult,
+  StoredContentResult,
+  StoredInterviewResult,
+} from "@/services/content-result-sessions";
 
 export type { StoredContentResult };
 
@@ -385,8 +372,36 @@ const validateStoredInterviewResult = (value: unknown): StoredInterviewResult =>
   requireObject(session.payload, "payload");
   requireObject(session.request, "request");
   requireObject(session.result, "result");
+  validateEditorialGenerationMetadata(session.editorialMetadata, "session.editorialMetadata");
   validateDateString(session.createdAt, "createdAt");
   return session as StoredInterviewResult;
+};
+
+const validateEditorialGenerationMetadata = (value: unknown, field: string): void => {
+  if (value === undefined || value === null) return;
+  const metadata = requireObject(value, field);
+  requireNumber(metadata.dossierRevision, `${field}.dossierRevision`);
+  assertAllowed(metadata.generationMode, `${field}.generationMode`, ["ready", "limited"] as const);
+  const confidence = requireObject(metadata.confidence, `${field}.confidence`);
+  assertAllowed(confidence.level, `${field}.confidence.level`, ["high", "medium", "low", "unknown"] as const);
+  requireNumber(confidence.score, `${field}.confidence.score`);
+  requireStringArray(confidence.explanation, `${field}.confidence.explanation`);
+  if (!Array.isArray(metadata.usedSources)) {
+    throw new ContentStorageValidationError(`${field}.usedSources doit etre un tableau.`);
+  }
+  metadata.usedSources.forEach((source, index) => {
+    const item = requireObject(source, `${field}.usedSources[${index}]`);
+    requireString(item.name, `${field}.usedSources[${index}].name`);
+    if (item.url !== undefined) requireString(item.url, `${field}.usedSources[${index}].url`);
+    if (item.publishedAt !== undefined) validateDateString(item.publishedAt, `${field}.usedSources[${index}].publishedAt`);
+    if (typeof item.official !== "boolean") {
+      throw new ContentStorageValidationError(`${field}.usedSources[${index}].official doit etre un booleen.`);
+    }
+    assertAllowed(item.confidence, `${field}.usedSources[${index}].confidence`, ["high", "medium", "low", "unknown"] as const);
+  });
+  requireStringArray(metadata.contradictions, `${field}.contradictions`);
+  requireStringArray(metadata.missingInformation, `${field}.missingInformation`);
+  requireStringArray(metadata.warnings, `${field}.warnings`);
 };
 
 const validateArticleStructure = (value: unknown): ArticleStructureSuggestion => {
@@ -470,6 +485,7 @@ const validateStoredArticleResult = (value: unknown): StoredArticleResult => {
   requireString(generationMetadata.model, "session.generationMetadata.model");
   validateDateString(generationMetadata.generatedAt, "session.generationMetadata.generatedAt");
   requireNumber(generationMetadata.generationDurationMs, "session.generationMetadata.generationDurationMs");
+  validateEditorialGenerationMetadata(session.editorialMetadata, "session.editorialMetadata");
   validateDateString(session.createdAt, "session.createdAt");
   return session as StoredArticleResult;
 };

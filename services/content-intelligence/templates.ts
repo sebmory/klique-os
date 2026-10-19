@@ -11,9 +11,8 @@ export const interviewTemplateV1: ContentTemplateDefinition = {
     return JSON.stringify({
       requestType: request.requestType,
       template: request.template,
-      context: request.context,
+      context: request.editorialContext ?? request.context,
       brief: request.brief,
-      selectedContextItems: request.selectedContextItems,
     }, null, 2);
   },
 };

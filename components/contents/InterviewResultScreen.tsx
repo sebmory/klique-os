@@ -11,6 +11,7 @@ import type {
   ReelGenerationResult,
   StoryGenerationRequest,
   StoryGenerationResult,
+  EditorialGenerationMetadata,
 } from "@/types/content-generation";
 import type { ContentDocument } from "@/types/content-document";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
@@ -28,6 +29,7 @@ type InterviewResultScreenProps = {
   initialRequest: InterviewGenerationRequest | PublicationGenerationRequest | ReelGenerationRequest | StoryGenerationRequest;
   initialResult: InterviewGenerationResult | PublicationGenerationResult | ReelGenerationResult | StoryGenerationResult;
   initialCreatedAt?: string;
+  initialEditorialMetadata?: EditorialGenerationMetadata;
 };
 
 export function InterviewResultScreen({
@@ -35,6 +37,7 @@ export function InterviewResultScreen({
   initialRequest,
   initialResult,
   initialCreatedAt,
+  initialEditorialMetadata,
 }: InterviewResultScreenProps) {
   const isPublicationFlow = initialRequest.requestType === "publication";
   const isReelFlow = initialRequest.requestType === "reel";
@@ -105,7 +108,7 @@ export function InterviewResultScreen({
     }
 
     return null;
-  }, [documentId, initialCreatedAt, request, result, selectedPublicationProposalId, selectedReelConceptId, selectedStorySequenceId]);
+  }, [documentId, initialCreatedAt, initialPayload.afterMatch, request, result, selectedPublicationProposalId, selectedReelConceptId, selectedStorySequenceId]);
 
   const saveDraft = async (contentDocument: ContentDocument) => {
     return ContentDocumentDraftService.saveDraft(contentDocument);
@@ -443,6 +446,7 @@ export function InterviewResultScreen({
       onSaveDraft={saveDraft}
       onRegenerateDocument={regenerateDocument}
       isPersistedInCloud={false}
+      editorialMetadata={initialEditorialMetadata ?? result.metadata.editorial}
     />
   );
 }

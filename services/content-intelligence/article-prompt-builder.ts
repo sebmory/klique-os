@@ -23,9 +23,8 @@ const serializeArticleContext = (request: ArticleGenerationRequest | ArticleAngl
     {
       requestType: request.requestType,
       template: request.template,
-      context: request.context,
+      context: request.editorialContext ?? request.context,
       brief: request.brief,
-      selectedContextItems: request.selectedContextItems,
     },
     null,
     2,
@@ -33,6 +32,12 @@ const serializeArticleContext = (request: ArticleGenerationRequest | ArticleAngl
 
 const articleFactualRules = [
   "- Utiliser uniquement le contexte fourni, les sources externes verifiees et les citations fournies.",
+  "- Aucun fait, score, date, club, resultat, citation ou palmares ne peut etre invente.",
+  "- Ne jamais resoudre automatiquement une contradiction.",
+  "- Une piste ou une donnee manuelle non verifiee doit rester explicitement hypothetique.",
+  "- Une information manquante doit etre omise ou transformee en question, jamais completee.",
+  "- Ne jamais presenter un element historique comme une actualite recente.",
+  "- Rester strictement dans le perimetre du dossier editorial fourni.",
   "- Ne jamais inventer, completer ou deduire un fait, une citation, un auteur ou une source.",
   "- Si une information manque, l omettre au lieu de la remplacer par une formulation generique.",
   "- Distinguer explicitement les faits verifies, l analyse editoriale et les citations fournies.",

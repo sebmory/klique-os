@@ -64,7 +64,7 @@ const manualEditByItemId = (manualEdits: ContextManualEdit[]): Map<string, strin
   return result;
 };
 
-const toUserProvidedEdit = (item: ContextItem, text: string): ContextItem => ({
+const toUserProvidedEdit = (item: ContextItem, text: string, retrievedAt: string): ContextItem => ({
   id: `manual-edit-${item.id}`,
   connectorId: "manual",
   category: "user_note",
@@ -74,7 +74,7 @@ const toUserProvidedEdit = (item: ContextItem, text: string): ContextItem => ({
   statementType: "editorial_lead",
   sourceType: "user",
   sourceName: "Ajoute par l utilisateur",
-  retrievedAt: new Date().toISOString(),
+  retrievedAt,
   confidence: "unknown",
   verificationStatus: "user_provided",
   isSelected: true,
@@ -98,12 +98,17 @@ export const createEditorialContextCollection = async (
   }, access);
 };
 
-export const resolveEditorialContextSelection = async (
+export type ResolvedEditorialContextSelection = {
+  collection: EditorialContextCollection;
+  items: ContextItem[];
+};
+
+export const resolveEditorialContextCollectionSelection = async (
   selection: ContextSelectionReference,
   access: ContentAccessContext,
   store: EditorialContextCollectionStore = EditorialContextCollectionRepository,
   now = new Date(),
-): Promise<ContextItem[]> => {
+): Promise<ResolvedEditorialContextSelection> => {
   const collectionId = normalize(selection.collectionId);
   const selectedItemIds = normalizeIds(selection.selectedItemIds ?? []);
   const edits = manualEditByItemId(selection.manualEdits ?? []);
@@ -112,7 +117,7 @@ export const resolveEditorialContextSelection = async (
     if (selectedItemIds.length || edits.size) {
       throw new ContentGenerationError("INVALID_REQUEST", "Collection de contexte obligatoire.");
     }
-    return [];
+    throw new ContentGenerationError("INVALID_REQUEST", "Collection de contexte obligatoire.");
   }
 
   if (new Set(selectedItemIds).size !== selectedItemIds.length) {
@@ -137,11 +142,11 @@ export const resolveEditorialContextSelection = async (
     throw new ContentGenerationError("INVALID_REQUEST", "Une edition de contexte ne correspond pas a la selection.");
   }
 
-  return selectedItemIds.map((itemId) => {
+  const items = selectedItemIds.map((itemId) => {
     const item = itemById.get(itemId)!;
     const editedText = edits.get(itemId);
     if (editedText && editedText !== normalize(item.summary)) {
-      return toUserProvidedEdit(item, editedText);
+      return toUserProvidedEdit(item, editedText, collection.createdAt);
     }
     return {
       ...item,
@@ -150,4 +155,20 @@ export const resolveEditorialContextSelection = async (
       originalSummary: undefined,
     };
   });
+
+  return { collection, items };
+};
+
+export const resolveEditorialContextSelection = async (
+  selection: ContextSelectionReference,
+  access: ContentAccessContext,
+  store: EditorialContextCollectionStore = EditorialContextCollectionRepository,
+  now = new Date(),
+): Promise<ContextItem[]> => {
+  const normalizedCollectionId = normalize(selection.collectionId);
+  if (!normalizedCollectionId && !(selection.selectedItemIds?.length || selection.manualEdits?.length)) {
+    return [];
+  }
+  const resolved = await resolveEditorialContextCollectionSelection(selection, access, store, now);
+  return resolved.items;
 };

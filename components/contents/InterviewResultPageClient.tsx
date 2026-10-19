@@ -236,6 +236,7 @@ export function InterviewResultPageClient() {
           onRegenerate={completeArticleResult ? () => void regenerateArticle() : undefined}
           regenerating={articleRegenerating}
           regenerationError={completeArticleResult ? articleRegenerationError : null}
+          editorialMetadata={articleResult.editorialMetadata}
         />
       );
     }
@@ -268,6 +269,7 @@ export function InterviewResultPageClient() {
       initialRequest={parsed.request}
       initialResult={parsed.result}
       initialCreatedAt={parsed.createdAt}
+      initialEditorialMetadata={parsed.editorialMetadata}
     />
   );
 }

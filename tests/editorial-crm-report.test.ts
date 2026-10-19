@@ -9,7 +9,7 @@ describe("CRM collection report", () => {
       itemCount: 3,
     });
 
-    expect(message).toBe("3 elements recuperes.");
+    expect(message).toBe("3 éléments récupérés.");
     expect(message).not.toContain("introuvable");
   });
 

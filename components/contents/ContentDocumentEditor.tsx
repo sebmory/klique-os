@@ -16,6 +16,8 @@ import { ContentVariantEditor } from "@/components/contents/ContentVariantEditor
 import { AfterMatchPackBlock } from "@/components/contents/AfterMatchPackBlock";
 import { ContentVariantRepositoryService } from "@/services/content-variants/repository";
 import type { ContentDocumentDraftSaveResult } from "@/services/content-documents/draft-service";
+import type { EditorialGenerationMetadata } from "@/types/content-generation";
+import { EditorialReliabilityPanel } from "@/components/contents/EditorialReliabilityPanel";
 
 type ContentDocumentEditorProps = {
   initialDocument: ContentDocument;
@@ -24,6 +26,7 @@ type ContentDocumentEditorProps = {
   isPersistedInCloud?: boolean;
   initialSourceDocumentRevision?: number;
   initialSourceDocumentStorageUpdatedAt?: string;
+  editorialMetadata?: EditorialGenerationMetadata;
 };
 
 type SaveState = {
@@ -264,6 +267,7 @@ export function ContentDocumentEditor({
   isPersistedInCloud = false,
   initialSourceDocumentRevision,
   initialSourceDocumentStorageUpdatedAt,
+  editorialMetadata,
 }: ContentDocumentEditorProps) {
   const [document, setDocument] = useState<ContentDocument>(initialDocument);
   const [isEditing, setIsEditing] = useState(false);
@@ -2019,7 +2023,9 @@ export function ContentDocumentEditor({
             ) : null}
           </section>
 
-          {verifiedSources.length > 0 ? (
+          <EditorialReliabilityPanel metadata={editorialMetadata ?? interviewDocument.metadata.editorial} />
+
+          {verifiedSources.length > 0 && !(editorialMetadata ?? interviewDocument.metadata.editorial) ? (
             <section className="document-section" aria-labelledby="document-sources-title">
               <h2 id="document-sources-title">Sources vérifiées</h2>
               <p className="document-note-hint">

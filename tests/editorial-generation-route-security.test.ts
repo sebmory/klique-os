@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireContentAccess: vi.fn(),
   validateCreationPayload: vi.fn(),
   resolveSelection: vi.fn(),
+  prepareEditorialGeneration: vi.fn(),
   runContentEngine: vi.fn(),
   secureArticleRequest: vi.fn(),
   runArticleAngles: vi.fn(),
@@ -30,9 +31,36 @@ vi.mock("@/services/context-intelligence/collection-service", () => ({
   resolveEditorialContextSelection: mocks.resolveSelection,
 }));
 
+vi.mock("@/services/editorial-generation/server-context", async () => {
+  const { ContentGenerationError } = await vi.importActual<typeof import("@/services/content-generation/errors")>(
+    "@/services/content-generation/errors",
+  );
+  class EditorialGenerationBlockedError extends ContentGenerationError {
+    eligibility: {
+      missingInformation: string[];
+      contradictionSummaries: string[];
+      warnings: string[];
+    };
+
+    constructor(eligibility: {
+      missingInformation: string[];
+      contradictionSummaries: string[];
+      warnings: string[];
+    }) {
+      super("EDITORIAL_GENERATION_BLOCKED", "Generation editoriale bloquee.");
+      this.eligibility = eligibility;
+    }
+  }
+  return {
+    EditorialGenerationBlockedError,
+    prepareEditorialGeneration: mocks.prepareEditorialGeneration,
+  };
+});
+
 vi.mock("@/services/content-intelligence/engine", () => ({
   runContentIntelligenceEngine: mocks.runContentEngine,
-  mapContentGenerationErrorToStatus: vi.fn(() => 400),
+  mapContentGenerationErrorToStatus: vi.fn((error: { code?: string }) =>
+    error.code === "EDITORIAL_GENERATION_BLOCKED" ? 422 : 400),
   runPublicationAngleSuggestionsEngine: vi.fn(),
   runPublicationRegenerateOneEngine: vi.fn(),
 }));
@@ -57,6 +85,7 @@ vi.mock("@/services/content-intelligence/article-validator", () => ({
 
 import { POST as interviewPost } from "@/app/api/contents/generate/interview/route";
 import { POST as articlePost } from "@/app/api/contents/generate/article/route";
+import { ContentGenerationError } from "@/services/content-generation/errors";
 
 const access = {
   clerkUserId: "admin-1",
@@ -71,6 +100,22 @@ describe("editorial generation route provenance", () => {
     vi.clearAllMocks();
     mocks.requireContentAccess.mockResolvedValue(access);
     mocks.consumeAiCredit.mockResolvedValue({ status: "consumed" });
+    mocks.prepareEditorialGeneration.mockResolvedValue({
+      selectedItems: [{ id: "trusted-1", verificationStatus: "unverified", confidence: "low" }],
+      eligibility: { status: "limited" },
+      selection: {
+        modelContext: { generationMode: "limited" },
+        metadata: {
+          dossierRevision: 1,
+          generationMode: "limited",
+          confidence: { level: "low", score: 35, explanation: [] },
+          usedSources: [],
+          contradictions: [],
+          missingInformation: [],
+          warnings: [],
+        },
+      },
+    });
   });
 
   it("forces the Interview alias through server collection resolution", async () => {
@@ -82,6 +127,8 @@ describe("editorial generation route provenance", () => {
       confidence: "high",
     };
     const payload = {
+      subject: { id: "athlete-1", type: "person", source: "crm", displayName: "Mila Martin" },
+      objective: { id: "interview", subtypeId: "portrait" },
       parameters: {
         contextIntelligence: {
           collectionId: "collection-1",
@@ -93,7 +140,6 @@ describe("editorial generation route provenance", () => {
     };
     const trusted = [{ id: "trusted-1", verificationStatus: "unverified", confidence: "low" }];
     mocks.validateCreationPayload.mockReturnValue(payload);
-    mocks.resolveSelection.mockResolvedValue(trusted);
     mocks.runContentEngine.mockResolvedValue({ request: { requestType: "interview" }, result: {} });
 
     const response = await interviewPost(new Request("http://localhost/api/contents/generate/interview", {
@@ -103,11 +149,14 @@ describe("editorial generation route provenance", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(mocks.resolveSelection).toHaveBeenCalledWith(
-      expect.objectContaining({ collectionId: "collection-1", selectedItemIds: ["trusted-1"] }),
+    expect(mocks.prepareEditorialGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      contextSelection: expect.objectContaining({ collectionId: "collection-1", selectedItemIds: ["trusted-1"] }),
       access,
-    );
-    expect(mocks.runContentEngine.mock.calls[0]?.[0]?.parameters.contextIntelligence.selectedContextItems).toBe(trusted);
+    }));
+    expect(mocks.runContentEngine.mock.calls[0]?.[0]?.parameters.contextIntelligence.selectedContextItems).toEqual(trusted);
+    expect(mocks.runContentEngine.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      selection: expect.objectContaining({ metadata: expect.objectContaining({ generationMode: "limited" }) }),
+    }));
   });
 
   it("secures the Article request before validation and generation", async () => {
@@ -149,6 +198,8 @@ describe("editorial generation route provenance", () => {
       isAdmin: false,
     });
     const payload = {
+      subject: { id: "athlete-1", type: "person", source: "crm", displayName: "Mila Martin" },
+      objective: { id: "interview", subtypeId: "portrait" },
       parameters: {
         contextIntelligence: {
           selectedItemIds: [],
@@ -175,5 +226,116 @@ describe("editorial generation route provenance", () => {
       operation: "generate_content",
     }));
     expect(mocks.refundAiCredit).not.toHaveBeenCalled();
+  });
+
+  it("blocks before OpenAI and credit consumption", async () => {
+    const { EditorialGenerationBlockedError } = await import("@/services/editorial-generation/server-context");
+    mocks.validateCreationPayload.mockReturnValue({
+      subject: { id: "athlete-1", type: "person", source: "crm", displayName: "Mila Martin" },
+      objective: { id: "interview", subtypeId: "portrait" },
+      parameters: {
+        contextIntelligence: {
+          collectionId: "collection-1",
+          selectedItemIds: ["trusted-1"],
+          manualEdits: [],
+          selectedContextItems: [],
+        },
+      },
+    });
+    mocks.prepareEditorialGeneration.mockRejectedValue(new EditorialGenerationBlockedError({
+      missingInformation: ["Aucun fait exploitable."],
+      contradictionSummaries: [],
+      warnings: [],
+    } as never));
+
+    const response = await interviewPost(new Request("http://localhost/api/contents/generate/interview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payload: {} }),
+    }));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "EDITORIAL_GENERATION_BLOCKED",
+      editorial: { missingInformation: ["Aucun fait exploitable."] },
+    });
+    expect(mocks.consumeAiCredit).not.toHaveBeenCalled();
+    expect(mocks.runContentEngine).not.toHaveBeenCalled();
+  });
+
+  it("blocks an Article before OpenAI and any credit debit", async () => {
+    const { EditorialGenerationBlockedError } = await import("@/services/editorial-generation/server-context");
+    mocks.requireContentAccess.mockResolvedValue({
+      ...access,
+      clerkUserId: "media-user-1",
+      role: "media",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      isAdmin: false,
+    });
+    mocks.secureArticleRequest.mockRejectedValue(new EditorialGenerationBlockedError({
+      missingInformation: ["Aucun fait exploitable."],
+      contradictionSummaries: ["Desaccord non resolu concernant le score."],
+      warnings: [],
+    } as never));
+
+    const response = await articlePost(new Request("http://localhost/api/contents/generate/article", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "final",
+        requestId: "article-blocked-1",
+        request: { requestType: "article", context: {}, brief: {} },
+        selectedStructure: {},
+      }),
+    }));
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "EDITORIAL_GENERATION_BLOCKED",
+      editorial: {
+        missingInformation: ["Aucun fait exploitable."],
+        contradictions: ["Desaccord non resolu concernant le score."],
+      },
+    });
+    expect(mocks.consumeAiCredit).not.toHaveBeenCalled();
+    expect(mocks.runArticleAngles).not.toHaveBeenCalled();
+  });
+
+  it("refunds the existing Media credit when the provider fails", async () => {
+    mocks.requireContentAccess.mockResolvedValue({
+      ...access,
+      clerkUserId: "media-user-1",
+      role: "media",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      isAdmin: false,
+    });
+    mocks.validateCreationPayload.mockReturnValue({
+      subject: { id: "athlete-1", type: "person", source: "crm", displayName: "Mila Martin" },
+      objective: { id: "interview", subtypeId: "portrait" },
+      parameters: {
+        contextIntelligence: {
+          collectionId: "collection-1",
+          selectedItemIds: ["trusted-1"],
+          manualEdits: [],
+          selectedContextItems: [],
+        },
+      },
+    });
+    mocks.runContentEngine.mockRejectedValue(new ContentGenerationError(
+      "GENERATION_FAILED",
+      "Fournisseur indisponible.",
+    ));
+
+    const response = await interviewPost(new Request("http://localhost/api/contents/generate/interview", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payload: {} }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.consumeAiCredit).toHaveBeenCalledTimes(1);
+    expect(mocks.refundAiCredit).toHaveBeenCalledTimes(1);
   });
 });

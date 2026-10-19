@@ -51,6 +51,7 @@ const formatUpdatedAt = (value: string): string => {
 
 const generatorIconById: Record<ContentGenerator["id"], ComponentType<{ size?: number; className?: string }>> = {
   interview: MessageSquareQuote,
+  article: FileText,
   publication: FileText,
   reel: Clapperboard,
   story: Radio,

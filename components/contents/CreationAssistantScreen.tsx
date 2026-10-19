@@ -24,7 +24,14 @@ import {
   Shapes,
 } from "lucide-react";
 import type { Athlete, AthletesResponse, MediaAthleteDirectoryEntry } from "@/types/athlete";
-import type { GenerateContentApiResponse, PublicationAngleSuggestion } from "@/types/content-generation";
+import type {
+  ArticleAngleSuggestionsRequest,
+  ArticleFinalResult,
+  ArticleGenerationRequest,
+  ArticleStructureSuggestion,
+  GenerateContentApiResponse,
+  PublicationAngleSuggestion,
+} from "@/types/content-generation";
 import type {
   ContextCollectionResponse,
   ContextConnectorId,
@@ -46,8 +53,12 @@ import {
   type CreationOption,
   type CreationSubjectType,
 } from "@/services/content-creation-assistant";
-import { buildResultUrl, saveInterviewResultSession } from "@/services/content-result-sessions";
+import { buildResultUrl, saveArticleResultSession, saveInterviewResultSession } from "@/services/content-result-sessions";
 import { navigateToContentResult } from "@/services/content-result-navigation";
+import {
+  buildArticleAngleSuggestionsRequest,
+  buildArticleGenerationRequest,
+} from "@/services/content-intelligence/article-ui-request";
 import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
@@ -85,7 +96,7 @@ type ContextCategoryGroup = {
   items: ContextItem[];
 };
 
-type StepId = "subject" | "objective" | "match" | "angle" | "parameters" | "context" | "summary";
+type StepId = "subject" | "objective" | "match" | "angle" | "structure" | "parameters" | "context" | "summary";
 
 const interviewSteps: Array<{ id: StepId; label: string }> = [
   { id: "subject", label: "Etape 1" },
@@ -102,6 +113,16 @@ const publicationSteps: Array<{ id: StepId; label: string }> = [
   { id: "context", label: "Etape 4" },
   { id: "angle", label: "Etape 5" },
   { id: "summary", label: "Etape 6" },
+];
+
+const articleSteps: Array<{ id: StepId; label: string }> = [
+  { id: "subject", label: "Etape 1" },
+  { id: "objective", label: "Etape 2" },
+  { id: "parameters", label: "Etape 3" },
+  { id: "context", label: "Etape 4" },
+  { id: "angle", label: "Etape 5" },
+  { id: "structure", label: "Etape 6" },
+  { id: "summary", label: "Etape 7" },
 ];
 
 const reelSteps: Array<{ id: StepId; label: string }> = [
@@ -141,7 +162,9 @@ const getStepsForObjective = (
     return afterMatchSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
   }
 
-  const baseSteps = objective === "publication"
+  const baseSteps = objective === "article"
+    ? articleSteps
+    : objective === "publication"
     ? publicationSteps
     : objective === "reel"
       ? reelSteps
@@ -157,7 +180,7 @@ const getStepsForObjective = (
   return effectiveSteps.map((item, index) => ({ id: item.id, label: `Etape ${index + 1}` }));
 };
 
-const preselectableObjectives: CreationObjectiveType[] = ["interview", "publication", "reel", "story"];
+const preselectableObjectives: CreationObjectiveType[] = ["interview", "article", "publication", "reel", "story"];
 
 const publicationObjectiveOptions: Array<{ id: string; label: string; description: string }> = [
   { id: "announce", label: "Annoncer", description: "Annoncer une information importante." },
@@ -191,6 +214,7 @@ const subjectOptions: Array<{
 
 const objectiveIconById: Record<CreationObjectiveType, ComponentType<{ size?: number; className?: string }>> = {
   interview: MessageSquareQuote,
+  article: FileText,
   publication: FileText,
   reel: Clapperboard,
   story: Radio,
@@ -237,21 +261,21 @@ const formatDateRangePresetLabel = (preset: ContextDateRange["preset"]): string 
   if (preset === "last_30_days") return "30 derniers jours";
   if (preset === "last_90_days") return "90 derniers jours";
   if (preset === "last_12_months") return "12 derniers mois";
-  return "Personnalisee";
+  return "Personnalisée";
 };
 
 const connectorLabels: Record<ContextConnectorId, string> = {
   crm: "CRM",
   productions: "Productions",
   manual: "Contexte manuel",
-  external_news: "Actualite externe",
+  external_news: "Actualité externe",
   calendar: "Calendrier",
-  results: "Resultats",
+  results: "Résultats",
   official_website: "Site officiel",
   rss: "Flux RSS",
-  social: "Reseaux sociaux",
+  social: "Réseaux sociaux",
   documents: "Documents",
-  previous_content: "Contenu precedent",
+  previous_content: "Contenu précédent",
 };
 
 const getConnectorLabel = (connectorId: ContextConnectorId): string => connectorLabels[connectorId] ?? connectorId;
@@ -263,8 +287,8 @@ const generationFailureMessage = (objective: CreationObjectiveType | null): stri
 };
 
 const getConnectorStatusLabel = (status: ContextConnectorReport["status"]): string => {
-  if (status === "completed") return "Donnees recuperees";
-  if (status === "empty") return "Aucune donnee recue";
+  if (status === "completed") return "Données récupérées";
+  if (status === "empty") return "Aucune donnée reçue";
   if (status === "unavailable") return "Non disponible";
   if (status === "running") return "Recherche en cours";
   if (status === "pending") return "En attente";
@@ -274,30 +298,30 @@ const getConnectorStatusLabel = (status: ContextConnectorReport["status"]): stri
 export const getConnectorStatusMessage = (report: ContextConnectorReport): string => {
   if (report.message) return report.message;
   if (report.status === "completed" && report.itemCount > 0) {
-    return `${report.itemCount} element${report.itemCount === 1 ? "" : "s"} recupere${report.itemCount === 1 ? "" : "s"}.`;
+    return `${report.itemCount} élément${report.itemCount === 1 ? "" : "s"} récupéré${report.itemCount === 1 ? "" : "s"}.`;
   }
   if (report.connectorId === "manual") return "Aucun contexte manuel fourni.";
-  if (report.connectorId === "crm" && report.status === "empty") return "Aucune donnee editoriale disponible pour ce sujet CRM.";
-  if (report.connectorId === "crm") return "Le sujet CRM n a pas pu etre charge.";
-  if (report.connectorId === "productions") return "Aucune production liee.";
-  if (report.connectorId === "external_news" && report.status === "empty") return "Aucune actualite recente verifiable n a ete trouvee pour cette periode.";
-  if (report.connectorId === "external_news" && report.status === "unavailable") return "La recherche externe n est pas configuree ou n a pas pu demarrer.";
-  if (report.connectorId === "external_news" && report.status === "error") return "L actualite externe a rencontre une erreur.";
+  if (report.connectorId === "crm" && report.status === "empty") return "Aucune donnée éditoriale disponible pour ce sujet CRM.";
+  if (report.connectorId === "crm") return "Le sujet CRM n’a pas pu être chargé.";
+  if (report.connectorId === "productions") return "Aucune production liée.";
+  if (report.connectorId === "external_news" && report.status === "empty") return "Aucune actualité récente vérifiable n’a été trouvée pour cette période.";
+  if (report.connectorId === "external_news" && report.status === "unavailable") return "La recherche externe n’est pas configurée ou n’a pas pu démarrer.";
+  if (report.connectorId === "external_news" && report.status === "error") return "L’actualité externe a rencontré une erreur.";
   return "Aucune information disponible.";
 };
 
 const contextCategoryLabels: Record<ContextItemCategory, string> = {
   profile: "Profil",
   club_or_organization: "Club ou organisation",
-  recent_news: "Actualite recente",
+  recent_news: "Actualité récente",
   performance: "Performance",
-  result: "Resultat",
+  result: "Résultat",
   schedule: "Calendrier",
   transfer_or_contract: "Transfert ou contrat",
-  injury_or_return: "Sante ou retour",
-  selection: "Selection",
+  injury_or_return: "Santé ou retour",
+  selection: "Sélection",
   production: "Production",
-  previous_content: "Contenu precedent",
+  previous_content: "Contenu précédent",
   user_note: "Note utilisateur",
   event: "Evenement",
   other: "Autre",
@@ -368,6 +392,32 @@ type PublicationAngleState = {
   suggestions: PublicationAngleSuggestion[];
 };
 
+type ArticleWorkflowState = {
+  loadingAction: "angles" | "structures" | "final" | null;
+  errorMessage: string | null;
+  suggestions: PublicationAngleSuggestion[];
+  structures: ArticleStructureSuggestion[];
+  selectedStructureId: string;
+};
+
+type ArticleApiError = {
+  ok: false;
+  message?: string;
+  editorial?: {
+    missingInformation?: string[];
+    contradictions?: string[];
+    warnings?: string[];
+  };
+};
+
+const formatArticleApiError = (payload: ArticleApiError | null, fallback: string): string => {
+  const details = [
+    ...(payload?.editorial?.missingInformation ?? []),
+    ...(payload?.editorial?.warnings ?? []),
+  ];
+  return [payload?.message || fallback, ...details].filter(Boolean).join(" ");
+};
+
 export function CreationAssistantScreen({ context }: CreationAssistantScreenProps) {
   const searchParams = useSearchParams();
   const summaryStepRequested = searchParams.get("step") === "summary";
@@ -389,6 +439,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
   const [draft, setDraft] = useState<CreationAssistantDraft>(() => createInitialAssistantDraft(context));
   const isPublicationFlow = draft.objective.objective === "publication";
+  const isArticleFlow = draft.objective.objective === "article";
   const steps = useMemo(
     () => getStepsForObjective(draft.objective.objective, hasPreselectedObjective, draft.presetId),
     [draft.objective.objective, hasPreselectedObjective, draft.presetId]
@@ -406,6 +457,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     errorMessage: null,
     suggestions: [],
   });
+  const [articleWorkflowState, setArticleWorkflowState] = useState<ArticleWorkflowState>({
+    loadingAction: null,
+    errorMessage: null,
+    suggestions: [],
+    structures: [],
+    selectedStructureId: "",
+  });
+  const [contextItemEditState, setContextItemEditState] = useState<{
+    itemId: string;
+    value: string;
+  } | null>(null);
   const contextFingerprint = useMemo(() => buildContextFingerprint(draft), [draft]);
   const previousFingerprintRef = useRef(contextFingerprint);
   const generationAbortRef = useRef<AbortController | null>(null);
@@ -415,7 +477,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
   const [creditBalance, setCreditBalance] = useState<{ hasActivePeriod: boolean; balance: number } | null>(null);
-  const [creditModal, setCreditModal] = useState<null | { kind: "external_search" | "publication_angles" | "generation"; cost: number }>(null);
+  const [creditModal, setCreditModal] = useState<null | {
+    kind: "external_search" | "publication_angles" | "article_angles" | "article_structures" | "generation";
+    cost: number;
+  }>(null);
   const [creditModalBusy, setCreditModalBusy] = useState(false);
   const [mediaSubscription, setMediaSubscription] = useState<
     | { planCode: string; status: string; currentPeriodEnd: string }
@@ -489,6 +554,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   }, [mediaCreditRole]);
 
   const getGenerationCreditCost = (): number => {
+    if (isArticleFlow) {
+      return ({ breve: 1, court: 2, moyen: 3, long: 4 })[draft.parameters.articleLength];
+    }
     return 1;
   };
 
@@ -694,7 +762,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         return { ok: false, message: "Objectif indisponible pour la configuration actuelle." };
       }
       if (!draft.objective.subtypeId) {
-        return { ok: false, message: "Selectionnez un type d interview.", focusSelector: "[data-param-group='subtype'] .creation-option-card" };
+        return {
+          ok: false,
+          message: draft.objective.objective === "article" ? "Selectionnez un type d article." : "Selectionnez un type d interview.",
+          focusSelector: "[data-param-group='subtype'] .creation-option-card",
+        };
       }
       return { ok: true };
     }
@@ -716,6 +788,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     if (stepId === "angle") {
+      if (draft.objective.objective === "article" && !normalize(draft.parameters.articleSelectedAngle)) {
+        return { ok: false, message: "Generez puis selectionnez un angle editorial.", focusSelector: ".creation-option-card" };
+      }
       if (draft.objective.objective === "publication" && !normalize(draft.parameters.publicationSelectedAngle)) {
         return { ok: false, message: "Selectionnez ou saisissez un angle editorial.", focusSelector: ".creation-option-card, [data-publication-custom-angle='true']" };
       }
@@ -728,7 +803,32 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       return { ok: true };
     }
 
+    if (stepId === "structure") {
+      if (!articleWorkflowState.selectedStructureId) {
+        return { ok: false, message: "Generez puis selectionnez une structure.", focusSelector: ".creation-option-card" };
+      }
+      return { ok: true };
+    }
+
     if (stepId === "parameters") {
+      if (draft.objective.objective === "article") {
+        if (!draft.objective.subtypeId) {
+          return { ok: false, message: "Selectionnez un type d article." };
+        }
+        if (!draft.parameters.toneId) {
+          return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-article-tone='true']" };
+        }
+        if (!draft.parameters.audienceId) {
+          return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-article-audience='true']" };
+        }
+        if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
+          return { ok: false, message: "Renseignez le ton libre." };
+        }
+        if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
+          return { ok: false, message: "Renseignez le public libre." };
+        }
+        return { ok: true };
+      }
       if (draft.objective.objective === "publication") {
         if (!draft.parameters.publicationPlatform) {
           return { ok: false, message: "Selectionnez une plateforme.", focusSelector: "[data-publication-platform='true']" };
@@ -844,7 +944,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     if (stepId === "context") {
-      if (!draft.parameters.useContextIntelligence) return { ok: true };
+      if (!draft.parameters.useContextIntelligence && draft.objective.objective !== "article") return { ok: true };
       if (!draft.parameters.contextEnableCrm && !draft.parameters.contextEnableProductions && !draft.parameters.contextEnableManual && !draft.parameters.contextEnableExternalNews) {
         return { ok: false, message: "Selectionnez au moins une source de contexte.", focusSelector: ".creation-toggle-row input[type='checkbox']" };
       }
@@ -858,7 +958,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
 
     return { ok: true };
-  }, [contextState.hasCollected, contextState.loading, draft, objectiveParameters]);
+  }, [articleWorkflowState.selectedStructureId, contextState.hasCollected, contextState.loading, draft, objectiveParameters]);
 
   const preparedPayload = useMemo(() => {
     return ContentCreationAssistantService.preparePayload({
@@ -945,6 +1045,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     setStepErrorMessage(null);
     setGenerateState({ loading: false, errorMessage: null });
     setPublicationAnglesState({ loading: false, errorMessage: null, suggestions: [] });
+    setArticleWorkflowState({
+      loadingAction: null,
+      errorMessage: null,
+      suggestions: [],
+      structures: [],
+      selectedStructureId: "",
+    });
   };
 
   const selectSubjectType = (type: CreationSubjectType) => {
@@ -1015,11 +1122,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       },
       parameters: {
         ...current.parameters,
-        toneId: id === "publication" || id === "reel" ? current.parameters.toneId || "authentic" : "",
+        toneId: id === "publication" || id === "article" || id === "reel" ? current.parameters.toneId || "authentic" : "",
         questionCountId: "",
         customQuestionCount: "",
         formatId: id === "publication" ? current.parameters.publicationPlatform : id === "reel" ? current.parameters.reelFormat : "",
-        audienceId: id === "publication" || id === "reel" ? current.parameters.audienceId || "general" : "",
+        audienceId: id === "publication" || id === "article" || id === "reel" ? current.parameters.audienceId || "general" : "",
+        useContextIntelligence: id === "article" ? true : current.parameters.useContextIntelligence,
         requiredTopics: "",
         avoidedTopics: "",
       },
@@ -1040,7 +1148,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ payload: preparedPayload }),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), payload: preparedPayload }),
         signal: controller.signal,
       });
 
@@ -1094,6 +1202,163 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }
     } finally {
       generationAbortRef.current = null;
+      if (!resultNavigationStartedRef.current) {
+        generationInFlightRef.current = false;
+        void loadCreditBalance();
+      }
+    }
+  };
+
+  const generateArticleAngles = async () => {
+    if (!preparedPayload || articleWorkflowState.loadingAction) return;
+
+    setArticleWorkflowState((current) => ({ ...current, loadingAction: "angles", errorMessage: null }));
+    try {
+      const request: ArticleAngleSuggestionsRequest = buildArticleAngleSuggestionsRequest(preparedPayload);
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "angles", requestId: crypto.randomUUID(), request }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok: true; action: "angles"; result: { suggestions: PublicationAngleSuggestion[] } }
+        | ArticleApiError
+        | null;
+      if (!response.ok || !payload?.ok || payload.action !== "angles") {
+        setArticleWorkflowState((current) => ({
+          ...current,
+          loadingAction: null,
+          errorMessage: formatArticleApiError(payload && !payload.ok ? payload : null, "Impossible de proposer des angles Article."),
+        }));
+        return;
+      }
+      setArticleWorkflowState({
+        loadingAction: null,
+        errorMessage: null,
+        suggestions: payload.result.suggestions,
+        structures: [],
+        selectedStructureId: "",
+      });
+    } catch {
+      setArticleWorkflowState((current) => ({
+        ...current,
+        loadingAction: null,
+        errorMessage: "Impossible de proposer des angles Article.",
+      }));
+    } finally {
+      void loadCreditBalance();
+    }
+  };
+
+  const generateArticleStructures = async () => {
+    if (!preparedPayload || !normalize(draft.parameters.articleSelectedAngle) || articleWorkflowState.loadingAction) return;
+
+    setArticleWorkflowState((current) => ({ ...current, loadingAction: "structures", errorMessage: null }));
+    try {
+      const request: ArticleGenerationRequest = buildArticleGenerationRequest(
+        preparedPayload,
+        draft.parameters.articleSelectedAngle,
+      );
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "structures", requestId: crypto.randomUUID(), request }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { ok: true; action: "structures"; result: { suggestions: ArticleStructureSuggestion[] } }
+        | ArticleApiError
+        | null;
+      if (!response.ok || !payload?.ok || payload.action !== "structures") {
+        setArticleWorkflowState((current) => ({
+          ...current,
+          loadingAction: null,
+          errorMessage: formatArticleApiError(payload && !payload.ok ? payload : null, "Impossible de proposer des structures Article."),
+        }));
+        return;
+      }
+      setArticleWorkflowState((current) => ({
+        ...current,
+        loadingAction: null,
+        errorMessage: null,
+        structures: payload.result.suggestions,
+        selectedStructureId: "",
+      }));
+    } catch {
+      setArticleWorkflowState((current) => ({
+        ...current,
+        loadingAction: null,
+        errorMessage: "Impossible de proposer des structures Article.",
+      }));
+    } finally {
+      void loadCreditBalance();
+    }
+  };
+
+  const runArticleFinalGeneration = async () => {
+    if (!preparedPayload || generationInFlightRef.current || resultNavigationStartedRef.current) return;
+    const selectedStructure = articleWorkflowState.structures.find(
+      (structure) => structure.id === articleWorkflowState.selectedStructureId,
+    );
+    if (!selectedStructure || !normalize(draft.parameters.articleSelectedAngle)) return;
+
+    generationInFlightRef.current = true;
+    setGenerateState({ loading: true, errorMessage: null });
+    setArticleWorkflowState((current) => ({ ...current, loadingAction: "final", errorMessage: null }));
+    try {
+      const request = buildArticleGenerationRequest(preparedPayload, draft.parameters.articleSelectedAngle);
+      const response = await fetch("/api/contents/generate/article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "final",
+          requestId: crypto.randomUUID(),
+          request,
+          selectedStructure,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            ok: true;
+            action: "final";
+            result: {
+              article: ArticleFinalResult;
+              metadata: {
+                provider: "openai";
+                model: string;
+                generatedAt: string;
+                generationDurationMs: number;
+              };
+            };
+          }
+        | ArticleApiError
+        | null;
+      if (!response.ok || !payload?.ok || payload.action !== "final") {
+        setGenerateState({
+          loading: false,
+          errorMessage: formatArticleApiError(payload && !payload.ok ? payload : null, "Impossible de generer l article."),
+        });
+        setArticleWorkflowState((current) => ({ ...current, loadingAction: null }));
+        return;
+      }
+
+      const selectedAngle = articleWorkflowState.suggestions.find(
+        (suggestion) => suggestion.title === draft.parameters.articleSelectedAngle,
+      ) ?? { id: "article-angle-manual", title: draft.parameters.articleSelectedAngle, rationale: "" };
+      const sessionRecord = await saveArticleResultSession({
+        request,
+        result: payload.result.article,
+        selectedAngle: { id: selectedAngle.id, title: selectedAngle.title },
+        selectedStructure,
+        generationMetadata: payload.result.metadata,
+        createdAt: new Date().toISOString(),
+      });
+      resultNavigationStartedRef.current = true;
+      navigateToContentResult(buildResultUrl(sessionRecord.sessionId, `article-${sessionRecord.createdAt}`));
+    } catch {
+      resultNavigationStartedRef.current = false;
+      setGenerateState({ loading: false, errorMessage: "Impossible de generer l article." });
+      setArticleWorkflowState((current) => ({ ...current, loadingAction: null }));
+    } finally {
       if (!resultNavigationStartedRef.current) {
         generationInFlightRef.current = false;
         void loadCreditBalance();
@@ -1241,12 +1506,32 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     void generatePublicationAngles();
   };
 
+  const requestArticleAngles = () => {
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "article_angles", cost: 1 });
+      return;
+    }
+    void generateArticleAngles();
+  };
+
+  const requestArticleStructures = () => {
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "article_structures", cost: 1 });
+      return;
+    }
+    void generateArticleStructures();
+  };
+
   const requestFinalGeneration = () => {
     if (mediaCreditRole === "media") {
       setCreditModal({ kind: "generation", cost: getGenerationCreditCost() });
       return;
     }
-    void runInterviewGeneration();
+    if (isArticleFlow) {
+      void runArticleFinalGeneration();
+    } else {
+      void runInterviewGeneration();
+    }
   };
 
   const closeCreditModal = () => {
@@ -1262,6 +1547,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         await collectContext();
       } else if (creditModal.kind === "publication_angles") {
         await generatePublicationAngles();
+      } else if (creditModal.kind === "article_angles") {
+        await generateArticleAngles();
+      } else if (creditModal.kind === "article_structures") {
+        await generateArticleStructures();
+      } else if (isArticleFlow) {
+        await runArticleFinalGeneration();
       } else {
         await runInterviewGeneration();
       }
@@ -1298,6 +1589,23 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }),
     }));
   }, []);
+
+  const startContextItemEdit = (item: ContextItem) => {
+    setContextItemEditState({
+      itemId: item.id,
+      value: item.editedSummary || item.summary,
+    });
+  };
+
+  const cancelContextItemEdit = () => {
+    setContextItemEditState(null);
+  };
+
+  const saveContextItemEdit = () => {
+    if (!contextItemEditState) return;
+    updateContextSummary(contextItemEditState.itemId, contextItemEditState.value);
+    setContextItemEditState(null);
+  };
 
   const contextByCategory = useMemo<ContextCategoryGroup[]>(() => {
     const map = new Map<string, ContextItem[]>();
@@ -1549,7 +1857,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const renderObjectiveStep = () => {
     // Objective preselectionnee via l URL: Publication/Interview conservent l etape mais masquent les cartes de formats.
     const isRestrictedToSubselection =
-      hasPreselectedObjective && (draft.objective.objective === "publication" || draft.objective.objective === "interview");
+      hasPreselectedObjective
+      && (draft.objective.objective === "publication"
+        || draft.objective.objective === "interview"
+        || draft.objective.objective === "article");
 
     const title = isRestrictedToSubselection
       ? draft.objective.objective === "publication"
@@ -1755,6 +2066,59 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderAngleStep = () => {
+    if (draft.objective.objective === "article") {
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-angle-title">
+          <header className="creation-step-head">
+            <h2 id="creation-angle-title">Angle editorial de l article</h2>
+            <p>Le moteur propose trois angles a partir du dossier editorial reconstruit cote serveur.</p>
+          </header>
+          <section className="creation-panel">
+            <div className="creation-footer-actions">
+              <button
+                type="button"
+                className="crm-primary-action"
+                onClick={requestArticleAngles}
+                disabled={!preparedPayload || Boolean(articleWorkflowState.loadingAction) || isCreditCostBlocked(1)}
+              >
+                {articleWorkflowState.loadingAction === "angles" ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+                {articleWorkflowState.loadingAction === "angles" ? "Generation des angles" : "Proposer des angles"}
+              </button>
+            </div>
+            {articleWorkflowState.errorMessage ? (
+              <p className="creation-error" role="alert">{articleWorkflowState.errorMessage}</p>
+            ) : null}
+            {articleWorkflowState.suggestions.length > 0 ? (
+              <div className="creation-option-grid">
+                {articleWorkflowState.suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.id}
+                    type="button"
+                    className={draft.parameters.articleSelectedAngle === suggestion.title ? "creation-option-card is-active" : "creation-option-card"}
+                    onClick={() => {
+                      setDraft((current) => ({
+                        ...current,
+                        parameters: { ...current.parameters, articleSelectedAngle: suggestion.title },
+                      }));
+                      setArticleWorkflowState((current) => ({
+                        ...current,
+                        structures: [],
+                        selectedStructureId: "",
+                        errorMessage: null,
+                      }));
+                    }}
+                  >
+                    <strong>{suggestion.title}</strong>
+                    <p>{suggestion.rationale}</p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        </section>
+      );
+    }
+
     if (draft.objective.objective === "reel") {
       return (
         <section className="creation-step-block" aria-labelledby="creation-angle-title">
@@ -1899,7 +2263,189 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     );
   };
 
+  const renderStructureStep = () => {
+    return (
+      <section className="creation-step-block" aria-labelledby="creation-structure-title">
+        <header className="creation-step-head">
+          <h2 id="creation-structure-title">Structure de l article</h2>
+          <p>Choisissez une structure compatible avec l angle et la longueur selectionnes.</p>
+        </header>
+        <section className="creation-panel">
+          <div className="creation-footer-actions">
+            <button
+              type="button"
+              className="crm-primary-action"
+              onClick={requestArticleStructures}
+              disabled={
+                !preparedPayload
+                || !normalize(draft.parameters.articleSelectedAngle)
+                || Boolean(articleWorkflowState.loadingAction)
+                || isCreditCostBlocked(1)
+              }
+            >
+              {articleWorkflowState.loadingAction === "structures" ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
+              {articleWorkflowState.loadingAction === "structures" ? "Generation des structures" : "Proposer des structures"}
+            </button>
+          </div>
+          {articleWorkflowState.errorMessage ? (
+            <p className="creation-error" role="alert">{articleWorkflowState.errorMessage}</p>
+          ) : null}
+          {articleWorkflowState.structures.length > 0 ? (
+            <div className="creation-option-grid">
+              {articleWorkflowState.structures.map((structure) => (
+                <button
+                  key={structure.id}
+                  type="button"
+                  className={articleWorkflowState.selectedStructureId === structure.id ? "creation-option-card is-active" : "creation-option-card"}
+                  onClick={() =>
+                    setArticleWorkflowState((current) => ({
+                      ...current,
+                      selectedStructureId: structure.id,
+                      errorMessage: null,
+                    }))
+                  }
+                >
+                  <strong>{structure.title}</strong>
+                  <p>{structure.editorialPromise}</p>
+                  <small>{structure.estimatedWordCount} mots environ</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </section>
+    );
+  };
+
   const renderParametersStep = () => {
+    if (draft.objective.objective === "article") {
+      return (
+        <section className="creation-step-block" aria-labelledby="creation-params-title">
+          <header className="creation-step-head">
+            <h2 id="creation-params-title">Parametres de l article</h2>
+            <p>Definissez uniquement les parametres pris en charge par le moteur Article.</p>
+          </header>
+
+          <section className="creation-panel">
+            <div className="creation-fields-grid">
+              <label>
+                <span>Longueur</span>
+                <select
+                  data-article-length="true"
+                  value={draft.parameters.articleLength}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        articleLength: event.target.value as CreationAssistantDraft["parameters"]["articleLength"],
+                      },
+                    }))
+                  }
+                >
+                  <option value="breve">Breve</option>
+                  <option value="court">Court</option>
+                  <option value="moyen">Moyen</option>
+                  <option value="long">Long</option>
+                </select>
+              </label>
+              <label>
+                <span>Ton</span>
+                <select
+                  data-article-tone="true"
+                  value={draft.parameters.toneId}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, toneId: event.target.value },
+                    }))
+                  }
+                >
+                  {CONTENT_TONE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Audience</span>
+                <select
+                  data-article-audience="true"
+                  value={draft.parameters.audienceId}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, audienceId: event.target.value },
+                    }))
+                  }
+                >
+                  {CONTENT_AUDIENCE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {draft.parameters.toneId === "free" ? (
+              <label className="creation-inline-field">
+                <span>Ton libre</span>
+                <input
+                  type="text"
+                  value={draft.parameters.customTone}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, customTone: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+            {draft.parameters.audienceId === "free" ? (
+              <label className="creation-inline-field">
+                <span>Audience libre</span>
+                <input
+                  type="text"
+                  value={draft.parameters.customAudience}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, customAudience: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            ) : null}
+            <label className="creation-inline-field">
+              <span>Contexte editorial complementaire</span>
+              <textarea
+                className="creation-textarea"
+                value={draft.parameters.additionalContext}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: { ...current.parameters, additionalContext: event.target.value },
+                  }))
+                }
+              />
+            </label>
+            <label className="creation-inline-field">
+              <span>Sujets a traiter</span>
+              <textarea
+                className="creation-textarea"
+                value={draft.parameters.requiredTopics}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    parameters: { ...current.parameters, requiredTopics: event.target.value },
+                  }))
+                }
+              />
+            </label>
+          </section>
+        </section>
+      );
+    }
+
     if (draft.objective.objective === "reel") {
       return (
         <section className="creation-step-block" aria-labelledby="creation-params-title">
@@ -2678,7 +3224,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const renderContextStep = () => {
-    const title = isPublicationFlow ? "Contexte intelligent" : "Preparation du contexte";
+    const title = isPublicationFlow ? "Contexte intelligent" : "Préparation du contexte";
 
     if (!draft.parameters.useContextIntelligence) {
       return (
@@ -2686,7 +3232,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <header className="creation-step-head">
             <h2 id="creation-context-title">{title}</h2>
           </header>
-          <p className="creation-muted">{isPublicationFlow ? "Le contexte intelligent est desactive. Activez l option \"Enrichir avec le contexte intelligent\" a l etape precedente pour utiliser les donnees du workspace." : "Le contexte intelligent est desactive. Passez a l etape suivante pour generer le contenu."}</p>
+          <p className="creation-muted">{isPublicationFlow ? "Le contexte intelligent est désactivé. Activez l’option « Enrichir avec le contexte intelligent » à l’étape précédente pour utiliser les données du workspace." : "Le contexte intelligent est désactivé. Passez à l’étape suivante pour générer le contenu."}</p>
         </section>
       );
     }
@@ -2696,7 +3242,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       <section className="creation-step-block" aria-labelledby="creation-context-title">
         <header className="creation-step-head">
           <h2 id="creation-context-title">{title}</h2>
-          <p>Collectez, relisez et selectionnez les elements qui seront utilises pour la generation.</p>
+          <p>Collectez, relisez et sélectionnez les éléments qui seront utilisés pour la génération.</p>
         </header>
 
         <section className="creation-panel">
@@ -2767,7 +3313,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                   }))
                 }
               />
-              <span>Actualite externe</span>
+              <span>Actualité externe</span>
             </label>
           </div>
 
@@ -2779,7 +3325,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
           <div className="creation-fields-grid">
             <label>
-              <span>Periode</span>
+              <span>Période</span>
               <select
                 value={draft.parameters.contextDateRangePreset}
                 onChange={(event) =>
@@ -2796,7 +3342,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 <option value="last_30_days">30 derniers jours</option>
                 <option value="last_90_days">90 derniers jours</option>
                 <option value="last_12_months">12 derniers mois</option>
-                <option value="custom">Personnalisee</option>
+                <option value="custom">Personnalisée</option>
               </select>
             </label>
 
@@ -2890,7 +3436,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               {contextState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {contextState.loading ? "Recherche en cours" : contextState.hasCollected ? "Relancer la recherche du contexte" : "Rechercher le contexte"}
             </button>
-            <p className="creation-muted">Seuls les elements selectionnes seront transmis a la generation.</p>
+            <p className="creation-muted">Seuls les éléments sélectionnés seront transmis à la génération.</p>
           </div>
 
           {contextState.errorMessage ? (
@@ -2899,10 +3445,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
           {contextState.hasCollected ? (
             <dl className="creation-summary-grid">
-              <div><dt>Elements trouves</dt><dd>{contextState.items.length}</dd></div>
-              <div><dt>Elements selectionnes</dt><dd>{selectedCount}</dd></div>
-              <div><dt>Date de recherche</dt><dd>{contextState.researchedAt ? formatDateTimeLabel(contextState.researchedAt) : "Non definie"}</dd></div>
-              <div><dt>Periode</dt><dd>{formatDateRangeLabel(contextState.dateRange)}</dd></div>
+              <div><dt>Éléments trouvés</dt><dd>{contextState.items.length}</dd></div>
+              <div><dt>Éléments sélectionnés</dt><dd>{selectedCount}</dd></div>
+              <div><dt>Date de recherche</dt><dd>{contextState.researchedAt ? formatDateTimeLabel(contextState.researchedAt) : "Non définie"}</dd></div>
+              <div><dt>Période</dt><dd>{formatDateRangeLabel(contextState.dateRange)}</dd></div>
             </dl>
           ) : null}
         </section>
@@ -2910,7 +3456,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         {contextState.reports.length > 0 ? (
           <section className="creation-panel">
             <header>
-              <h3>Etat des connecteurs</h3>
+              <h3>État des connecteurs</h3>
             </header>
             <ul className="creation-context-list">
               {contextState.reports.map((report) => (
@@ -2920,12 +3466,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     <span>{getConnectorStatusLabel(report.status)}</span>
                   </div>
                   <small>
-                    {report.itemCount > 0 ? `${report.itemCount} element(s)` : "Aucun element"}
+                    {report.itemCount > 0 ? `${report.itemCount} élément(s)` : "Aucun élément"}
                     {report.message ? ` | ${getConnectorStatusMessage(report)}` : ` | ${getConnectorStatusMessage(report)}`}
                   </small>
                   {report.connectorId === "external_news" && (report.status === "error" || report.status === "unavailable") ? (
                     <button type="button" className="contents-ghost-button" onClick={requestContextSearch} disabled={contextState.loading}>
-                      Reessayer
+                      Réessayer
                     </button>
                   ) : null}
                 </li>
@@ -2937,7 +3483,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         {contextByCategory.length > 0 ? (
           <section className="creation-panel">
             <header>
-              <h3>Revision et selection</h3>
+              <h3>Révision et sélection</h3>
             </header>
 
             {contextByCategory.map((group) => {
@@ -2945,46 +3491,100 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               return (
                 <article key={group.category} className="creation-context-category">
                   <div className="creation-context-category-head">
-                    <h4>{contextCategoryLabels[group.category as ContextItemCategory] ?? group.category}</h4>
-                    <p>{selectedInCategory}/{group.items.length} selectionne(s)</p>
-                    <div className="creation-toggle-row">
-                      <button type="button" className="contents-ghost-button" onClick={() => toggleContextCategory(group.category, true)}>
-                        Tout selectionner
+                    <div>
+                      <h4>{contextCategoryLabels[group.category as ContextItemCategory] ?? group.category}</h4>
+                      <p>{selectedInCategory}/{group.items.length} sélectionné(s)</p>
+                    </div>
+                    <div className="creation-context-category-actions">
+                      <button type="button" onClick={() => toggleContextCategory(group.category, true)}>
+                        Tout sélectionner
                       </button>
-                      <button type="button" className="contents-ghost-button" onClick={() => toggleContextCategory(group.category, false)}>
-                        Tout deselectionner
+                      <button type="button" onClick={() => toggleContextCategory(group.category, false)}>
+                        Tout désélectionner
                       </button>
                     </div>
                   </div>
 
-                  <ul className="creation-context-list">
-                    {group.items.map((item) => (
-                      <li key={item.id} className={item.isSensitive ? "is-sensitive" : ""}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={item.isSelected}
-                            onChange={(event) => toggleContextItem(item.id, event.target.checked)}
-                          />
-                          <span>{item.title}</span>
-                        </label>
-                        <small>
-                          {item.sourceName}
-                          {item.publishedAt ? ` | ${item.publishedAt}` : ""}
-                          {item.isSensitive ? " | Verifier avant publication" : ""}
-                        </small>
-                        <textarea
-                          className="creation-textarea"
-                          value={item.editedSummary || item.summary}
-                          readOnly={!item.isEditable}
-                          onChange={(event) => updateContextSummary(item.id, event.target.value)}
-                        />
-                        {item.sourceUrl ? (
-                          <a href={item.sourceUrl} target="_blank" rel="noreferrer noopener">Voir la source</a>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="creation-context-cards" role="list">
+                    {group.items.map((item) => {
+                      const isEditing = contextItemEditState?.itemId === item.id;
+                      return (
+                        <article
+                          key={item.id}
+                          role="listitem"
+                          className={`creation-context-card${item.isSensitive ? " is-sensitive" : ""}`}
+                        >
+                          <div className="creation-context-card-check">
+                            <input
+                              type="checkbox"
+                              aria-label={`Sélectionner ${item.title}`}
+                              checked={item.isSelected}
+                              onChange={(event) => toggleContextItem(item.id, event.target.checked)}
+                            />
+                          </div>
+
+                          <div className="creation-context-card-body">
+                            <div className="creation-context-card-head">
+                              <h5>{item.title}</h5>
+                              <span className="creation-context-card-badge">
+                                {contextCategoryLabels[item.category as ContextItemCategory] ?? item.category}
+                              </span>
+                            </div>
+
+                            {isEditing ? (
+                              <div className="creation-context-card-editor">
+                                <textarea
+                                  className="creation-textarea"
+                                  aria-label={`Modifier ${item.title}`}
+                                  value={contextItemEditState.value}
+                                  onChange={(event) =>
+                                    setContextItemEditState({
+                                      itemId: item.id,
+                                      value: event.target.value,
+                                    })
+                                  }
+                                />
+                                <div className="creation-context-card-editor-actions">
+                                  <button type="button" className="contents-secondary-button" onClick={saveContextItemEdit}>
+                                    Enregistrer la modification
+                                  </button>
+                                  <button type="button" className="contents-ghost-button" onClick={cancelContextItemEdit}>
+                                    Annuler
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="creation-context-card-copy">{item.editedSummary || item.summary}</p>
+                            )}
+
+                            <div className="creation-context-card-footer">
+                              <div className="creation-context-card-meta">
+                                <strong>{item.sourceName}</strong>
+                                {item.publishedAt || item.retrievedAt ? (
+                                  <time dateTime={item.publishedAt ?? item.retrievedAt}>
+                                    {formatDateTimeLabel(item.publishedAt ?? item.retrievedAt)}
+                                  </time>
+                                ) : null}
+                                {item.sourceUrl ? (
+                                  <a href={item.sourceUrl} target="_blank" rel="noreferrer noopener">Voir la source</a>
+                                ) : null}
+                                {item.isSensitive ? <small>Vérifier avant publication</small> : null}
+                              </div>
+                              {!isEditing && item.isEditable ? (
+                                <button
+                                  type="button"
+                                  className="contents-secondary-button creation-context-card-edit"
+                                  onClick={() => startContextItemEdit(item)}
+                                >
+                                  Modifier
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
                 </article>
               );
             })}
@@ -3179,7 +3779,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         ? normalize(draft.parameters.customTone) || "Libre"
         : findOption(params.toneOptions, draft.parameters.toneId)?.label
       : "";
-    const formatLabel = params ? findOption(params.formatOptions, draft.parameters.formatId)?.label : "";
+    const formatLabel = isArticleFlow
+      ? "Article"
+      : params
+        ? findOption(params.formatOptions, draft.parameters.formatId)?.label
+        : "";
     const audienceLabel = params
       ? draft.parameters.audienceId === "free"
         ? normalize(draft.parameters.customAudience) || "Libre"
@@ -3213,9 +3817,28 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <div><dt>Objectif</dt><dd>{selectedObjectiveTitle}</dd></div>
           <div><dt>Type</dt><dd>{subtypeLabel || "Non defini"}</dd></div>
           <div><dt>Ton</dt><dd>{toneLabel || "Non defini"}</dd></div>
-          <div><dt>Longueur</dt><dd>{questionCountLabel || "Non defini"}</dd></div>
+          <div>
+            <dt>Longueur</dt>
+            <dd>
+              {isArticleFlow
+                ? ({ breve: "Breve", court: "Court", moyen: "Moyen", long: "Long" })[draft.parameters.articleLength]
+                : questionCountLabel || "Non defini"}
+            </dd>
+          </div>
           <div><dt>Format</dt><dd>{formatLabel || "Non defini"}</dd></div>
           <div><dt>Public</dt><dd>{audienceLabel || "Non defini"}</dd></div>
+          {isArticleFlow ? (
+            <>
+              <div><dt>Angle</dt><dd>{draft.parameters.articleSelectedAngle || "Non defini"}</dd></div>
+              <div>
+                <dt>Structure</dt>
+                <dd>
+                  {articleWorkflowState.structures.find((item) => item.id === articleWorkflowState.selectedStructureId)?.title
+                    ?? "Non definie"}
+                </dd>
+              </div>
+            </>
+          ) : null}
           <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun contexte supplementaire"}</dd></div>
           <div><dt>Contexte intelligent</dt><dd>{draft.parameters.useContextIntelligence ? "Active" : "Desactive"}</dd></div>
           {draft.parameters.useContextIntelligence ? (
@@ -3247,7 +3870,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           {generateState.loading ? (
             <section className="creation-generation-state" aria-live="polite" aria-busy="true">
               <header>
-                <h3>Creation de votre interview</h3>
+                <h3>{isArticleFlow ? "Creation de votre article" : "Creation de votre interview"}</h3>
               </header>
               <ul>
                 <li><Bot size={14} aria-hidden /> Analyse du sujet</li>
@@ -3273,6 +3896,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       </section>
     );
   }
+
+  const isNextStepDisabled =
+    effectiveStepIndex === steps.length - 1
+    || (isArticleFlow
+      && step.id === "angle"
+      && !normalize(draft.parameters.articleSelectedAngle))
+    || (isArticleFlow
+      && step.id === "structure"
+      && !articleWorkflowState.structures.some(
+        (structure) => structure.id === articleWorkflowState.selectedStructureId,
+      ));
 
   return (
     <section className="creation-assistant-screen">
@@ -3325,6 +3959,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       {step.id === "objective" ? renderObjectiveStep() : null}
       {step.id === "match" ? renderMatchStep() : null}
       {step.id === "angle" ? renderAngleStep() : null}
+      {step.id === "structure" ? renderStructureStep() : null}
       {step.id === "parameters" ? renderParametersStep() : null}
       {step.id === "context" ? renderContextStep() : null}
       {step.id === "summary" ? renderSummaryStep() : null}
@@ -3339,7 +3974,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         </button>
         <div className="creation-footer-right">
           <Link href="/contents" className="contents-ghost-button">Quitter</Link>
-          <button type="button" className="crm-primary-action" onClick={moveNext} disabled={effectiveStepIndex === steps.length - 1}>
+          <button
+            type="button"
+            className="crm-primary-action"
+            onClick={moveNext}
+            disabled={isNextStepDisabled}
+            aria-disabled={isNextStepDisabled}
+          >
             Suivant <ArrowRight size={15} aria-hidden />
           </button>
         </div>

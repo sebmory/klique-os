@@ -22,9 +22,72 @@ export type ContentGenerationErrorCode =
   | "PROVIDER_REFUSAL"
   | "EMPTY_PROVIDER_RESPONSE"
   | "INCOMPLETE_PROVIDER_RESPONSE"
-  | "RATE_LIMITED";
+  | "RATE_LIMITED"
+  | "EDITORIAL_GENERATION_BLOCKED";
 
 export type ContentLanguage = "fr" | "fr-CH";
+
+export type EditorialGenerationMode = "ready" | "limited";
+
+export type EditorialGenerationSource = {
+  name: string;
+  url?: string;
+  publishedAt?: string;
+  official: boolean;
+  confidence: ContextItem["confidence"];
+};
+
+export type EditorialGenerationMetadata = {
+  dossierRevision: number;
+  generationMode: EditorialGenerationMode;
+  confidence: {
+    level: ContextItem["confidence"];
+    score: number;
+    explanation: string[];
+  };
+  usedSources: EditorialGenerationSource[];
+  contradictions: string[];
+  missingInformation: string[];
+  warnings: string[];
+};
+
+export type EditorialModelContext = {
+  generationMode: EditorialGenerationMode;
+  subject: {
+    type: string;
+    displayName: string;
+    sport?: string;
+    clubOrOrganization?: string;
+    publicRoleOrPosition?: string;
+  };
+  facts: Array<{
+    category: string;
+    text: string;
+    verificationStatus: string;
+    confidence: ContextItem["confidence"];
+    freshness: "current" | "historical" | "unknown";
+    eventDate?: string;
+    sourceNames: string[];
+  }>;
+  chronology: Array<{
+    date: string;
+    text: string;
+  }>;
+  citations: Array<{
+    text: string;
+    author?: string;
+    verificationStatus: string;
+    freshness: "current" | "historical" | "unknown";
+    sourceNames: string[];
+  }>;
+  editorialLeads: Array<{
+    text: string;
+    verificationStatus: string;
+    confidence: ContextItem["confidence"];
+  }>;
+  missingInformation: string[];
+  unresolvedContradictions: string[];
+};
 
 export type ContentSubjectSource = "crm" | "temporary";
 
@@ -248,6 +311,8 @@ type ContentGenerationRequestBase = {
   };
   rulesVersion: string;
   externalContext: null;
+  editorialContext?: EditorialModelContext;
+  editorialGeneration?: EditorialGenerationMetadata;
 };
 
 export type InterviewGenerationRequest = ContentGenerationRequestBase & {
@@ -355,6 +420,7 @@ export type ContentGenerationMetadata = {
   reliabilityNotes: string[];
   missingInformation: string[];
   externalContextUsed: boolean;
+  editorial?: EditorialGenerationMetadata;
 };
 
 export type InterviewGenerationMetadata = ContentGenerationMetadata;
@@ -468,6 +534,7 @@ export type ArticleFinalSection = {
 export type ArticleGenerationMetadata = {
   templateId: "article";
   templateVersion: "v1";
+  editorial?: EditorialGenerationMetadata;
 };
 
 export type ArticleFinalResult = {
@@ -498,6 +565,7 @@ export type PublicationRegenerateOneResult = {
 };
 
 export type GenerateContentApiRequest = {
+  requestId?: string;
   operation?: "interview" | "variation" | "publication_angles" | "publication_regenerate_one";
   payload?: CreationPreparationPayload;
   variation?: ContentVariationRequest;
@@ -518,6 +586,11 @@ export type GenerateContentApiError = {
   ok: false;
   code: ContentGenerationErrorCode;
   message: string;
+  editorial?: {
+    missingInformation: string[];
+    contradictions: string[];
+    warnings: string[];
+  };
 };
 
 export type GenerateVariationApiSuccess = {

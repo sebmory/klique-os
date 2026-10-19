@@ -12,6 +12,13 @@ export const buildContentPrompt = (args: {
   const contextRules = [
     `- Nombre d elements de contexte selectionnes: ${selectedCount}.`,
     "- Utiliser uniquement les faits selectionnes transmis dans le contexte.",
+    "- Aucun fait, score, date, club, resultat, citation ou palmares ne peut etre invente.",
+    "- Ne jamais resoudre automatiquement une contradiction.",
+    "- Ne jamais fabriquer une citation ni reformuler un texte comme citation directe.",
+    "- Une piste editoriale ou une donnee manuelle non verifiee reste une hypothese.",
+    "- Transformer une information manquante en question ouverte ou l omettre.",
+    "- Ne jamais presenter un element historique comme une actualite recente.",
+    "- Rester strictement dans le perimetre du dossier editorial fourni.",
     "- Ne jamais transformer une piste editoriale en fait verifie.",
     "- Ne jamais inventer de detail absent.",
     "- Ne pas affirmer un resultat non fourni.",

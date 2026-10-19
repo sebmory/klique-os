@@ -19,6 +19,12 @@ import { validateVariationRequest } from "@/services/content-variants/request-va
 import type { PublicationGenerationRequest, PublicationGenerationResult } from "@/types/content-generation";
 import { resolveEditorialContextSelection } from "@/services/context-intelligence/collection-service";
 import { secureGenerationContext } from "@/services/content-intelligence/article-request-security";
+import {
+  EditorialGenerationBlockedError,
+  prepareEditorialGeneration,
+  type PreparedEditorialGeneration,
+} from "@/services/editorial-generation/server-context";
+import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -140,6 +146,28 @@ export async function POST(request: Request) {
       mediaId: accessContext.mediaId,
       requestGroupId: randomUUID(),
     };
+    let validatedGenerationPayload: CreationPreparationPayload | null = null;
+    let preparedInterview: PreparedEditorialGeneration | undefined;
+    const isPrimaryGeneration = !body?.operation || body.operation === "interview";
+    if (isPrimaryGeneration) {
+      validatedGenerationPayload = validateCreationPayload(body?.payload);
+      if (validatedGenerationPayload.objective.id === "interview") {
+        preparedInterview = await prepareEditorialGeneration({
+          contextSelection: {
+            collectionId: validatedGenerationPayload.parameters.contextIntelligence.collectionId,
+            selectedItemIds: validatedGenerationPayload.parameters.contextIntelligence.selectedItemIds,
+            manualEdits: validatedGenerationPayload.parameters.contextIntelligence.manualEdits,
+          },
+          subject: validatedGenerationPayload.subject,
+          target: {
+            type: "interview",
+            interviewType: validatedGenerationPayload.objective.subtypeId as never,
+          },
+          access: accessContext,
+        });
+        validatedGenerationPayload.parameters.contextIntelligence.selectedContextItems = preparedInterview.selectedItems;
+      }
+    }
 
     const contentCreditOperation =
       body?.operation === "publication_angles"
@@ -262,13 +290,15 @@ export async function POST(request: Request) {
       });
     }
 
-    const payload = validateCreationPayload(body?.payload);
-    payload.parameters.contextIntelligence.selectedContextItems = await resolveEditorialContextSelection(
-      payload.parameters.contextIntelligence,
-      accessContext,
-    );
+    const payload = validatedGenerationPayload ?? validateCreationPayload(body?.payload);
+    if (!preparedInterview) {
+      payload.parameters.contextIntelligence.selectedContextItems = await resolveEditorialContextSelection(
+        payload.parameters.contextIntelligence,
+        accessContext,
+      );
+    }
 
-    const output = await runContentIntelligenceEngine(payload, usageContext);
+    const output = await runContentIntelligenceEngine(payload, usageContext, preparedInterview);
 
     const response: GenerateContentApiSuccess = {
       ok: true,
@@ -320,6 +350,13 @@ export async function POST(request: Request) {
       message: normalized.message,
     });
 
+    const blockedEditorial = error instanceof EditorialGenerationBlockedError
+      ? {
+          missingInformation: error.eligibility.missingInformation,
+          contradictions: error.eligibility.contradictionSummaries,
+          warnings: error.eligibility.warnings,
+        }
+      : undefined;
     const response: GenerateContentApiError = {
       ok: false,
       code: normalized.code,
@@ -352,6 +389,7 @@ export async function POST(request: Request) {
             : normalized.code === "INVALID_PROVIDER_RESPONSE"
               ? "Le moteur a renvoye une reponse invalide."
               : normalized.message,
+      ...(blockedEditorial ? { editorial: blockedEditorial } : {}),
     };
 
     return NextResponse.json(response, { status: mapContentGenerationErrorToStatus(normalized) });

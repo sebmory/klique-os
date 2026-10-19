@@ -13,6 +13,7 @@ export type ContentCreationContext = {
 
 export type ContentGeneratorId =
   | "interview"
+  | "article"
   | "publication"
   | "reel"
   | "story"
@@ -51,6 +52,14 @@ const generators: ContentGenerator[] = [
     isAvailable: true,
     statusLabel: "Disponible",
     entryRoute: "/contents/create",
+  },
+  {
+    id: "article",
+    title: "Article",
+    description: "Construisez un article éditorial documenté à partir de sources vérifiées.",
+    isAvailable: true,
+    statusLabel: "Disponible",
+    entryRoute: "/contents/create?objective=article",
   },
   {
     id: "publication",

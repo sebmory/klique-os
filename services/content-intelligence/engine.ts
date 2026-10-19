@@ -21,6 +21,7 @@ import type {
   StoryGenerationResult,
 } from "@/types/content-generation";
 import type { AiUsageGenerationContext } from "@/types/ai-usage";
+import type { PreparedEditorialGeneration } from "@/services/editorial-generation/server-context";
 
 const resolveProvider = (): ContentGenerationProvider => {
   if (contentIntelligenceConfig.defaultProvider === "openai") {
@@ -98,11 +99,19 @@ export function runContentIntelligenceEngine(payload: CreationPreparationPayload
   request: StoryGenerationRequest;
   result: StoryGenerationResult;
 }>;
-export function runContentIntelligenceEngine(payload: CreationPreparationPayload, usageContext?: AiUsageGenerationContext): Promise<{
+export function runContentIntelligenceEngine(
+  payload: CreationPreparationPayload,
+  usageContext?: AiUsageGenerationContext,
+  preparedEditorial?: PreparedEditorialGeneration,
+): Promise<{
   request: AnyContentGenerationRequest;
   result: AnyContentGenerationResult;
 }>;
-export async function runContentIntelligenceEngine(payload: CreationPreparationPayload, usageContext?: AiUsageGenerationContext): Promise<{
+export async function runContentIntelligenceEngine(
+  payload: CreationPreparationPayload,
+  usageContext?: AiUsageGenerationContext,
+  preparedEditorial?: PreparedEditorialGeneration,
+): Promise<{
   request: AnyContentGenerationRequest;
   result: AnyContentGenerationResult;
 }> {
@@ -110,7 +119,15 @@ export async function runContentIntelligenceEngine(payload: CreationPreparationP
     if (!usageContext) {
       throw new ContentGenerationError("INVALID_REQUEST", "Contexte d acces serveur obligatoire");
     }
-    const { request, missingInformation } = await buildContentGenerationRequest(payload, usageContext);
+    const { request, missingInformation } = await buildContentGenerationRequest(
+      payload,
+      usageContext,
+      preparedEditorial?.selection.modelContext,
+    );
+    if (preparedEditorial) {
+      request.selectedContextItems = preparedEditorial.selectedItems;
+      request.editorialGeneration = preparedEditorial.selection.metadata;
+    }
     const provider = resolveProvider();
 
     let lastError: unknown = null;
@@ -118,7 +135,18 @@ export async function runContentIntelligenceEngine(payload: CreationPreparationP
     for (let attempt = 0; attempt <= contentIntelligenceConfig.maxInvalidJsonRetries; attempt += 1) {
       try {
         const result = await attemptGenerate(provider, request, missingInformation, correctionFeedback, usageContext, attempt);
-        return { request, result };
+        return {
+          request,
+          result: preparedEditorial
+            ? {
+                ...result,
+                metadata: {
+                  ...result.metadata,
+                  editorial: preparedEditorial.selection.metadata,
+                },
+              }
+            : result,
+        };
       } catch (error) {
         lastError = error;
         if (!(error instanceof ContentGenerationError) || !shouldRetryGenerationError(error)) {
@@ -229,6 +257,7 @@ export const mapContentGenerationErrorToStatus = (error: ContentGenerationError)
   if (error.code === "PROVIDER_NOT_AVAILABLE") return 503;
   if (error.code === "RATE_LIMITED") return 429;
   if (error.code === "PROVIDER_REFUSAL") return 422;
+  if (error.code === "EDITORIAL_GENERATION_BLOCKED") return 422;
   if (error.code === "EMPTY_PROVIDER_RESPONSE") return 502;
   if (error.code === "INCOMPLETE_PROVIDER_RESPONSE") return 502;
   if (error.code === "INVALID_PROVIDER_RESPONSE") return 502;

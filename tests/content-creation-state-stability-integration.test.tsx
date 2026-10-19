@@ -213,7 +213,7 @@ describe("editorial assistant state stability", () => {
     await renderApp();
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Collectez, relisez et selectionnez");
+      expect(container.textContent).toContain("Collectez, relisez et sélectionnez");
     });
     const collectButton = Array.from(container.querySelectorAll("button"))
       .find((button) => button.textContent?.includes("Rechercher le contexte"));
@@ -226,6 +226,13 @@ describe("editorial assistant state stability", () => {
     });
 
     expect(container.textContent).toContain("Fait collecte conserve");
+    const modifyButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.trim() === "Modifier");
+    expect(modifyButton).toBeDefined();
+    await act(async () => {
+      modifyButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
     const itemEditor = Array.from(container.querySelectorAll("textarea"))
       .find((textarea) => textarea.value === "Fait collecte conserve");
     expect(itemEditor).toBeDefined();
@@ -233,6 +240,12 @@ describe("editorial assistant state stability", () => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       valueSetter?.call(itemEditor, "Fait collecte modifie");
       itemEditor!.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const saveButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Enregistrer la modification"));
+    await act(async () => {
+      saveButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 
@@ -258,7 +271,7 @@ describe("editorial assistant state stability", () => {
     });
 
     expect(container.textContent).toContain("Fait collecte modifie");
-    expect(container.textContent).toContain("Collectez, relisez et selectionnez");
+    expect(container.textContent).toContain("Collectez, relisez et sélectionnez");
 
     const persisted = JSON.parse(window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY) ?? "{}") as {
       stepIndex?: number;

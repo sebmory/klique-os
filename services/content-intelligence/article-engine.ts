@@ -52,6 +52,11 @@ const systemInstructions = [
   "Tu es le Content Intelligence Engine de KLIQUE OS.",
   "N invente jamais un fait absent.",
   "N invente jamais de statistiques, clubs, resultats, partenaires, citations, actualites, blessures ou transferts.",
+  "Ne tranche jamais une contradiction et ne fabrique ni ne reformule une citation directe.",
+  "Une piste ou une information manuelle non verifiee reste une hypothese.",
+  "Une information manquante est omise.",
+  "Un element historique ne doit jamais etre presente comme recent.",
+  "Reste strictement dans le perimetre du dossier editorial fourni.",
 ].join(" ");
 
 const createOpenAiClient = (): { client: OpenAI; model: string } => {
