@@ -282,7 +282,53 @@ const getConnectorStatusMessage = (report: ContextConnectorReport): string => {
 };
 
 const DRAFT_STORAGE_KEY = "klique.contents.creation-assistant.draft.v1";
+const WORKFLOW_STORAGE_KEY = "klique.contents.creation-assistant.workflow.v2";
 const RESULT_STORAGE_KEY = "klique.contents.creation-assistant.interview-result.v1";
+
+type PersistedCreationWorkflow = {
+  version: 2;
+  contextKey: string;
+  draft: CreationAssistantDraft;
+  stepIndex: number;
+  contextState: ContextCollectState;
+};
+
+const emptyContextCollectState = (): ContextCollectState => ({
+  loading: false,
+  errorMessage: null,
+  items: [],
+  reports: [],
+  hasCollected: false,
+});
+
+const creationContextKey = (context: ContentCreationContext): string =>
+  JSON.stringify({
+    mode: context.mode,
+    subjectId: context.subjectId ?? "",
+    subjectName: context.subjectName ?? "",
+    subjectType: context.subjectType ?? "",
+    objective: context.objective ?? "",
+    presetId: context.presetId ?? "",
+  });
+
+const buildContextFingerprint = (draft: CreationAssistantDraft): string =>
+  JSON.stringify({
+    subjectType: draft.subject.type,
+    subjectId: draft.subject.id,
+    displayName: draft.subject.displayName,
+    objective: draft.objective.objective,
+    subtypeId: draft.objective.subtypeId,
+    additionalContext: draft.parameters.additionalContext,
+    contextDateRangePreset: draft.parameters.contextDateRangePreset,
+    contextCustomFrom: draft.parameters.contextCustomFrom,
+    contextCustomTo: draft.parameters.contextCustomTo,
+    contextSourcePreference: draft.parameters.contextSourcePreference,
+    contextSearchDepth: draft.parameters.contextSearchDepth,
+    contextEnableCrm: draft.parameters.contextEnableCrm,
+    contextEnableProductions: draft.parameters.contextEnableProductions,
+    contextEnableManual: draft.parameters.contextEnableManual,
+    contextEnableExternalNews: draft.parameters.contextEnableExternalNews,
+  });
 
 type PersonSelectorItem = {
   id: string;
@@ -303,6 +349,9 @@ type PublicationAngleState = {
 export function CreationAssistantScreen({ context }: CreationAssistantScreenProps) {
   const searchParams = useSearchParams();
   const summaryStepRequested = searchParams.get("step") === "summary";
+  const currentContextKey = creationContextKey(context);
+  const initialContextKeyRef = useRef(currentContextKey);
+  const previousContextKeyRef = useRef(currentContextKey);
 
   useEffect(() => {
     void runContentsBackfill();
@@ -327,19 +376,16 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [generateState, setGenerateState] = useState<CreationGenerateState>({ loading: false, errorMessage: null });
-  const [contextState, setContextState] = useState<ContextCollectState>({
-    loading: false,
-    errorMessage: null,
-    items: [],
-    reports: [],
-    hasCollected: false,
-  });
+  const [contextState, setContextState] = useState<ContextCollectState>(emptyContextCollectState);
+  const [workflowHydrated, setWorkflowHydrated] = useState(false);
   const [stepErrorMessage, setStepErrorMessage] = useState<string | null>(null);
   const [publicationAnglesState, setPublicationAnglesState] = useState<PublicationAngleState>({
     loading: false,
     errorMessage: null,
     suggestions: [],
   });
+  const contextFingerprint = useMemo(() => buildContextFingerprint(draft), [draft]);
+  const previousFingerprintRef = useRef(contextFingerprint);
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationInFlightRef = useRef(false);
   const resultNavigationStartedRef = useRef(false);
@@ -458,24 +504,67 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   );
 
   useEffect(() => {
-    const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return;
-
     try {
-      const parsed = JSON.parse(raw) as CreationAssistantDraft;
-      if (parsed && parsed.subject && parsed.objective && parsed.parameters) {
-        window.requestAnimationFrame(() => {
-          setDraft(parsed);
-        });
+      const workflowRaw = window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY);
+      if (workflowRaw) {
+        const persisted = JSON.parse(workflowRaw) as PersistedCreationWorkflow;
+        if (
+          persisted.version === 2
+          && persisted.contextKey === initialContextKeyRef.current
+          && persisted.draft?.subject
+          && persisted.draft?.objective
+          && persisted.draft?.parameters
+          && Number.isInteger(persisted.stepIndex)
+          && persisted.contextState
+        ) {
+          previousFingerprintRef.current = buildContextFingerprint(persisted.draft);
+          setDraft(persisted.draft);
+          setStepIndex(Math.max(0, persisted.stepIndex));
+          setContextState({
+            ...persisted.contextState,
+            loading: false,
+          });
+        }
+      } else {
+        const legacyRaw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
+        if (legacyRaw) {
+          const legacyDraft = JSON.parse(legacyRaw) as CreationAssistantDraft;
+          if (legacyDraft?.subject && legacyDraft?.objective && legacyDraft?.parameters) {
+            previousFingerprintRef.current = buildContextFingerprint(legacyDraft);
+            setDraft(legacyDraft);
+          }
+        }
       }
     } catch {
+      window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
       window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    } finally {
+      setWorkflowHydrated(true);
     }
   }, []);
 
   useEffect(() => {
-    window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-  }, [draft]);
+    if (!workflowHydrated) return;
+    const workflow: PersistedCreationWorkflow = {
+      version: 2,
+      contextKey: currentContextKey,
+      draft,
+      stepIndex: effectiveStepIndex,
+      contextState,
+    };
+    window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(workflow));
+  }, [contextState, currentContextKey, draft, effectiveStepIndex, workflowHydrated]);
+
+  useEffect(() => {
+    if (!workflowHydrated || previousContextKeyRef.current === currentContextKey) return;
+    previousContextKeyRef.current = currentContextKey;
+    window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
+    window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    setDraft(createInitialAssistantDraft(context));
+    setStepIndex(0);
+    setContextState(emptyContextCollectState());
+    setStepErrorMessage(null);
+  }, [context, currentContextKey, workflowHydrated]);
 
   const loadPeople = async () => {
     setPeopleLoading(true);
@@ -823,6 +912,17 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
     setStepErrorMessage(null);
     setStepIndex(targetIndex);
+  };
+
+  const restartAssistant = () => {
+    window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
+    window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    setDraft(createInitialAssistantDraft(context));
+    setStepIndex(0);
+    setContextState(emptyContextCollectState());
+    setStepErrorMessage(null);
+    setGenerateState({ loading: false, errorMessage: null });
+    setPublicationAnglesState({ loading: false, errorMessage: null, suggestions: [] });
   };
 
   const selectSubjectType = (type: CreationSubjectType) => {
@@ -1187,45 +1287,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
   }, [contextState.items]);
 
-  const contextFingerprint = useMemo(() => {
-    return JSON.stringify({
-      subjectType: draft.subject.type,
-      subjectId: draft.subject.id,
-      displayName: draft.subject.displayName,
-      objective: draft.objective.objective,
-      subtypeId: draft.objective.subtypeId,
-      additionalContext: draft.parameters.additionalContext,
-      contextDateRangePreset: draft.parameters.contextDateRangePreset,
-      contextCustomFrom: draft.parameters.contextCustomFrom,
-      contextCustomTo: draft.parameters.contextCustomTo,
-      contextSourcePreference: draft.parameters.contextSourcePreference,
-      contextSearchDepth: draft.parameters.contextSearchDepth,
-      contextEnableCrm: draft.parameters.contextEnableCrm,
-      contextEnableProductions: draft.parameters.contextEnableProductions,
-      contextEnableManual: draft.parameters.contextEnableManual,
-      contextEnableExternalNews: draft.parameters.contextEnableExternalNews,
-    });
-  }, [
-    draft.objective.objective,
-    draft.objective.subtypeId,
-    draft.parameters.additionalContext,
-    draft.parameters.contextCustomFrom,
-    draft.parameters.contextCustomTo,
-    draft.parameters.contextDateRangePreset,
-    draft.parameters.contextEnableCrm,
-    draft.parameters.contextEnableExternalNews,
-    draft.parameters.contextEnableManual,
-    draft.parameters.contextEnableProductions,
-    draft.parameters.contextSearchDepth,
-    draft.parameters.contextSourcePreference,
-    draft.subject.displayName,
-    draft.subject.id,
-    draft.subject.type,
-  ]);
-
-  const previousFingerprintRef = useRef(contextFingerprint);
-
   useEffect(() => {
+    if (!workflowHydrated) return;
     if (previousFingerprintRef.current === contextFingerprint) return;
     previousFingerprintRef.current = contextFingerprint;
 
@@ -1243,7 +1306,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         hasCollected: false,
       };
     });
-  }, [contextFingerprint]);
+  }, [contextFingerprint, workflowHydrated]);
 
   const renderSubjectStep = () => {
     return (
@@ -3181,6 +3244,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     );
   };
 
+  if (!workflowHydrated) {
+    return (
+      <section className="creation-assistant-screen" aria-live="polite" aria-busy="true">
+        <p>Restauration de l assistant editorial.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="creation-assistant-screen">
       <header className="creation-assistant-head">
@@ -3206,6 +3277,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             ) : null}
           </p>
         ) : null}
+        <button type="button" className="contents-ghost-button" onClick={restartAssistant}>
+          Recommencer
+        </button>
         <Link href="/contents" className="crm-secondary-action-link">Quitter</Link>
       </header>
 

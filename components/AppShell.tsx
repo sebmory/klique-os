@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { Header } from "@/components/app-shell/Header";
@@ -36,6 +36,12 @@ export function AppShell({ children }: AppShellProps) {
   const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
   const isAccessPendingRoute = pathname === "/access-pending";
   const isPassFlowRoute = pathname === "/pass" || pathname === "/join/pass";
+  const clerkDisplayName =
+    user?.fullName
+    || [user?.firstName, user?.lastName].filter(Boolean).join(" ")
+    || user?.primaryEmailAddress?.emailAddress
+    || user?.emailAddresses?.[0]?.emailAddress
+    || null;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(sidebarStorageKey) === "true";
@@ -53,6 +59,7 @@ export function AppShell({ children }: AppShellProps) {
     isCreative: false,
   });
   const [accessLoadStatus, setAccessLoadStatus] = useState<AccessLoadStatus>("loading");
+  const hasAuthorizedAccessRef = useRef(false);
 
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
@@ -66,7 +73,9 @@ export function AppShell({ children }: AppShellProps) {
     let cancelled = false;
 
     const loadUserAccess = async () => {
-      setAccessLoadStatus("loading");
+      if (!hasAuthorizedAccessRef.current) {
+        setAccessLoadStatus("loading");
+      }
       setAuthenticatedContentStorageRole(null);
 
       const denyAccess = () => {
@@ -109,10 +118,7 @@ export function AppShell({ children }: AppShellProps) {
         setAuthenticatedContentStorageRole(access?.role ?? (isActiveCreative ? "creative" : null));
 
         const resolvedDisplayName =
-          user?.fullName ||
-          [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
-          user?.primaryEmailAddress?.emailAddress ||
-          user?.emailAddresses?.[0]?.emailAddress ||
+          clerkDisplayName ||
           data?.clerkUser?.email ||
           data?.clerkUser?.id ||
           null;
@@ -147,6 +153,7 @@ export function AppShell({ children }: AppShellProps) {
           partnerProfileLabel,
           isCreative: isActiveCreative,
         });
+        hasAuthorizedAccessRef.current = true;
         setAccessLoadStatus("authorized");
       } catch {
         denyAccess();
@@ -157,20 +164,15 @@ export function AppShell({ children }: AppShellProps) {
 
     return () => {
       cancelled = true;
-      setAuthenticatedContentStorageRole(null);
     };
   }, [
     isAccessPendingRoute,
     isPassFlowRoute,
     isPublicAuthRoute,
     isPublicHomeRoute,
+    clerkDisplayName,
     router,
-    user?.emailAddresses,
-    user?.firstName,
-    user?.fullName,
     user?.id,
-    user?.lastName,
-    user?.primaryEmailAddress?.emailAddress,
   ]);
 
   useEffect(() => {
