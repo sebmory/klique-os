@@ -20,7 +20,12 @@ type CacheRecord = {
   value: ContextCollectionResponseSuccess;
 };
 
-const externalCache = new Map<string, CacheRecord>();
+const externalCacheSymbol = Symbol.for("klique.context-intelligence.external-cache");
+const globalCache = globalThis as typeof globalThis & {
+  [externalCacheSymbol]?: Map<string, CacheRecord>;
+};
+const externalCache = globalCache[externalCacheSymbol] ?? new Map<string, CacheRecord>();
+globalCache[externalCacheSymbol] = externalCache;
 
 const buildCacheKey = (request: ContextCollectionRequest): string => {
   return [
@@ -141,8 +146,22 @@ export const collectContextIntelligence = async (
   if (hasExternal) {
     const cached = externalCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.value;
+      return {
+        ...cached.value,
+        reports: cached.value.reports.map((report) =>
+          report.connectorId === "external_news"
+            ? { ...report, message: "Résultats externes valides réutilisés — aucun nouvel appel fournisseur." }
+            : report),
+        summary: {
+          ...cached.value.summary,
+          warnings: [
+            ...cached.value.summary.warnings,
+            "Collecte externe valide réutilisée pendant sa durée de validité.",
+          ],
+        },
+      };
     }
+    if (cached) externalCache.delete(cacheKey);
   }
 
   const externalContextCreditIdempotencyKey = usageContext ? `context:${usageContext.requestGroupId}` : "";
@@ -259,7 +278,8 @@ export const collectContextIntelligence = async (
     },
   };
 
-  if (hasExternal) {
+  const externalResult = settled.find((result) => result.connectorId === "external_news");
+  if (hasExternal && externalResult?.status === "completed" && externalResult.items.length > 0) {
     externalCache.set(cacheKey, {
       expiresAt: Date.now() + contextIntelligenceConfig.limits.cacheDurationMs,
       value: response,

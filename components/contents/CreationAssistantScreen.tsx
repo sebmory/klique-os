@@ -398,24 +398,49 @@ type ArticleWorkflowState = {
   suggestions: PublicationAngleSuggestion[];
   structures: ArticleStructureSuggestion[];
   selectedStructureId: string;
+  blockDetails: ArticleBlockDetails | null;
+};
+
+type ArticleBlockDetails = {
+  reasons: string[];
+  missingInformation: string[];
+  contradictions: string[];
+  warnings: string[];
+  itemDiagnostics: Array<{
+    itemId: string;
+    status: "eligible" | "caution" | "ineligible";
+    reasons: string[];
+  }>;
+  suggestedArticleTypes: Array<"portrait" | "analyse">;
 };
 
 type ArticleApiError = {
   ok: false;
   message?: string;
   editorial?: {
+    reasons?: string[];
     missingInformation?: string[];
     contradictions?: string[];
     warnings?: string[];
+    itemDiagnostics?: ArticleBlockDetails["itemDiagnostics"];
+    suggestedArticleTypes?: ArticleBlockDetails["suggestedArticleTypes"];
   };
 };
 
 const formatArticleApiError = (payload: ArticleApiError | null, fallback: string): string => {
-  const details = [
-    ...(payload?.editorial?.missingInformation ?? []),
-    ...(payload?.editorial?.warnings ?? []),
-  ];
-  return [payload?.message || fallback, ...details].filter(Boolean).join(" ");
+  return payload?.message || fallback;
+};
+
+const readArticleBlockDetails = (payload: ArticleApiError | null): ArticleBlockDetails | null => {
+  if (!payload?.editorial) return null;
+  return {
+    reasons: payload.editorial.reasons ?? [],
+    missingInformation: payload.editorial.missingInformation ?? [],
+    contradictions: payload.editorial.contradictions ?? [],
+    warnings: payload.editorial.warnings ?? [],
+    itemDiagnostics: payload.editorial.itemDiagnostics ?? [],
+    suggestedArticleTypes: payload.editorial.suggestedArticleTypes ?? [],
+  };
 };
 
 export function CreationAssistantScreen({ context }: CreationAssistantScreenProps) {
@@ -463,6 +488,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     suggestions: [],
     structures: [],
     selectedStructureId: "",
+    blockDetails: null,
   });
   const [contextItemEditState, setContextItemEditState] = useState<{
     itemId: string;
@@ -1002,6 +1028,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     return steps[index - 1].id;
   };
 
+  const moveToStep = (stepId: StepId) => {
+    const targetIndex = getStepIndexById(stepId);
+    if (targetIndex < 0) return;
+    setStepErrorMessage(null);
+    setStepIndex(targetIndex);
+  };
+
   const focusValidationTarget = (selector?: string) => {
     if (!selector) return;
     const target = document.querySelector(selector) as HTMLElement | null;
@@ -1051,6 +1084,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       suggestions: [],
       structures: [],
       selectedStructureId: "",
+      blockDetails: null,
     });
   };
 
@@ -1229,12 +1263,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           ...current,
           loadingAction: null,
           errorMessage: formatArticleApiError(payload && !payload.ok ? payload : null, "Impossible de proposer des angles Article."),
+          blockDetails: readArticleBlockDetails(payload && !payload.ok ? payload : null),
         }));
         return;
       }
       setArticleWorkflowState({
         loadingAction: null,
         errorMessage: null,
+        blockDetails: null,
         suggestions: payload.result.suggestions,
         structures: [],
         selectedStructureId: "",
@@ -1244,6 +1280,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         ...current,
         loadingAction: null,
         errorMessage: "Impossible de proposer des angles Article.",
+        blockDetails: null,
       }));
     } finally {
       void loadCreditBalance();
@@ -1616,6 +1653,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }
     return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
   }, [contextState.items]);
+  const articleItemDiagnostics = useMemo(
+    () => new Map(
+      (articleWorkflowState.blockDetails?.itemDiagnostics ?? [])
+        .map((diagnostic) => [diagnostic.itemId, diagnostic] as const),
+    ),
+    [articleWorkflowState.blockDetails],
+  );
 
   useEffect(() => {
     if (!workflowHydrated) return;
@@ -2088,6 +2132,66 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             {articleWorkflowState.errorMessage ? (
               <p className="creation-error" role="alert">{articleWorkflowState.errorMessage}</p>
             ) : null}
+            {articleWorkflowState.blockDetails ? (
+              <section className="creation-article-block-details" aria-labelledby="article-block-details-title">
+                <div>
+                  <h3 id="article-block-details-title">Pourquoi la génération est-elle bloquée ?</h3>
+                  {articleWorkflowState.blockDetails.reasons.length > 0 ? (
+                    <ul>
+                      {articleWorkflowState.blockDetails.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                    </ul>
+                  ) : null}
+                  {articleWorkflowState.blockDetails.missingInformation.length > 0 ? (
+                    <>
+                      <h4>Informations manquantes</h4>
+                      <ul>
+                        {articleWorkflowState.blockDetails.missingInformation.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </>
+                  ) : null}
+                  {articleWorkflowState.blockDetails.contradictions.length > 0 ? (
+                    <>
+                      <h4>Contradictions non résolues</h4>
+                      <ul>
+                        {articleWorkflowState.blockDetails.contradictions.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </>
+                  ) : null}
+                  {articleWorkflowState.blockDetails.itemDiagnostics.some((item) => item.status !== "eligible") ? (
+                    <>
+                      <h4>Éléments écartés ou limités</h4>
+                      <ul>
+                        {Array.from(new Set(
+                          articleWorkflowState.blockDetails.itemDiagnostics
+                            .filter((item) => item.status !== "eligible")
+                            .flatMap((item) => item.reasons),
+                        )).map((reason) => <li key={reason}>{reason}</li>)}
+                      </ul>
+                    </>
+                  ) : null}
+                </div>
+
+                <div className="creation-article-unblock">
+                  <h3>Comment débloquer la génération ?</h3>
+                  {articleWorkflowState.blockDetails.suggestedArticleTypes.length > 0 ? (
+                    <p>
+                      Les faits historiques disponibles pourraient convenir à un Portrait ou une Analyse.
+                      Ce changement ne garantit pas que la génération sera autorisée.
+                    </p>
+                  ) : (
+                    <p>Ajoutez un fait vérifié répondant aux exigences du type d’article sélectionné.</p>
+                  )}
+                  <div>
+                    <button type="button" className="contents-secondary-button" onClick={() => moveToStep("objective")}>
+                      Revenir au type d’article
+                    </button>
+                    <button type="button" className="contents-secondary-button" onClick={() => moveToStep("context")}>
+                      Ajouter une information vérifiée
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : null}
             {articleWorkflowState.suggestions.length > 0 ? (
               <div className="creation-option-grid">
                 {articleWorkflowState.suggestions.map((suggestion) => (
@@ -2284,7 +2388,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               }
             >
               {articleWorkflowState.loadingAction === "structures" ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
-              {articleWorkflowState.loadingAction === "structures" ? "Generation des structures" : "Proposer des structures"}
+              {articleWorkflowState.loadingAction === "structures"
+                ? "Génération des structures"
+                : articleWorkflowState.errorMessage
+                  ? "Réessayer"
+                  : "Proposer des structures"}
             </button>
           </div>
           {articleWorkflowState.errorMessage ? (
@@ -3485,6 +3593,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
             <header>
               <h3>Révision et sélection</h3>
             </header>
+            {isArticleFlow && articleWorkflowState.blockDetails ? (
+              <p className="creation-context-eligibility-note">
+                Les éléments cochés ne sont pas tous nécessairement éligibles pour ce type d’article.
+                Leur statut ci-dessous correspond au dernier contrôle éditorial effectué par le serveur.
+              </p>
+            ) : null}
 
             {contextByCategory.map((group) => {
               const selectedInCategory = group.items.filter((item) => item.isSelected).length;
@@ -3508,6 +3622,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                   <div className="creation-context-cards" role="list">
                     {group.items.map((item) => {
                       const isEditing = contextItemEditState?.itemId === item.id;
+                      const eligibilityDiagnostic = articleItemDiagnostics.get(item.id);
                       return (
                         <article
                           key={item.id}
@@ -3526,9 +3641,20 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                           <div className="creation-context-card-body">
                             <div className="creation-context-card-head">
                               <h5>{item.title}</h5>
-                              <span className="creation-context-card-badge">
-                                {contextCategoryLabels[item.category as ContextItemCategory] ?? item.category}
-                              </span>
+                              <div className="creation-context-card-badges">
+                                <span className="creation-context-card-badge">
+                                  {contextCategoryLabels[item.category as ContextItemCategory] ?? item.category}
+                                </span>
+                                {eligibilityDiagnostic ? (
+                                  <span className={`creation-context-eligibility is-${eligibilityDiagnostic.status}`}>
+                                    {eligibilityDiagnostic.status === "eligible"
+                                      ? "Exploitable pour cet article"
+                                      : eligibilityDiagnostic.status === "caution"
+                                        ? "Utilisable avec prudence"
+                                        : "Non exploitable"}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
 
                             {isEditing ? (
@@ -3556,6 +3682,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                             ) : (
                               <p className="creation-context-card-copy">{item.editedSummary || item.summary}</p>
                             )}
+                            {eligibilityDiagnostic ? (
+                              <ul className="creation-context-diagnostic-reasons">
+                                {eligibilityDiagnostic.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                              </ul>
+                            ) : null}
 
                             <div className="creation-context-card-footer">
                               <div className="creation-context-card-meta">

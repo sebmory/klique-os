@@ -353,8 +353,109 @@ describe("Article creation UI", () => {
         JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")).action === "angles")?.[1] as RequestInit).body,
     ));
     expect(angleRequest.request.contextSelection.collectionId).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(angleRequest.request.brief.articleType).toBe("actualite");
     expect(angleRequest.request.selectedContextItems).toEqual([]);
     expect(JSON.stringify(angleRequest.request)).not.toContain("Mila Martin evolue au FC Lausanne");
+  });
+
+  it("ends Structures loading after a timeout and retries manually without losing the form", async () => {
+    let structureAttempts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/api/ai-credits/balance") return response({ ok: false }, 403);
+      if (url === "/api/media-subscriptions") return response({ ok: false }, 404);
+      if (url === "/api/context/collect" && method === "POST") return response(contextResponse);
+      if (url === "/api/contents/generate/article" && method === "POST") {
+        const body = JSON.parse(String(init?.body)) as { action: string };
+        if (body.action === "angles") {
+          return response({
+            ok: true,
+            action: "angles",
+            result: {
+              suggestions: [
+                { id: "angle-1", title: "Le parcours recent", rationale: "Angle fonde sur le profil." },
+                { id: "angle-2", title: "La progression", rationale: "Angle prudent." },
+                { id: "angle-3", title: "Le role public", rationale: "Angle documente." },
+              ],
+            },
+          });
+        }
+        structureAttempts += 1;
+        if (structureAttempts === 1) {
+          return response({
+            ok: false,
+            code: "ARTICLE_STRUCTURE_TIMEOUT",
+            message: "La génération des structures a dépassé le délai autorisé. Vous pouvez réessayer.",
+          }, 504);
+        }
+        return response({
+          ok: true,
+          action: "structures",
+          result: {
+            suggestions: [{
+              id: "structure-retry",
+              title: "Structure récupérée",
+              editorialPromise: "Conserver les faits sélectionnés.",
+              estimatedWordCount: 500,
+              sections: [{ order: 1, title: "Repères", purpose: "Présenter les faits." }],
+            }],
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <CreationAssistantScreen
+          context={{
+            mode: "contextual",
+            subjectId: "athlete-1",
+            subjectName: "Mila Martin",
+            subjectType: "athlete",
+            objective: "article",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await clickButton(container, "Suivant");
+    await clickButton(container, "Actualite");
+    await clickButton(container, "Suivant");
+    await clickButton(container, "Suivant");
+    await clickButton(container, "Rechercher le contexte");
+    await clickButton(container, "Suivant");
+    await clickButton(container, "Proposer des angles");
+    await clickButton(container, "Le parcours recent");
+    await clickButton(container, "Suivant");
+    await clickButton(container, "Proposer des structures");
+
+    expect(container.textContent).toContain("dépassé le délai autorisé");
+    const retryButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("Réessayer"));
+    expect(retryButton).toBeDefined();
+    expect(retryButton?.disabled).toBe(false);
+    expect(container.textContent).not.toContain("Génération des structures");
+    expect(getNextButton(container).disabled).toBe(true);
+
+    await clickButton(container, "Réessayer");
+
+    expect(container.textContent).toContain("Structure récupérée");
+    expect(container.textContent).not.toContain("dépassé le délai autorisé");
+    const structureRequests = fetchMock.mock.calls
+      .filter(([input, init]) =>
+        String(input) === "/api/contents/generate/article"
+        && JSON.parse(String((init as RequestInit).body)).action === "structures")
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(structureRequests).toHaveLength(2);
+    expect(structureRequests[0].requestId).not.toBe(structureRequests[1].requestId);
+    expect(structureRequests[0].request.brief.selectedAngle).toBe("Le parcours recent");
+    expect(structureRequests[1].request.brief.selectedAngle).toBe("Le parcours recent");
+    expect(structureRequests[1].request.contextSelection.collectionId)
+      .toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
   });
 
   it("keeps the Article workflow on the angle step when eligibility blocks generation", async () => {
@@ -369,8 +470,18 @@ describe("Article creation UI", () => {
           ok: false,
           message: "Article bloque: aucun fait exploitable.",
           editorial: {
+            reasons: [
+              "Aucun fait individuel récent, explicitement attribué au sujet et suffisamment fiable n’est disponible pour un article d’actualité.",
+            ],
             missingInformation: ["Ajoutez au moins un fait verifie."],
+            contradictions: ["Une contradiction non résolue a été exclue."],
             warnings: [],
+            itemDiagnostics: [{
+              itemId: "item-1",
+              status: "ineligible",
+              reasons: ["Fait exclu pour ancienneté dans le cadre de cet article."],
+            }],
+            suggestedArticleTypes: ["portrait", "analyse"],
           },
         }, 422);
       }
@@ -403,12 +514,25 @@ describe("Article creation UI", () => {
 
     expect(container.textContent).toContain("Article bloque: aucun fait exploitable.");
     expect(container.textContent).toContain("Ajoutez au moins un fait verifie.");
+    expect(container.textContent).toContain("Aucun fait individuel récent");
+    expect(container.textContent).toContain("Une contradiction non résolue");
+    expect(container.textContent).toContain("Fait exclu pour ancienneté");
+    expect(container.textContent).toContain("Comment débloquer la génération ?");
+    expect(container.textContent).toContain("Portrait ou une Analyse");
+    expect(container.textContent).toContain("ne garantit pas");
+    expect(container.textContent).toContain("Revenir au type d’article");
+    expect(container.textContent).toContain("Ajouter une information vérifiée");
     expect(container.textContent).toContain("Angle editorial de l article");
     expect(getNextButton(container).disabled).toBe(true);
     expect(getNextButton(container).getAttribute("aria-disabled")).toBe("true");
     await clickButton(container, "Suivant");
     expect(container.textContent).toContain("Angle editorial de l article");
+    await clickButton(container, "Ajouter une information vérifiée");
+    expect(container.textContent).toContain("Les éléments cochés ne sont pas tous nécessairement éligibles");
+    expect(container.textContent).toContain("Non exploitable");
+    expect(container.textContent).toContain("Fait exclu pour ancienneté");
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/contents/storage/sessions")).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/contents/generate/article")).toHaveLength(1);
     expect(mocks.navigateToContentResult).not.toHaveBeenCalled();
   });
 });

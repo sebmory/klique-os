@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   runContentEngine: vi.fn(),
   secureArticleRequest: vi.fn(),
   runArticleAngles: vi.fn(),
+  getAiCreditBalance: vi.fn(),
   consumeAiCredit: vi.fn(),
   refundAiCredit: vi.fn(),
 }));
@@ -20,7 +21,7 @@ vi.mock("@/lib/content-storage/access", () => ({
 vi.mock("@/lib/ai-usage/credit-repository", () => ({
   consumeAiCredit: mocks.consumeAiCredit,
   refundAiCredit: mocks.refundAiCredit,
-  getAiCreditBalance: vi.fn(),
+  getAiCreditBalance: mocks.getAiCreditBalance,
 }));
 
 vi.mock("@/services/content-generation/validation", () => ({
@@ -37,15 +38,21 @@ vi.mock("@/services/editorial-generation/server-context", async () => {
   );
   class EditorialGenerationBlockedError extends ContentGenerationError {
     eligibility: {
+      reasons?: string[];
       missingInformation: string[];
       contradictionSummaries: string[];
       warnings: string[];
+      itemDiagnostics?: Array<{ itemId: string; status: string; reasons: string[] }>;
+      suggestedArticleTypes?: string[];
     };
 
     constructor(eligibility: {
+      reasons?: string[];
       missingInformation: string[];
       contradictionSummaries: string[];
       warnings: string[];
+      itemDiagnostics?: Array<{ itemId: string; status: string; reasons: string[] }>;
+      suggestedArticleTypes?: string[];
     }) {
       super("EDITORIAL_GENERATION_BLOCKED", "Generation editoriale bloquee.");
       this.eligibility = eligibility;
@@ -100,6 +107,7 @@ describe("editorial generation route provenance", () => {
     vi.clearAllMocks();
     mocks.requireContentAccess.mockResolvedValue(access);
     mocks.consumeAiCredit.mockResolvedValue({ status: "consumed" });
+    mocks.getAiCreditBalance.mockResolvedValue({ hasActivePeriod: true, currentBalance: 10 });
     mocks.prepareEditorialGeneration.mockResolvedValue({
       selectedItems: [{ id: "trusted-1", verificationStatus: "unverified", confidence: "low" }],
       eligibility: { status: "limited" },
@@ -273,10 +281,18 @@ describe("editorial generation route provenance", () => {
       mediaId: "11111111-1111-4111-8111-111111111111",
       isAdmin: false,
     });
+
     mocks.secureArticleRequest.mockRejectedValue(new EditorialGenerationBlockedError({
+      reasons: ["Aucun fait individuel récent."],
       missingInformation: ["Aucun fait exploitable."],
       contradictionSummaries: ["Desaccord non resolu concernant le score."],
       warnings: [],
+      itemDiagnostics: [{
+        itemId: "club-result",
+        status: "ineligible",
+        reasons: ["Fait non attribué au sujet individuel."],
+      }],
+      suggestedArticleTypes: ["portrait", "analyse"],
     } as never));
 
     const response = await articlePost(new Request("http://localhost/api/contents/generate/article", {
@@ -295,12 +311,67 @@ describe("editorial generation route provenance", () => {
       ok: false,
       code: "EDITORIAL_GENERATION_BLOCKED",
       editorial: {
+        reasons: ["Aucun fait individuel récent."],
         missingInformation: ["Aucun fait exploitable."],
         contradictions: ["Desaccord non resolu concernant le score."],
+        itemDiagnostics: [{
+          itemId: "club-result",
+          status: "ineligible",
+          reasons: ["Fait non attribué au sujet individuel."],
+        }],
+        suggestedArticleTypes: ["portrait", "analyse"],
       },
     });
     expect(mocks.consumeAiCredit).not.toHaveBeenCalled();
     expect(mocks.runArticleAngles).not.toHaveBeenCalled();
+  });
+
+  it("charges and calls the provider once for an authorized limited Portrait", async () => {
+    mocks.requireContentAccess.mockResolvedValue({
+      ...access,
+      clerkUserId: "media-user-1",
+      role: "media",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      isAdmin: false,
+    });
+    const portraitRequest = {
+      requestType: "article",
+      context: { displayName: "Aggee Wenzi" },
+      selectedContextItems: [],
+      contextSelection: { collectionId: "collection-1", selectedItemIds: ["aggee-replacement"] },
+      brief: {
+        articleType: "portrait",
+        length: "court",
+        tone: "journalistique",
+        audience: "general",
+      },
+    };
+    mocks.secureArticleRequest.mockResolvedValue({
+      ...portraitRequest,
+      editorialGeneration: { generationMode: "limited" },
+    });
+    mocks.runArticleAngles.mockResolvedValue({
+      suggestions: [{ id: "portrait-1", title: "Un parcours prudent", rationale: "Faits disponibles" }],
+      metadata: {},
+    });
+
+    const response = await articlePost(new Request("http://localhost/api/contents/generate/article", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "angles",
+        requestId: "portrait-limited-1",
+        request: portraitRequest,
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.secureArticleRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ brief: expect.objectContaining({ articleType: "portrait" }) }),
+      expect.objectContaining({ role: "media" }),
+    );
+    expect(mocks.consumeAiCredit).toHaveBeenCalledTimes(1);
+    expect(mocks.runArticleAngles).toHaveBeenCalledTimes(1);
   });
 
   it("refunds the existing Media credit when the provider fails", async () => {

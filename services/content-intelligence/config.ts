@@ -7,6 +7,7 @@ export const contentIntelligenceConfig = {
   temperature: 0.35,
   maxTokens: 2400,
   requestTimeoutMs: 45000,
+  articleStructureTimeoutMs: 45000,
   maxInvalidJsonRetries: 1,
   limits: {
     maxSubjectNameLength: 140,

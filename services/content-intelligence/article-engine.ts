@@ -159,6 +159,32 @@ const toArticleGenerationError = (error: unknown): ContentGenerationError => {
   return toContentGenerationError(error);
 };
 
+const toArticleStructureError = (error: unknown): ContentGenerationError => {
+  if (error instanceof ContentGenerationError) return error;
+
+  const providerError = error as { status?: number; name?: string };
+  if (
+    providerError.name === "AbortError"
+    || providerError.name === "APIConnectionTimeoutError"
+    || providerError.name === "TimeoutError"
+  ) {
+    return new ContentGenerationError(
+      "ARTICLE_STRUCTURE_TIMEOUT",
+      "La génération des structures a dépassé le délai autorisé. Vous pouvez réessayer.",
+    );
+  }
+  if (typeof providerError.status === "number" && providerError.status >= 400) {
+    return new ContentGenerationError(
+      "ARTICLE_STRUCTURE_PROVIDER_ERROR",
+      "Le fournisseur n’a pas pu générer les structures. Vous pouvez réessayer.",
+    );
+  }
+  return new ContentGenerationError(
+    "ARTICLE_STRUCTURE_PROVIDER_ERROR",
+    "Le fournisseur de structures est temporairement indisponible. Vous pouvez réessayer.",
+  );
+};
+
 const createMetadata = (model: string, requestStartedAt: number): ArticleGenerationMetadata => ({
   provider: "openai",
   model,
@@ -272,37 +298,72 @@ export const runArticleStructureSuggestionsEngine = async (
 
   try {
     validateArticleRequest(request);
-    const response = await client.responses.create({
-      model,
-      instructions: systemInstructions,
-      input: buildArticleStructurePrompt(request),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "article_structure_suggestions",
-          strict: true,
-          schema: buildArticleStructureSuggestionsJsonSchema(),
-        },
-      },
-    });
-    let parsed = parseArticleResponse(response) as ArticleStructureSuggestionsResult;
-    validateArticleStructureSuggestions(parsed, request.brief.length);
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, contentIntelligenceConfig.articleStructureTimeoutMs);
+    let response: Response;
     try {
-      validateArticleStructureQualifications(request, parsed);
+      response = await client.responses.create(
+        {
+          model,
+          reasoning: { effort: "low" },
+          max_output_tokens: contentIntelligenceConfig.maxTokens,
+          instructions: systemInstructions,
+          input: buildArticleStructurePrompt(request),
+          text: {
+            format: {
+              type: "json_schema",
+              name: "article_structure_suggestions",
+              strict: true,
+              schema: buildArticleStructureSuggestionsJsonSchema(),
+            },
+          },
+        },
+        {
+          signal: controller.signal,
+          timeout: contentIntelligenceConfig.articleStructureTimeoutMs,
+          maxRetries: 0,
+        },
+      );
     } catch (error) {
-      if (!(error instanceof ContentGenerationError) || error.code !== "INVALID_PROVIDER_RESPONSE") throw error;
-      await recordArticleUsage({ callContext, operation: "article_structure_suggestions", model, status: "failed", durationMs: Math.max(1, Date.now() - requestStartedAt), response, errorCode: error.code });
-      const correctionResponse = await client.responses.create({
-        model,
-        instructions: systemInstructions,
-        input: `${buildArticleStructurePrompt(request)}\n\n${buildArticleFactualCorrectionInstruction(error.message, parsed)}`,
-        text: { format: { type: "json_schema", name: "article_structure_suggestions", strict: true, schema: buildArticleStructureSuggestionsJsonSchema() } },
-      });
-      parsed = parseArticleResponse(correctionResponse) as ArticleStructureSuggestionsResult;
+      if (timedOut) {
+        throw new ContentGenerationError(
+          "ARTICLE_STRUCTURE_TIMEOUT",
+          "La génération des structures a dépassé le délai autorisé. Vous pouvez réessayer.",
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    let parsed: ArticleStructureSuggestionsResult;
+    try {
+      parsed = parseArticleResponse(response) as ArticleStructureSuggestionsResult;
+    } catch (error) {
+      if (error instanceof ContentGenerationError && error.code === "EMPTY_PROVIDER_RESPONSE") {
+        throw new ContentGenerationError(
+          "ARTICLE_STRUCTURE_EMPTY_RESPONSE",
+          "Le fournisseur a renvoyé une réponse vide pour les structures. Vous pouvez réessayer.",
+        );
+      }
+      throw new ContentGenerationError(
+        "ARTICLE_STRUCTURE_PARSE_ERROR",
+        "La réponse des structures n’a pas pu être lue. Vous pouvez réessayer.",
+      );
+    }
+
+    try {
       validateArticleStructureSuggestions(parsed, request.brief.length);
       validateArticleStructureQualifications(request, parsed);
-      await recordArticleUsage({ callContext: callContext ? { ...callContext, retryNumber: (callContext.retryNumber ?? 0) + 1 } : undefined, operation: "article_structure_suggestions", model, status: "succeeded", durationMs: Math.max(1, Date.now() - requestStartedAt), response: correctionResponse });
-      return { suggestions: parsed.suggestions, metadata: createMetadata(model, requestStartedAt) };
+    } catch {
+      throw new ContentGenerationError(
+        "ARTICLE_STRUCTURE_VALIDATION_ERROR",
+        "Les structures reçues sont incomplètes ou incompatibles. Vous pouvez réessayer.",
+      );
     }
     const metadata = createMetadata(model, requestStartedAt);
     await recordArticleUsage({
@@ -315,7 +376,15 @@ export const runArticleStructureSuggestionsEngine = async (
     });
     return { suggestions: parsed.suggestions, metadata };
   } catch (error) {
-    const generationError = toArticleGenerationError(error);
+    const generationError = toArticleStructureError(error);
+    const providerStatus = typeof (error as { status?: unknown })?.status === "number"
+      ? (error as { status: number }).status
+      : null;
+    console.error("[article_structures]", {
+      code: generationError.code,
+      providerStatus,
+      durationMs: Math.max(1, Date.now() - requestStartedAt),
+    });
     await recordArticleUsage({
       callContext,
       operation: "article_structure_suggestions",

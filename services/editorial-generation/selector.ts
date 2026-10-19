@@ -77,7 +77,12 @@ export const selectEditorialGenerationContext = (
   const facts = dossier.facts
     .filter((fact) => fact.usable && eligibleIds.has(fact.factId))
     .filter((fact) => categoryAllowed(fact, target))
-    .filter((fact) => !(fact.freshness.status === "stale" && (fact.category === "news" || fact.category === "sports_result")))
+    .filter((fact) =>
+      !(
+        (target.type === "interview" || target.articleType === "actualite")
+        && fact.freshness.status === "stale"
+        && (fact.category === "news" || fact.category === "sports_result")
+      ))
     .sort((left, right) => factScore(right, target) - factScore(left, target) || left.factId.localeCompare(right.factId))
     .slice(0, FACT_LIMIT);
   const factIds = new Set(facts.map((fact) => fact.factId));

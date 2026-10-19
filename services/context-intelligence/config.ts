@@ -32,6 +32,6 @@ export const contextIntelligenceConfig = {
     searchTimeoutMs: 100000,
     webSearchPhaseTimeoutMs: 60000,
     normalizationPhaseTimeoutMs: 30000,
-    cacheDurationMs: 5 * 60 * 1000,
+    cacheDurationMs: 30 * 60 * 1000,
   },
 } as const;

@@ -88,9 +88,12 @@ const errorResponse = (error: unknown) => {
         code: error.code,
         message: error.message,
         editorial: {
+          reasons: error.eligibility.reasons,
           missingInformation: error.eligibility.missingInformation,
           contradictions: error.eligibility.contradictionSummaries,
           warnings: error.eligibility.warnings,
+          itemDiagnostics: error.eligibility.itemDiagnostics,
+          suggestedArticleTypes: error.eligibility.suggestedArticleTypes,
         },
       },
       { status: 422 },
@@ -102,11 +105,19 @@ const errorResponse = (error: unknown) => {
     : new ContentGenerationError("GENERATION_FAILED", "Impossible de generer le contenu Article");
   const status = normalized.code === "INVALID_REQUEST" || normalized.code === "MISSING_SUBJECT"
     ? 400
+    : normalized.code === "ARTICLE_STRUCTURE_TIMEOUT"
+      ? 504
     : normalized.code === "RATE_LIMITED"
       ? 429
       : normalized.code === "PROVIDER_NOT_CONFIGURED"
         ? 503
-        : normalized.code === "INVALID_PROVIDER_RESPONSE" || normalized.code === "EMPTY_PROVIDER_RESPONSE" || normalized.code === "INCOMPLETE_PROVIDER_RESPONSE"
+        : normalized.code === "INVALID_PROVIDER_RESPONSE"
+          || normalized.code === "EMPTY_PROVIDER_RESPONSE"
+          || normalized.code === "INCOMPLETE_PROVIDER_RESPONSE"
+          || normalized.code === "ARTICLE_STRUCTURE_PROVIDER_ERROR"
+          || normalized.code === "ARTICLE_STRUCTURE_EMPTY_RESPONSE"
+          || normalized.code === "ARTICLE_STRUCTURE_PARSE_ERROR"
+          || normalized.code === "ARTICLE_STRUCTURE_VALIDATION_ERROR"
           ? 502
           : 500;
 

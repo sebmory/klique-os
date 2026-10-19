@@ -36,6 +36,13 @@ export class ArticleEditorialReadinessError extends Error {
 const assertArticleEditorialReadiness = (
   request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest,
 ): void => {
+  const serverEditorialMode = request.editorialGeneration?.generationMode;
+  if (
+    (serverEditorialMode === "ready" || serverEditorialMode === "limited")
+    && request.editorialContext?.generationMode === serverEditorialMode
+  ) {
+    return;
+  }
   const assessment = assessArticleEditorialReadiness(request);
   if (!assessment.ready) throw new ArticleEditorialReadinessError(assessment);
 };

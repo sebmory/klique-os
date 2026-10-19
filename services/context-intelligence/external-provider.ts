@@ -8,7 +8,6 @@ import type {
   ContextSearchDepth,
   ContextSourceType,
   ContextStatementType,
-  ContextVerificationStatus,
   ExternalNewsSearchItem,
   ExternalNewsSearchResult,
   WebResearchCitation,
@@ -119,6 +118,7 @@ type ExternalSearchDiagnostics = {
   validationErrors: string[];
   rejectedItemCount: number;
   rejectionReasons: string[];
+  observedSourceTypes: Record<string, number>;
 };
 
 const createDiagnostics = (): ExternalSearchDiagnostics => ({
@@ -139,6 +139,7 @@ const createDiagnostics = (): ExternalSearchDiagnostics => ({
   validationErrors: [],
   rejectedItemCount: 0,
   rejectionReasons: [],
+  observedSourceTypes: {},
 });
 
 export interface ExternalContextProvider {
@@ -273,10 +274,72 @@ const normalizeCategory = (value: unknown): ContextItemCategory => {
   return "recent_news";
 };
 
-const normalizeSourceType = (value: unknown): ExternalNewsSearchItem["sourceType"] => {
-  const sourceType = normalize(value).toLowerCase();
-  if (sourceType === "official" || sourceType === "media" || sourceType === "external") return sourceType;
-  return "external";
+type CanonicalSourceType = {
+  sourceType: ExternalNewsSearchItem["sourceType"];
+  recognized: boolean;
+};
+
+const officialSourceTypeAliases = new Set([
+  "official",
+  "official source",
+  "official website",
+  "club official",
+  "federation",
+  "governing body",
+  "institution",
+  "press release",
+  "communique officiel",
+]);
+
+const mediaSourceTypeAliases = new Set([
+  "media",
+  "news",
+  "news media",
+  "news website",
+  "press",
+  "presse",
+  "sports media",
+  "sport media",
+  "sports news",
+  "sports press",
+  "presse sportive",
+  "journalistic media",
+  "journalistic source",
+]);
+
+const normalizeSourceTypeLabel = (value: unknown): string =>
+  normalize(value)
+    .toLocaleLowerCase("fr")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizeSourceType = (value: unknown): CanonicalSourceType => {
+  const sourceType = normalizeSourceTypeLabel(value);
+  if (officialSourceTypeAliases.has(sourceType)) return { sourceType: "official", recognized: true };
+  if (mediaSourceTypeAliases.has(sourceType)) return { sourceType: "media", recognized: true };
+  if (sourceType === "external" || sourceType === "web" || sourceType === "other") {
+    return { sourceType: "external", recognized: true };
+  }
+  return { sourceType: "external", recognized: false };
+};
+
+const identifiableMediaPattern =
+  /\b(?:actualite|info|journal|magazine|media|news|presse|sport|sports|zeitung)\b/i;
+
+const isIdentifiableMediaSource = (
+  itemSourceName: string,
+  trustedSource: WebResearchSource | undefined,
+  sourceUrl: string,
+): boolean => {
+  const hostname = new URL(sourceUrl).hostname.replace(/^www\./i, "").replace(/[.-]+/g, " ");
+  return identifiableMediaPattern.test([
+    itemSourceName,
+    trustedSource?.sourceName ?? "",
+    hostname,
+  ].join(" "));
 };
 
 const normalizeStatementType = (value: unknown): ContextStatementType => {
@@ -641,14 +704,28 @@ const mapResponseItems = (
         return null;
       }
 
-      const sourceType = normalizeSourceType(item.sourceType);
+      const observedSourceType = normalizeSourceTypeLabel(item.sourceType) || "empty";
+      diagnostics.observedSourceTypes[observedSourceType] =
+        (diagnostics.observedSourceTypes[observedSourceType] ?? 0) + 1;
+      const trustedSource = allowedSources.get(sourceUrl);
+      const canonicalSource = normalizeSourceType(item.sourceType);
+      if (!canonicalSource.recognized && request.sourcePreference !== "broad") {
+        rejectedItemCount += 1;
+        rejectionReasons.add("unknown_source_type_not_allowed");
+        return null;
+      }
+      const sourceType =
+        canonicalSource.sourceType === "external"
+        && isIdentifiableMediaSource(normalize(item.sourceName), trustedSource, sourceUrl)
+          ? "media"
+          : canonicalSource.sourceType;
       if (!allowedSourceTypes.includes(sourceType)) {
         rejectedItemCount += 1;
         rejectionReasons.add("source_type_not_allowed");
         return null;
       }
 
-      const sourceName = normalize(item.sourceName) || allowedSources.get(sourceUrl)?.sourceName || new URL(sourceUrl).hostname;
+      const sourceName = normalize(item.sourceName) || trustedSource?.sourceName || new URL(sourceUrl).hostname;
       const title = normalize(item.title);
       const summary = normalize(item.summary);
       const factualStatement = normalize(item.factualStatement) || summary;
@@ -1006,6 +1083,20 @@ export const externalProviderTestUtils = {
   collectWebResearchSources,
   extractStructuredJsonText,
   extractWebResearchResult,
+  normalizeSourceType,
+  mapResponseItems: (
+    payload: NormalizationPayload,
+    request: ContextCollectionRequest,
+    sources: WebResearchSource[],
+    searchedAt: string,
+  ) => {
+    const diagnostics = createDiagnostics();
+    const allowedSources = new Map(sources.map((source) => [source.url, source]));
+    return {
+      items: mapResponseItems(payload, request, allowedSources, searchedAt, diagnostics),
+      diagnostics,
+    };
+  },
 };
 
 export const ExternalContextProviderFactory = {

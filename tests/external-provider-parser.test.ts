@@ -26,6 +26,117 @@ const baseRequest: ContextCollectionRequest = {
 };
 
 describe("external provider parser", () => {
+  it("canonicalizes known journalistic and sports source type variants without trusting unknown values", () => {
+    const observedMediaTypes = [
+      "sports_media",
+      "sports-media",
+      "sports media",
+      "sport_media",
+      "sports_news",
+      "sports_press",
+      "presse_sportive",
+      "news_media",
+      "news_website",
+      "journalistic_media",
+    ];
+
+    for (const sourceType of observedMediaTypes) {
+      expect(externalProviderTestUtils.normalizeSourceType(sourceType)).toEqual({
+        sourceType: "media",
+        recognized: true,
+      });
+    }
+    expect(externalProviderTestUtils.normalizeSourceType("club_official")).toEqual({
+      sourceType: "official",
+      recognized: true,
+    });
+    expect(externalProviderTestUtils.normalizeSourceType("blog_personnel_inconnu")).toEqual({
+      sourceType: "external",
+      recognized: false,
+    });
+
+    const sources = observedMediaTypes.map((_, index) => ({
+      sourceName: `Journal sportif ${index + 1}`,
+      url: `https://sports-news-${index + 1}.example/article`,
+    }));
+    const mapped = externalProviderTestUtils.mapResponseItems(
+      {
+        items: observedMediaTypes.map((sourceType, index) => ({
+          title: `Actualité ${index + 1}`,
+          summary: `Résumé vérifiable ${index + 1}`,
+          factualStatement: `Fait vérifiable ${index + 1}`,
+          category: "recent_news",
+          statementType: "fact",
+          sourceName: sources[index].sourceName,
+          sourceType: sourceType as "media",
+          sourceUrl: sources[index].url,
+          publishedAt: "2026-07-15",
+        })),
+      },
+      baseRequest,
+      sources,
+      "2026-07-31T10:00:00.000Z",
+    );
+
+    expect(mapped.items).toHaveLength(10);
+    expect(mapped.items.every((item) =>
+      item.sourceType === "media"
+      && item.confidence === "medium"
+      && item.verificationStatus === "reported"
+      && item.sourceUrl.startsWith("https://"))).toBe(true);
+    expect(mapped.diagnostics).toMatchObject({
+      rejectedItemCount: 0,
+      normalizedItemCount: 10,
+    });
+    expect(mapped.diagnostics.observedSourceTypes).toHaveProperty("sports media", 3);
+
+    const externallyLabeled = externalProviderTestUtils.mapResponseItems(
+      {
+        items: sources.map((source, index) => ({
+          title: `Résultat ${index + 1}`,
+          summary: `Résumé sportif ${index + 1}`,
+          factualStatement: `Fait sportif ${index + 1}`,
+          category: "result",
+          statementType: "fact",
+          sourceName: source.sourceName,
+          sourceType: "external",
+          sourceUrl: source.url,
+          publishedAt: "2026-07-15",
+        })),
+      },
+      baseRequest,
+      sources,
+      "2026-07-31T10:00:00.000Z",
+    );
+    expect(externallyLabeled.items).toHaveLength(10);
+    expect(externallyLabeled.items.every((item) =>
+      item.sourceType === "media"
+      && item.confidence === "medium"
+      && item.verificationStatus === "reported")).toBe(true);
+    expect(externallyLabeled.diagnostics.observedSourceTypes).toEqual({ external: 10 });
+
+    const unknown = externalProviderTestUtils.mapResponseItems(
+      {
+        items: [{
+          title: "Billet non qualifié",
+          summary: "Résumé",
+          factualStatement: "Fait allégué",
+          category: "recent_news",
+          statementType: "fact",
+          sourceName: sources[0].sourceName,
+          sourceType: "blog_personnel_inconnu" as "external",
+          sourceUrl: sources[0].url,
+          publishedAt: "2026-07-15",
+        }],
+      },
+      baseRequest,
+      sources,
+      "2026-07-31T10:00:00.000Z",
+    );
+    expect(unknown.items).toEqual([]);
+    expect(unknown.diagnostics.rejectionReasons).toContain("unknown_source_type_not_allowed");
+  });
+
   it("extracts phase A research with web search call, citations and deduped sources", () => {
     const response = {
       id: "resp_123",

@@ -12,11 +12,18 @@ export type EditorialGenerationEligibility = {
   missingInformation: string[];
   contradictionSummaries: string[];
   eligibleFactIds: string[];
+  itemDiagnostics: EditorialItemEligibilityDiagnostic[];
+  suggestedArticleTypes: ArticleTypeId[];
+};
+
+export type EditorialItemEligibilityDiagnostic = {
+  itemId: string;
+  status: "eligible" | "caution" | "ineligible";
+  reasons: string[];
 };
 
 const reliable = (fact: EditorialFact): boolean =>
-  (fact.confidence.level === "high" || fact.confidence.level === "medium")
-  && !(fact.freshness.status === "stale" && (fact.category === "news" || fact.category === "sports_result"));
+  fact.confidence.level === "high" || fact.confidence.level === "medium";
 
 const isIdentityOnlyFact = (fact: EditorialFact): boolean =>
   fact.semanticKey === "name";
@@ -29,10 +36,76 @@ const allowedForTarget = (fact: EditorialFact, target: EditorialGenerationTarget
   return true;
 };
 
-const applicableToArticle = (fact: EditorialFact, articleType: ArticleTypeId): boolean => {
+const applicableToArticle = (
+  fact: EditorialFact,
+  articleType: ArticleTypeId,
+): boolean => {
   if (articleType !== "actualite") return true;
   return fact.freshness.status === "current"
-    && (fact.category === "news" || fact.category === "sports_result" || fact.category === "production");
+    && (fact.category === "news" || fact.category === "sports_result" || fact.category === "production")
+    && fact.explicitlyAttributedToSubject;
+};
+
+const buildItemDiagnostics = (
+  dossier: EditorialDossier,
+  target: EditorialGenerationTarget,
+  eligibleFactIds: Set<string>,
+): EditorialItemEligibilityDiagnostic[] => {
+  const diagnostics = new Map<string, EditorialItemEligibilityDiagnostic>();
+  const rank = { ineligible: 1, caution: 2, eligible: 3 } as const;
+  const add = (itemId: string, status: EditorialItemEligibilityDiagnostic["status"], reasons: string[]) => {
+    const existing = diagnostics.get(itemId);
+    if (!existing || rank[status] > rank[existing.status]) {
+      diagnostics.set(itemId, { itemId, status, reasons });
+      return;
+    }
+    if (existing.status === status) {
+      existing.reasons = Array.from(new Set([...existing.reasons, ...reasons]));
+    }
+  };
+
+  for (const fact of dossier.facts) {
+    let status: EditorialItemEligibilityDiagnostic["status"] = "ineligible";
+    let reasons: string[];
+    if (eligibleFactIds.has(fact.factId)) {
+      status = "eligible";
+      reasons = target.type === "article" && target.articleType === "actualite"
+        ? ["Fait récent, attribué au sujet et suffisamment fiable pour cet article."]
+        : ["Fait attribué au sujet et suffisamment fiable dans le périmètre de cet article."];
+    } else if (fact.blockedByContradictionIds.length > 0 || !fact.usable) {
+      reasons = ["Fait exclu en raison d’une contradiction non résolue."];
+    } else if (!reliable(fact)) {
+      reasons = [
+        "Fait exclu car son niveau de confiance est insuffisant.",
+        ...(fact.freshness.status === "stale"
+          ? ["Fait exclu pour ancienneté dans le cadre de cet article."]
+          : []),
+      ];
+    } else if (
+      target.type === "article"
+      && target.articleType === "actualite"
+      && (fact.category === "news" || fact.category === "sports_result" || fact.category === "production")
+      && fact.freshness.status === "current"
+      && !fact.explicitlyAttributedToSubject
+    ) {
+      reasons = ["Fait exclu car il n’est pas explicitement attribué au sujet individuel."];
+    } else {
+      status = "caution";
+      reasons = target.type === "article" && target.articleType === "actualite"
+        ? ["Information utilisable comme contexte historique, mais pas comme actualité récente."]
+        : ["Information utilisable avec prudence dans le périmètre demandé."];
+    }
+    for (const itemId of fact.sourceItemIds) add(itemId, status, reasons);
+  }
+
+  for (const lead of dossier.editorialLeads) {
+    const reasons = lead.verificationStatus === "user_provided" || lead.verificationStatus === "unverified"
+      ? ["Piste ou information manuelle non vérifiée : elle ne constitue pas une preuve factuelle."]
+      : ["Piste éditoriale utilisable avec prudence, sans affirmation factuelle."];
+    for (const itemId of lead.sourceItemIds) add(itemId, "caution", reasons);
+  }
+
+  return Array.from(diagnostics.values()).sort((left, right) => left.itemId.localeCompare(right.itemId));
 };
 
 const contradictionSummaries = (dossier: EditorialDossier): string[] =>
@@ -63,38 +136,138 @@ export const evaluateEditorialGenerationEligibility = (
   const usableFacts = dossier.facts.filter((fact) => fact.usable);
   const targetUsableFacts = usableFacts.filter((fact) => !isIdentityOnlyFact(fact) && allowedForTarget(fact, target));
   const reliableFacts = targetUsableFacts.filter(reliable);
-  const applicableFacts = target.type === "article"
-    ? reliableFacts.filter((fact) => applicableToArticle(fact, target.articleType))
-    : reliableFacts;
+  const attributedReliableFacts = reliableFacts.filter((fact) => fact.explicitlyAttributedToSubject);
+  let applicableFacts = reliableFacts;
+  let articleStatus: "ready" | "limited" | "blocked" | null = null;
+  let articleReasons: string[] = [];
+  let articleWarnings: string[] = [];
 
   if (target.type === "article") {
-    if (!applicableFacts.length) {
-      reasons.push(
-        target.articleType === "actualite"
-          ? "Un article d actualite exige au moins un fait recent, exploitable et suffisamment fiable."
-          : "Un article factuel exige au moins un fait exploitable et suffisamment fiable.",
-      );
+    if (target.articleType === "actualite") {
+      applicableFacts = reliableFacts.filter((fact) => applicableToArticle(fact, target.articleType));
+      if (!applicableFacts.length) {
+        articleStatus = "blocked";
+        articleReasons = [
+          "Aucun fait individuel récent, explicitement attribué au sujet et suffisamment fiable n’est disponible pour un article d’actualité.",
+        ];
+      } else {
+        articleStatus = contradictions.length ? "limited" : "ready";
+      }
+    } else if (target.articleType === "portrait") {
+      applicableFacts = attributedReliableFacts.filter((fact) =>
+        fact.category === "profile"
+        || fact.category === "club_position"
+        || fact.category === "sports_result"
+        || fact.category === "historical_record"
+        || fact.category === "objective"
+        || fact.category === "news");
+      const narrativeFacts = applicableFacts.filter((fact) =>
+        fact.category === "sports_result"
+        || fact.category === "historical_record"
+        || fact.category === "objective"
+        || fact.category === "news"
+        || fact.semanticKey === "bio"
+        || fact.semanticKey === "position"
+        || fact.semanticKey === "palmares");
+      const hasSafePortraitMaterial =
+        applicableFacts.length > 0
+        || dossier.chronology.some((entry) => !entry.blocked)
+        || dossier.citations.some((citation) => citation.verificationStatus !== "rejected")
+        || dossier.editorialLeads.some((lead) => lead.verificationStatus !== "rejected");
+      if (!hasSafePortraitMaterial) {
+        articleStatus = "blocked";
+        articleReasons = ["Aucun élément exploitable n’est disponible pour construire un portrait prudent."];
+      } else if (narrativeFacts.length >= 2 && contradictions.length === 0) {
+        articleStatus = "ready";
+      } else {
+        articleStatus = "limited";
+        articleReasons = ["La matière disponible permet uniquement un portrait prudent, limité aux faits confirmés."];
+        articleWarnings = [
+          "Ne pas inventer le parcours, les motivations, les résultats ni les citations du sujet.",
+        ];
+      }
+    } else if (target.articleType === "analyse") {
+      applicableFacts = attributedReliableFacts;
+      if (applicableFacts.length < 2) {
+        articleStatus = "blocked";
+        articleReasons = ["Une analyse exige au moins deux faits fiables pour comparer, expliquer ou contextualiser."];
+      } else {
+        articleStatus = contradictions.length ? "limited" : "ready";
+      }
+    } else {
+      applicableFacts = attributedReliableFacts;
+      const hasSafeReportageMaterial =
+        applicableFacts.length > 0
+        || dossier.editorialLeads.some((lead) => lead.verificationStatus !== "rejected");
+      if (!hasSafeReportageMaterial) {
+        articleStatus = "blocked";
+        articleReasons = ["Aucun contexte ni piste éditoriale sûre n’est disponible pour ce reportage."];
+      } else {
+        articleStatus = applicableFacts.length > 1 && contradictions.length === 0 ? "ready" : "limited";
+        if (articleStatus === "limited") {
+          articleReasons = ["Le reportage est limité au contexte et aux pistes sûres disponibles."];
+          articleWarnings = [
+            "Ne pas inventer d’observations de terrain, d’ambiances ni de citations.",
+          ];
+        }
+      }
     }
+  }
+  const eligibleFactIds = applicableFacts.map((fact) => fact.factId).sort();
+  const itemDiagnostics = buildItemDiagnostics(dossier, target, new Set(eligibleFactIds));
+  const hasHistoricalReliableFacts = reliableFacts.some((fact) =>
+    fact.freshness.status === "historical"
+    || fact.category === "profile"
+    || fact.category === "historical_record");
+  const suggestedArticleTypes: ArticleTypeId[] =
+    target.type === "article" && target.articleType === "actualite" && hasHistoricalReliableFacts
+      ? ["portrait", "analyse"]
+      : [];
+
+  if (target.type === "article") {
+    reasons.push(...articleReasons);
+    warnings.push(...articleWarnings);
     if (reasons.length) {
+      if (articleStatus !== "blocked" && identityPresent && projectedElementCount > 0) {
+        return {
+          status: articleStatus ?? "limited",
+          reasons,
+          warnings,
+          missingInformation,
+          contradictionSummaries: contradictions,
+          eligibleFactIds,
+          itemDiagnostics,
+          suggestedArticleTypes,
+        };
+      }
       return {
         status: "blocked",
         reasons,
         warnings,
         missingInformation,
         contradictionSummaries: contradictions,
-        eligibleFactIds: applicableFacts.map((fact) => fact.factId).sort(),
+        eligibleFactIds,
+        itemDiagnostics,
+        suggestedArticleTypes,
       };
     }
 
-    if (contradictions.length || dossier.confidence.level === "low" || dossier.freshness.status === "stale") {
+    if (
+      articleStatus === "limited"
+      || contradictions.length
+      || dossier.confidence.level === "low"
+      || dossier.freshness.status === "stale"
+    ) {
       warnings.push("Le perimetre factuel a ete reduit aux seuls faits fiables et non contradictoires.");
       return {
         status: "limited",
-        reasons: ["Des limites editoriales imposent un contexte factuel reduit."],
+        reasons: articleReasons.length ? articleReasons : ["Des limites editoriales imposent un contexte factuel reduit."],
         warnings,
         missingInformation,
         contradictionSummaries: contradictions,
-        eligibleFactIds: applicableFacts.map((fact) => fact.factId).sort(),
+        eligibleFactIds,
+        itemDiagnostics,
+        suggestedArticleTypes,
       };
     }
 
@@ -104,7 +277,9 @@ export const evaluateEditorialGenerationEligibility = (
       warnings,
       missingInformation,
       contradictionSummaries: contradictions,
-      eligibleFactIds: applicableFacts.map((fact) => fact.factId).sort(),
+      eligibleFactIds,
+      itemDiagnostics,
+      suggestedArticleTypes,
     };
   }
 
@@ -116,6 +291,8 @@ export const evaluateEditorialGenerationEligibility = (
       missingInformation,
       contradictionSummaries: contradictions,
       eligibleFactIds: reliableFacts.map((fact) => fact.factId).sort(),
+      itemDiagnostics,
+      suggestedArticleTypes,
     };
   }
 
@@ -129,6 +306,8 @@ export const evaluateEditorialGenerationEligibility = (
         missingInformation,
         contradictionSummaries: contradictions,
         eligibleFactIds: reliableFacts.map((fact) => fact.factId).sort(),
+        itemDiagnostics,
+        suggestedArticleTypes,
       };
     }
     return {
@@ -138,6 +317,8 @@ export const evaluateEditorialGenerationEligibility = (
       missingInformation,
       contradictionSummaries: contradictions,
       eligibleFactIds: reliableFacts.map((fact) => fact.factId).sort(),
+      itemDiagnostics,
+      suggestedArticleTypes,
     };
   }
 
@@ -151,6 +332,8 @@ export const evaluateEditorialGenerationEligibility = (
       missingInformation,
       contradictionSummaries: contradictions,
       eligibleFactIds: targetUsableFacts.map((fact) => fact.factId).sort(),
+      itemDiagnostics,
+      suggestedArticleTypes,
     };
   }
 
@@ -161,5 +344,7 @@ export const evaluateEditorialGenerationEligibility = (
     missingInformation,
     contradictionSummaries: contradictions,
     eligibleFactIds: [],
+    itemDiagnostics,
+    suggestedArticleTypes,
   };
 };

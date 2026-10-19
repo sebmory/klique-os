@@ -109,14 +109,59 @@ describe("editorial generation policy and context selection", () => {
 
   it("blocks a factual article without a reliable usable fact", () => {
     const dossier = build("media", editorialDossierItems.filter((item) =>
-      item.id.startsWith("crm-") || item.id === "manual-note"));
+      item.id.startsWith("crm-") || item.id === "manual-note" || item.id === "official-result"));
     const eligibility = evaluateEditorialGenerationEligibility(dossier, {
       type: "article",
       articleType: "actualite",
     });
 
     expect(eligibility.status).toBe("blocked");
-    expect(eligibility.reasons.join(" ")).toContain("fait recent");
+    expect(eligibility.reasons.join(" ")).toContain("fait individuel récent");
+    expect(eligibility.itemDiagnostics.some((item) =>
+      item.reasons.some((reason) => reason.includes("pas explicitement attribué")))).toBe(true);
+  });
+
+  it("allows the sparse FC Breitenrain Portrait only in prudent limited mode", () => {
+    const name = {
+      ...editorialDossierItems.find((item) => item.id === "crm-name")!,
+      summary: "Aggee Wenzi",
+      factualStatement: "Aggee Wenzi",
+    };
+    const sport = {
+      ...editorialDossierItems.find((item) => item.id === "crm-sport")!,
+      summary: "Football",
+      factualStatement: "Football",
+    };
+    const club = {
+      ...editorialDossierItems.find((item) => item.id === "crm-club")!,
+      summary: "FC Breitenrain",
+      factualStatement: "FC Breitenrain",
+    };
+    const replacement: ContextItem = {
+      ...editorialDossierItems.find((item) => item.id === "official-result")!,
+      id: "aggee-replacement",
+      title: "Remplacement",
+      summary: "Aggee Wenzi a effectué un remplacement à la 25e minute.",
+      factualStatement: "Aggee Wenzi a effectué un remplacement à la 25e minute.",
+      publishedAt: "2026-10-18T18:00:00.000Z",
+      metadata: {
+        subjectId: "athlete-1",
+        eventDate: "2026-10-18T18:00:00.000Z",
+        factKey: "aggee-remplacement-25",
+      },
+    };
+    const dossier = build("media", [name, sport, club, replacement]);
+    const eligibility = evaluateEditorialGenerationEligibility(dossier, {
+      type: "article",
+      articleType: "portrait",
+    });
+
+    expect(dossier.subject.displayName).toBe("Aggee Wenzi");
+    expect(dossier.subject.sport).toBe("Football");
+    expect(dossier.subject.clubOrOrganization).toBe("FC Breitenrain");
+    expect(eligibility.status).toBe("limited");
+    expect(eligibility.eligibleFactIds).toHaveLength(3);
+    expect(eligibility.warnings.join(" ")).toContain("Ne pas inventer le parcours");
   });
 
   it("allows an exploratory interview in limited mode with canonical identity and safe leads", () => {
@@ -154,7 +199,7 @@ describe("editorial generation policy and context selection", () => {
 
   it("reports only sources referenced by transmitted material", () => {
     const dossier = build("media");
-    const target = { type: "article", articleType: "actualite" } as const;
+    const target = { type: "article", articleType: "portrait" } as const;
     const eligibility = evaluateEditorialGenerationEligibility(dossier, target);
     const selection = selectEditorialGenerationContext(dossier, eligibility as never, target);
     const transmittedNames = new Set([

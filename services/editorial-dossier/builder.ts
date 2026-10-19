@@ -494,6 +494,7 @@ export const buildEditorialDossier = (input: BuildEditorialDossierInput): Editor
   }
 
   const { sources, sourceIdsByItemId } = buildSources(selectedItems, generatedAt, visibilityByItemId);
+  const subject = buildSubject(input.subject, selectedItems);
   const facts: EditorialFact[] = [];
   const editorialLeads: EditorialLead[] = [];
   const citations: EditorialCitation[] = [];
@@ -572,6 +573,16 @@ export const buildEditorialDossier = (input: BuildEditorialDossierInput): Editor
       visibility,
       sensitive,
       freshness,
+      explicitlyAttributedToSubject:
+        Boolean(
+          subject.canonicalId
+          && metadataText(item, "subjectId")
+          && metadataText(item, "subjectId") === subject.canonicalId,
+        )
+        || Boolean(
+          normalizeComparable(subject.displayName)
+          && normalizeComparable(formulation).includes(normalizeComparable(subject.displayName)),
+        ),
       confidenceReasons: confidence.reasons,
       visibilityReasons,
       usable: true,
@@ -641,7 +652,6 @@ export const buildEditorialDossier = (input: BuildEditorialDossierInput): Editor
     });
   }
 
-  const subject = buildSubject(input.subject, selectedItems);
   const dossierId = stableId("dossier", {
     workspaceId: input.collection.workspaceId,
     collectionId: input.collection.id,

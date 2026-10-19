@@ -84,6 +84,7 @@ export type EditorialFact = {
   visibility: EditorialVisibility;
   sensitive: boolean;
   freshness: EditorialFreshness;
+  explicitlyAttributedToSubject: boolean;
   confidenceReasons: string[];
   visibilityReasons: string[];
   usable: boolean;
