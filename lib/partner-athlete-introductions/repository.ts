@@ -121,6 +121,12 @@ export type OutboxDeliveryResult =
   | { outcome: "discarded"; notificationId: null }
   | { outcome: "not_found"; notificationId: null };
 
+export type PartnerIntroductionOutboxDiagnostics = {
+  failed: number;
+  stalePending: number;
+  staleProcessing: number;
+};
+
 export type PartnerAthleteIntroductionRepository = {
   create(input: CreateIntroductionRecordInput): Promise<IntroductionMutationResult>;
   respond(input: RespondIntroductionRecordInput): Promise<IntroductionMutationResult>;
@@ -148,6 +154,9 @@ export type PartnerAthleteIntroductionRepository = {
   handleReport(input: HandleIntroductionReportInput): Promise<
     "updated" | "replay" | "forbidden" | "not_found" | "idempotency_conflict" | "conflict"
   >;
+  getOutboxDiagnostics(input: {
+    staleBefore: string;
+  }): Promise<PartnerIntroductionOutboxDiagnostics>;
   claimOutbox(input: {
     workerId: string;
     batchSize: number;
@@ -1307,6 +1316,27 @@ export const createPartnerAthleteIntroductionRepository = (
       return [lock, mutation];
     }, { isolationLevel: "ReadCommitted" });
     return String(results[1][0]?.outcome) as Awaited<ReturnType<PartnerAthleteIntroductionRepository["handleReport"]>>;
+  },
+
+  async getOutboxDiagnostics(input) {
+    const rows = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+        COUNT(*) FILTER (
+          WHERE status = 'pending'
+            AND created_at < ${input.staleBefore}::timestamptz
+        )::int AS stale_pending,
+        COUNT(*) FILTER (
+          WHERE status = 'processing'
+            AND locked_at < ${input.staleBefore}::timestamptz
+        )::int AS stale_processing
+      FROM partner_athlete_introduction_notification_outbox
+    `;
+    return {
+      failed: Number(rows[0]?.failed ?? 0),
+      stalePending: Number(rows[0]?.stale_pending ?? 0),
+      staleProcessing: Number(rows[0]?.stale_processing ?? 0),
+    };
   },
 
   async claimOutbox(input) {

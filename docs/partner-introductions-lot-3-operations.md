@@ -14,8 +14,9 @@ Prérequis obligatoires avant de définir cette valeur :
    cela inclut `db/migrations/20261020_partner_athlete_introduction_admin_supervision_v1.sql` après la migration de fondation ;
 2. `KLIQUE_CONTACT_REFERENCE_SECRET` configuré avec un secret serveur d’au moins 32 caractères ;
 3. `KLIQUE_PARTNER_INTRODUCTION_OUTBOX_SECRET` configuré avec un secret serveur distinct ;
-4. identités Clerk de l’environnement reliées à des lignes `user_access` fictives et isolées ;
-5. profils partenaire et athlète fictifs disponibles dans une source non productive.
+4. `CRON_SECRET` configuré avec un troisième secret serveur d’au moins 32 caractères ;
+5. identités Clerk de l’environnement reliées à des lignes `user_access` fictives et isolées ;
+6. profils partenaire et athlète fictifs disponibles dans une source non productive.
 
 `PARTNER_REQUEST_STALE_DAYS` est facultative. Sa valeur par défaut est `5`; une valeur fournie doit être un entier de 1 à 365.
 
@@ -30,11 +31,34 @@ POST /api/internal/partner-introduction-outbox
 Authorization: Bearer <KLIQUE_PARTNER_INTRODUCTION_OUTBOX_SECRET>
 ```
 
-Il renvoie `404` si le workflow est désactivé et `401` si l’authentification interne est absente ou invalide. Aucun cron n’est activé par le dépôt.
+Il renvoie `404` si le workflow est désactivé et `401` si l’authentification interne est absente ou invalide.
 
-Après validation applicative, un planificateur serveur privé pourra appeler cette route à intervalle court. Chaque invocation utilise un identifiant de worker distinct. L’acquisition `FOR UPDATE SKIP LOCKED`, les verrous expirables, le nombre maximal de tentatives, la reprise exponentielle et la déduplication par événement/destinataire restent ceux du Lot 2A.
+Vercel Cron appelle la même route en `GET` avec le Bearer `CRON_SECRET`; le
+`POST` interne et son secret distinct restent disponibles. La planification
+`0 6 * * *` est quotidienne en UTC afin de rester compatible avec l’offre
+Hobby, limitée à une exécution par jour avec une précision à l’heure. Une
+fréquence supérieure exige de confirmer une offre Pro ou Enterprise avant de
+modifier la configuration.
 
-La visibilité actuelle des échecs repose sur le résultat agrégé de l’appel (`claimed`, `delivered`, `discarded`, `retried`, `failed`) et les statuts de l’outbox. Une alerte d’exploitation sur les lignes `failed` et les lignes `pending` anciennes reste à mettre en place avant activation.
+Chaque invocation utilise un identifiant de worker distinct. L’acquisition
+`FOR UPDATE SKIP LOCKED`, les verrous expirables, le nombre maximal de
+tentatives, la reprise exponentielle et la déduplication par
+événement/destinataire restent ceux du Lot 2A. Lorsque le workflow est
+désactivé, le `GET` authentifié répond `204` sans lire ni traiter l’outbox.
+
+Après le commit d’une nouvelle demande ou d’une réponse Athlète, les routes
+programment également un traitement immédiat avec `after()` de Next.js. Cette
+tâche réutilise le même processeur, revérifie l’activation avant tout accès à
+l’outbox et absorbe les erreurs de livraison : la réponse applicative déjà
+enregistrée reste réussie et l’événement demeure récupérable par le Cron
+quotidien. Les rejeux idempotents ne programment pas de traitement
+supplémentaire.
+
+Les logs contiennent uniquement les compteurs agrégés `claimed`, `delivered`,
+`discarded`, `retried`, `failed`, `stored_failed`, `stale_pending` et
+`stale_processing`. Le seuil d’ancienneté est de 48 heures. Aucun identifiant,
+contenu de notification, contact ou secret n’est journalisé. Vercel ne relance
+pas automatiquement un Cron en échec; le journal Cron doit donc être surveillé.
 
 ## Validation manuelle réalisée
 
@@ -55,13 +79,12 @@ Les notifications d’acceptation et de refus ne contenaient aucune coordonnée.
 1. Appliquer, sur la base applicative ciblée et après sauvegarde, les migrations
    `db/migrations/20261020_partner_athlete_introduction_foundations_v1.sql`, puis
    `db/migrations/20261020_partner_athlete_introduction_admin_supervision_v1.sql`.
-2. Configurer les secrets serveur `KLIQUE_CONTACT_REFERENCE_SECRET` et
-   `KLIQUE_PARTNER_INTRODUCTION_OUTBOX_SECRET`, puis activer exactement
+2. Configurer les secrets serveur `KLIQUE_CONTACT_REFERENCE_SECRET`,
+   `KLIQUE_PARTNER_INTRODUCTION_OUTBOX_SECRET` et `CRON_SECRET`, puis activer exactement
    `KLIQUE_PARTNER_ATHLETE_INTRODUCTIONS_ENABLED=true`.
-3. Configurer un planificateur serveur privé appelant régulièrement
-   `POST /api/internal/partner-introduction-outbox` avec son authentification
-   Bearer. Surveiller les compteurs d’exécution ainsi que les événements
-   `failed` et `pending` anciens.
+3. Déployer la configuration Vercel Cron, vérifier sa présence dans les
+   paramètres du projet, puis surveiller les compteurs agrégés et les
+   invocations en échec.
 4. Inventorier les demandes historiques et simuler leur transition avant toute
    écriture. Vérifier pour chacune les correspondances partenaire, athlète et
    workspace, isoler les cas ambigus et conserver l’historique. Une opération
@@ -115,5 +138,7 @@ Le projet Neon transactionnel existant ne doit pas être branché directement à
 - aucune migration n’a été exécutée sur une base applicative réelle ;
 - le commentaire distinct et les nouveaux types d’événements de traitement des signalements nécessitent le schéma SQL mis à jour ;
 - les tests PostgreSQL devront être relancés dans une validation dédiée, car les transactions de signalement et de traitement ont été ajoutées ;
-- les notifications ne sont pas opérationnelles tant qu’un déclencheur authentifié n’est pas configuré et testé ;
+- les notifications automatiques ne sont opérationnelles qu’après déploiement
+  de `vercel.json`, configuration de `CRON_SECRET` et activation du Cron dans
+  les paramètres Vercel ;
 - aucune conversion ou notification des demandes historiques n’est prévue.

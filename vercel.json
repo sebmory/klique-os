@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/internal/partner-introduction-outbox",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

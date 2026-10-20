@@ -5,6 +5,7 @@ import {
   introductionErrorResponse,
   readIdempotencyKey,
 } from "@/lib/partner-athlete-introductions/http";
+import { schedulePartnerIntroductionOutboxAfterResponse } from "@/lib/partner-athlete-introductions/outbox-after-response";
 import { createPartnerAthleteIntroductionService } from "@/lib/partner-athlete-introductions/service";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,9 @@ export async function POST(
       },
       idempotencyKey,
     });
+    if (result.outcome === "transitioned") {
+      schedulePartnerIntroductionOutboxAfterResponse();
+    }
     return NextResponse.json({
       contactRequest: result.request
         ? {

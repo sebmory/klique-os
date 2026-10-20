@@ -9,6 +9,7 @@ import {
 } from "@/lib/partner-athlete-introductions/contact-reference";
 import type { PartnerAthleteIntroductionDirectory } from "@/lib/partner-athlete-introductions/directory";
 import {
+  getPartnerAthleteIntroductionOutboxDiagnostics,
   processPartnerAthleteIntroductionOutbox,
 } from "@/lib/partner-athlete-introductions/outbox";
 import type {
@@ -76,6 +77,7 @@ const repositoryDouble = (): PartnerAthleteIntroductionRepository => ({
   getForAdmin: vi.fn(),
   report: vi.fn(),
   handleReport: vi.fn(),
+  getOutboxDiagnostics: vi.fn(),
   claimOutbox: vi.fn(),
   deliverOutbox: vi.fn(),
   failOutbox: vi.fn(),
@@ -453,6 +455,26 @@ describe("partner introduction server service", () => {
 });
 
 describe("callable inactive outbox processor", () => {
+  it("reports only aggregate failed and stale counts", async () => {
+    const repository = repositoryDouble();
+    vi.mocked(repository.getOutboxDiagnostics).mockResolvedValue({
+      failed: 2,
+      stalePending: 3,
+      staleProcessing: 1,
+    });
+
+    await expect(getPartnerAthleteIntroductionOutboxDiagnostics({
+      now: new Date("2026-10-20T08:00:00.000Z"),
+    }, repository)).resolves.toEqual({
+      failed: 2,
+      stalePending: 3,
+      staleProcessing: 1,
+    });
+    expect(repository.getOutboxDiagnostics).toHaveBeenCalledWith({
+      staleBefore: "2026-10-18T08:00:00.000Z",
+    });
+  });
+
   it("retries failures with bounded attempts without logging notification contents", async () => {
     const repository = repositoryDouble();
     vi.mocked(repository.claimOutbox).mockResolvedValue([{

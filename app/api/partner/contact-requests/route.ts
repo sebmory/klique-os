@@ -18,6 +18,7 @@ import {
   introductionErrorResponse,
   readIdempotencyKey,
 } from "@/lib/partner-athlete-introductions/http";
+import { schedulePartnerIntroductionOutboxAfterResponse } from "@/lib/partner-athlete-introductions/outbox-after-response";
 import { createPartnerAthleteIntroductionService } from "@/lib/partner-athlete-introductions/service";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,9 @@ export async function POST(request: NextRequest) {
         },
         idempotencyKey,
       });
+      if (result.outcome === "created") {
+        schedulePartnerIntroductionOutboxAfterResponse();
+      }
       return NextResponse.json(
         {
           workflowEnabled: true,

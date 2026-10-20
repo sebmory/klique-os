@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   createPartnerAthleteIntroductionRepository,
+  type PartnerIntroductionOutboxDiagnostics,
   type PartnerAthleteIntroductionRepository,
 } from "@/lib/partner-athlete-introductions/repository";
 
@@ -20,6 +21,11 @@ export type PartnerIntroductionOutboxOptions = {
   staleLockMilliseconds?: number;
 };
 
+export type PartnerIntroductionOutboxDiagnosticsOptions = {
+  now?: Date;
+  staleAfterMilliseconds?: number;
+};
+
 const boundedInteger = (
   value: number | undefined,
   fallback: number,
@@ -36,6 +42,25 @@ const boundedInteger = (
 
 const retryDelayMilliseconds = (attemptCount: number): number =>
   Math.min(60 * 60 * 1000, 60 * 1000 * 2 ** Math.max(0, attemptCount - 1));
+
+export const getPartnerAthleteIntroductionOutboxDiagnostics = async (
+  options: PartnerIntroductionOutboxDiagnosticsOptions = {},
+  repository: PartnerAthleteIntroductionRepository =
+    createPartnerAthleteIntroductionRepository(),
+): Promise<PartnerIntroductionOutboxDiagnostics> => {
+  const now = options.now ? new Date(options.now.getTime()) : new Date();
+  if (Number.isNaN(now.getTime())) throw new Error("now est invalide.");
+  const staleAfterMilliseconds = boundedInteger(
+    options.staleAfterMilliseconds,
+    48 * 60 * 60 * 1000,
+    60 * 60 * 1000,
+    30 * 24 * 60 * 60 * 1000,
+    "staleAfterMilliseconds",
+  );
+  return repository.getOutboxDiagnostics({
+    staleBefore: new Date(now.getTime() - staleAfterMilliseconds).toISOString(),
+  });
+};
 
 /**
  * Point d'appel réservé à un futur worker serveur authentifié par l'infrastructure.
