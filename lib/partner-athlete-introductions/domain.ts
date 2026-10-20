@@ -452,6 +452,7 @@ export const projectPartnerIntroductionSummary = (
     id: request.id,
     athleteId: request.athleteId,
     athletePublicName: request.athletePublicNameSnapshot,
+    historical: request.flowVersion < PARTNER_INTRODUCTION_FLOW_VERSION,
     reason: request.reason ?? "",
     message: request.message ?? "",
     status: request.status,

@@ -455,6 +455,7 @@ describe("safe projections and notifications", () => {
       id: "request-1",
       athleteId: "athlete-1",
       athletePublicName: "Mila Martin",
+      historical: false,
       reason: "",
       message: "",
       status: "accepted",

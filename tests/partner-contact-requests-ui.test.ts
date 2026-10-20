@@ -80,6 +80,39 @@ describe("PartnerContactRequestsPage", () => {
     expect(container.textContent).toContain("Vous n’avez encore aucune demande de mise en relation.");
   });
 
+  it("labels historical requests according to their stored status", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workflowEnabled: true,
+        contactRequests: [{
+          id: "legacy-request",
+          athleteId: "athlete-1",
+          athletePublicName: "Mila Martin",
+          reason: "Ancienne demande",
+          message: "",
+          status: "pending",
+          historical: true,
+          createdAt: "2026-09-15T10:00:00.000Z",
+        }, {
+          id: "legacy-resolved-request",
+          athleteId: "athlete-2",
+          athletePublicName: "Noa Martin",
+          reason: "Ancienne demande résolue",
+          message: "",
+          status: "resolved",
+          historical: true,
+          createdAt: "2026-09-14T10:00:00.000Z",
+        }],
+      }),
+    });
+
+    await mount();
+
+    expect(container.textContent).toContain("Ancienne demande — en attente de transition");
+    expect(container.textContent).toContain("Ancienne demande — résolue");
+  });
+
   it("shows the API error", async () => {
     fetchMock.mockResolvedValue({
       ok: false,

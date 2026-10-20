@@ -108,6 +108,7 @@ export type PartnerIntroductionSummary = {
   id: string;
   athleteId: string;
   athletePublicName: string;
+  historical: boolean;
   reason: string;
   message: string;
   status: ContactRequestStatus;
@@ -153,6 +154,7 @@ export type AdminIntroductionSummary = {
   athleteId: string;
   partnerPublicName: string;
   athletePublicName: string;
+  historical: boolean;
   reason: string;
   status: ContactRequestStatus;
   moderationStatus: PartnerAthleteIntroductionModerationStatus;

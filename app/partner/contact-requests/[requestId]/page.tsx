@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 type Detail = {
   id: string;
   athletePublicName: string;
+  historical: boolean;
   reason: string;
   message: string;
   status: string;
@@ -20,6 +21,11 @@ const statusLabel = (status: string) => ({
   accepted: "Acceptée",
   declined: "Refusée",
 }[status] ?? status);
+
+const historicalStatusLabel = (status: string) => ({
+  pending: "Ancienne demande — en attente de transition",
+  resolved: "Ancienne demande — résolue",
+}[status] ?? `Ancienne demande — ${statusLabel(status)}`);
 
 export default function PartnerContactRequestDetailPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -49,7 +55,12 @@ export default function PartnerContactRequestDetailPage() {
       {detail ? (
         <article className="partner-portal-state">
           <h1>{detail.athletePublicName || "Athlète KLIQUE"}</h1>
-          <p><strong>Statut :</strong> {statusLabel(detail.status)}</p>
+          <p>
+            <strong>Statut :</strong>{" "}
+            {detail.historical
+              ? historicalStatusLabel(detail.status)
+              : statusLabel(detail.status)}
+          </p>
           <p><strong>Motif :</strong> {detail.reason}</p>
           {detail.message ? <p><strong>Message :</strong> {detail.message}</p> : null}
           {detail.authorizedContact ? (

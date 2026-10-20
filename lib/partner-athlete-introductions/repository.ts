@@ -224,6 +224,7 @@ const mapAdminSummary = (row: Row): AdminIntroductionSummary => ({
   athleteId: String(row.athlete_id ?? ""),
   partnerPublicName: String(row.partner_public_name_snapshot ?? ""),
   athletePublicName: String(row.athlete_public_name_snapshot ?? ""),
+  historical: Number(row.flow_version ?? 1) < PARTNER_INTRODUCTION_FLOW_VERSION,
   reason: String(row.subject ?? ""),
   status: String(row.status ?? "awaiting_athlete") as AdminIntroductionSummary["status"],
   moderationStatus: String(row.moderation_status ?? "clear") as AdminIntroductionSummary["moderationStatus"],
@@ -655,6 +656,7 @@ export const createPartnerAthleteIntroductionRepository = (
           WHERE workspace_id = ${input.actor.workspaceId}
             AND id = ${input.requestId}
             AND request_kind = 'partner_athlete_introduction'
+            AND flow_version >= ${PARTNER_INTRODUCTION_FLOW_VERSION}
           LIMIT 1
         ),
         actor_access AS (
@@ -919,13 +921,12 @@ export const createPartnerAthleteIntroductionRepository = (
           AND access.partner_id = request.partner_id
         WHERE request.workspace_id = $1
           AND request.request_kind = 'partner_athlete_introduction'
-          AND request.flow_version >= $2
-          AND access.clerk_user_id = $3
+          AND access.clerk_user_id = $2
           AND access.role = 'partner_expert'
           AND access.status = 'active'
         ORDER BY request.created_at DESC
       `,
-      [actor.workspaceId, PARTNER_INTRODUCTION_FLOW_VERSION, actor.clerkUserId],
+      [actor.workspaceId, actor.clerkUserId],
     );
     return rows.map((row) => mapRequest(row as Row));
   },
@@ -945,7 +946,7 @@ export const createPartnerAthleteIntroductionRepository = (
           SELECT
             request.id, request.partner_id, request.athlete_id,
             request.partner_public_name_snapshot, request.athlete_public_name_snapshot,
-            request.subject, request.status, request.moderation_status,
+            request.flow_version, request.subject, request.status, request.moderation_status,
             request.created_at, request.responded_at,
             GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ($10::timestamptz - request.created_at)) / 86400))::int AS age_days,
             (
@@ -962,8 +963,13 @@ export const createPartnerAthleteIntroductionRepository = (
           FROM contact_requests request
           WHERE request.workspace_id = $2
             AND request.request_kind = 'partner_athlete_introduction'
-            AND request.flow_version >= $3
-            AND request.athlete_response_enabled_at IS NOT NULL
+            AND (
+              request.flow_version < $3
+              OR (
+                request.flow_version >= $3
+                AND request.athlete_response_enabled_at IS NOT NULL
+              )
+            )
             AND EXISTS (SELECT 1 FROM admin_access)
         )
         SELECT *, COUNT(*) OVER()::int AS total_count
@@ -998,7 +1004,7 @@ export const createPartnerAthleteIntroductionRepository = (
         ),
         scoped AS (
           SELECT
-            request.status, request.moderation_status, request.created_at,
+            request.flow_version, request.status, request.moderation_status, request.created_at,
             EXISTS (
               SELECT 1 FROM partner_athlete_introduction_reports report
               WHERE report.workspace_id = request.workspace_id
@@ -1008,8 +1014,13 @@ export const createPartnerAthleteIntroductionRepository = (
           FROM contact_requests request
           WHERE request.workspace_id = $2
             AND request.request_kind = 'partner_athlete_introduction'
-            AND request.flow_version >= $3
-            AND request.athlete_response_enabled_at IS NOT NULL
+            AND (
+              request.flow_version < $3
+              OR (
+                request.flow_version >= $3
+                AND request.athlete_response_enabled_at IS NOT NULL
+              )
+            )
             AND EXISTS (SELECT 1 FROM admin_access)
         )
         SELECT
@@ -1053,7 +1064,7 @@ export const createPartnerAthleteIntroductionRepository = (
         SELECT
           request.id, request.partner_id, request.athlete_id,
           request.partner_public_name_snapshot, request.athlete_public_name_snapshot,
-          request.subject, request.message, request.status, request.moderation_status,
+          request.flow_version, request.subject, request.message, request.status, request.moderation_status,
           request.created_at, request.responded_at,
           GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ($4::timestamptz - request.created_at)) / 86400))::int AS age_days,
           (
@@ -1074,8 +1085,13 @@ export const createPartnerAthleteIntroductionRepository = (
         WHERE request.workspace_id = $2
           AND request.id = $3
           AND request.request_kind = 'partner_athlete_introduction'
-          AND request.flow_version >= $6
-          AND request.athlete_response_enabled_at IS NOT NULL
+          AND (
+            request.flow_version < $6
+            OR (
+              request.flow_version >= $6
+              AND request.athlete_response_enabled_at IS NOT NULL
+            )
+          )
           AND EXISTS (
             SELECT 1 FROM user_access
             WHERE clerk_user_id = $1 AND workspace_id = $2

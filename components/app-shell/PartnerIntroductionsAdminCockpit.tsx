@@ -8,6 +8,7 @@ type Summary = {
   id: string;
   partnerPublicName: string;
   athletePublicName: string;
+  historical: boolean;
   reason: string;
   status: string;
   moderationStatus: string;
@@ -31,6 +32,11 @@ const statusLabels: Record<string, string> = {
   accepted: "Acceptée",
   declined: "Refusée",
 };
+
+const historicalStatusLabel = (status: string) => ({
+  pending: "Ancienne demande — en attente de transition",
+  resolved: "Ancienne demande — résolue",
+}[status] ?? `Ancienne demande — ${statusLabels[status] ?? status}`);
 
 export function PartnerIntroductionsAdminCockpit() {
   const [enabled, setEnabled] = useState(false);
@@ -124,7 +130,10 @@ export function PartnerIntroductionsAdminCockpit() {
                 </strong>
                 <span>{item.reason || "Motif non renseigné"}</span>
                 <small>
-                  {statusLabels[item.status] ?? item.status} · Modération : {item.moderationStatus === "suspended" ? "Suspendue" : "Active"}
+                  {item.historical
+                    ? historicalStatusLabel(item.status)
+                    : statusLabels[item.status] ?? item.status}
+                  {" · "}Modération : {item.moderationStatus === "suspended" ? "Suspendue" : "Active"}
                   {" · "}{item.ageDays} jour{item.ageDays === 1 ? "" : "s"}
                   {item.stale ? " · Sans réponse ancienne" : ""}
                   {item.reported ? " · Signalée" : ""}

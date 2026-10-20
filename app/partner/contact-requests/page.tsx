@@ -17,6 +17,7 @@ type PartnerContactRequest = {
   athleteId: string;
   athleteName: string;
   athletePublicName?: string;
+  historical?: boolean;
   subject: string;
   reason?: string;
   message: string;
@@ -34,6 +35,11 @@ const statusLabels: Record<ContactRequestStatus, string> = {
   awaiting_athlete: "En attente de l’athlète",
   accepted: "Acceptée",
   declined: "Refusée",
+};
+
+const historicalStatusLabels: Partial<Record<ContactRequestStatus, string>> = {
+  pending: "Ancienne demande — en attente de transition",
+  resolved: "Ancienne demande — résolue",
 };
 
 const dateFormatter = new Intl.DateTimeFormat("fr-CH", {
@@ -111,7 +117,9 @@ export default function PartnerContactRequestsPage() {
                       <h2>{request.athletePublicName || request.athleteName || "Athlète KLIQUE"}</h2>
                     </div>
                     <span className={`partner-contact-request-status is-${request.status}`}>
-                      {statusLabels[request.status] ?? request.status}
+                      {request.historical
+                        ? historicalStatusLabels[request.status] ?? `Ancienne demande — ${statusLabels[request.status] ?? request.status}`
+                        : statusLabels[request.status] ?? request.status}
                     </span>
                   </header>
                   <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>

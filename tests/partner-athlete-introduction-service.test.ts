@@ -205,6 +205,24 @@ describe("partner introduction server service", () => {
     expect(result[0]).not.toHaveProperty("authorizedContact");
   });
 
+  it("marks a server-scoped historical partner request without exposing contact", async () => {
+    vi.mocked(repository.listForPartner).mockResolvedValue([
+      request({ flowVersion: 1, status: "pending" }),
+    ]);
+    const service = createPartnerAthleteIntroductionService({
+      repository,
+      directory,
+      contactReferenceSecret: () => secret,
+    });
+
+    const result = await service.listForPartner({ actor: partnerActor });
+
+    expect(result).toEqual([
+      expect.objectContaining({ historical: true, status: "pending" }),
+    ]);
+    expect(result[0]).not.toHaveProperty("authorizedContact");
+  });
+
   it("refuses athlete listing for another role before querying persistence", async () => {
     const service = createPartnerAthleteIntroductionService({
       repository,
@@ -263,6 +281,7 @@ describe("partner introduction server service", () => {
       athleteId: "athlete-1",
       partnerPublicName: "Studio Exemple",
       athletePublicName: "Mila Martin",
+      historical: false,
       reason: "Sponsoring",
       message: "Bonjour",
       status: "accepted",

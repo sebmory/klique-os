@@ -9,6 +9,7 @@ type Detail = {
   partnerId: string;
   partnerPublicName: string;
   athletePublicName: string;
+  historical: boolean;
   reason: string;
   message: string;
   status: string;
@@ -40,6 +41,11 @@ type Detail = {
     occurredAt: string;
   }>;
 };
+
+const historicalStatusLabel = (status: string) => ({
+  pending: "Ancienne demande — en attente de transition",
+  resolved: "Ancienne demande — résolue",
+}[status] ?? `Ancienne demande — ${status}`);
 
 export default function AdminPartnerIntroductionDetailPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -120,7 +126,12 @@ export default function AdminPartnerIntroductionDetailPage() {
             <h1>{detail.partnerPublicName || "Partenaire KLIQUE"} → {detail.athletePublicName || "Athlète KLIQUE"}</h1>
             <p>{detail.reason}</p>
             {detail.message ? <p>{detail.message}</p> : null}
-            <p>Demande : {detail.status} · Modération : {detail.moderationStatus} · Ancienneté : {detail.ageDays} jour(s)</p>
+            <p>
+              Demande : {detail.historical
+                ? historicalStatusLabel(detail.status)
+                : detail.status}
+              {" · "}Modération : {detail.moderationStatus} · Ancienneté : {detail.ageDays} jour(s)
+            </p>
             <p>Créée le {new Date(detail.createdAt).toLocaleString("fr-CH")}</p>
           </header>
           <section>
@@ -130,12 +141,16 @@ export default function AdminPartnerIntroductionDetailPage() {
               <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
             </label>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-              <button type="button" disabled={!reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
-                void mutate({ action: "suspend", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
-              }}>Suspendre</button>
-              <button type="button" disabled={!reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
-                void mutate({ action: "reactivate", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
-              }}>Réactiver</button>
+              {!detail.historical ? (
+                <>
+                  <button type="button" disabled={!reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
+                    void mutate({ action: "suspend", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
+                  }}>Suspendre</button>
+                  <button type="button" disabled={!reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
+                    void mutate({ action: "reactivate", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
+                  }}>Réactiver</button>
+                </>
+              ) : null}
               <button type="button" disabled={!reason.trim()} onClick={() => {
                 void mutate({ action: "set_solicitation", canSolicit: !detail.solicitationAllowed, reason })
                   .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));

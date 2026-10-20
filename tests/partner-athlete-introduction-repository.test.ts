@@ -96,6 +96,76 @@ describe("partner introduction transactional repository", () => {
     double = createSqlDouble();
   });
 
+  it("includes historical requests only through the scoped partner and Admin reads", async () => {
+    double.directQuery
+      .mockResolvedValueOnce([{ ...requestRow, flow_version: 1, status: "pending" }])
+      .mockResolvedValueOnce([{
+        ...requestRow,
+        flow_version: 1,
+        status: "pending",
+        age_days: 10,
+        stale: false,
+        reported: false,
+        total_count: 1,
+      }])
+      .mockResolvedValueOnce([{
+        awaiting: 0,
+        accepted: 0,
+        declined: 0,
+        stale: 0,
+        reported: 0,
+        suspended: 0,
+      }]);
+    const repository = createPartnerAthleteIntroductionRepository(double.sql);
+
+    await expect(repository.listForPartner(actor)).resolves.toEqual([
+      expect.objectContaining({ id: "request-1", flowVersion: 1 }),
+    ]);
+    await expect(repository.listForAdmin({
+      actor: { ...actor, role: "admin", partnerId: null },
+      status: null,
+      moderationStatus: null,
+      staleOnly: false,
+      reportedOnly: false,
+      staleDays: 5,
+      limit: 20,
+      offset: 0,
+      now: "2026-10-30T08:00:00.000Z",
+    })).resolves.toMatchObject({
+      items: [expect.objectContaining({ historical: true, status: "pending" })],
+    });
+
+    const partnerQuery = String(double.directQuery.mock.calls[0]?.[0] ?? "");
+    const partnerValues = double.directQuery.mock.calls[0]?.[1] as unknown[];
+    expect(partnerQuery).toContain("access.partner_id = request.partner_id");
+    expect(partnerQuery).toContain("access.clerk_user_id = $2");
+    expect(partnerQuery).not.toContain("request.flow_version >= $2");
+    expect(partnerValues).toEqual(["workspace-1", "partner-user"]);
+
+    const adminQuery = String(double.directQuery.mock.calls[1]?.[0] ?? "");
+    expect(adminQuery).toContain("role = 'admin'");
+    expect(adminQuery).toContain("request.flow_version < $3");
+    expect(adminQuery).toContain("request.athlete_response_enabled_at IS NOT NULL");
+  });
+
+  it("keeps historical requests excluded from athlete reads", async () => {
+    double.directQuery.mockResolvedValue([]);
+    const repository = createPartnerAthleteIntroductionRepository(double.sql);
+
+    await repository.listForAthlete({
+      ...actor,
+      clerkUserId: "athlete-user",
+      role: "athlete",
+      athleteId: "athlete-1",
+      partnerId: null,
+    });
+
+    const query = String(double.directQuery.mock.calls[0]?.[0] ?? "");
+    expect(query).toContain("request.flow_version >= $2");
+    expect(query).toContain("request.athlete_response_enabled_at IS NOT NULL");
+    expect(query).toContain("access.athlete_id = request.athlete_id");
+  });
+
   it("serializes creation with the partner lock then pair lock in one ReadCommitted transaction", async () => {
     double.setResults([[], [], [{ outcome: "created", ...requestRow }]]);
     const repository = createPartnerAthleteIntroductionRepository(double.sql);
@@ -184,6 +254,7 @@ describe("partner introduction transactional repository", () => {
     expect(normalizeSql(double.planned[0])).toContain("for update");
     const mutation = normalizeSql(double.planned[1]);
     expect(mutation).toContain("role = 'admin'");
+    expect(mutation).toContain("flow_version >=");
     expect(mutation).toContain("idempotency_key");
     expect(double.planned[1].values).toContain("moderation_suspended");
   });
