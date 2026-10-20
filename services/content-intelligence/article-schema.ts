@@ -1,3 +1,5 @@
+import type { ArticleLengthId, EditorialGenerationMode } from "@/types/content-generation";
+
 type JsonSchema = Record<string, unknown>;
 
 export type ArticleTemplateMetadataRaw = { templateId: "article"; templateVersion: "v1" };
@@ -55,44 +57,52 @@ const finalContentSectionSchema: JsonSchema = {
   },
 };
 
-export const buildArticleStructureSuggestionsJsonSchema = (): JsonSchema => ({
-  type: "object",
-  additionalProperties: false,
-  required: ["suggestions"],
-  properties: {
-    suggestions: {
-      type: "array",
-      minItems: 3,
-      maxItems: 3,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["id", "title", "editorialPromise", "sections", "estimatedWordCount"],
-        properties: {
-          id: nonEmptyStringSchema,
-          title: nonEmptyStringSchema,
-          editorialPromise: nonEmptyStringSchema,
-          sections: {
-            type: "array",
-            minItems: 1,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["order", "title", "purpose", "points"],
-              properties: {
-                order: { type: "integer", minimum: 1 },
-                title: nonEmptyStringSchema,
-                purpose: nonEmptyStringSchema,
-                points: { type: "array", minItems: 1, items: nonEmptyStringSchema },
+export const buildArticleStructureSuggestionsJsonSchema = (
+  generationMode: EditorialGenerationMode = "ready",
+  length: ArticleLengthId = "court",
+): JsonSchema => {
+  const hasCompactSections = generationMode === "limited" || length === "breve";
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["suggestions"],
+    properties: {
+      suggestions: {
+        type: "array",
+        minItems: 3,
+        maxItems: 3,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "title", "editorialPromise", "sections", "estimatedWordCount"],
+          properties: {
+            id: nonEmptyStringSchema,
+            title: nonEmptyStringSchema,
+            editorialPromise: nonEmptyStringSchema,
+            sections: {
+              type: "array",
+              minItems: hasCompactSections ? 1 : 3,
+              ...(hasCompactSections ? { maxItems: 2 } : {}),
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["order", "title", "purpose", "points"],
+                properties: {
+                  order: { type: "integer", minimum: 1 },
+                  title: nonEmptyStringSchema,
+                  purpose: nonEmptyStringSchema,
+                  points: { type: "array", minItems: 1, items: nonEmptyStringSchema },
+                },
               },
             },
+            estimatedWordCount: { type: "integer", minimum: 1 },
           },
-          estimatedWordCount: { type: "integer", minimum: 1 },
         },
       },
     },
-  },
-});
+  };
+};
 
 export const buildArticleFinalJsonSchema = (): JsonSchema => ({
   type: "object",

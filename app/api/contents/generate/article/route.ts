@@ -155,7 +155,10 @@ export async function POST(request: Request) {
       if (!isArticleStructureSuggestion(body.selectedStructure)) {
         throw new ContentGenerationError("INVALID_REQUEST", "Structure Article selectionnee obligatoire");
       }
-      validateArticleStructureSuggestion(body.selectedStructure, (articleRequest as ArticleGenerationRequest).brief.length);
+      const generationRequest = articleRequest as ArticleGenerationRequest;
+      validateArticleStructureSuggestion(body.selectedStructure, generationRequest.brief.length, {
+        generationMode: generationRequest.editorialGeneration?.generationMode,
+      });
     }
 
     const creditCost = getCreditCost(body.action, articleRequest);

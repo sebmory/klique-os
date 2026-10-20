@@ -106,9 +106,10 @@ describe("Article structures engine boundaries", () => {
     expect(result.suggestions).toEqual(output.suggestions);
     expect(mocks.create).toHaveBeenCalledTimes(1);
     expect(mocks.create.mock.calls[0]?.[0]).toMatchObject({
-      reasoning: { effort: "low" },
+      model: "gpt-4.1-mini",
       max_output_tokens: 2400,
     });
+    expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("reasoning");
     expect(mocks.create.mock.calls[0]?.[1]).toMatchObject({
       timeout: 45000,
       maxRetries: 0,

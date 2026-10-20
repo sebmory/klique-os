@@ -12,8 +12,10 @@ const confidenceLabels = {
 
 export function EditorialReliabilityPanel({
   metadata,
+  missingInformationAsInterviewPrompts = false,
 }: {
   metadata?: EditorialGenerationMetadata;
+  missingInformationAsInterviewPrompts?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
@@ -66,7 +68,10 @@ export function EditorialReliabilityPanel({
         ) : null}
         {metadata.missingInformation.length ? (
           <section>
-            <h3>Informations manquantes</h3>
+            <h3>{missingInformationAsInterviewPrompts ? "Pistes d’interview" : "Informations manquantes"}</h3>
+            {missingInformationAsInterviewPrompts
+              ? <p>À documenter hors du texte publiable avant d’enrichir l’article.</p>
+              : null}
             <ul>{metadata.missingInformation.map((item) => <li key={item}>{item}</li>)}</ul>
           </section>
         ) : null}

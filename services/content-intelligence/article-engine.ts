@@ -59,7 +59,7 @@ const systemInstructions = [
   "Reste strictement dans le perimetre du dossier editorial fourni.",
 ].join(" ");
 
-const createOpenAiClient = (): { client: OpenAI; model: string } => {
+const createOpenAiClient = (modelOverride?: string): { client: OpenAI; model: string } => {
   const apiKey = process.env.OPENAI_API_KEY || "";
   const configuredBaseUrl = process.env.OPENAI_API_URL
     ? process.env.OPENAI_API_URL.replace(/\/chat\/completions\/?$/i, "")
@@ -75,7 +75,7 @@ const createOpenAiClient = (): { client: OpenAI; model: string } => {
       timeout: contentIntelligenceConfig.requestTimeoutMs,
       ...(configuredBaseUrl ? { baseURL: configuredBaseUrl } : {}),
     }),
-    model: contentIntelligenceConfig.defaultModel,
+    model: modelOverride || contentIntelligenceConfig.defaultModel,
   };
 };
 
@@ -192,6 +192,19 @@ const createMetadata = (model: string, requestStartedAt: number): ArticleGenerat
   generationDurationMs: Math.max(1, Date.now() - requestStartedAt),
 });
 
+const classifyArticleStructureValidationError = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : "";
+  if (/sections? (?:sont requises|maximum)/i.test(message)) return "section_count";
+  if (/Estimation de la structure/i.test(message)) return "word_target";
+  if (/Theme non documente/i.test(message)) return "unsupported_theme";
+  if (/Qualification temporelle non prouvee/i.test(message)) return "unsupported_temporal_qualification";
+  if (/Intertitre generique interdit/i.test(message)) return "generic_heading";
+  if (/Construction de titre sportif/i.test(message)) return "unsupported_sports_title";
+  if (/ordre de sections|ordre incorrect/i.test(message)) return "section_order";
+  if (/identifiant duplique|Structure Article incomplete/i.test(message)) return "structure_shape";
+  return "other";
+};
+
 const assembleArticleFinalResult = (
   generatedContent: ArticleFinalContentRaw,
   selectedStructure: ArticleStructureSuggestion,
@@ -294,7 +307,11 @@ export const runArticleStructureSuggestionsEngine = async (
   callContext?: ArticleCallContext,
 ): Promise<{ suggestions: ArticleStructureSuggestionsResult["suggestions"]; metadata: ArticleGenerationMetadata }> => {
   const requestStartedAt = Date.now();
-  const { client, model } = createOpenAiClient();
+  const { client, model } = createOpenAiClient(contentIntelligenceConfig.articleStructureModel);
+  const prompt = buildArticleStructurePrompt(request);
+  const promptCharacters = prompt.length;
+  const contextCharacters = JSON.stringify(request).length;
+  let response: Response | undefined;
 
   try {
     validateArticleRequest(request);
@@ -304,21 +321,22 @@ export const runArticleStructureSuggestionsEngine = async (
       timedOut = true;
       controller.abort();
     }, contentIntelligenceConfig.articleStructureTimeoutMs);
-    let response: Response;
     try {
       response = await client.responses.create(
         {
           model,
-          reasoning: { effort: "low" },
           max_output_tokens: contentIntelligenceConfig.maxTokens,
           instructions: systemInstructions,
-          input: buildArticleStructurePrompt(request),
+          input: prompt,
           text: {
             format: {
               type: "json_schema",
               name: "article_structure_suggestions",
               strict: true,
-              schema: buildArticleStructureSuggestionsJsonSchema(),
+              schema: buildArticleStructureSuggestionsJsonSchema(
+                request.editorialGeneration?.generationMode,
+                request.brief.length,
+              ),
             },
           },
         },
@@ -357,14 +375,30 @@ export const runArticleStructureSuggestionsEngine = async (
     }
 
     try {
-      validateArticleStructureSuggestions(parsed, request.brief.length);
+      validateArticleStructureSuggestions(
+        parsed,
+        request.brief.length,
+        request.editorialGeneration?.generationMode,
+      );
       validateArticleStructureQualifications(request, parsed);
-    } catch {
+    } catch (error) {
+      console.error("[article_structures_validation]", {
+        rule: classifyArticleStructureValidationError(error),
+      });
       throw new ContentGenerationError(
         "ARTICLE_STRUCTURE_VALIDATION_ERROR",
         "Les structures reçues sont incomplètes ou incompatibles. Vous pouvez réessayer.",
       );
     }
+    console.info("[article_structures]", {
+      code: "ARTICLE_STRUCTURE_SUCCEEDED",
+      model,
+      durationMs: Math.max(1, Date.now() - requestStartedAt),
+      promptCharacters,
+      contextCharacters,
+      inputTokens: response.usage?.input_tokens ?? null,
+      outputTokens: response.usage?.output_tokens ?? null,
+    });
     const metadata = createMetadata(model, requestStartedAt);
     await recordArticleUsage({
       callContext,
@@ -383,7 +417,14 @@ export const runArticleStructureSuggestionsEngine = async (
     console.error("[article_structures]", {
       code: generationError.code,
       providerStatus,
+      model,
       durationMs: Math.max(1, Date.now() - requestStartedAt),
+      promptCharacters,
+      contextCharacters,
+      responseStatus: response?.status ?? null,
+      incompleteReason: response?.incomplete_details?.reason ?? null,
+      inputTokens: response?.usage?.input_tokens ?? null,
+      outputTokens: response?.usage?.output_tokens ?? null,
     });
     await recordArticleUsage({
       callContext,
@@ -409,7 +450,9 @@ export const runArticleFinalEngine = async (
 
   try {
     validateArticleRequest(request);
-    validateArticleStructureSuggestion(selectedStructure, request.brief.length);
+    validateArticleStructureSuggestion(selectedStructure, request.brief.length, {
+      generationMode: request.editorialGeneration?.generationMode,
+    });
     const firstResponse = await client.responses.create({
       model,
       instructions: systemInstructions,

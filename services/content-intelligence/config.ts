@@ -3,6 +3,7 @@ export type ContentProviderId = "openai";
 export const contentIntelligenceConfig = {
   defaultProvider: "openai" as ContentProviderId,
   defaultModel: process.env.OPENAI_MODEL || "gpt-5.5",
+  articleStructureModel: process.env.OPENAI_ARTICLE_STRUCTURE_MODEL?.trim() || "gpt-4.1-mini",
   promptVersion: "cie-interview-v1",
   temperature: 0.35,
   maxTokens: 2400,

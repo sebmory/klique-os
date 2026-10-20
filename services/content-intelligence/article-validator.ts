@@ -5,6 +5,7 @@ import {
 } from "@/services/content-intelligence/article-readiness";
 import type {
   ArticleAngleSuggestionsRequest,
+  EditorialGenerationMode,
   ArticleFinalResult,
   ArticleGenerationRequest,
   ArticleLengthId,
@@ -53,6 +54,98 @@ const normalizeEvidence = (value: unknown): string =>
 const normalizeComparable = (value: unknown): string =>
   normalizeEvidence(value).replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 
+const unsupportedThemeRules = [
+  {
+    label: "choix de carrière",
+    candidate: /\b(?:choix|decision|strategie) de carriere\b|\bchoisi de rejoindre\b|\bdecision de rejoindre\b/u,
+    evidence: /\b(?:choix|decision|strategie) de carriere\b|\bchoisi de rejoindre\b|\bdecision de rejoindre\b/u,
+  },
+  {
+    label: "motivations ou ambitions",
+    candidate: /\bmotivations?\b|\bambitions?\b|\baspirations?\b|\bce qui (?:le|la) pousse\b/u,
+    evidence: /\bmotivations?\b|\bambitions?\b|\baspirations?\b|\bobjectif personnel\b/u,
+  },
+  {
+    label: "caractère ou personnalité",
+    candidate: /\bcaractere\b|\bpersonnalite\b|\btemperament\b|\betat d esprit\b/u,
+    evidence: /\bcaractere\b|\bpersonnalite\b|\btemperament\b|\betat d esprit\b/u,
+  },
+  {
+    label: "style de jeu ou rôle tactique",
+    candidate: /\bstyle de jeu\b|\brole tactique\b|\bimpact sur le terrain\b|\bvision du jeu\b|\bqualites? techniques?\b/u,
+    evidence: /\bstyle de jeu\b|\brole tactique\b|\bimpact sur le terrain\b|\bvision du jeu\b|\bqualites? techniques?\b/u,
+  },
+  {
+    label: "quotidien ou entraînement",
+    candidate: /\bquotidien\b|\bentrainements?\b|\bpreparation\b|\bdans les coulisses\b/u,
+    evidence: /\bquotidien\b|\bentrainements?\b|\bpreparation\b|\bdans les coulisses\b/u,
+  },
+  {
+    label: "intégration dans le club",
+    candidate: /\bintegration\b|\bs adapte\b|\badaptation au club\b|\bplace dans l equipe\b/u,
+    evidence: /\bintegration\b|\bs adapte\b|\badaptation au club\b|\bplace dans l equipe\b/u,
+  },
+] as const;
+
+const assertSupportedEditorialThemes = (
+  request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest,
+  candidates: Array<{ location: string; text: string }>,
+): void => {
+  const evidence = buildArticleEvidenceCorpus(request);
+  for (const candidate of candidates) {
+    const text = normalizeEvidence(candidate.text);
+    for (const rule of unsupportedThemeRules) {
+      if (rule.candidate.test(text) && !rule.evidence.test(evidence)) {
+        throw new ContentGenerationError(
+          "INVALID_PROVIDER_RESPONSE",
+          `Theme non documente '${rule.label}' dans ${candidate.location}`,
+        );
+      }
+    }
+  }
+};
+
+const limitedFillerPatterns = [
+  /\bau coeur du jeu\b/u,
+  /\bdans l ombre\b/u,
+  /\brole essentiel\b/u,
+  /\bforce du collectif\b/u,
+  /\bdefis? a venir\b/u,
+  /\bbien plus qu\b/u,
+] as const;
+
+const assertLimitedArticleQuality = (
+  request: ArticleGenerationRequest,
+  candidates: Array<{ location: string; text: string }>,
+): void => {
+  if (request.editorialGeneration?.generationMode !== "limited") return;
+  assertSupportedEditorialThemes(request, candidates);
+  for (const candidate of candidates) {
+    const text = normalizeEvidence(candidate.text);
+    if (candidate.text.includes("?")) {
+      throw new ContentGenerationError(
+        "INVALID_PROVIDER_RESPONSE",
+        `Question sans réponse interdite en mode limited dans ${candidate.location}`,
+      );
+    }
+    if (limitedFillerPatterns.some((pattern) => pattern.test(text))) {
+      throw new ContentGenerationError(
+        "INVALID_PROVIDER_RESPONSE",
+        `Formulation de remplissage interdite en mode limited dans ${candidate.location}`,
+      );
+    }
+    if (
+      /\b(?:aucun|aucune|absence de)\b.{0,80}\b(?:trace|resultats?|participations?|apparitions?|buts?)\b/u.test(text)
+      || /\bn a pas ete\b.{0,60}\b(?:retrouve|documente)\b/u.test(text.replace(/[’']/g, " "))
+    ) {
+      throw new ContentGenerationError(
+        "INVALID_PROVIDER_RESPONSE",
+        `Limite documentaire presentee comme fait dans ${candidate.location}`,
+      );
+    }
+  }
+};
+
 const genericEditorialHeadingPatterns = [
   /^(?:le )?fait (?:confirme|du match)$/,
   /^(?:le )?contexte$/,
@@ -61,6 +154,10 @@ const genericEditorialHeadingPatterns = [
   /^(?:les )?elements? a retenir$/,
   /^point de situation(?: precis)?$/,
   /^conclusion$/,
+  /^profil sportif(?: et|,).*(?:club|affiliation)$/,
+  /^affiliation (?:au )?club$/,
+  /^donnees? (?:precises? )?sur la participation(?: en match officiel)?$/,
+  /^participation en match officiel$/,
 ] as const;
 
 const assertNoGenericEditorialHeadings = (candidates: Array<{ location: string; text: string }>): void => {
@@ -207,10 +304,18 @@ const assertNoFinalMetaLanguage = (candidates: Array<{ location: string; text: s
 
 const buildArticleEvidenceCorpus = (request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest): string => [
   request.context.manualContext,
+  ...request.context.knownFacts,
+  ...request.context.internalFacts,
   ...request.context.externalVerifiedFacts,
   ...request.selectedContextItems.flatMap((item) => [item.title, item.summary, item.editedSummary, item.factualStatement]),
+  request.brief.additionalContext,
+  ...request.brief.requiredTopics,
   ...request.brief.externalVerifiedSources.map((source) => source.title),
   ...request.brief.providedCitations.flatMap((citation) => [citation.text, citation.author, citation.source]),
+  ...(request.editorialContext?.facts.map((fact) => fact.text) ?? []),
+  ...(request.editorialContext?.chronology.map((entry) => entry.text) ?? []),
+  ...(request.editorialContext?.citations.map((citation) => citation.text) ?? []),
+  ...(request.editorialContext?.editorialLeads.map((lead) => lead.text) ?? []),
 ].map(normalizeEvidence).filter(Boolean).join("\n");
 
 const assertNoUnsupportedBriefLanguage = (
@@ -277,6 +382,25 @@ const assertWordCountInRange = (wordCount: number, length: ArticleLengthId, fiel
   }
 };
 
+const assertWordCountTarget = (
+  wordCount: number,
+  length: ArticleLengthId,
+  fieldName: string,
+  generationMode: EditorialGenerationMode,
+): void => {
+  if (generationMode !== "limited") {
+    assertWordCountInRange(wordCount, length, fieldName);
+    return;
+  }
+  const maximum = articleWordCountRangeByLength[length].max;
+  if (!Number.isInteger(wordCount) || wordCount < 1 || wordCount > maximum) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      `${fieldName} invalide en mode limited: attendu 1-${maximum} mots, recu ${wordCount}`,
+    );
+  }
+};
+
 export class ArticleFinalLengthError extends ContentGenerationError {
   constructor(
     readonly actualWordCount: number,
@@ -313,10 +437,15 @@ export const calculateArticleFinalWordCount = (result: ArticleFinalResult): numb
     result.conclusion,
   ].reduce((total, value) => total + countWords(value), 0);
 
-const assertArticleFinalWordCountInRange = (wordCount: number, length: ArticleLengthId): void => {
+const assertArticleFinalWordCountInRange = (
+  wordCount: number,
+  length: ArticleLengthId,
+  generationMode: EditorialGenerationMode,
+): void => {
   const range = articleWordCountRangeByLength[length];
-  if (wordCount < range.min || wordCount > range.max) {
-    throw new ArticleFinalLengthError(wordCount, range.min, range.max);
+  const minimum = generationMode === "limited" ? 1 : range.min;
+  if (wordCount < minimum || wordCount > range.max) {
+    throw new ArticleFinalLengthError(wordCount, minimum, range.max);
   }
 };
 
@@ -401,6 +530,7 @@ export const validateArticleRequest = (request: ArticleGenerationRequest): void 
 export const validateArticleStructureSuggestions = (
   result: ArticleStructureSuggestionsResult,
   length: ArticleLengthId,
+  generationMode: EditorialGenerationMode = "ready",
 ): void => {
   if (!Array.isArray(result.suggestions) || result.suggestions.length !== 3) {
     throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Article: exactement 3 structures sont requises");
@@ -413,14 +543,20 @@ export const validateArticleStructureSuggestions = (
       throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Structure Article incomplete ou identifiant duplique");
     }
     ids.add(id);
-    validateArticleStructureSuggestion(structure, length, true);
+    validateArticleStructureSuggestion(structure, length, {
+      validateEstimatedWordCount: true,
+      generationMode,
+    });
   }
 };
 
 export const validateArticleStructureSuggestion = (
   structure: ArticleStructureSuggestion,
   length: ArticleLengthId,
-  validateEstimatedWordCount = false,
+  options: {
+    validateEstimatedWordCount?: boolean;
+    generationMode?: EditorialGenerationMode;
+  } = {},
 ): void => {
   const id = normalize(structure.id);
   if (!id || !normalize(structure.title) || !normalize(structure.editorialPromise)) {
@@ -433,10 +569,13 @@ export const validateArticleStructureSuggestion = (
       text: section.title,
     })),
   ]);
+  const generationMode = options.generationMode ?? "ready";
   const isBrief = length === "breve";
-  assertOrderedUniqueSections(structure.sections, isBrief ? 1 : 3, `Structure Article ${id}`, isBrief ? 2 : undefined);
-  if (validateEstimatedWordCount) {
-    assertWordCountInRange(structure.estimatedWordCount, length, `Estimation de la structure ${id}`);
+  const minimumSections = generationMode === "limited" || isBrief ? 1 : 3;
+  const maximumSections = generationMode === "limited" || isBrief ? 2 : undefined;
+  assertOrderedUniqueSections(structure.sections, minimumSections, `Structure Article ${id}`, maximumSections);
+  if (options.validateEstimatedWordCount) {
+    assertWordCountTarget(structure.estimatedWordCount, length, `Estimation de la structure ${id}`, generationMode);
   }
 };
 
@@ -446,7 +585,9 @@ export const validateArticleFinalResult = (
   selectedStructure: ArticleStructureSuggestion,
 ): number => {
   const isBrief = request.brief.length === "breve";
-  if (!normalize(result.title) || !normalize(result.lead) || (request.brief.length !== "breve" && !normalize(result.conclusion))) {
+  const generationMode = request.editorialGeneration?.generationMode ?? "ready";
+  const requiresConclusion = !isBrief && generationMode !== "limited";
+  if (!normalize(result.title) || !normalize(result.lead) || (requiresConclusion && !normalize(result.conclusion))) {
     throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Article final incomplet: titre, chapeau et conclusion requis");
   }
   if (isBrief && result.subtitle !== undefined && result.subtitle !== null) {
@@ -498,6 +639,8 @@ export const validateArticleFinalResult = (
     ]),
     { location: "conclusion de l article", text: result.conclusion },
   ];
+  assertSupportedEditorialThemes(request, finalTextCandidates);
+  assertLimitedArticleQuality(request, finalTextCandidates);
   assertNoGenericEditorialHeadings([
     { location: "titre de l article", text: result.title },
     ...result.sections.map((section, index) => ({
@@ -534,7 +677,7 @@ export const validateArticleFinalResult = (
     assertNoUnsupportedBriefLanguage(request, finalTextCandidates);
   }
   const actualWordCount = calculateArticleFinalWordCount(result);
-  assertArticleFinalWordCountInRange(actualWordCount, request.brief.length);
+  assertArticleFinalWordCountInRange(actualWordCount, request.brief.length, generationMode);
 
   const providedCitationKeys = new Set(
     request.brief.providedCitations.map((citation) => `${citation.text}\u0000${citation.author}\u0000${citation.source}`),
@@ -635,6 +778,10 @@ export const validateArticleAngleQualifications = (
     { location: `angle ${index + 1}, titre`, text: suggestion.title },
     { location: `angle ${index + 1}, promesse`, text: suggestion.rationale },
   ]));
+  assertSupportedEditorialThemes(request, suggestions.flatMap((suggestion, index) => [
+    { location: `angle ${index + 1}, titre`, text: suggestion.title },
+    { location: `angle ${index + 1}, promesse`, text: suggestion.rationale },
+  ]));
 };
 
 export const validateArticleStructureQualifications = (
@@ -652,6 +799,18 @@ export const validateArticleStructureQualifications = (
       { location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, titre`, text: section.title },
       { location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, objectif`, text: section.purpose },
       ...section.points.map((point, pointIndex) => ({ location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, point ${pointIndex + 1}`, text: point })),
+    ]),
+  ]));
+  assertSupportedEditorialThemes(request, suggestions.suggestions.flatMap((suggestion, suggestionIndex) => [
+    { location: `structure ${suggestionIndex + 1}, titre`, text: suggestion.title },
+    { location: `structure ${suggestionIndex + 1}, promesse`, text: suggestion.editorialPromise },
+    ...suggestion.sections.flatMap((section, sectionIndex) => [
+      { location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, titre`, text: section.title },
+      { location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, objectif`, text: section.purpose },
+      ...section.points.map((point, pointIndex) => ({
+        location: `structure ${suggestionIndex + 1}, section ${sectionIndex + 1}, point ${pointIndex + 1}`,
+        text: point,
+      })),
     ]),
   ]));
 };

@@ -9,6 +9,22 @@ import type {
 import { ContentGenerationError } from "@/services/content-generation/errors";
 const normalize = (value: unknown): string => String(value ?? "").trim();
 
+const documentaryAbsencePattern =
+  /\b(?:aucun|aucune|absence de)\b.{0,80}\b(?:trace|resultats?|participations?|apparitions?|buts?)\b|\bn a pas ete\b.{0,60}\b(?:retrouve|documente)\b/iu;
+const lineupSourcePattern = /\b(?:matchcenter|transfermarkt|feuille de match|composition)\b/iu;
+const lineupRolePattern = /\ba d[eé]but[eé] comme [^,.]+ avec\b/iu;
+
+const normalizeForEditorialDetection = (value: string): string =>
+  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[’']/g, " ").toLowerCase();
+
+export const isDocumentaryAbsenceText = (value: string): boolean =>
+  documentaryAbsencePattern.test(normalizeForEditorialDetection(value));
+
+export const sanitizeLineupDerivedRole = (value: string, sourceNames: string[]): string =>
+  sourceNames.some((sourceName) => lineupSourcePattern.test(sourceName))
+    ? value.replace(lineupRolePattern, "a débuté la rencontre avec")
+    : value;
+
 export const secureGenerationContext = async (
   request: Pick<ArticleGenerationRequest, "context">,
   items: ArticleGenerationRequest["selectedContextItems"],
@@ -100,7 +116,31 @@ export const secureArticleRequest = async <T extends ArticleGenerationRequest | 
     },
     access,
   });
-  const editorial = prepared.selection.modelContext;
+  const hasDocumentaryAbsence = prepared.selection.modelContext.facts.some((fact) =>
+    isDocumentaryAbsenceText(fact.text));
+  const editorial = {
+    ...prepared.selection.modelContext,
+    facts: prepared.selection.modelContext.facts
+      .filter((fact) => !isDocumentaryAbsenceText(fact.text))
+      .map((fact) => ({
+        ...fact,
+        text: sanitizeLineupDerivedRole(fact.text, fact.sourceNames),
+      })),
+  };
+  const angleWasReframed = prepared.selection.metadata.generationMode === "limited"
+    && "selectedAngle" in request.brief;
+  const editorialGeneration = {
+    ...prepared.selection.metadata,
+    warnings: Array.from(new Set([
+      ...prepared.selection.metadata.warnings,
+      ...(hasDocumentaryAbsence
+        ? ["L’absence de résultat dans les sources consultées est une limite documentaire et ne prouve pas l’inactivité du sujet."]
+        : []),
+      ...(angleWasReframed
+        ? ["Angle recadré côté serveur : présentation factuelle limitée aux éléments documentés."]
+        : []),
+    ])),
+  };
   const context: ContentContext = {
     source: request.context.source,
     subjectType: editorial.subject.type,
@@ -130,7 +170,7 @@ export const secureArticleRequest = async <T extends ArticleGenerationRequest | 
       questionCount: 0,
     },
   };
-  const externalVerifiedSources = prepared.selection.metadata.usedSources
+  const externalVerifiedSources = editorialGeneration.usedSources
     .filter((source) => Boolean(source.url))
     .map((source) => ({ title: source.name, url: source.url! }));
   const providedCitations = editorial.citations
@@ -146,7 +186,7 @@ export const secureArticleRequest = async <T extends ArticleGenerationRequest | 
     context,
     selectedContextItems: prepared.selectedItems,
     editorialContext: editorial,
-    editorialGeneration: prepared.selection.metadata,
+    editorialGeneration,
     brief: {
       ...request.brief,
       additionalContext: "",

@@ -18,17 +18,26 @@ const formatArticleWordCountRange = (length: ArticleLengthId): string => {
   return `${range.min} a ${range.max} mots`;
 };
 
-const serializeArticleContext = (request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest) =>
-  JSON.stringify(
+const serializeArticleContext = (request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest) => {
+  const brief = request.editorialGeneration?.generationMode === "limited"
+    && "selectedAngle" in request.brief
+    ? {
+        ...request.brief,
+        selectedAngle: "Presentation factuelle limitee aux seuls elements documentes.",
+      }
+    : request.brief;
+
+  return JSON.stringify(
     {
       requestType: request.requestType,
       template: request.template,
       context: request.editorialContext ?? request.context,
-      brief: request.brief,
+      brief,
     },
     null,
     2,
   );
+};
 
 const articleFactualRules = [
   "- Utiliser uniquement le contexte fourni, les sources externes verifiees et les citations fournies.",
@@ -107,12 +116,20 @@ export const buildArticleFinalCorrectionInstruction = (args: {
 ].join("\n\n");
 
 export const buildArticleAngleSuggestionsPrompt = (request: ArticleAngleSuggestionsRequest): string => {
+  const isLimited = request.editorialGeneration?.generationMode === "limited";
   const angleRules = [
     "- Produire exactement 3 angles journalistiques reellement distincts.",
     "- Chaque angle doit etre precis, realisable et adapte au type et a la longueur d article demandes.",
     "- Chaque angle doit contenir un titre et une explication breve de sa promesse editoriale et de son traitement.",
+    "- Ancrer chaque angle dans un ou plusieurs elements precis du dossier et les nommer dans son explication.",
+    "- Ne proposer aucun angle sur les choix de carriere, les motivations, le caractere, la vie personnelle, le style de jeu ou le role tactique sans faits explicites correspondants.",
+    "- Ne jamais transformer une information de profil isolee en hypothese narrative, tactique ou psychologique.",
+    "- Les informations absentes constituent des pistes d interview, pas des angles affirmatifs ni des questions rhetoriques destinees a l article.",
     "- Ne jamais presenter comme certain un fait qui n est pas documente dans le contexte, les sources verifiees ou les citations fournies.",
     "- Varier reellement les approches, sans reformulation cosmetique ni changement des faits disponibles.",
+    ...(isLimited
+      ? ["- Mode limited: proposer uniquement des cadrages sobres de presentation factuelle; ne pas promettre un portrait approfondi."]
+      : []),
     "- La sortie doit respecter strictement le format PublicationAngleSuggestionsResult, avec exactement 3 suggestions.",
   ].join("\n");
 
@@ -137,17 +154,27 @@ export const buildArticleAngleSuggestionsPrompt = (request: ArticleAngleSuggesti
 
 export const buildArticleStructurePrompt = (request: ArticleGenerationRequest): string => {
   const wordCountRange = formatArticleWordCountRange(request.brief.length);
-  const sectionCountRule = request.brief.length === "breve"
+  const isLimited = request.editorialGeneration?.generationMode === "limited";
+  const sectionCountRule = isLimited
+    ? "- Mode limited: utiliser une seule section; une seconde est permise uniquement si elle repose sur un autre ensemble de faits precis."
+    : request.brief.length === "breve"
     ? "- Pour une breve, chaque structure doit contenir 1 ou 2 sections maximum."
     : "- Chaque structure doit contenir au moins 3 sections.";
   const structureRules = [
     "- Produire exactement 3 propositions de structure reellement distinctes.",
-    "- Respecter strictement le sujet, l angle selectionne, le type d article, la longueur, le ton, l audience, la langue et les sujets obligatoires.",
+    "- Respecter le sujet, le type d article, la longueur, le ton, l audience, la langue et les sujets obligatoires.",
+    "- L angle selectionne est une preference editoriale, jamais une preuve: n en conserver que la partie soutenue par les faits, citations ou sources du dossier.",
+    "- Si un ancien angle mentionne un theme non documente, ne pas le reprendre dans le titre, la promesse, les sections ou les points; recentrer la structure sur la matiere verifiable.",
     "- Chaque proposition doit inclure un id, un titre, une promesse editoriale, des sections ordonnees et une estimation du nombre de mots.",
     "- Chaque section doit inclure son ordre, son titre, son objectif et les points a traiter.",
+    "- Chaque section et chaque point doivent etre redigeables uniquement avec des faits, citations ou sources explicitement presents dans le dossier.",
+    "- Supprimer toute section qui exigerait une hypothese, une generalite sur le poste ou le sport, une motivation supposee, une scene inventee ou une question sans reponse.",
+    "- Eviter les intertitres administratifs ou descriptifs tels que 'Profil sportif et affiliation club' ou 'Donnees precises sur la participation en match officiel'.",
     sectionCountRule,
     "- Les trois structures doivent se distinguer par leur promesse editoriale, leur ordre narratif et leur hierarchie des faits, sans changer les faits disponibles.",
-    `- L estimation du nombre de mots doit etre comprise entre ${wordCountRange} pour la longueur demandee.`,
+    isLimited
+      ? `- Mode limited: ${wordCountRange} est un objectif maximal indicatif; estimer une longueur plus courte lorsque la matiere ne permet pas de l atteindre sans remplissage.`
+      : `- L estimation du nombre de mots doit etre comprise entre ${wordCountRange} pour la longueur demandee.`,
     "- La sortie doit respecter strictement le format ArticleStructureSuggestionsResult.",
   ].join("\n");
 
@@ -175,6 +202,7 @@ export const buildArticleFinalPrompt = (
   selectedStructure: ArticleStructureSuggestion,
 ): string => {
   const wordCountRange = formatArticleWordCountRange(request.brief.length);
+  const isLimited = request.editorialGeneration?.generationMode === "limited";
   const briefRules = request.brief.length === "breve"
     ? [
         "- Pour une breve, subtitle doit etre strictement null.",
@@ -202,13 +230,28 @@ export const buildArticleFinalPrompt = (
     "- Ne pas recopier les titres ni les numeros des sections: ils sont imposes par la structure selectionnee.",
     "- Chaque groupe de paragraphs doit contenir au moins un paragraphe non vide.",
     "- Donner la priorite absolue a la densite editoriale, jamais au respect artificiel d un minimum de mots.",
-    `- Le contenu redige doit respecter ${wordCountRange}, sans remplissage, repetition ni commentaire sur les informations manquantes.`,
+    isLimited
+      ? `- Mode limited: ${wordCountRange} est un objectif maximal, jamais un minimum; produire une presentation factuelle courte si la matiere est rare.`
+      : `- Le contenu redige doit respecter ${wordCountRange}, sans remplissage, repetition ni commentaire sur les informations manquantes.`,
     "- Le nombre de mots est calcule uniquement sur le chapeau, tous les paragraphes des sections et la conclusion; le titre, le sous-titre et les intertitres sont exclus.",
     "- Renseigner estimatedWordCount avec ce meme nombre de mots, meme si le serveur le recalculera comme autorite finale.",
     ...briefRules,
     "- Chaque fait principal ne doit etre developpe qu une fois, sauf rappel bref indispensable a la comprehension.",
     "- Le titre, le chapeau, chaque section et la conclusion doivent remplir des fonctions editoriales differentes.",
-    "- La conclusion doit apporter une fermeture ou une perspective utile, sans resumer a nouveau tout l article.",
+    isLimited
+      ? "- Mode limited: laisser la conclusion vide si aucune fermeture factuelle distincte n est justifiee."
+      : "- La conclusion doit apporter une fermeture ou une perspective utile, sans resumer a nouveau tout l article.",
+    "- Interdire les generalites interchangeables sur le poste ou le sport, les scenarios hypothetiques, les motivations supposees et les conclusions abstraites sur le collectif, le parcours ou les defis a venir.",
+    "- Ne jamais inventer une scene, une observation de match, un resultat, une citation ou un element biographique pour rendre le texte vivant.",
+    "- L absence de resultat ou de participation retrouvee dans les sources est une limite documentaire, jamais une preuve d inactivite; ne pas l ecrire dans l article.",
+    "- Un placement sur une composition ou une feuille de match ne prouve pas un role tactique precis; ne pas en deduire un poste ou une fonction.",
+    "- Ne poser aucune question rhetorique ou sans reponse dans le texte publiable; les lacunes restent des pistes d interview hors de l article.",
+    "- Attribuer naturellement dans le texte les faits qui reposent sur une source externe; le panneau de sources ne remplace pas cette attribution.",
+    ...(isLimited
+      ? [
+          "- Mode limited: ne developper ni quotidien, ni choix de carriere, ni psychologie, ni style de jeu sans matiere explicite correspondante.",
+        ]
+      : []),
     "- Ne jamais ecrire comme si le lecteur voyait un dossier, un prompt, un contexte technique ou des donnees internes.",
     "- Interdire toute formulation meta, notamment: le contexte fourni; les informations fournies; le dossier disponible; le fait verifie; le cadre factuel; le repere a retenir; cette formulation repose sur; les elements disponibles; il convient de; pour suivre la situation avec rigueur.",
     "- Produire un titre, un sous-titre optionnel, un chapeau, des sections ordonnees avec intertitres et paragraphes, une conclusion, les citations utilisees et les sources utilisees. Pour une breve uniquement, la conclusion peut etre une chaine vide si aucune ouverture utile n est justifiee.",
