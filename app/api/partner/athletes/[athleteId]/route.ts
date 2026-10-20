@@ -5,6 +5,11 @@ import { hasPendingPartnerAthleteIntroduction } from "@/lib/contact-requests/ser
 import { getPublicAthleteProfileFromGoogleSheets } from "@/lib/google-sheets";
 import { isAthleteVisibleToExternalRoles } from "@/lib/public-athletes";
 import type { PublicAthleteProfile } from "@/types/athlete";
+import {
+  LOCAL_INTRODUCTION_ATHLETE_ID,
+  localIntroductionAthleteProfile,
+  localIntroductionFixturesEnabled,
+} from "@/lib/partner-athlete-introductions/local-fixtures";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,6 +28,21 @@ export async function GET(
     const requestedAthleteId = athleteId.trim();
     if (!requestedAthleteId || !isAthleteVisibleToExternalRoles(requestedAthleteId)) {
       return NextResponse.json({ error: "Athlète introuvable." }, { status: 404 });
+    }
+
+    if (localIntroductionFixturesEnabled()) {
+      if (requestedAthleteId !== LOCAL_INTRODUCTION_ATHLETE_ID) {
+        return NextResponse.json({ error: "Athlète fictif introuvable." }, { status: 404 });
+      }
+      const athlete: PublicAthleteProfile = {
+        ...localIntroductionAthleteProfile,
+        distinctions: [],
+      };
+      return NextResponse.json({
+        athlete,
+        introductionPending: false,
+        source: "local-introduction-fixtures",
+      });
     }
 
     const publicProfile = await getPublicAthleteProfileFromGoogleSheets(requestedAthleteId);

@@ -9,6 +9,10 @@ import {
 } from "@/lib/google-sheets";
 import { canViewAthleteById } from "@/lib/public-athletes";
 import type { Athlete, AthletesResponse, AthleteUpdate } from "@/types/athlete";
+import {
+  localIntroductionAthlete,
+  localIntroductionFixturesEnabled,
+} from "@/lib/partner-athlete-introductions/local-fixtures";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,6 +33,18 @@ export async function GET(request: NextRequest) {
 
     if (!accessCheck.allowed) {
       return NextResponse.json({ athletes: [], source: "google-sheets" }, { status: 403 });
+    }
+
+    if (localIntroductionFixturesEnabled()) {
+      const visible = canViewAthleteById(localIntroductionAthlete.key, {
+        role,
+        athleteId,
+      });
+      return NextResponse.json({
+        athletes: visible ? [localIntroductionAthlete] : [],
+        source: "local-introduction-fixtures",
+        memberIndex: visible ? 0 : null,
+      });
     }
 
     const athletes = await getAthletesFromGoogleSheets({ weeklyResponseDays, monthlyResponseDays });

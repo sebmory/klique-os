@@ -12,11 +12,32 @@ import {
   getPublicAthleteProfileFromGoogleSheets,
   resolvePartnerReference,
 } from "@/lib/google-sheets";
+import { isPartnerAthleteIntroductionsEnabled } from "@/lib/partner-athlete-introductions/activation";
+import {
+  getServerIntroductionActor,
+  introductionErrorResponse,
+  readIdempotencyKey,
+} from "@/lib/partner-athlete-introductions/http";
+import { createPartnerAthleteIntroductionService } from "@/lib/partner-athlete-introductions/service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  if (isPartnerAthleteIntroductionsEnabled()) {
+    try {
+      const actor = await getServerIntroductionActor(request);
+      if (actor?.role !== "partner_expert" || actor.status !== "active" || !actor.partnerId) {
+        return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      }
+      const contactRequests = await createPartnerAthleteIntroductionService()
+        .listForPartner({ actor });
+      return NextResponse.json({ workflowEnabled: true, contactRequests });
+    } catch (error) {
+      return introductionErrorResponse(error);
+    }
+  }
+
   try {
     const profile = await getCurrentUserAccessProfile(request);
     const access = profile?.userAccess ?? null;
@@ -42,7 +63,7 @@ export async function GET(request: NextRequest) {
       createdAt: record.createdAt,
     }));
 
-    return NextResponse.json({ contactRequests });
+    return NextResponse.json({ workflowEnabled: false, contactRequests });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Impossible de récupérer les mises en relation." },
@@ -52,6 +73,40 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (isPartnerAthleteIntroductionsEnabled()) {
+    try {
+      const actor = await getServerIntroductionActor(request);
+      if (actor?.role !== "partner_expert" || actor.status !== "active" || !actor.partnerId) {
+        return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+      }
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      const idempotencyKey = readIdempotencyKey(request);
+      if (!body || !idempotencyKey) {
+        return NextResponse.json({ error: "Requête invalide ou clé d’idempotence absente." }, { status: 400 });
+      }
+      const result = await createPartnerAthleteIntroductionService().create({
+        actor,
+        payload: {
+          athleteId: String(body.athleteId ?? "").trim(),
+          reason: String(body.reason ?? "").trim(),
+          message: String(body.message ?? "").trim(),
+        },
+        idempotencyKey,
+      });
+      return NextResponse.json(
+        {
+          workflowEnabled: true,
+          contactRequest: result.request
+            ? { id: result.request.id, status: result.request.status }
+            : null,
+        },
+        { status: result.outcome === "created" ? 201 : 200 },
+      );
+    } catch (error) {
+      return introductionErrorResponse(error);
+    }
+  }
+
   try {
     const profile = await getCurrentUserAccessProfile(request);
     const access = profile?.userAccess ?? null;

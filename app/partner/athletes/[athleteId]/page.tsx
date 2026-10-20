@@ -37,6 +37,7 @@ export default function PartnerAthleteProfilePage() {
   const [submittingIntroduction, setSubmittingIntroduction] = useState(false);
   const [introductionError, setIntroductionError] = useState("");
   const [introductionSuccess, setIntroductionSuccess] = useState("");
+  const [introductionKey, setIntroductionKey] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -79,19 +80,29 @@ export default function PartnerAthleteProfilePage() {
     setIntroductionError("");
     setIntroductionSuccess("");
     try {
+      const idempotencyKey = introductionKey || crypto.randomUUID();
+      if (!introductionKey) setIntroductionKey(idempotencyKey);
       const response = await fetch("/api/partner/contact-requests", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({ athleteId, reason, message }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Impossible d’envoyer la demande.");
       setIntroductionPending(true);
-      setIntroductionSuccess("Demande transmise à KLIQUE");
+      setIntroductionSuccess(
+        payload.workflowEnabled === true
+          ? "Demande envoyée à l’athlète"
+          : "Demande transmise à KLIQUE",
+      );
       setShowIntroductionModal(false);
       setReason("");
       setMessage("");
+      setIntroductionKey("");
     } catch (submitError) {
       setIntroductionError(submitError instanceof Error ? submitError.message : "Impossible d’envoyer la demande.");
     } finally {

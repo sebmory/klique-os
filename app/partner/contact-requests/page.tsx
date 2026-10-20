@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
-type ContactRequestStatus = "open" | "pending" | "in_progress" | "resolved";
+type ContactRequestStatus =
+  | "open"
+  | "pending"
+  | "in_progress"
+  | "resolved"
+  | "awaiting_athlete"
+  | "accepted"
+  | "declined";
 
 type PartnerContactRequest = {
   id: string;
   athleteId: string;
   athleteName: string;
+  athletePublicName?: string;
   subject: string;
+  reason?: string;
   message: string;
   status: ContactRequestStatus;
   createdAt: string;
@@ -21,6 +31,9 @@ const statusLabels: Record<ContactRequestStatus, string> = {
   pending: "En attente",
   in_progress: "En cours",
   resolved: "Traitée",
+  awaiting_athlete: "En attente de l’athlète",
+  accepted: "Acceptée",
+  declined: "Refusée",
 };
 
 const dateFormatter = new Intl.DateTimeFormat("fr-CH", {
@@ -38,6 +51,7 @@ export default function PartnerContactRequestsPage() {
   const [requests, setRequests] = useState<PartnerContactRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [workflowEnabled, setWorkflowEnabled] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -54,6 +68,7 @@ export default function PartnerContactRequestsPage() {
         }
         if (active) {
           setRequests(Array.isArray(payload.contactRequests) ? payload.contactRequests : []);
+          setWorkflowEnabled(payload.workflowEnabled === true);
         }
       } catch (loadError) {
         if (active) {
@@ -93,16 +108,21 @@ export default function PartnerContactRequestsPage() {
                   <header>
                     <div>
                       <span>Athlète</span>
-                      <h2>{request.athleteName}</h2>
+                      <h2>{request.athletePublicName || request.athleteName || "Athlète KLIQUE"}</h2>
                     </div>
                     <span className={`partner-contact-request-status is-${request.status}`}>
                       {statusLabels[request.status] ?? request.status}
                     </span>
                   </header>
                   <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
-                  {request.subject ? <section><h3>Motif</h3><p>{request.subject}</p></section> : null}
+                  {request.reason || request.subject ? <section><h3>Motif</h3><p>{request.reason || request.subject}</p></section> : null}
                   {request.message ? <section><h3>Message</h3><p>{request.message}</p></section> : null}
                   {visibleReply ? <section className="partner-contact-request-reply"><h3>Réponse</h3><p>{visibleReply}</p></section> : null}
+                  {workflowEnabled ? (
+                    <Link href={`/partner/contact-requests/${encodeURIComponent(request.id)}`}>
+                      Voir le détail
+                    </Link>
+                  ) : null}
                 </article>
               </li>
             );

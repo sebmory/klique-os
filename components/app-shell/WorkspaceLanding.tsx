@@ -13,6 +13,7 @@ import {
   type AthleteServicePlanningPriorityView,
 } from "@/components/app-shell/AthleteServicePlanningCard";
 import { WeeklyResponsesCockpit } from "@/components/app-shell/WeeklyResponsesCockpit";
+import { PartnerIntroductionsAdminCockpit } from "@/components/app-shell/PartnerIntroductionsAdminCockpit";
 import {
   getWeeklyResponseKey,
   parseWeeklyResponseDate,
@@ -778,6 +779,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           <div><strong>{monthlyResponses.length}</strong><span>Réponses mensuelles</span></div>
         </div>
       </section>
+
+      <PartnerIntroductionsAdminCockpit />
 
       <section className="workspace-dashboard-grid" aria-label="Apercu du dashboard">
         <header className="dashboard-section-heading dashboard-priorities-heading">

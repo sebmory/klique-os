@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/auth/login",
   "/api/auth/logout",
   "/api/internal/partner-application-sync",
+  "/api/internal/partner-introduction-outbox",
   "/__clerk/(.*)",
 ]);
 
@@ -41,6 +42,19 @@ export const isPartnerApplicationSyncWebhook = (pathname: string, method: string
 export const isAthleteAllowedRoute = (pathname: string, method: string): boolean => {
   if (pathname === "/api/notifications") {
     return method === "GET" || method === "PATCH";
+  }
+
+  if (pathname === "/api/athlete/partner-contact-requests") {
+    return method === "GET";
+  }
+  if (/^\/api\/athlete\/partner-contact-requests\/[^/]+$/.test(pathname)) {
+    return method === "GET";
+  }
+  if (/^\/api\/athlete\/partner-contact-requests\/[^/]+\/contact$/.test(pathname)) {
+    return method === "GET";
+  }
+  if (/^\/api\/athlete\/partner-contact-requests\/[^/]+\/(?:response|report)$/.test(pathname)) {
+    return method === "POST";
   }
 
   // Lecture seule des ressources du Hub : la creation et la couverture restent reservees a l Admin.
@@ -181,6 +195,7 @@ export const isPartnerAllowedPage = (pathname: string): boolean => {
     || pathname === "/partner/benefit-reservations"
     || pathname === "/partner/community"
     || pathname === "/partner/contact-requests"
+    || /^\/partner\/contact-requests\/[^/]+$/.test(pathname)
     || /^\/partner\/athletes\/[^/]+$/.test(pathname);
 };
 
@@ -196,6 +211,7 @@ export const isPartnerAllowedApi = (pathname: string, method: string): boolean =
     || (pathname === "/api/partner/resources" && method === "GET")
     || (/^\/api\/partner\/resources\/[^/]+$/.test(pathname) && method === "GET")
     || (pathname === "/api/partner/contact-requests" && (method === "GET" || method === "POST"))
+    || (/^\/api\/partner\/contact-requests\/[^/]+$/.test(pathname) && method === "GET")
     || pathname === "/api/partner/athletes"
     || /^\/api\/partner\/athletes\/[^/]+$/.test(pathname);
 };

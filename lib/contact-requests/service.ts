@@ -226,3 +226,29 @@ export const updateContactRequestStatus = async (
 
   return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
 };
+
+export const updateLegacyContactRequestStatus = async (
+  contactRequestId: string,
+  status: ContactRequestStatus,
+  workspaceId?: string,
+): Promise<ContactRequestRecord | null> => {
+  const id = normalize(contactRequestId);
+  if (!id) return null;
+
+  const sql = getSql();
+  const resolvedWorkspaceId = resolveWorkspaceId(workspaceId);
+  const now = new Date().toISOString();
+  const rows = await sql`
+    UPDATE contact_requests
+    SET status = ${status}, updated_at = ${now}
+    WHERE workspace_id = ${resolvedWorkspaceId}
+      AND id = ${id}
+      AND (
+        request_kind <> 'partner_athlete_introduction'
+        OR flow_version < 2
+        OR flow_version IS NULL
+      )
+    RETURNING id, workspace_id, athlete_id, partner_id, request_kind, category, subject, message, status, created_at, updated_at
+  `;
+  return rows[0] ? mapRow(rows[0] as Record<string, unknown>) : null;
+};

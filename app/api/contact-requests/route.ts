@@ -8,7 +8,9 @@ import {
   isContactRequestStatus,
   listContactRequests,
   updateContactRequestStatus,
+  updateLegacyContactRequestStatus,
 } from "@/lib/contact-requests/service";
+import { isPartnerAthleteIntroductionsEnabled } from "@/lib/partner-athlete-introductions/activation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -129,7 +131,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Statut invalide." }, { status: 400 });
     }
 
-    const contactRequest = await updateContactRequestStatus(id, body.status, workspaceId);
+    const contactRequest = isPartnerAthleteIntroductionsEnabled()
+      ? await updateLegacyContactRequestStatus(id, body.status, workspaceId)
+      : await updateContactRequestStatus(id, body.status, workspaceId);
     if (!contactRequest) {
       return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
     }

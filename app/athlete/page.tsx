@@ -13,6 +13,7 @@ import {
   UserRound,
   Newspaper,
 } from "lucide-react";
+import { PartnerIntroductionRequests } from "@/components/athlete/PartnerIntroductionRequests";
 import type { Partner } from "@/types/partner";
 import { buildMembershipState } from "@/lib/membership";
 
@@ -475,6 +476,8 @@ export default function AthletePage() {
         </p>
         <h1 style={{ margin: 0, fontSize: "1.5rem", color: "#f8fafc" }}>Aujourd’hui</h1>
       </header>
+
+      <PartnerIntroductionRequests />
 
       {/* HERO */}
       <article
