@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Badge, Button, Card, Textarea } from "@/src/design-system/components";
 
 type Detail = {
   id: string;
@@ -43,9 +44,15 @@ type Detail = {
 };
 
 const historicalStatusLabel = (status: string) => ({
-  pending: "Ancienne demande — en attente de transition",
-  resolved: "Ancienne demande — résolue",
-}[status] ?? `Ancienne demande — ${status}`);
+  pending: "En attente de transition",
+  resolved: "Résolue",
+}[status] ?? status);
+
+const statusLabel = (status: string) => ({
+  awaiting_athlete: "En attente de l’athlète",
+  accepted: "Acceptée",
+  declined: "Refusée",
+}[status] ?? status);
 
 export default function AdminPartnerIntroductionDetailPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -115,89 +122,120 @@ export default function AdminPartnerIntroductionDetailPage() {
   };
 
   return (
-    <section style={{ maxWidth: "960px", margin: "0 auto", padding: "1.5rem", display: "grid", gap: "1rem" }}>
-      <Link href="/today">Retour à Aujourd’hui</Link>
-      {error ? <p role="alert">{error}</p> : null}
-      {message ? <p role="status">{message}</p> : null}
-      {!detail && !error ? <p>Chargement…</p> : null}
+    <section className="introduction-page introduction-detail-page">
+      <Link className="introduction-back-link" href="/today">← Retour à Aujourd’hui</Link>
+      {error ? <p className="introduction-feedback is-error" role="alert">{error}</p> : null}
+      {message ? <p className="introduction-feedback is-success" role="status">{message}</p> : null}
+      {!detail && !error ? <p className="introduction-feedback is-loading">Chargement…</p> : null}
       {detail ? (
         <>
-          <header>
-            <h1>{detail.partnerPublicName || "Partenaire KLIQUE"} → {detail.athletePublicName || "Athlète KLIQUE"}</h1>
-            <p>{detail.reason}</p>
-            {detail.message ? <p>{detail.message}</p> : null}
-            <p>
-              Demande : {detail.historical
-                ? historicalStatusLabel(detail.status)
-                : detail.status}
-              {" · "}Modération : {detail.moderationStatus} · Ancienneté : {detail.ageDays} jour(s)
-            </p>
-            <p>Créée le {new Date(detail.createdAt).toLocaleString("fr-CH")}</p>
-          </header>
-          <section>
-            <h2>Actions de supervision</h2>
-            <label>
-              Motif obligatoire
-              <textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+          <Card className="introduction-detail-card">
+            <header className="introduction-detail-header">
+              <div>
+                <p className="introduction-eyebrow">Supervision de la demande</p>
+                <h1>{detail.partnerPublicName || "Partenaire KLIQUE"} <span>→</span> {detail.athletePublicName || "Athlète KLIQUE"}</h1>
+                {detail.historical ? <small>Demande historique</small> : null}
+              </div>
+              <div className="introduction-badge-group">
+                <Badge className={`introduction-status-badge is-${detail.status}`}>
+                  {detail.historical ? historicalStatusLabel(detail.status) : statusLabel(detail.status)}
+                </Badge>
+                {detail.moderationStatus === "suspended" ? (
+                  <Badge className="introduction-status-badge is-suspended">Suspendue</Badge>
+                ) : null}
+              </div>
+            </header>
+            <div className="introduction-detail-grid">
+              <section className="introduction-content-block">
+                <h2>Motif</h2>
+                <p>{detail.reason || "Motif non renseigné"}</p>
+              </section>
+              {detail.message ? <section className="introduction-content-block"><h2>Message</h2><p>{detail.message}</p></section> : null}
+            </div>
+            <footer className="introduction-detail-meta">
+              <span>Créée le {new Date(detail.createdAt).toLocaleString("fr-CH")}</span>
+              <span>{detail.ageDays} jour{detail.ageDays === 1 ? "" : "s"}</span>
+            </footer>
+          </Card>
+
+          <Card className="introduction-action-card">
+            <header>
+              <div>
+                <p className="introduction-eyebrow">Prochaine action</p>
+                <h2>Actions de supervision</h2>
+              </div>
+              <p>Ces actions ne modifient jamais la décision ni le consentement de l’athlète.</p>
+            </header>
+            <label className="introduction-field">
+              <span>Motif obligatoire</span>
+              <Textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} />
             </label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div className="introduction-actions">
               {!detail.historical ? (
                 <>
-                  <button type="button" disabled={!reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
+                  <Button className="introduction-button is-danger" type="button" disabled={!reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
                     void mutate({ action: "suspend", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
-                  }}>Suspendre</button>
-                  <button type="button" disabled={!reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
+                  }}>Suspendre</Button>
+                  <Button className="introduction-button is-secondary" type="button" disabled={!reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
                     void mutate({ action: "reactivate", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
-                  }}>Réactiver</button>
+                  }}>Réactiver</Button>
                 </>
               ) : null}
-              <button type="button" disabled={!reason.trim()} onClick={() => {
+              <Button className="introduction-button is-primary" type="button" disabled={!reason.trim()} onClick={() => {
                 void mutate({ action: "set_solicitation", canSolicit: !detail.solicitationAllowed, reason })
                   .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
               }}>
                 {detail.solicitationAllowed ? "Désactiver les sollicitations" : "Rétablir les sollicitations"}
-              </button>
+              </Button>
             </div>
-            <p>Ces actions ne modifient jamais la décision ni le consentement de l’athlète.</p>
-          </section>
-          <section>
-            <h2>Signalements</h2>
-            {detail.reports.length === 0 ? <p>Aucun signalement.</p> : detail.reports.map((report) => (
-              <article key={report.id}>
-                <strong>{report.reason}</strong> · {report.status}
-                {report.comment ? <p>{report.comment}</p> : null}
-                {report.handlingNote ? <p>Note : {report.handlingNote}</p> : null}
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  {(["reviewing", "resolved", "dismissed"] as const).map((status) => (
-                    <button key={status} type="button" disabled={!reason.trim()} onClick={() => {
-                      void handleReport(report.id, status).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Traitement impossible."));
-                    }}>{status}</button>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </section>
-          <section>
-            <h2>Historique d’audit</h2>
-            <ol>
-              {detail.events.map((event) => (
-                <li key={event.id}>
-                  {new Date(event.occurredAt).toLocaleString("fr-CH")} — {event.eventType} par {event.actorRole}
-                  {" · "}{event.requestStatus} / {event.moderationStatus}
-                </li>
+          </Card>
+
+          <details className="introduction-disclosure">
+            <summary>Signalements <span>{detail.reports.length}</span></summary>
+            <div>
+              {detail.reports.length === 0 ? <p>Aucun signalement.</p> : detail.reports.map((report) => (
+                <article key={report.id} className="introduction-report">
+                  <header><strong>{report.reason}</strong><Badge className="introduction-status-badge">{report.status}</Badge></header>
+                  {report.comment ? <p>{report.comment}</p> : null}
+                  {report.handlingNote ? <p>Note : {report.handlingNote}</p> : null}
+                  <div className="introduction-actions">
+                    {(["reviewing", "resolved", "dismissed"] as const).map((status) => (
+                      <Button className="introduction-button is-secondary is-compact" key={status} type="button" disabled={!reason.trim()} onClick={() => {
+                        void handleReport(report.id, status).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Traitement impossible."));
+                      }}>{status}</Button>
+                    ))}
+                  </div>
+                </article>
               ))}
-            </ol>
-            <h3>Droit de sollicitation</h3>
-            {detail.solicitationEvents.length === 0 ? <p>Aucun changement enregistré.</p> : (
-              <ol>
-                {detail.solicitationEvents.map((event) => (
-                  <li key={event.id}>
-                    {new Date(event.occurredAt).toLocaleString("fr-CH")} — {event.canSolicit ? "Rétabli" : "Désactivé"} : {event.reason}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+            </div>
+          </details>
+
+          <details className="introduction-disclosure">
+            <summary>Historique et droit de sollicitation <span>{detail.events.length + detail.solicitationEvents.length}</span></summary>
+            <div>
+              {detail.events.length === 0 ? <p>Aucun événement d’audit.</p> : (
+                <ol className="introduction-timeline">
+                  {detail.events.map((event) => (
+                    <li key={event.id}>
+                      <time>{new Date(event.occurredAt).toLocaleString("fr-CH")}</time>
+                      <span>{event.eventType} par {event.actorRole}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <h3>Droit de sollicitation</h3>
+              {detail.solicitationEvents.length === 0 ? <p>Aucun changement enregistré.</p> : (
+                <ol className="introduction-timeline">
+                  {detail.solicitationEvents.map((event) => (
+                    <li key={event.id}>
+                      <time>{new Date(event.occurredAt).toLocaleString("fr-CH")}</time>
+                      <span>{event.canSolicit ? "Rétabli" : "Désactivé"} : {event.reason}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </details>
         </>
       ) : null}
     </section>

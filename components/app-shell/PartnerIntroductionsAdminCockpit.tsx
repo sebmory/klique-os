@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Card } from "@/src/design-system/components";
+import { Badge, Button, Card } from "@/src/design-system/components";
 
 type Summary = {
   id: string;
@@ -34,9 +34,9 @@ const statusLabels: Record<string, string> = {
 };
 
 const historicalStatusLabel = (status: string) => ({
-  pending: "Ancienne demande — en attente de transition",
-  resolved: "Ancienne demande — résolue",
-}[status] ?? `Ancienne demande — ${statusLabels[status] ?? status}`);
+  pending: "En attente de transition",
+  resolved: "Résolue",
+}[status] ?? (statusLabels[status] ?? status));
 
 export function PartnerIntroductionsAdminCockpit() {
   const [enabled, setEnabled] = useState(false);
@@ -46,6 +46,7 @@ export function PartnerIntroductionsAdminCockpit() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const query = useMemo(() => {
     const params = new URLSearchParams({ page: String(page), limit: "10" });
     if (filters.status) params.set("status", filters.status);
@@ -71,10 +72,16 @@ export function PartnerIntroductionsAdminCockpit() {
         setTotal(Number(payload.total ?? 0));
       }
     }).catch((reason: unknown) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Chargement impossible.");
+      if (active) {
+        console.error("[partner_introductions_admin] Chargement impossible.", reason);
+        setItems([]);
+        setCounters({});
+        setTotal(0);
+        setError("Impossible de charger les mises en relation.");
+      }
     });
     return () => { active = false; };
-  }, [query]);
+  }, [loadAttempt, query]);
 
   if (!enabled && !error) return null;
 
@@ -91,75 +98,101 @@ export function PartnerIntroductionsAdminCockpit() {
   };
 
   return (
-    <Card className="workspace-dashboard-card card-priorities">
-      <header className="dashboard-card-head">
+    <Card className="workspace-dashboard-card partner-introductions-cockpit">
+      <header className="dashboard-card-head introduction-cockpit-head">
         <div>
           <h2>Supervision des mises en relation</h2>
           <p>Suivi uniquement : l’athlète reste seul décisionnaire.</p>
         </div>
-        <button type="button" className="card-link-button" onClick={() => {
-          setFilters(initialFilters);
-          setPage(1);
-        }}>
-          Tous
-        </button>
+        {!error ? (
+          <Button type="button" className="introduction-button is-ghost is-compact" onClick={() => {
+            setFilters(initialFilters);
+            setPage(1);
+          }}>
+            Tous
+          </Button>
+        ) : null}
       </header>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
-        {[
-          ["awaiting", "En attente"],
-          ["accepted", "Acceptées"],
-          ["declined", "Refusées"],
-          ["stale", "Anciennes"],
-          ["reported", "Signalées"],
-          ["suspended", "Suspendues"],
-        ].map(([key, label]) => (
-          <button key={key} type="button" onClick={() => applyCounterFilter(key)}>
-            {label} : {counters[key] ?? 0}
-          </button>
-        ))}
-      </div>
-      {error ? <p role="alert">{error}</p> : null}
-      {!error && items.length === 0 ? <p>Aucune demande pour ce filtre.</p> : null}
-      {items.length > 0 ? (
-        <ul className="priority-list">
-          {items.map((item) => (
-            <li key={item.id} className="priority-item">
-              <div className="priority-main">
-                <strong>
-                  {item.partnerPublicName || "Partenaire KLIQUE"} → {item.athletePublicName || "Athlète KLIQUE"}
-                </strong>
-                <span>{item.reason || "Motif non renseigné"}</span>
-                <small>
-                  {item.historical
-                    ? historicalStatusLabel(item.status)
-                    : statusLabels[item.status] ?? item.status}
-                  {" · "}Modération : {item.moderationStatus === "suspended" ? "Suspendue" : "Active"}
-                  {" · "}{item.ageDays} jour{item.ageDays === 1 ? "" : "s"}
-                  {item.stale ? " · Sans réponse ancienne" : ""}
-                  {item.reported ? " · Signalée" : ""}
-                </small>
-              </div>
-              <time dateTime={item.createdAt}>
-                {new Intl.DateTimeFormat("fr-CH").format(new Date(item.createdAt))}
-              </time>
-              <Link className="card-link-button" href={`/today/partner-introductions/${encodeURIComponent(item.id)}`}>
-                Détail
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {total > 10 ? (
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem" }}>
-          <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-            Précédent
-          </button>
-          <span>Page {page} / {Math.ceil(total / 10)}</span>
-          <button type="button" disabled={page * 10 >= total} onClick={() => setPage((value) => value + 1)}>
-            Suivant
-          </button>
+      {error ? (
+        <div className="introduction-load-error">
+          <p className="introduction-feedback is-error" role="alert">{error}</p>
+          <Button
+            type="button"
+            className="introduction-button is-secondary is-compact"
+            onClick={() => setLoadAttempt((value) => value + 1)}
+          >
+            Réessayer
+          </Button>
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="introduction-counters" aria-label="Filtres des mises en relation">
+            {[
+              ["awaiting", "En attente"],
+              ["accepted", "Acceptées"],
+              ["declined", "Refusées"],
+              ["stale", "Anciennes"],
+              ["reported", "Signalées"],
+              ["suspended", "Suspendues"],
+            ].map(([key, label]) => (
+              <Button key={key} type="button" className="introduction-counter" onClick={() => applyCounterFilter(key)}>
+                <span>{label}</span>
+                <strong>{counters[key] ?? 0}</strong>
+              </Button>
+            ))}
+          </div>
+          {items.length === 0 ? <p className="introduction-empty">Aucune demande pour ce filtre.</p> : null}
+          {items.length > 0 ? (
+            <ul className="introduction-admin-list">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <div className="introduction-admin-participants">
+                    <span>Partenaire</span>
+                    <strong>{item.partnerPublicName || "Partenaire KLIQUE"}</strong>
+                    <span>Athlète</span>
+                    <strong>{item.athletePublicName || "Athlète KLIQUE"}</strong>
+                  </div>
+                  <div className="introduction-admin-main">
+                    <strong>{item.reason || "Motif non renseigné"}</strong>
+                    <small>
+                      {item.historical ? "Demande historique" : `Créée il y a ${item.ageDays} jour${item.ageDays === 1 ? "" : "s"}`}
+                      {item.stale ? " · Sans réponse" : ""}
+                      {item.reported ? " · Signalée" : ""}
+                    </small>
+                  </div>
+                  <div className="introduction-admin-status">
+                    <Badge className={`introduction-status-badge is-${item.status}`}>
+                      {item.historical
+                        ? historicalStatusLabel(item.status)
+                        : statusLabels[item.status] ?? item.status}
+                    </Badge>
+                    {item.moderationStatus === "suspended" ? (
+                      <Badge className="introduction-status-badge is-suspended">Suspendue</Badge>
+                    ) : null}
+                  </div>
+                  <div className="introduction-admin-end">
+                    <time dateTime={item.createdAt}>{new Intl.DateTimeFormat("fr-CH").format(new Date(item.createdAt))}</time>
+                    <Link className="introduction-link-button" href={`/today/partner-introductions/${encodeURIComponent(item.id)}`}>
+                      Voir le détail
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {total > 10 ? (
+            <div className="introduction-pagination">
+              <Button className="introduction-button is-secondary is-compact" type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                Précédent
+              </Button>
+              <span>Page {page} / {Math.ceil(total / 10)}</span>
+              <Button className="introduction-button is-secondary is-compact" type="button" disabled={page * 10 >= total} onClick={() => setPage((value) => value + 1)}>
+                Suivant
+              </Button>
+            </div>
+          ) : null}
+        </>
+      )}
     </Card>
   );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Badge, Card } from "@/src/design-system/components";
 
 type Detail = {
   id: string;
@@ -23,9 +24,9 @@ const statusLabel = (status: string) => ({
 }[status] ?? status);
 
 const historicalStatusLabel = (status: string) => ({
-  pending: "Ancienne demande — en attente de transition",
-  resolved: "Ancienne demande — résolue",
-}[status] ?? `Ancienne demande — ${statusLabel(status)}`);
+  pending: "En attente de transition",
+  resolved: "Résolue",
+}[status] ?? statusLabel(status));
 
 export default function PartnerContactRequestDetailPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -48,24 +49,31 @@ export default function PartnerContactRequestDetailPage() {
   }, [requestId]);
 
   return (
-    <section className="partner-portal partner-contact-requests">
-      <Link href="/partner/contact-requests">Retour aux mises en relation</Link>
-      {error ? <section className="partner-portal-state" role="alert">{error}</section> : null}
-      {!error && !detail ? <section className="partner-portal-state">Chargement…</section> : null}
+    <section className="introduction-page introduction-detail-page">
+      <Link className="introduction-back-link" href="/partner/contact-requests">← Retour aux mises en relation</Link>
+      {error ? <section className="introduction-feedback is-error" role="alert">{error}</section> : null}
+      {!error && !detail ? <section className="introduction-feedback is-loading">Chargement…</section> : null}
       {detail ? (
-        <article className="partner-portal-state">
-          <h1>{detail.athletePublicName || "Athlète KLIQUE"}</h1>
-          <p>
-            <strong>Statut :</strong>{" "}
-            {detail.historical
-              ? historicalStatusLabel(detail.status)
-              : statusLabel(detail.status)}
-          </p>
-          <p><strong>Motif :</strong> {detail.reason}</p>
-          {detail.message ? <p><strong>Message :</strong> {detail.message}</p> : null}
+        <Card className="introduction-detail-card">
+          <header className="introduction-detail-header">
+            <div>
+              <p className="introduction-eyebrow">Mise en relation avec</p>
+              <h1>{detail.athletePublicName || "Athlète KLIQUE"}</h1>
+              {detail.historical ? <small>Demande historique</small> : null}
+            </div>
+            <Badge className={`introduction-status-badge is-${detail.status}`}>
+              {detail.historical ? historicalStatusLabel(detail.status) : statusLabel(detail.status)}
+            </Badge>
+          </header>
+          <section className="introduction-content-block">
+            <h2>Motif</h2>
+            <p>{detail.reason}</p>
+          </section>
+          {detail.message ? <section className="introduction-content-block"><h2>Message</h2><p>{detail.message}</p></section> : null}
           {detail.authorizedContact ? (
-            <section>
+            <section className="introduction-contact-card">
               <h2>Contact autorisé</h2>
+              <p>L’athlète a confirmé le partage de ce compte.</p>
               <a
                 href={`https://instagram.com/${detail.authorizedContact.value.replace(/^@/, "")}`}
                 target="_blank"
@@ -76,9 +84,9 @@ export default function PartnerContactRequestDetailPage() {
             </section>
           ) : null}
           {detail.status === "accepted" && !detail.authorizedContact ? (
-            <p>Le contact n’est pas accessible, notamment si la demande est suspendue.</p>
+            <p className="introduction-feedback">Le contact n’est pas accessible, notamment si la demande est suspendue.</p>
           ) : null}
-        </article>
+        </Card>
       ) : null}
     </section>
   );

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Card, Checkbox, Input, Textarea } from "@/src/design-system/components";
 
 type Detail = {
   id: string;
@@ -18,6 +19,12 @@ type ContactPresentation = {
   displayValue: string;
   contactReference: string;
 };
+
+const statusLabel = (status: string) => ({
+  awaiting_athlete: "Réponse attendue",
+  accepted: "Acceptée",
+  declined: "Refusée",
+}[status] ?? status);
 
 export default function AthletePartnerContactRequestPage() {
   const { requestId } = useParams<{ requestId: string }>();
@@ -113,67 +120,93 @@ export default function AthletePartnerContactRequestPage() {
   };
 
   return (
-    <section style={{ maxWidth: "760px", margin: "0 auto", padding: "1.5rem", display: "grid", gap: "1rem" }}>
-      <Link href="/athlete">Retour à l’accueil</Link>
-      {error ? <p role="alert">{error}</p> : null}
-      {success ? <p role="status">{success}</p> : null}
-      {!detail && !error ? <p>Chargement…</p> : null}
+    <section className="introduction-page introduction-detail-page">
+      <Link className="introduction-back-link" href="/athlete">← Retour à l’accueil</Link>
+      {error ? <p className="introduction-feedback is-error" role="alert">{error}</p> : null}
+      {success ? <p className="introduction-feedback is-success" role="status">{success}</p> : null}
+      {!detail && !error ? <p className="introduction-feedback is-loading">Chargement…</p> : null}
       {detail ? (
-        <article>
-          <h1>{detail.partnerPublicName || "Partenaire KLIQUE"}</h1>
-          <p><strong>Motif :</strong> {detail.reason || "Mise en relation"}</p>
-          {detail.message ? <p><strong>Message :</strong> {detail.message}</p> : null}
+        <>
+          <Card className="introduction-detail-card">
+            <header className="introduction-detail-header">
+              <div>
+                <p className="introduction-eyebrow">Demande de</p>
+                <h1>{detail.partnerPublicName || "Partenaire KLIQUE"}</h1>
+              </div>
+              <Badge className={`introduction-status-badge is-${detail.status}`}>{statusLabel(detail.status)}</Badge>
+            </header>
+            <div className="introduction-detail-grid">
+              <section className="introduction-content-block">
+                <h2>Motif</h2>
+                <p>{detail.reason || "Mise en relation"}</p>
+              </section>
+              {detail.message ? <section className="introduction-content-block"><h2>Message</h2><p>{detail.message}</p></section> : null}
+            </div>
+            <footer className="introduction-detail-meta">
+              <span>Reçue le {new Date(detail.createdAt).toLocaleDateString("fr-CH")}</span>
+            </footer>
+          </Card>
+
           {detail.status === "awaiting_athlete" ? (
-            <div style={{ display: "grid", gap: "0.75rem" }}>
+            <Card className="introduction-action-card">
+              <header>
+                <div>
+                  <p className="introduction-eyebrow">Prochaine action</p>
+                  <h2>Répondre à la demande</h2>
+                </div>
+                <p>Ton contact n’est transmis qu’après une confirmation explicite.</p>
+              </header>
               {!contact ? (
-                <button type="button" onClick={() => void prepareContact().catch((reason: unknown) => {
+                <Button className="introduction-button is-secondary" type="button" onClick={() => void prepareContact().catch((reason: unknown) => {
                   setError(reason instanceof Error ? reason.message : "Instagram indisponible.");
                 })}>
-                  Préparer mon contact Instagram
-                </button>
+                  Vérifier le compte Instagram à partager
+                </Button>
               ) : (
-                <label>
-                  <input
-                    type="checkbox"
+                <label className="introduction-confirmation">
+                  <Checkbox
                     checked={confirmed}
                     onChange={(event) => setConfirmed(event.target.checked)}
-                  />{" "}
-                  J’autorise le partage de {contact.displayValue} avec ce partenaire.
+                  />
+                  <span>J’autorise le partage de <strong>{contact.displayValue}</strong> avec ce partenaire.</span>
                 </label>
               )}
               {!contact ? (
-                <p>Si Instagram est absent ou invalide, complète ton <Link href="/athlete/profile">profil</Link>. Tu peux toujours refuser.</p>
+                <p className="introduction-help">Si Instagram est absent ou invalide, complète ton <Link href="/athlete/profile">profil</Link>. Tu peux toujours refuser.</p>
               ) : null}
-              <div style={{ display: "flex", gap: "0.75rem" }}>
-                <button type="button" disabled={submitting || !contact || !confirmed} onClick={() => void respond("accept")}>
-                  Accepter
-                </button>
-                <button type="button" disabled={submitting} onClick={() => void respond("decline")}>
+              <div className="introduction-actions">
+                <Button className="introduction-button is-primary" type="button" disabled={submitting || !contact || !confirmed} onClick={() => void respond("accept")}>
+                  {submitting ? "Enregistrement…" : "Accepter et partager"}
+                </Button>
+                <Button className="introduction-button is-secondary" type="button" disabled={submitting} onClick={() => void respond("decline")}>
                   Refuser
-                </button>
+                </Button>
               </div>
+            </Card>
+          ) : <p className="introduction-feedback">Cette demande a déjà reçu une réponse.</p>}
+
+          <details className="introduction-disclosure">
+            <summary>Signaler cette demande</summary>
+            <div>
+              {reportSuccess ? <p className="introduction-feedback is-success" role="status">{reportSuccess}</p> : null}
+              <label className="introduction-field">
+                <span>Motif</span>
+                <Input value={reportReason} onChange={(event) => setReportReason(event.target.value)} />
+              </label>
+              <label className="introduction-field">
+                <span>Commentaire facultatif</span>
+                <Textarea value={reportComment} onChange={(event) => setReportComment(event.target.value)} rows={4} />
+              </label>
+              <Button className="introduction-button is-danger" type="button" disabled={!reportReason.trim()} onClick={() => {
+                void reportRequest().catch((reason: unknown) => {
+                  setError(reason instanceof Error ? reason.message : "Signalement impossible.");
+                });
+              }}>
+                Envoyer le signalement
+              </Button>
             </div>
-          ) : <p>Cette demande a déjà reçu une réponse.</p>}
-          <section>
-            <h2>Signaler cette demande</h2>
-            {reportSuccess ? <p role="status">{reportSuccess}</p> : null}
-            <label>
-              Motif
-              <input value={reportReason} onChange={(event) => setReportReason(event.target.value)} />
-            </label>
-            <label>
-              Commentaire facultatif
-              <textarea value={reportComment} onChange={(event) => setReportComment(event.target.value)} />
-            </label>
-            <button type="button" disabled={!reportReason.trim()} onClick={() => {
-              void reportRequest().catch((reason: unknown) => {
-                setError(reason instanceof Error ? reason.message : "Signalement impossible.");
-              });
-            }}>
-              Envoyer le signalement
-            </button>
-          </section>
-        </article>
+          </details>
+        </>
       ) : null}
     </section>
   );

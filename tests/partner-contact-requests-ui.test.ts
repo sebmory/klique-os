@@ -109,8 +109,9 @@ describe("PartnerContactRequestsPage", () => {
 
     await mount();
 
-    expect(container.textContent).toContain("Ancienne demande — en attente de transition");
-    expect(container.textContent).toContain("Ancienne demande — résolue");
+    expect(container.textContent).toContain("En attente de transition");
+    expect(container.textContent).toContain("Résolue");
+    expect(container.textContent).toContain("Demande historique");
   });
 
   it("shows the API error", async () => {

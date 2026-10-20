@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Badge, Card } from "@/src/design-system/components";
 
 type ContactRequestStatus =
   | "open"
@@ -38,8 +39,8 @@ const statusLabels: Record<ContactRequestStatus, string> = {
 };
 
 const historicalStatusLabels: Partial<Record<ContactRequestStatus, string>> = {
-  pending: "Ancienne demande — en attente de transition",
-  resolved: "Ancienne demande — résolue",
+  pending: "En attente de transition",
+  resolved: "Résolue",
 };
 
 const dateFormatter = new Intl.DateTimeFormat("fr-CH", {
@@ -92,16 +93,19 @@ export default function PartnerContactRequestsPage() {
   }, []);
 
   return (
-    <section className="partner-portal partner-contact-requests">
-      <header className="partner-portal-hero">
-        <p>Suivi</p>
-        <h1>Mes mises en relation</h1>
+    <section className="introduction-page introduction-list-page">
+      <header className="introduction-page-header">
+        <div>
+          <p className="introduction-eyebrow">Suivi</p>
+          <h1>Mes mises en relation</h1>
+          <p>Retrouvez vos demandes, leur statut et les prochaines étapes.</p>
+        </div>
       </header>
 
-      {loading ? <section className="partner-portal-state">Chargement de vos demandes…</section> : null}
-      {!loading && error ? <section className="partner-portal-state" role="alert">{error}</section> : null}
+      {loading ? <section className="introduction-feedback is-loading">Chargement de vos demandes…</section> : null}
+      {!loading && error ? <section className="introduction-feedback is-error" role="alert">{error}</section> : null}
       {!loading && !error && requests.length === 0 ? (
-        <section className="partner-portal-state">Vous n’avez encore aucune demande de mise en relation.</section>
+        <section className="introduction-empty">Vous n’avez encore aucune demande de mise en relation.</section>
       ) : null}
 
       {!loading && !error && requests.length > 0 ? (
@@ -110,28 +114,35 @@ export default function PartnerContactRequestsPage() {
             const visibleReply = request.response?.trim() || request.note?.trim() || "";
             return (
               <li key={request.id}>
-                <article>
-                  <header>
+                <Card className="introduction-list-card">
+                  <header className="introduction-list-card-head">
                     <div>
-                      <span>Athlète</span>
+                      <span className="introduction-eyebrow">Athlète</span>
                       <h2>{request.athletePublicName || request.athleteName || "Athlète KLIQUE"}</h2>
                     </div>
-                    <span className={`partner-contact-request-status is-${request.status}`}>
+                    <Badge className={`introduction-status-badge is-${request.status}`}>
                       {request.historical
-                        ? historicalStatusLabels[request.status] ?? `Ancienne demande — ${statusLabels[request.status] ?? request.status}`
+                        ? historicalStatusLabels[request.status] ?? statusLabels[request.status] ?? request.status
                         : statusLabels[request.status] ?? request.status}
-                    </span>
+                    </Badge>
                   </header>
-                  <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
-                  {request.reason || request.subject ? <section><h3>Motif</h3><p>{request.reason || request.subject}</p></section> : null}
-                  {request.message ? <section><h3>Message</h3><p>{request.message}</p></section> : null}
+                  <div className="introduction-list-card-body">
+                    {request.reason || request.subject ? <section><h3>Motif</h3><p>{request.reason || request.subject}</p></section> : null}
+                    {request.message ? <section><h3>Message</h3><p>{request.message}</p></section> : null}
+                  </div>
                   {visibleReply ? <section className="partner-contact-request-reply"><h3>Réponse</h3><p>{visibleReply}</p></section> : null}
-                  {workflowEnabled ? (
-                    <Link href={`/partner/contact-requests/${encodeURIComponent(request.id)}`}>
-                      Voir le détail
-                    </Link>
-                  ) : null}
-                </article>
+                  <footer className="introduction-list-card-footer">
+                    <div>
+                      <time dateTime={request.createdAt}>{formatDate(request.createdAt)}</time>
+                      {request.historical ? <small>Demande historique</small> : null}
+                    </div>
+                    {workflowEnabled ? (
+                      <Link className="introduction-link-button" href={`/partner/contact-requests/${encodeURIComponent(request.id)}`}>
+                        Voir le détail
+                      </Link>
+                    ) : null}
+                  </footer>
+                </Card>
               </li>
             );
           })}
