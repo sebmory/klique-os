@@ -941,6 +941,14 @@ describePostgres.sequential("partner introduction PostgreSQL transactions", () =
           publicName: "Athlète de test",
           instagram: "@athlete_test",
         }),
+        resolveCanonicalPartnerProfile: async () => ({
+          outcome: "resolved",
+          profile: { active: true, publicName: "Partenaire de test" },
+        }),
+        resolveCanonicalAthleteProfile: async () => ({
+          outcome: "resolved",
+          profile: { publicName: "Athlète de test", instagram: "@athlete_test" },
+        }),
       },
       contactReferenceSecret: () =>
         "partner-introduction-postgres-test-secret-32-chars",

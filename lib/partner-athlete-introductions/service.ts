@@ -11,6 +11,7 @@ import type {
   IntroductionRequestState,
   IntroductionResponsePayload,
   PartnerIntroductionDetail,
+  PartnerIntroductionSummary,
 } from "@/lib/partner-athlete-introductions/contracts";
 import {
   buildInstagramContactReference,
@@ -55,7 +56,10 @@ export class PartnerAthleteIntroductionForbiddenError extends Error {
 export class PartnerAthleteIntroductionConflictError extends Error {
   constructor(
     message: string,
-    readonly outcome: IntroductionMutationResult["outcome"] | "contact_changed",
+    readonly outcome:
+      | IntroductionMutationResult["outcome"]
+      | "contact_changed"
+      | "identity_missing",
   ) {
     super(message);
     this.name = "PartnerAthleteIntroductionConflictError";
@@ -84,6 +88,12 @@ export type PartnerAthleteIntroductionService = {
     actor: IntroductionActor;
     requestId: string;
     payload: IntroductionResponsePayload;
+    idempotencyKey: string;
+    now?: Date;
+  }): Promise<IntroductionMutationResult>;
+  activateHistorical(input: {
+    actor: IntroductionActor;
+    requestId: string;
     idempotencyKey: string;
     now?: Date;
   }): Promise<IntroductionMutationResult>;
@@ -119,6 +129,7 @@ export type PartnerAthleteIntroductionService = {
     moderationStatus?: string | null;
     staleOnly?: boolean;
     reportedOnly?: boolean;
+    historicalOnly?: boolean;
     page?: number;
     limit?: number;
     staleDays: number;
@@ -257,6 +268,38 @@ export const createPartnerAthleteIntroductionService = (
     ?? createPartnerAthleteIntroductionDirectory();
   const contactReferenceSecret = dependencies.contactReferenceSecret
     ?? getContactReferenceSecret;
+  const enrichAdminCanonicalNames = async <
+    T extends AdminIntroductionSummary,
+  >(item: T): Promise<T> => {
+    const [partner, athlete] = await Promise.all([
+      item.partnerPublicName
+        ? null
+        : directory.resolveCanonicalPartnerProfile(item.partnerId),
+      item.athletePublicName
+        ? null
+        : directory.resolveCanonicalAthleteProfile(item.athleteId),
+    ]);
+    return {
+      ...item,
+      partnerPublicName:
+        item.partnerPublicName
+        || (partner?.outcome === "resolved" ? partner.profile.publicName : ""),
+      athletePublicName:
+        item.athletePublicName
+        || (athlete?.outcome === "resolved" ? athlete.profile.publicName : ""),
+    };
+  };
+  const enrichPartnerAthleteName = async <
+    T extends PartnerIntroductionSummary,
+  >(item: T): Promise<T> => {
+    if (item.athletePublicName) return item;
+    const athlete = await directory.resolveCanonicalAthleteProfile(item.athleteId);
+    return {
+      ...item,
+      athletePublicName:
+        athlete.outcome === "resolved" ? athlete.profile.publicName : "",
+    };
+  };
 
   return {
     async create(input) {
@@ -391,6 +434,75 @@ export const createPartnerAthleteIntroductionService = (
       return requireSuccessfulMutation(result, ["transitioned", "replay"]);
     },
 
+    async activateHistorical(input) {
+      assertServerActor(input.actor);
+      if (input.actor.role !== "admin" || input.actor.status !== "active") {
+        throw new PartnerAthleteIntroductionForbiddenError();
+      }
+      const requestId = normalizeRequired(input.requestId, "requestId");
+      const idempotencyKey = normalizeRequired(input.idempotencyKey, "idempotencyKey");
+      const now = requireNow(input.now);
+      const existing = await repository.getForAdmin(input.actor, requestId, 1, now);
+      if (!existing) throw new PartnerAthleteIntroductionNotFoundError();
+      if (!existing.historical || existing.status !== "pending") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Seule une ancienne demande en attente peut être transmise.",
+          "historical_request",
+        );
+      }
+
+      const [partner, athlete] = await Promise.all([
+        directory.resolveCanonicalPartnerProfile(existing.partnerId),
+        directory.resolveCanonicalAthleteProfile(existing.athleteId),
+      ]);
+      if (partner.outcome === "ambiguous" || athlete.outcome === "ambiguous") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "L’identité canonique du partenaire ou de l’athlète est ambiguë.",
+          "identity_ambiguous",
+        );
+      }
+      if (partner.outcome !== "resolved" || athlete.outcome !== "resolved") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Le partenaire ou l’athlète ne peut pas être résolu depuis les identités canoniques.",
+          "identity_missing",
+        );
+      }
+      if (!partner.profile.active) {
+        throw new PartnerAthleteIntroductionForbiddenError(
+          "Le profil partenaire n’est pas actif.",
+        );
+      }
+      if (!partner.profile.publicName || !athlete.profile.publicName) {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Le nom public canonique du partenaire ou de l’athlète est indisponible.",
+          "identity_missing",
+        );
+      }
+
+      const result = await repository.activateHistorical({
+        actor: input.actor,
+        requestId,
+        partnerPublicName: partner.profile.publicName,
+        athletePublicName: athlete.profile.publicName,
+        idempotencyKey,
+        payloadHash: fingerprint({ action: "activate_historical", requestId }),
+        now,
+      });
+      if (result.outcome === "identity_ambiguous") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Plusieurs accès actifs correspondent au partenaire ou à l’athlète.",
+          result.outcome,
+        );
+      }
+      if (result.outcome === "unresolved_request") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Une demande concurrente incompatible existe déjà pour ces participants.",
+          result.outcome,
+        );
+      }
+      return requireSuccessfulMutation(result, ["transitioned", "replay"]);
+    },
+
     async moderate(input) {
       assertServerActor(input.actor);
       const requestId = normalizeRequired(input.requestId, "requestId");
@@ -448,16 +560,17 @@ export const createPartnerAthleteIntroductionService = (
       if (!request) throw new PartnerAthleteIntroductionNotFoundError();
       const projection = projectPartnerIntroductionDetail(request, input.actor);
       if (!projection) throw new PartnerAthleteIntroductionForbiddenError();
-      return projection;
+      return enrichPartnerAthleteName(projection);
     },
 
     async listForPartner(input) {
       assertServerActor(input.actor);
       const requests = await repository.listForPartner(input.actor);
-      return requests.flatMap((request) => {
+      const projections = requests.flatMap((request) => {
         const projection = projectPartnerIntroductionSummary(request, input.actor);
         return projection ? [projection] : [];
       });
+      return Promise.all(projections.map(enrichPartnerAthleteName));
     },
 
     async listForAthlete(input) {
@@ -504,12 +617,18 @@ export const createPartnerAthleteIntroductionService = (
         moderationStatus: input.moderationStatus?.trim() || null,
         staleOnly: input.staleOnly === true,
         reportedOnly: input.reportedOnly === true,
+        historicalOnly: input.historicalOnly === true,
         staleDays: input.staleDays,
         limit,
         offset: (page - 1) * limit,
         now: requireNow(input.now),
       });
-      return { ...result, page, limit };
+      return {
+        ...result,
+        items: await Promise.all(result.items.map(enrichAdminCanonicalNames)),
+        page,
+        limit,
+      };
     },
 
     async getAdminDetail(input) {
@@ -525,7 +644,7 @@ export const createPartnerAthleteIntroductionService = (
         requireNow(input.now),
       );
       if (!detail) throw new PartnerAthleteIntroductionNotFoundError();
-      return detail;
+      return enrichAdminCanonicalNames(detail);
     },
 
     async report(input) {

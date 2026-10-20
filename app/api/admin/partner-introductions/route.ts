@@ -23,6 +23,7 @@ export async function GET(request: Request) {
       moderationStatus: url.searchParams.get("moderationStatus"),
       staleOnly: url.searchParams.get("stale") === "true",
       reportedOnly: url.searchParams.get("reported") === "true",
+      historicalOnly: url.searchParams.get("historical") === "true",
       page: Number(url.searchParams.get("page") || 1),
       limit: Number(url.searchParams.get("limit") || 20),
       staleDays: resolveIntroductionStaleDays(process.env.PARTNER_REQUEST_STALE_DAYS),

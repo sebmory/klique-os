@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  AdminIntroductionDetail,
   IntroductionActor,
   IntroductionRequestState,
 } from "@/lib/partner-athlete-introductions/contracts";
@@ -64,8 +65,34 @@ const request = (
   ...overrides,
 });
 
+const adminDetail = (
+  overrides: Partial<AdminIntroductionDetail> = {},
+): AdminIntroductionDetail => ({
+  id: "request-1",
+  partnerId: "partner-1",
+  athleteId: "athlete-1",
+  partnerPublicName: "",
+  athletePublicName: "",
+  historical: true,
+  reason: "Sponsoring",
+  message: "Bonjour",
+  status: "pending" as const,
+  moderationStatus: "clear" as const,
+  createdAt: "2026-10-20T08:00:00.000Z",
+  respondedAt: null,
+  ageDays: 10,
+  stale: false,
+  reported: false,
+  solicitationAllowed: true,
+  events: [],
+  reports: [],
+  solicitationEvents: [],
+  ...overrides,
+});
+
 const repositoryDouble = (): PartnerAthleteIntroductionRepository => ({
   create: vi.fn(),
+  activateHistorical: vi.fn(),
   respond: vi.fn(),
   moderate: vi.fn(),
   setPartnerSolicitation: vi.fn(),
@@ -86,6 +113,8 @@ const repositoryDouble = (): PartnerAthleteIntroductionRepository => ({
 const directoryDouble = (): PartnerAthleteIntroductionDirectory => ({
   resolvePartnerProfile: vi.fn(),
   resolveAthleteProfile: vi.fn(),
+  resolveCanonicalPartnerProfile: vi.fn(),
+  resolveCanonicalAthleteProfile: vi.fn(),
 });
 
 describe("contact reference", () => {
@@ -128,6 +157,14 @@ describe("partner introduction server service", () => {
     vi.mocked(directory.resolveAthleteProfile).mockResolvedValue({
       publicName: "Mila Martin",
       instagram: "@mila",
+    });
+    vi.mocked(directory.resolveCanonicalPartnerProfile).mockResolvedValue({
+      outcome: "resolved",
+      profile: { active: true, publicName: "Studio Exemple" },
+    });
+    vi.mocked(directory.resolveCanonicalAthleteProfile).mockResolvedValue({
+      outcome: "resolved",
+      profile: { publicName: "Mila Martin", instagram: "@mila" },
     });
   });
 
@@ -311,6 +348,104 @@ describe("partner introduction server service", () => {
     expect(detail).not.toHaveProperty("authorizedContact");
     expect(detail).not.toHaveProperty("authorizedContactValueSnapshot");
     expect(detail).not.toHaveProperty("authorizedContactReference");
+  });
+
+  it("resolves missing historical names only through exact canonical identities", async () => {
+      vi.mocked(repository.listForAdmin).mockResolvedValue({
+        items: [adminDetail()],
+        total: 1,
+        counters: { historical: 1, stale: 0 },
+      });
+      const service = createPartnerAthleteIntroductionService({
+        repository,
+        directory,
+        contactReferenceSecret: () => secret,
+      });
+
+      const result = await service.listForAdmin({
+        actor: { ...partnerActor, role: "admin", partnerId: null },
+        historicalOnly: true,
+        staleDays: 5,
+      });
+
+      expect(directory.resolveCanonicalPartnerProfile).toHaveBeenCalledWith("partner-1");
+      expect(directory.resolveCanonicalAthleteProfile).toHaveBeenCalledWith("athlete-1");
+      expect(result.items[0]).toMatchObject({
+        partnerPublicName: "Studio Exemple",
+        athletePublicName: "Mila Martin",
+      });
+      expect(repository.listForAdmin).toHaveBeenCalledWith(expect.objectContaining({
+        historicalOnly: true,
+        staleOnly: false,
+      }));
+  });
+
+  it("activates one pending historical request with canonical snapshots", async () => {
+      vi.mocked(repository.getForAdmin).mockResolvedValue(adminDetail());
+      vi.mocked(repository.activateHistorical).mockResolvedValue({
+        outcome: "transitioned",
+        request: request(),
+        retryAt: null,
+      });
+      const service = createPartnerAthleteIntroductionService({
+        repository,
+        directory,
+        contactReferenceSecret: () => secret,
+      });
+      const admin = { ...partnerActor, role: "admin" as const, partnerId: null };
+
+      await expect(service.activateHistorical({
+        actor: admin,
+        requestId: "request-1",
+        idempotencyKey: "activate-1",
+        now: new Date("2026-10-30T08:00:00.000Z"),
+      })).resolves.toMatchObject({ outcome: "transitioned" });
+
+      expect(repository.activateHistorical).toHaveBeenCalledWith(expect.objectContaining({
+        actor: admin,
+        requestId: "request-1",
+        partnerPublicName: "Studio Exemple",
+        athletePublicName: "Mila Martin",
+        idempotencyKey: "activate-1",
+        now: "2026-10-30T08:00:00.000Z",
+      }));
+  });
+
+  it("blocks ambiguous canonical identities before historical activation", async () => {
+      vi.mocked(repository.getForAdmin).mockResolvedValue(adminDetail());
+      vi.mocked(directory.resolveCanonicalPartnerProfile).mockResolvedValue({
+        outcome: "ambiguous",
+        profile: null,
+      });
+      const service = createPartnerAthleteIntroductionService({
+        repository,
+        directory,
+        contactReferenceSecret: () => secret,
+      });
+
+      await expect(service.activateHistorical({
+        actor: { ...partnerActor, role: "admin", partnerId: null },
+        requestId: "request-1",
+        idempotencyKey: "activate-1",
+      })).rejects.toMatchObject({ outcome: "identity_ambiguous" });
+      expect(repository.activateHistorical).not.toHaveBeenCalled();
+  });
+
+  it("does not offer activation semantics to a resolved historical request", async () => {
+      vi.mocked(repository.getForAdmin).mockResolvedValue(adminDetail({ status: "resolved" }));
+      const service = createPartnerAthleteIntroductionService({
+        repository,
+        directory,
+        contactReferenceSecret: () => secret,
+      });
+
+      await expect(service.activateHistorical({
+        actor: { ...partnerActor, role: "admin", partnerId: null },
+        requestId: "request-1",
+        idempotencyKey: "activate-1",
+      })).rejects.toMatchObject({ outcome: "historical_request" });
+      expect(directory.resolveCanonicalPartnerProfile).not.toHaveBeenCalled();
+      expect(repository.activateHistorical).not.toHaveBeenCalled();
   });
 
   it("allows only the destination athlete to submit a report through persistence checks", async () => {

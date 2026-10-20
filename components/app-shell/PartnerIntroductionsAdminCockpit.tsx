@@ -23,9 +23,16 @@ type Filters = {
   moderationStatus: string;
   stale: boolean;
   reported: boolean;
+  historical: boolean;
 };
 
-const initialFilters: Filters = { status: "", moderationStatus: "", stale: false, reported: false };
+const initialFilters: Filters = {
+  status: "",
+  moderationStatus: "",
+  stale: false,
+  reported: false,
+  historical: false,
+};
 
 const statusLabels: Record<string, string> = {
   awaiting_athlete: "En attente de l’athlète",
@@ -53,6 +60,7 @@ export function PartnerIntroductionsAdminCockpit() {
     if (filters.moderationStatus) params.set("moderationStatus", filters.moderationStatus);
     if (filters.stale) params.set("stale", "true");
     if (filters.reported) params.set("reported", "true");
+    if (filters.historical) params.set("historical", "true");
     return params.toString();
   }, [filters, page]);
 
@@ -94,6 +102,7 @@ export function PartnerIntroductionsAdminCockpit() {
       moderationStatus: key === "suspended" ? "suspended" : "",
       stale: key === "stale",
       reported: key === "reported",
+      historical: key === "historical",
     });
   };
 
@@ -131,7 +140,8 @@ export function PartnerIntroductionsAdminCockpit() {
               ["awaiting", "En attente"],
               ["accepted", "Acceptées"],
               ["declined", "Refusées"],
-              ["stale", "Anciennes"],
+              ["stale", "Sans réponse prolongée"],
+              ["historical", "Historiques"],
               ["reported", "Signalées"],
               ["suspended", "Suspendues"],
             ].map(([key, label]) => (
@@ -148,9 +158,9 @@ export function PartnerIntroductionsAdminCockpit() {
                 <li key={item.id}>
                   <div className="introduction-admin-participants">
                     <span>Partenaire</span>
-                    <strong>{item.partnerPublicName || "Partenaire KLIQUE"}</strong>
+                    <strong>{item.partnerPublicName || "Partenaire non identifié"}</strong>
                     <span>Athlète</span>
-                    <strong>{item.athletePublicName || "Athlète KLIQUE"}</strong>
+                    <strong>{item.athletePublicName || "Athlète non identifié"}</strong>
                   </div>
                   <div className="introduction-admin-main">
                     <strong>{item.reason || "Motif non renseigné"}</strong>

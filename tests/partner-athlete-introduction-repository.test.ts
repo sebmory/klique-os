@@ -113,6 +113,7 @@ describe("partner introduction transactional repository", () => {
         accepted: 0,
         declined: 0,
         stale: 0,
+        historical: 1,
         reported: 0,
         suspended: 0,
       }]);
@@ -127,12 +128,14 @@ describe("partner introduction transactional repository", () => {
       moderationStatus: null,
       staleOnly: false,
       reportedOnly: false,
+      historicalOnly: false,
       staleDays: 5,
       limit: 20,
       offset: 0,
       now: "2026-10-30T08:00:00.000Z",
     })).resolves.toMatchObject({
       items: [expect.objectContaining({ historical: true, status: "pending" })],
+      counters: { historical: 1, stale: 0 },
     });
 
     const partnerQuery = String(double.directQuery.mock.calls[0]?.[0] ?? "");
@@ -146,6 +149,13 @@ describe("partner introduction transactional repository", () => {
     expect(adminQuery).toContain("role = 'admin'");
     expect(adminQuery).toContain("request.flow_version < $3");
     expect(adminQuery).toContain("request.athlete_response_enabled_at IS NOT NULL");
+    expect(adminQuery.replace(/\s+/g, " ").toLowerCase())
+      .toContain("not $12::boolean or flow_version < $3");
+    const countersQuery = String(double.directQuery.mock.calls[2]?.[0] ?? "")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    expect(countersQuery).toContain("where flow_version >= $3");
+    expect(countersQuery).toContain("where flow_version < $3");
   });
 
   it("keeps historical requests excluded from athlete reads", async () => {
@@ -196,6 +206,40 @@ describe("partner introduction transactional repository", () => {
     expect(mutation).toContain("partner_athlete_introduction_events");
     expect(mutation).toContain("partner_athlete_introduction_notification_outbox");
     expect(mutation).toContain("workspace_id =");
+  });
+
+  it("activates one historical request atomically with exact access checks and one outbox event", async () => {
+    double.setResults([[], [{ outcome: "transitioned", ...requestRow }]]);
+    const repository = createPartnerAthleteIntroductionRepository(double.sql);
+    const admin = { ...actor, role: "admin" as const, partnerId: null };
+
+    await expect(repository.activateHistorical({
+      actor: admin,
+      requestId: "request-1",
+      partnerPublicName: "Studio Exemple",
+      athletePublicName: "Mila Martin",
+      idempotencyKey: "activate-1",
+      payloadHash: "hash-activate-1",
+      now: "2026-10-30T08:00:00.000Z",
+    })).resolves.toMatchObject({
+      outcome: "transitioned",
+      request: { id: "request-1" },
+    });
+
+    expect(double.isolationLevel).toBe("ReadCommitted");
+    expect(double.planned).toHaveLength(2);
+    expect(normalizeSql(double.planned[0])).toContain("for update");
+    const mutation = normalizeSql(double.planned[1]);
+    expect(mutation).toContain("pg_advisory_xact_lock");
+    expect(mutation).toContain("access.partner_id = request.partner_id");
+    expect(mutation).toContain("access.athlete_id = request.athlete_id");
+    expect(mutation).toContain("request.flow_version < ?");
+    expect(mutation).toContain("request.status = 'pending'");
+    expect(mutation).toContain("athlete_response_enabled_at = ?::timestamptz");
+    expect(mutation).toContain("'request_created'");
+    expect(mutation).toContain("'admin'");
+    expect(mutation).toContain("'partner_athlete_introduction.created'");
+    expect(mutation).toContain("on conflict (workspace_id, event_id, recipient_clerk_user_id) do nothing");
   });
 
   it("locks the request row and conditionally serializes athlete response with moderation", async () => {

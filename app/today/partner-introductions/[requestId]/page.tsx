@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Badge, Button, Card, Textarea } from "@/src/design-system/components";
+import { Badge, Button, Card, Checkbox, Textarea } from "@/src/design-system/components";
 
 type Detail = {
   id: string;
@@ -60,6 +60,8 @@ export default function AdminPartnerIntroductionDetailPage() {
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [activationConfirmed, setActivationConfirmed] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
   const actionKey = useRef("");
 
   const load = useCallback(async () => {
@@ -85,18 +87,30 @@ export default function AdminPartnerIntroductionDetailPage() {
   }, [load]);
 
   const mutate = async (body: Record<string, unknown>) => {
+    if (isMutating) return;
+    setIsMutating(true);
+    setError("");
     if (!actionKey.current) actionKey.current = crypto.randomUUID();
-    const response = await fetch(`/api/admin/partner-introductions/${encodeURIComponent(requestId)}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "Idempotency-Key": actionKey.current },
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Action impossible.");
-    actionKey.current = "";
-    setMessage("Action enregistrée.");
-    setDetail(await load());
+    try {
+      const response = await fetch(`/api/admin/partner-introductions/${encodeURIComponent(requestId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": actionKey.current },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Action impossible.");
+      actionKey.current = "";
+      setActivationConfirmed(false);
+      setMessage(
+        body.action === "activate_historical"
+          ? "La demande a été transmise à l’athlète."
+          : "Action enregistrée.",
+      );
+      setDetail(await load());
+    } finally {
+      setIsMutating(false);
+    }
   };
 
   const handleReport = async (reportId: string, status: "reviewing" | "resolved" | "dismissed") => {
@@ -133,7 +147,7 @@ export default function AdminPartnerIntroductionDetailPage() {
             <header className="introduction-detail-header">
               <div>
                 <p className="introduction-eyebrow">Supervision de la demande</p>
-                <h1>{detail.partnerPublicName || "Partenaire KLIQUE"} <span>→</span> {detail.athletePublicName || "Athlète KLIQUE"}</h1>
+                <h1>{detail.partnerPublicName || "Partenaire non identifié"} <span>→</span> {detail.athletePublicName || "Athlète non identifié"}</h1>
                 {detail.historical ? <small>Demande historique</small> : null}
               </div>
               <div className="introduction-badge-group">
@@ -158,6 +172,54 @@ export default function AdminPartnerIntroductionDetailPage() {
             </footer>
           </Card>
 
+          {detail.historical ? (
+            <Card className="introduction-action-card introduction-historical-action">
+              <header>
+                <div>
+                  <p className="introduction-eyebrow">Ancien parcours</p>
+                  <h2>{detail.status === "pending" ? "Transmission à l’athlète" : "Demande résolue"}</h2>
+                </div>
+              </header>
+              {detail.status === "pending" ? (
+                <>
+                  <p>
+                    Cette demande appartient à l’ancien parcours. Elle n’a pas été transmise à
+                    l’athlète dans le nouveau système.
+                  </p>
+                  <label className="introduction-confirmation">
+                    <Checkbox
+                      checked={activationConfirmed}
+                      onChange={(event) => setActivationConfirmed(event.target.checked)}
+                    />
+                    <span>
+                      Je confirme que cette action avertira l’athlète et lui permettra
+                      d’accepter ou de refuser la demande.
+                    </span>
+                  </label>
+                  <div className="introduction-actions">
+                    <Button
+                      className="introduction-button is-primary"
+                      type="button"
+                      disabled={!activationConfirmed || isMutating}
+                      onClick={() => {
+                        void mutate({ action: "activate_historical" })
+                          .catch((cause: unknown) => setError(
+                            cause instanceof Error ? cause.message : "Transmission impossible.",
+                          ));
+                      }}
+                    >
+                      {isMutating ? "Transmission…" : "Valider et transmettre à l’athlète"}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p>
+                  Cette demande a été résolue dans l’ancien parcours. Elle reste consultable
+                  et ne sera pas transmise à l’athlète dans le nouveau système.
+                </p>
+              )}
+            </Card>
+          ) : (
           <Card className="introduction-action-card">
             <header>
               <div>
@@ -171,17 +233,15 @@ export default function AdminPartnerIntroductionDetailPage() {
               <Textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} />
             </label>
             <div className="introduction-actions">
-              {!detail.historical ? (
-                <>
-                  <Button className="introduction-button is-danger" type="button" disabled={!reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
+              <>
+                  <Button className="introduction-button is-danger" type="button" disabled={isMutating || !reason.trim() || detail.moderationStatus === "suspended"} onClick={() => {
                     void mutate({ action: "suspend", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
                   }}>Suspendre</Button>
-                  <Button className="introduction-button is-secondary" type="button" disabled={!reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
+                  <Button className="introduction-button is-secondary" type="button" disabled={isMutating || !reason.trim() || detail.moderationStatus !== "suspended"} onClick={() => {
                     void mutate({ action: "reactivate", reason }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
                   }}>Réactiver</Button>
                 </>
-              ) : null}
-              <Button className="introduction-button is-primary" type="button" disabled={!reason.trim()} onClick={() => {
+              <Button className="introduction-button is-primary" type="button" disabled={isMutating || !reason.trim()} onClick={() => {
                 void mutate({ action: "set_solicitation", canSolicit: !detail.solicitationAllowed, reason })
                   .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Action impossible."));
               }}>
@@ -189,6 +249,7 @@ export default function AdminPartnerIntroductionDetailPage() {
               </Button>
             </div>
           </Card>
+          )}
 
           <details className="introduction-disclosure">
             <summary>Signalements <span>{detail.reports.length}</span></summary>

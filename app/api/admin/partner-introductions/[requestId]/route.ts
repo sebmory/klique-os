@@ -6,6 +6,7 @@ import {
   introductionErrorResponse,
   readIdempotencyKey,
 } from "@/lib/partner-athlete-introductions/http";
+import { schedulePartnerIntroductionOutboxAfterResponse } from "@/lib/partner-athlete-introductions/outbox-after-response";
 import { createPartnerAthleteIntroductionService } from "@/lib/partner-athlete-introductions/service";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,17 @@ export async function PATCH(request: Request, { params }: Context) {
     }
     const { requestId } = await params;
     const service = createPartnerAthleteIntroductionService();
+    if (body.action === "activate_historical") {
+      const result = await service.activateHistorical({
+        actor,
+        requestId,
+        idempotencyKey,
+      });
+      if (result.outcome === "transitioned") {
+        schedulePartnerIntroductionOutboxAfterResponse();
+      }
+      return NextResponse.json({ outcome: result.outcome });
+    }
     if (body.action === "suspend" || body.action === "reactivate") {
       const result = await service.moderate({
         actor,

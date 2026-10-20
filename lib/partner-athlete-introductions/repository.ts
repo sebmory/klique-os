@@ -35,6 +35,7 @@ export type IntroductionMutationOutcome =
   | "already_answered"
   | "suspended"
   | "not_found"
+  | "identity_ambiguous"
   | "idempotency_conflict"
   | "conflict";
 
@@ -65,6 +66,16 @@ export type RespondIntroductionRecordInput = {
   now: string;
   authorizedInstagram: string | null;
   contactReference: string | null;
+};
+
+export type ActivateHistoricalIntroductionInput = {
+  actor: IntroductionActor;
+  requestId: string;
+  partnerPublicName: string;
+  athletePublicName: string;
+  idempotencyKey: string;
+  payloadHash: string;
+  now: string;
 };
 
 export type ModerateIntroductionRecordInput = {
@@ -129,6 +140,9 @@ export type PartnerIntroductionOutboxDiagnostics = {
 
 export type PartnerAthleteIntroductionRepository = {
   create(input: CreateIntroductionRecordInput): Promise<IntroductionMutationResult>;
+  activateHistorical(
+    input: ActivateHistoricalIntroductionInput,
+  ): Promise<IntroductionMutationResult>;
   respond(input: RespondIntroductionRecordInput): Promise<IntroductionMutationResult>;
   moderate(input: ModerateIntroductionRecordInput): Promise<IntroductionMutationResult>;
   setPartnerSolicitation(input: SetPartnerSolicitationInput): Promise<
@@ -144,6 +158,7 @@ export type PartnerAthleteIntroductionRepository = {
     moderationStatus: string | null;
     staleOnly: boolean;
     reportedOnly: boolean;
+    historicalOnly: boolean;
     staleDays: number;
     limit: number;
     offset: number;
@@ -483,6 +498,193 @@ export const createPartnerAthleteIntroductionRepository = (
       return [lockPartner, lockPair, mutation];
     }, { isolationLevel: "ReadCommitted" });
     return mapMutation(results[2]);
+  },
+
+  async activateHistorical(input) {
+    const eventId = randomUUID();
+    const outboxId = randomUUID();
+    const results = await sql.transaction((tx) => {
+      const lock = requestLock(tx, input.actor.workspaceId, input.requestId);
+      const mutation = tx`
+        WITH candidate AS (
+          SELECT *
+          FROM contact_requests
+          WHERE workspace_id = ${input.actor.workspaceId}
+            AND id = ${input.requestId}
+            AND request_kind = 'partner_athlete_introduction'
+          LIMIT 1
+        ),
+        actor_access AS (
+          SELECT 1
+          FROM user_access
+          WHERE clerk_user_id = ${input.actor.clerkUserId}
+            AND workspace_id = ${input.actor.workspaceId}
+            AND role = 'admin'
+            AND status = 'active'
+        ),
+        partner_access AS (
+          SELECT access.clerk_user_id
+          FROM candidate request
+          JOIN user_access access
+            ON access.workspace_id = request.workspace_id
+            AND access.partner_id = request.partner_id
+          WHERE access.role = 'partner_expert'
+            AND access.status = 'active'
+        ),
+        athlete_access AS (
+          SELECT access.clerk_user_id
+          FROM candidate request
+          JOIN user_access access
+            ON access.workspace_id = request.workspace_id
+            AND access.athlete_id = request.athlete_id
+          WHERE access.role = 'athlete'
+            AND access.status = 'active'
+        ),
+        pair_lock AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(
+              'partner-athlete-introduction:pair:'
+                || request.workspace_id || ':' || request.partner_id || ':' || request.athlete_id,
+              0
+            )
+          )
+          FROM candidate request
+        ),
+        solicitation AS (
+          SELECT COALESCE(
+            (
+              SELECT control.can_solicit
+              FROM candidate request
+              JOIN partner_solicitation_controls control
+                ON control.workspace_id = request.workspace_id
+                AND control.partner_id = request.partner_id
+            ),
+            TRUE
+          ) AS allowed
+        ),
+        replay AS (
+          SELECT payload_hash
+          FROM partner_athlete_introduction_events
+          WHERE workspace_id = ${input.actor.workspaceId}
+            AND request_id = ${input.requestId}
+            AND idempotency_key = ${input.idempotencyKey}
+          LIMIT 1
+        ),
+        incompatible AS (
+          SELECT other.id
+          FROM candidate request
+          JOIN contact_requests other
+            ON other.workspace_id = request.workspace_id
+            AND other.partner_id = request.partner_id
+            AND other.athlete_id = request.athlete_id
+            AND other.request_kind = 'partner_athlete_introduction'
+            AND other.id <> request.id
+            AND other.status IN ('pending', 'awaiting_athlete')
+          LIMIT 1
+        ),
+        transitioned AS (
+          UPDATE contact_requests request
+          SET
+            flow_version = ${PARTNER_INTRODUCTION_FLOW_VERSION},
+            status = 'awaiting_athlete',
+            athlete_response_enabled_at = ${input.now}::timestamptz,
+            partner_public_name_snapshot = ${input.partnerPublicName},
+            athlete_public_name_snapshot = ${input.athletePublicName},
+            updated_at = ${input.now}::timestamptz
+          WHERE request.workspace_id = ${input.actor.workspaceId}
+            AND request.id = ${input.requestId}
+            AND request.request_kind = 'partner_athlete_introduction'
+            AND request.flow_version < ${PARTNER_INTRODUCTION_FLOW_VERSION}
+            AND request.status = 'pending'
+            AND request.moderation_status = 'clear'
+            AND EXISTS (SELECT 1 FROM actor_access)
+            AND (SELECT COUNT(*) FROM partner_access) = 1
+            AND (SELECT COUNT(*) FROM athlete_access) = 1
+            AND EXISTS (SELECT 1 FROM pair_lock)
+            AND (SELECT allowed FROM solicitation)
+            AND NOT EXISTS (SELECT 1 FROM replay)
+            AND NOT EXISTS (SELECT 1 FROM incompatible)
+          RETURNING *
+        ),
+        inserted_event AS (
+          INSERT INTO partner_athlete_introduction_events (
+            id, workspace_id, request_id, event_type, actor_clerk_user_id,
+            actor_role, request_status, moderation_status, idempotency_key,
+            payload_hash, created_at
+          )
+          SELECT
+            ${eventId}::uuid, workspace_id, id, 'request_created',
+            ${input.actor.clerkUserId}, 'admin', status, moderation_status,
+            ${input.idempotencyKey}, ${input.payloadHash}, ${input.now}::timestamptz
+          FROM transitioned
+          RETURNING id, workspace_id, request_id
+        ),
+        inserted_outbox AS (
+          INSERT INTO partner_athlete_introduction_notification_outbox (
+            id, workspace_id, event_id, recipient_clerk_user_id,
+            notification_type, title, body, action_href, created_at, updated_at
+          )
+          SELECT
+            ${outboxId}::uuid, event.workspace_id, event.id,
+            athlete.clerk_user_id,
+            'partner_athlete_introduction.created',
+            'Nouvelle demande de mise en relation',
+            'Une demande attend votre réponse.',
+            '/athlete/partner-contact-requests/' || event.request_id,
+            ${input.now}::timestamptz, ${input.now}::timestamptz
+          FROM inserted_event event
+          CROSS JOIN athlete_access athlete
+          ON CONFLICT (workspace_id, event_id, recipient_clerk_user_id) DO NOTHING
+        ),
+        outcome AS (
+          SELECT CASE
+            WHEN NOT EXISTS (SELECT 1 FROM candidate) THEN 'not_found'
+            WHEN NOT EXISTS (SELECT 1 FROM actor_access) THEN 'forbidden'
+            WHEN EXISTS (
+              SELECT 1 FROM replay
+              WHERE payload_hash IS DISTINCT FROM ${input.payloadHash}
+            ) THEN 'idempotency_conflict'
+            WHEN EXISTS (SELECT 1 FROM replay) THEN 'replay'
+            WHEN (SELECT COUNT(*) FROM partner_access) > 1
+              OR (SELECT COUNT(*) FROM athlete_access) > 1
+              THEN 'identity_ambiguous'
+            WHEN NOT EXISTS (SELECT 1 FROM partner_access) THEN 'forbidden'
+            WHEN NOT EXISTS (SELECT 1 FROM athlete_access) THEN 'ineligible_athlete'
+            WHEN NOT (SELECT allowed FROM solicitation) THEN 'solicitation_disabled'
+            WHEN EXISTS (SELECT 1 FROM incompatible) THEN 'unresolved_request'
+            WHEN EXISTS (
+              SELECT 1 FROM candidate
+              WHERE moderation_status = 'suspended'
+            ) THEN 'suspended_request'
+            WHEN EXISTS (
+              SELECT 1 FROM candidate
+              WHERE flow_version >= ${PARTNER_INTRODUCTION_FLOW_VERSION}
+            ) THEN 'historical_request'
+            WHEN EXISTS (
+              SELECT 1 FROM candidate
+              WHERE status <> 'pending'
+            ) THEN 'already_answered'
+            WHEN EXISTS (SELECT 1 FROM transitioned) THEN 'transitioned'
+            ELSE 'conflict'
+          END AS value
+        ),
+        selected_request AS (
+          SELECT * FROM transitioned
+          UNION ALL
+          SELECT * FROM candidate
+          WHERE EXISTS (
+            SELECT 1 FROM replay
+            WHERE payload_hash = ${input.payloadHash}
+          )
+          LIMIT 1
+        )
+        SELECT outcome.value AS outcome, selected_request.*, NULL::timestamptz AS retry_at
+        FROM outcome
+        LEFT JOIN selected_request ON TRUE
+      `;
+      return [lock, mutation];
+    }, { isolationLevel: "ReadCommitted" });
+    return mapMutation(results[1]);
   },
 
   async respond(input) {
@@ -950,8 +1152,9 @@ export const createPartnerAthleteIntroductionRepository = (
             request.created_at, request.responded_at,
             GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ($10::timestamptz - request.created_at)) / 86400))::int AS age_days,
             (
-              request.status = 'awaiting_athlete'
-              AND request.created_at <= $10::timestamptz - ($7 * interval '1 day')
+              request.flow_version >= $3
+              AND request.status = 'awaiting_athlete'
+              AND request.athlete_response_enabled_at <= $10::timestamptz - ($7 * interval '1 day')
             ) AS stale,
             EXISTS (
               SELECT 1
@@ -978,6 +1181,7 @@ export const createPartnerAthleteIntroductionRepository = (
           AND ($5::text IS NULL OR moderation_status = $5)
           AND (NOT $6::boolean OR stale)
           AND (NOT $8::boolean OR reported)
+          AND (NOT $12::boolean OR flow_version < $3)
         ORDER BY created_at DESC
         LIMIT $9 OFFSET $11
       `,
@@ -993,6 +1197,7 @@ export const createPartnerAthleteIntroductionRepository = (
         input.limit,
         input.now,
         input.offset,
+        input.historicalOnly,
       ],
     );
     const countersRows = await sql.query(
@@ -1004,7 +1209,8 @@ export const createPartnerAthleteIntroductionRepository = (
         ),
         scoped AS (
           SELECT
-            request.flow_version, request.status, request.moderation_status, request.created_at,
+            request.flow_version, request.status, request.moderation_status,
+            request.created_at, request.athlete_response_enabled_at,
             EXISTS (
               SELECT 1 FROM partner_athlete_introduction_reports report
               WHERE report.workspace_id = request.workspace_id
@@ -1024,13 +1230,17 @@ export const createPartnerAthleteIntroductionRepository = (
             AND EXISTS (SELECT 1 FROM admin_access)
         )
         SELECT
-          COUNT(*) FILTER (WHERE status = 'awaiting_athlete')::int AS awaiting,
+          COUNT(*) FILTER (
+            WHERE flow_version >= $3 AND status = 'awaiting_athlete'
+          )::int AS awaiting,
           COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted,
           COUNT(*) FILTER (WHERE status = 'declined')::int AS declined,
           COUNT(*) FILTER (
-            WHERE status = 'awaiting_athlete'
-              AND created_at <= $4::timestamptz - ($5 * interval '1 day')
+            WHERE flow_version >= $3
+              AND status = 'awaiting_athlete'
+              AND athlete_response_enabled_at <= $4::timestamptz - ($5 * interval '1 day')
           )::int AS stale,
+          COUNT(*) FILTER (WHERE flow_version < $3)::int AS historical,
           COUNT(*) FILTER (WHERE reported)::int AS reported,
           COUNT(*) FILTER (WHERE moderation_status = 'suspended')::int AS suspended
         FROM scoped
@@ -1052,6 +1262,7 @@ export const createPartnerAthleteIntroductionRepository = (
         accepted: Number(counters?.accepted ?? 0),
         declined: Number(counters?.declined ?? 0),
         stale: Number(counters?.stale ?? 0),
+        historical: Number(counters?.historical ?? 0),
         reported: Number(counters?.reported ?? 0),
         suspended: Number(counters?.suspended ?? 0),
       },
@@ -1068,8 +1279,9 @@ export const createPartnerAthleteIntroductionRepository = (
           request.created_at, request.responded_at,
           GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ($4::timestamptz - request.created_at)) / 86400))::int AS age_days,
           (
-            request.status = 'awaiting_athlete'
-            AND request.created_at <= $4::timestamptz - ($5 * interval '1 day')
+            request.flow_version >= $6
+            AND request.status = 'awaiting_athlete'
+            AND request.athlete_response_enabled_at <= $4::timestamptz - ($5 * interval '1 day')
           ) AS stale,
           EXISTS (
             SELECT 1 FROM partner_athlete_introduction_reports report
