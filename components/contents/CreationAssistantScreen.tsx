@@ -39,6 +39,7 @@ import type {
   ContextDateRange,
   ContextItem,
   ContextItemCategory,
+  ManualEditorialMaterial,
 } from "@/types/context-intelligence";
 import { EntitySelector } from "@/components/ui/EntitySelector";
 import { getMediaSubscriptionPlan } from "@/lib/media-subscriptions/plans";
@@ -365,6 +366,7 @@ const buildContextFingerprint = (draft: CreationAssistantDraft): string =>
     objective: draft.objective.objective,
     subtypeId: draft.objective.subtypeId,
     additionalContext: draft.parameters.additionalContext,
+    manualEditorialMaterials: draft.parameters.manualEditorialMaterials ?? [],
     contextDateRangePreset: draft.parameters.contextDateRangePreset,
     contextCustomFrom: draft.parameters.contextCustomFrom,
     contextCustomTo: draft.parameters.contextCustomTo,
@@ -852,6 +854,22 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         }
         if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
           return { ok: false, message: "Renseignez le public libre." };
+        }
+        const incompleteMaterial = (draft.parameters.manualEditorialMaterials ?? []).find(
+          (material) =>
+            !normalize(material.text)
+            || !normalize(material.provenance)
+            || !normalize(material.sourceDate)
+            || (material.kind === "verbatim_quote" && !normalize(material.speaker)),
+        );
+        if (incompleteMaterial) {
+          return {
+            ok: false,
+            message: incompleteMaterial.kind === "verbatim_quote"
+              ? "Renseignez le texte exact, la provenance, la date et la personne qui parle."
+              : "Renseignez le texte, la provenance et la date de chaque note.",
+            focusSelector: `[data-manual-material='${incompleteMaterial.id}']`,
+          };
         }
         return { ok: true };
       }
@@ -1413,7 +1431,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     const selectedConnectorIds: ContextConnectorId[] = [];
     if (draft.parameters.contextEnableCrm) selectedConnectorIds.push("crm");
     if (draft.parameters.contextEnableProductions) selectedConnectorIds.push("productions");
-    if (draft.parameters.contextEnableManual) selectedConnectorIds.push("manual");
+    if (
+      draft.parameters.contextEnableManual
+      || (draft.parameters.manualEditorialMaterials ?? []).length > 0
+    ) {
+      selectedConnectorIds.push("manual");
+    }
     if (draft.parameters.contextEnableExternalNews) selectedConnectorIds.push("external_news");
 
     const dateRange = buildDateRange(
@@ -1450,6 +1473,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           searchDepth: draft.parameters.contextSearchDepth,
           language: "fr-CH",
           manualContext: draft.parameters.additionalContext,
+          manualEditorialMaterials: draft.parameters.manualEditorialMaterials,
           contentType: draft.objective.objective ?? "interview",
           interviewType: draft.objective.subtypeId || undefined,
         }),
@@ -1626,6 +1650,53 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       }),
     }));
   }, []);
+
+  const addManualEditorialMaterial = () => {
+    const material: ManualEditorialMaterial = {
+      id: crypto.randomUUID(),
+      kind: "note",
+      text: "",
+      provenance: "",
+      sourceDate: new Date().toISOString().slice(0, 10),
+    };
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        manualEditorialMaterials: [
+          ...(current.parameters.manualEditorialMaterials ?? []),
+          material,
+        ],
+      },
+    }));
+  };
+
+  const updateManualEditorialMaterial = (
+    materialId: string,
+    update: Partial<ManualEditorialMaterial>,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        manualEditorialMaterials: (current.parameters.manualEditorialMaterials ?? []).map(
+          (material) => material.id === materialId ? { ...material, ...update } : material,
+        ),
+      },
+    }));
+  };
+
+  const removeManualEditorialMaterial = (materialId: string) => {
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        manualEditorialMaterials: (current.parameters.manualEditorialMaterials ?? []).filter(
+          (material) => material.id !== materialId,
+        ),
+      },
+    }));
+  };
 
   const startContextItemEdit = (item: ContextItem) => {
     setContextItemEditState({
@@ -2536,6 +2607,111 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 }
               />
             </label>
+            <section className="creation-panel" aria-labelledby="article-material-title">
+              <header className="creation-step-head">
+                <div>
+                  <h3 id="article-material-title">Matière journalistique</h3>
+                  <p>
+                    Ajoutez des notes ou des citations reproduites mot pour mot. Cette matière
+                    reste identifiée comme fournie par l’utilisateur et non vérifiée
+                    indépendamment.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="contents-ghost-button"
+                  onClick={addManualEditorialMaterial}
+                >
+                  Ajouter une note ou une citation
+                </button>
+              </header>
+              {(draft.parameters.manualEditorialMaterials ?? []).map((material, index) => (
+                <article
+                  className="creation-context-category"
+                  data-manual-material={material.id}
+                  key={material.id}
+                >
+                  <div className="creation-fields-grid">
+                    <label>
+                      <span>Type</span>
+                      <select
+                        aria-label={`Type de matière ${index + 1}`}
+                        value={material.kind}
+                        onChange={(event) => {
+                          const kind = event.target.value as ManualEditorialMaterial["kind"];
+                          updateManualEditorialMaterial(material.id, {
+                            kind,
+                            ...(kind === "note" ? { speaker: undefined } : {}),
+                          });
+                        }}
+                      >
+                        <option value="note">Note ou paraphrase</option>
+                        <option value="verbatim_quote">Citation verbatim</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Provenance</span>
+                      <input
+                        aria-label={`Provenance de la matière ${index + 1}`}
+                        type="text"
+                        value={material.provenance}
+                        onChange={(event) =>
+                          updateManualEditorialMaterial(material.id, {
+                            provenance: event.target.value,
+                          })}
+                      />
+                    </label>
+                    <label>
+                      <span>Date</span>
+                      <input
+                        aria-label={`Date de la matière ${index + 1}`}
+                        type="date"
+                        value={material.sourceDate}
+                        onChange={(event) =>
+                          updateManualEditorialMaterial(material.id, {
+                            sourceDate: event.target.value,
+                          })}
+                      />
+                    </label>
+                    {material.kind === "verbatim_quote" ? (
+                      <label>
+                        <span>Personne qui parle</span>
+                        <input
+                          aria-label={`Locuteur de la citation ${index + 1}`}
+                          type="text"
+                          value={material.speaker ?? ""}
+                          onChange={(event) =>
+                            updateManualEditorialMaterial(material.id, {
+                              speaker: event.target.value,
+                            })}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  <label className="creation-inline-field">
+                    <span>
+                      {material.kind === "verbatim_quote"
+                        ? "Texte exact, reproduit mot pour mot"
+                        : "Note ou paraphrase"}
+                    </span>
+                    <textarea
+                      aria-label={`Texte de la matière ${index + 1}`}
+                      className="creation-textarea"
+                      value={material.text}
+                      onChange={(event) =>
+                        updateManualEditorialMaterial(material.id, { text: event.target.value })}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="contents-ghost-button"
+                    onClick={() => removeManualEditorialMaterial(material.id)}
+                  >
+                    Supprimer
+                  </button>
+                </article>
+              ))}
+            </section>
             <label className="creation-inline-field">
               <span>Sujets a traiter</span>
               <textarea

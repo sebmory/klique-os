@@ -192,6 +192,11 @@ describe("editorial generation policy and context selection", () => {
     const citation = selection.modelContext.citations.find((item) => item.text === "Je gagnerai dimanche.");
 
     expect(citation?.verificationStatus).toBe("user_provided");
+    expect(selection.metadata.userProvidedMaterials).toContainEqual(expect.objectContaining({
+      kind: "verbatim_quote",
+      text: "Je gagnerai dimanche.",
+      speaker: "Mila Martin",
+    }));
     expect(selection.modelContext.facts.find((fact) => fact.text === "Annonce publiee en juin")).toBeUndefined();
     expect(selection.modelContext.facts.every((fact) =>
       fact.freshness === "current" || fact.freshness === "historical" || fact.freshness === "unknown")).toBe(true);

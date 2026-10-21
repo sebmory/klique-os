@@ -6,6 +6,8 @@ import {
   type EditorialContextCollectionStore,
 } from "@/services/context-intelligence/collection-service";
 import { validateCreationPayload } from "@/services/content-generation/validation";
+import { validateContextCollectionRequest } from "@/services/context-intelligence/request-validation";
+import { resolveConnector } from "@/services/context-intelligence/connectors";
 import type { ContentAccessContext } from "@/lib/content-storage/access";
 import type { ContextCollectionResponseSuccess, ContextItem } from "@/types/context-intelligence";
 
@@ -74,6 +76,70 @@ const store = (value = collection): EditorialContextCollectionStore => ({
 });
 
 describe("editorial context collections", () => {
+  it("validates and collects structured notes and verbatim quotes as user-provided material", async () => {
+    const request = validateContextCollectionRequest({
+      subject: { displayName: "Mila Martin", source: "crm", type: "person" },
+      selectedConnectorIds: ["manual"],
+      manualEditorialMaterials: [
+        {
+          id: "note-1",
+          kind: "note",
+          text: "Elle décrit cette période comme un apprentissage.",
+          provenance: "Notes du journaliste",
+          sourceDate: "2026-10-20",
+        },
+        {
+          id: "quote-1",
+          kind: "verbatim_quote",
+          text: "Je veux progresser avec le groupe.",
+          provenance: "Entretien KLIQUE",
+          sourceDate: "2026-10-20",
+          speaker: "Mila Martin",
+          verificationStatus: "verified",
+        },
+      ],
+    });
+
+    const result = await resolveConnector("manual")!.collect(request);
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({
+      id: "manual-material-note-1",
+      statementType: "editorial_lead",
+      sourceType: "user",
+      sourceName: "Notes du journaliste",
+      verificationStatus: "user_provided",
+      isSelected: true,
+      metadata: { materialKind: "note" },
+    });
+    expect(result.items[0].metadata).not.toHaveProperty("citation");
+    expect(result.items[1]).toMatchObject({
+      id: "manual-material-quote-1",
+      sourceName: "Entretien KLIQUE",
+      verificationStatus: "user_provided",
+      isSelected: true,
+      metadata: {
+        materialKind: "verbatim_quote",
+        citation: true,
+        author: "Mila Martin",
+      },
+    });
+  });
+
+  it("requires a speaker for every verbatim quote", () => {
+    expect(() => validateContextCollectionRequest({
+      subject: { displayName: "Mila Martin" },
+      selectedConnectorIds: ["manual"],
+      manualEditorialMaterials: [{
+        id: "quote-1",
+        kind: "verbatim_quote",
+        text: "Une réponse exacte.",
+        provenance: "Entretien KLIQUE",
+        sourceDate: "2026-10-20",
+      }],
+    })).toThrow("locuteur est obligatoire");
+  });
+
   it("removes sensitive and health items from Media collection responses", () => {
     const healthItem: ContextItem = {
       ...trustedItem,

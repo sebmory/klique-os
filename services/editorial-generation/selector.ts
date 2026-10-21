@@ -109,6 +109,32 @@ export const selectEditorialGenerationContext = (
   const sourceNames = (ids: string[]) =>
     ids.map((sourceId) => sourceById.get(sourceId)?.name).filter((name): name is string => Boolean(name));
   const contradictions = eligibility.contradictionSummaries.slice(0, CONTRADICTION_LIMIT);
+  const userProvidedCitationTexts = new Set(
+    citations
+      .filter((citation) => citation.verificationStatus === "user_provided")
+      .map((citation) => citation.text),
+  );
+  const userProvidedMaterials = [
+    ...citations
+      .filter((citation) => citation.verificationStatus === "user_provided")
+      .map((citation) => ({
+        kind: "verbatim_quote" as const,
+        text: citation.text,
+        provenance: sourceNames(citation.sourceIds).join(", ") || "Provenance non précisée",
+        ...(citation.date ? { date: citation.date } : {}),
+        ...(citation.author ? { speaker: citation.author } : {}),
+      })),
+    ...leads
+      .filter((lead) =>
+        lead.verificationStatus === "user_provided"
+        && !userProvidedCitationTexts.has(lead.formulation))
+      .map((lead) => ({
+        kind: "note" as const,
+        text: lead.formulation,
+        provenance: sourceNames(lead.sourceIds).join(", ") || "Provenance non précisée",
+        ...(lead.date ? { date: lead.date } : {}),
+      })),
+  ];
 
   const modelContext: EditorialModelContext = {
     generationMode: eligibility.status,
@@ -169,6 +195,7 @@ export const selectEditorialGenerationContext = (
         official: source.official,
         confidence: source.confidence.level,
       })),
+      userProvidedMaterials,
       contradictions,
       missingInformation: eligibility.missingInformation,
       warnings: eligibility.warnings,

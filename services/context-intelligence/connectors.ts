@@ -310,7 +310,8 @@ class ManualContextConnector implements ContextConnector {
 
   async collect(request: ContextCollectionRequest): Promise<ContextConnectorResult> {
     const text = normalize(request.manualContext);
-    if (!text) {
+    const materials = request.manualEditorialMaterials ?? [];
+    if (!text && materials.length === 0) {
       return {
         connectorId: this.id,
         status: "empty",
@@ -318,11 +319,8 @@ class ManualContextConnector implements ContextConnector {
       };
     }
 
-    return {
-      connectorId: this.id,
-      status: "completed",
-      items: [
-        buildItem({
+    const legacyItems = text
+      ? [buildItem({
           id: `manual-${Date.now()}`,
           connectorId: this.id,
           category: "user_note",
@@ -336,8 +334,40 @@ class ManualContextConnector implements ContextConnector {
           verificationStatus: "user_provided",
           isEditable: true,
           metadata: {},
-        }),
-      ],
+        })]
+      : [];
+    const structuredItems = materials.map((material) => ({
+      ...buildItem({
+        id: `manual-material-${material.id}`,
+        connectorId: this.id,
+        category: "user_note",
+        title: material.kind === "verbatim_quote"
+          ? `Citation de ${material.speaker}`
+          : "Note journalistique",
+        summary: material.text,
+        factualStatement: material.text,
+        statementType: "editorial_lead",
+        sourceType: "user",
+        sourceName: material.provenance,
+        publishedAt: `${material.sourceDate}T00:00:00.000Z`,
+        confidence: "unknown",
+        verificationStatus: "user_provided",
+        isEditable: false,
+        metadata: {
+          materialKind: material.kind,
+          eventDate: `${material.sourceDate}T00:00:00.000Z`,
+          ...(material.kind === "verbatim_quote"
+            ? { citation: true, author: material.speaker ?? "" }
+            : {}),
+        },
+      }),
+      isSelected: true,
+    }));
+
+    return {
+      connectorId: this.id,
+      status: "completed",
+      items: [...legacyItems, ...structuredItems],
     };
   }
 }

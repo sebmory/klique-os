@@ -74,6 +74,20 @@ describe("canonical EditorialDossier", () => {
     expect(dossier.facts.some((fact) => fact.sourceItemIds.includes("previous-content"))).toBe(false);
   });
 
+  it("keeps a user-provided verbatim quote attributed and out of verified facts", () => {
+    const dossier = build();
+    const citation = dossier.citations.find((item) => item.text === "Je veux progresser avec le groupe.");
+
+    expect(citation).toMatchObject({
+      author: "Mila Martin",
+      date: "2026-10-20T00:00:00.000Z",
+      verificationStatus: "user_provided",
+    });
+    expect(dossier.facts.some((fact) => fact.sourceItemIds.includes("manual-quote"))).toBe(false);
+    expect(dossier.editorialLeads.find((lead) => lead.sourceItemIds.includes("manual-quote")))
+      .toMatchObject({ verificationStatus: "user_provided", confidence: { level: "low" } });
+  });
+
   it("supports a recent official source and a verified internal source without URL", () => {
     const dossier = build();
     const official = dossier.sources.find((source) => source.name === "Federation officielle");

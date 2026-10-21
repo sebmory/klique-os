@@ -544,6 +544,7 @@ export const buildEditorialDossier = (input: BuildEditorialDossierInput): Editor
         visibility,
         sensitive,
         freshness,
+        date: itemEventDate(item),
         reasons: [
           ...confidence.reasons,
           item.connectorId === "previous_content"

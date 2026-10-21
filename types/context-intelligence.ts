@@ -47,6 +47,15 @@ export type ContextDateRange = {
   to: string;
 };
 
+export type ManualEditorialMaterial = {
+  id: string;
+  kind: "note" | "verbatim_quote";
+  text: string;
+  provenance: string;
+  sourceDate: string;
+  speaker?: string;
+};
+
 export type ContentSubject = {
   id?: string;
   type: string;
@@ -117,6 +126,7 @@ export type ContextCollectionRequest = {
   searchDepth: ContextSearchDepth;
   language: "fr" | "fr-CH";
   manualContext?: string;
+  manualEditorialMaterials?: ManualEditorialMaterial[];
   contentType: string;
   interviewType?: string;
 };

@@ -51,6 +51,13 @@ export type EditorialGenerationMetadata = {
     explanation: string[];
   };
   usedSources: EditorialGenerationSource[];
+  userProvidedMaterials?: Array<{
+    kind: "note" | "verbatim_quote";
+    text: string;
+    provenance: string;
+    date?: string;
+    speaker?: string;
+  }>;
   contradictions: string[];
   missingInformation: string[];
   warnings: string[];

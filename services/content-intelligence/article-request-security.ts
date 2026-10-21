@@ -174,7 +174,10 @@ export const secureArticleRequest = async <T extends ArticleGenerationRequest | 
     .filter((source) => Boolean(source.url))
     .map((source) => ({ title: source.name, url: source.url! }));
   const providedCitations = editorial.citations
-    .filter((citation) => citation.verificationStatus === "verified" || citation.verificationStatus === "reported")
+    .filter((citation) =>
+      citation.verificationStatus === "verified"
+      || citation.verificationStatus === "reported"
+      || citation.verificationStatus === "user_provided")
     .map((citation) => ({
       text: citation.text,
       author: citation.author || "Auteur non precise",

@@ -102,6 +102,7 @@ export type EditorialLead = {
   visibility: EditorialVisibility;
   sensitive: boolean;
   freshness: EditorialFreshness;
+  date?: string;
   reasons: string[];
   sourceItemIds: string[];
 };

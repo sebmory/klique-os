@@ -21,7 +21,8 @@ vi.mock("@/services/content-backfill", () => ({
 }));
 
 import { CreationAssistantScreen } from "@/components/contents/CreationAssistantScreen";
-import { ContentsHubService } from "@/services/contents-hub";
+import { ContentsHubService, type ContentCreationContext } from "@/services/contents-hub";
+import { createInitialAssistantDraft } from "@/services/content-creation-assistant";
 
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -148,6 +149,70 @@ describe("Article creation UI", () => {
       objective: "article",
       presetId: undefined,
     });
+  });
+
+  it("restores structured journalistic material after a reload", async () => {
+    const context: ContentCreationContext = {
+      mode: "contextual",
+      subjectId: "athlete-1",
+      subjectName: "Mila Martin",
+      subjectType: "athlete",
+      objective: "article",
+    };
+    const draft = createInitialAssistantDraft(context);
+    draft.objective.subtypeId = "portrait";
+    draft.parameters.manualEditorialMaterials = [{
+      id: "quote-1",
+      kind: "verbatim_quote",
+      text: "Je veux progresser avec le groupe.",
+      provenance: "Entretien KLIQUE",
+      sourceDate: "2026-10-20",
+      speaker: "Mila Martin",
+    }];
+    window.sessionStorage.setItem(
+      "klique.contents.creation-assistant.workflow.v2",
+      JSON.stringify({
+        version: 2,
+        contextKey: JSON.stringify({
+          mode: context.mode,
+          subjectId: context.subjectId,
+          subjectName: context.subjectName,
+          subjectType: context.subjectType,
+          objective: context.objective,
+          presetId: "",
+        }),
+        draft,
+        stepIndex: 2,
+        contextState: {
+          loading: false,
+          errorMessage: null,
+          items: [],
+          reports: [],
+          hasCollected: false,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ai-credits/balance") return response({ ok: false }, 403);
+      if (url === "/api/media-subscriptions") return response({ ok: false }, 404);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<CreationAssistantScreen context={context} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Matière journalistique");
+    expect(container.textContent).toContain("Texte exact, reproduit mot pour mot");
+    expect((container.querySelector('[aria-label="Locuteur de la citation 1"]') as HTMLInputElement).value)
+      .toBe("Mila Martin");
+    expect((container.querySelector('[aria-label="Provenance de la matière 1"]') as HTMLInputElement).value)
+      .toBe("Entretien KLIQUE");
+    expect((container.querySelector('[aria-label="Texte de la matière 1"]') as HTMLTextAreaElement).value)
+      .toBe("Je veux progresser avec le groupe.");
   });
 
   it.each(["interview", "publication"] as const)(

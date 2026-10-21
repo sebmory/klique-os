@@ -2,6 +2,7 @@ import type {
   ContextCollectionRequest,
   ContextConnectorId,
   ContextDateRange,
+  ManualEditorialMaterial,
   ContextSearchDepth,
   ContextSourcePreference,
 } from "@/types/context-intelligence";
@@ -40,6 +41,71 @@ const parseDateRange = (value: unknown): ContextDateRange => {
   }
 
   return buildDateRange("last_30_days");
+};
+
+const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 12) {
+    throw new ContextCollectionError(
+      "INVALID_CONTEXT_REQUEST",
+      "La matière journalistique doit contenir au maximum 12 éléments.",
+    );
+  }
+
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Matière journalistique invalide à la position ${index + 1}.`,
+      );
+    }
+    const item = entry as Record<string, unknown>;
+    const id = normalize(item.id);
+    const kind = normalize(item.kind);
+    const text = normalize(item.text);
+    const provenance = normalize(item.provenance);
+    const sourceDate = normalize(item.sourceDate);
+    const speaker = normalize(item.speaker);
+
+    if (!id || (kind !== "note" && kind !== "verbatim_quote")) {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Type de matière journalistique invalide à la position ${index + 1}.`,
+      );
+    }
+    if (!text || text.length > 680 || !provenance || provenance.length > 160) {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Texte ou provenance invalide à la position ${index + 1}.`,
+      );
+    }
+    const parsedSourceDate = new Date(`${sourceDate}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)
+      || Number.isNaN(parsedSourceDate.getTime())
+      || parsedSourceDate.toISOString().slice(0, 10) !== sourceDate
+    ) {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Date de matière journalistique invalide à la position ${index + 1}.`,
+      );
+    }
+    if (kind === "verbatim_quote" && (!speaker || speaker.length > 120)) {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Le locuteur est obligatoire pour la citation à la position ${index + 1}.`,
+      );
+    }
+
+    return {
+      id,
+      kind,
+      text,
+      provenance,
+      sourceDate,
+      ...(kind === "verbatim_quote" ? { speaker } : {}),
+    } satisfies ManualEditorialMaterial;
+  });
 };
 
 export const validateContextCollectionRequest = (value: unknown): ContextCollectionRequest => {
@@ -99,6 +165,7 @@ export const validateContextCollectionRequest = (value: unknown): ContextCollect
     searchDepth,
     language,
     manualContext: normalize(payload.manualContext) || undefined,
+    manualEditorialMaterials: parseManualEditorialMaterials(payload.manualEditorialMaterials),
     contentType: normalize(payload.contentType) || "interview",
     interviewType: normalize(payload.interviewType) || undefined,
   };

@@ -66,6 +66,28 @@ export function EditorialReliabilityPanel({
             </ul>
           </section>
         ) : null}
+        {metadata.userProvidedMaterials?.length ? (
+          <section>
+            <h3>Matière fournie par l’utilisateur</h3>
+            <p>Ces éléments ne sont pas vérifiés indépendamment.</p>
+            <ul>
+              {metadata.userProvidedMaterials.map((material, index) => (
+                <li key={`${material.kind}-${material.provenance}-${index}`}>
+                  <strong>
+                    {material.kind === "verbatim_quote" ? "Citation verbatim" : "Note ou paraphrase"}
+                  </strong>
+                  {" — "}
+                  {material.provenance}
+                  {material.date
+                    ? `, ${new Date(material.date).toLocaleDateString("fr-CH")}`
+                    : ""}
+                  {material.speaker ? ` — ${material.speaker}` : ""}
+                  {" — confiance faible, fournie par l’utilisateur"}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {metadata.missingInformation.length ? (
           <section>
             <h3>{missingInformationAsInterviewPrompts ? "Pistes d’interview" : "Informations manquantes"}</h3>
