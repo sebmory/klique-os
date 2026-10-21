@@ -2714,6 +2714,120 @@ button {
   font-size: 0.8rem;
 }
 
+.creation-material-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.creation-interview-tool {
+  border: 1px solid #dfe6e2;
+  border-radius: 14px;
+  background: #fbfdfc;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.creation-interview-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.creation-interview-steps li {
+  border-radius: 9px;
+  background: #f0f5f2;
+  color: #40564a;
+  padding: 7px 8px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.creation-interview-example {
+  color: #5e6762;
+  font-size: 0.8rem;
+}
+
+.creation-interview-example summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.creation-interview-example p {
+  margin: 8px 0 0;
+}
+
+.creation-interview-tool small,
+.creation-inline-field small {
+  color: #777777;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.creation-interview-source {
+  min-height: 180px;
+  white-space: pre-wrap;
+}
+
+.creation-interview-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.creation-interview-preview {
+  border: 1px solid #d6e2db;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.creation-interview-preview h5,
+.creation-interview-preview blockquote,
+.creation-interview-excerpts h5,
+.creation-interview-excerpts p {
+  margin: 0;
+}
+
+.creation-interview-preview blockquote {
+  border-left: 3px solid #7b9a88;
+  padding-left: 10px;
+  color: #303a34;
+  white-space: pre-wrap;
+}
+
+.creation-interview-preview label {
+  display: grid;
+  gap: 6px;
+  color: #5f5f5f;
+  font-size: 0.8rem;
+}
+
+.creation-interview-preview select {
+  min-height: 38px;
+  border: 1px solid #dddddd;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #202020;
+  padding: 0 10px;
+}
+
+.creation-interview-excerpts {
+  display: grid;
+  gap: 8px;
+}
+
 .creation-entity-selector {
   position: relative;
   display: grid;
@@ -10502,6 +10616,21 @@ button {
 }
 
 @media (max-width: 760px) {
+  .creation-interview-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .creation-material-actions,
+  .creation-interview-selection-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .creation-material-actions button,
+  .creation-interview-selection-bar button {
+    width: 100%;
+  }
+
   .partner-portal {
     padding: 16px;
   }

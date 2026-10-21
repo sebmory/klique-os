@@ -6,6 +6,7 @@ import type {
   ContextDateRange,
   ContextItem,
   ManualEditorialMaterial,
+  ManualInterviewSource,
   ContextSearchDepth,
   ContextSourcePreference,
 } from "@/types/context-intelligence";
@@ -102,6 +103,7 @@ export type CreationParametersDraft = {
   customAudience: string;
   additionalContext: string;
   manualEditorialMaterials: ManualEditorialMaterial[];
+  manualInterviewSource: ManualInterviewSource | null;
   requiredTopics: string;
   avoidedTopics: string;
   useContextIntelligence: boolean;
@@ -438,6 +440,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       customAudience: "",
       additionalContext: "",
       manualEditorialMaterials: [],
+      manualInterviewSource: null,
       requiredTopics: "",
       avoidedTopics: "",
       useContextIntelligence: isArticle,

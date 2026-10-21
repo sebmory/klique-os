@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ContextCollectionRequest,
   ContextCollectionResponse,
@@ -28,6 +29,20 @@ const externalCache = globalCache[externalCacheSymbol] ?? new Map<string, CacheR
 globalCache[externalCacheSymbol] = externalCache;
 
 const buildCacheKey = (request: ContextCollectionRequest): string => {
+  const manualContentHash = createHash("sha256")
+    .update(JSON.stringify({
+      manualContext: request.manualContext ?? "",
+      manualEditorialMaterials: request.manualEditorialMaterials ?? [],
+      manualInterviewExcerpts: (request.manualInterviewSources ?? []).map((source) => ({
+        id: source.id,
+        provenance: source.provenance,
+        sourceDate: source.sourceDate,
+        interviewer: source.interviewer,
+        interviewee: source.interviewee,
+        excerpts: source.excerpts,
+      })),
+    }))
+    .digest("hex");
   return [
     normalize(request.workspaceId) || "default",
     normalize(request.subject.id) || normalize(request.subject.displayName).toLowerCase(),
@@ -37,6 +52,7 @@ const buildCacheKey = (request: ContextCollectionRequest): string => {
     request.searchDepth,
     request.language,
     request.selectedConnectorIds.filter((id) => id === "external_news").join(","),
+    manualContentHash,
   ].join("|");
 };
 

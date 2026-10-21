@@ -140,6 +140,109 @@ describe("editorial context collections", () => {
     })).toThrow("locuteur est obligatoire");
   });
 
+  it("accepts only confirmed interview excerpts that exactly match valid source bounds", async () => {
+    const sourceText = [
+      "Journaliste : Quel est votre prochain objectif ?",
+      "Mila Martin :  Je veux progresser avec le groupe.",
+    ].join("\n");
+    const answer = " Je veux progresser avec le groupe.";
+    const answerStart = sourceText.indexOf(answer);
+    const question = "Quel est votre prochain objectif ?";
+    const questionStart = sourceText.indexOf(question);
+    const request = validateContextCollectionRequest({
+      subject: { displayName: "Mila Martin", source: "crm", type: "person" },
+      selectedConnectorIds: ["manual"],
+      manualInterviewSources: [{
+        id: "interview-1",
+        provenance: "Entretien KLIQUE fictif",
+        sourceDate: "2026-10-21",
+        interviewer: "Lea Journaliste",
+        interviewee: "Mila Martin",
+        sourceText,
+        excerpts: [
+          {
+            id: "answer-1",
+            start: answerStart,
+            end: answerStart + answer.length,
+            text: answer,
+            speakerRole: "interviewee",
+            confirmed: true,
+          },
+          {
+            id: "question-1",
+            start: questionStart,
+            end: questionStart + question.length,
+            text: question,
+            speakerRole: "interviewer",
+            confirmed: true,
+          },
+        ],
+      }],
+    });
+
+    const result = await resolveConnector("manual")!.collect(request);
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({
+      id: "manual-interview-interview-1-answer-1",
+      summary: answer,
+      factualStatement: answer,
+      verificationStatus: "user_provided",
+      metadata: {
+        materialKind: "verbatim_quote",
+        citation: true,
+        author: "Mila Martin",
+        interviewSourceId: "interview-1",
+        interviewExcerptId: "answer-1",
+        interviewSpeakerRole: "interviewee",
+        sourceStart: answerStart,
+        sourceEnd: answerStart + answer.length,
+      },
+    });
+    expect(result.items[1]).toMatchObject({
+      summary: question,
+      verificationStatus: "user_provided",
+      metadata: {
+        materialKind: "note",
+        interviewSpeakerRole: "interviewer",
+      },
+    });
+    expect(result.items[1].metadata).not.toHaveProperty("citation");
+    expect(JSON.stringify(result)).not.toContain("Journaliste :");
+  });
+
+  it.each([
+    {
+      label: "non-integer bounds",
+      excerpt: { start: 0.5, end: 7, text: "Reponse", speakerRole: "interviewee", confirmed: true },
+      message: "Bornes",
+    },
+    {
+      label: "text different from the selected source slice",
+      excerpt: { start: 0, end: 7, text: "Réponse", speakerRole: "interviewee", confirmed: true },
+      message: "ne correspond pas exactement",
+    },
+    {
+      label: "unconfirmed excerpt",
+      excerpt: { start: 0, end: 7, text: "Reponse", speakerRole: "interviewee", confirmed: false },
+      message: "doit etre confirme",
+    },
+  ])("rejects $label", ({ excerpt, message }) => {
+    expect(() => validateContextCollectionRequest({
+      subject: { displayName: "Mila Martin" },
+      selectedConnectorIds: ["manual"],
+      manualInterviewSources: [{
+        id: "interview-1",
+        provenance: "Entretien KLIQUE fictif",
+        sourceDate: "2026-10-21",
+        interviewer: "Lea Journaliste",
+        interviewee: "Mila Martin",
+        sourceText: "Reponse exacte",
+        excerpts: [{ id: "excerpt-1", ...excerpt }],
+      }],
+    })).toThrow(message);
+  });
+
   it("removes sensitive and health items from Media collection responses", () => {
     const healthItem: ContextItem = {
       ...trustedItem,

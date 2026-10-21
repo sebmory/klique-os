@@ -56,6 +56,31 @@ export type ManualEditorialMaterial = {
   speaker?: string;
 };
 
+export const MANUAL_EDITORIAL_MATERIAL_LIMIT = 12;
+export const MANUAL_EDITORIAL_TEXT_LIMIT = 680;
+export const MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT = 30_000;
+
+export type ManualInterviewSpeakerRole = "interviewer" | "interviewee";
+
+export type ManualInterviewExcerpt = {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  speakerRole: ManualInterviewSpeakerRole;
+  confirmed: true;
+};
+
+export type ManualInterviewSource = {
+  id: string;
+  provenance: string;
+  sourceDate: string;
+  interviewer: string;
+  interviewee: string;
+  sourceText: string;
+  excerpts: ManualInterviewExcerpt[];
+};
+
 export type ContentSubject = {
   id?: string;
   type: string;
@@ -127,6 +152,7 @@ export type ContextCollectionRequest = {
   language: "fr" | "fr-CH";
   manualContext?: string;
   manualEditorialMaterials?: ManualEditorialMaterial[];
+  manualInterviewSources?: ManualInterviewSource[];
   contentType: string;
   interviewType?: string;
 };

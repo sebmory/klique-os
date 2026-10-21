@@ -22,7 +22,10 @@ vi.mock("@/services/content-backfill", () => ({
 
 import { CreationAssistantScreen } from "@/components/contents/CreationAssistantScreen";
 import { ContentsHubService, type ContentCreationContext } from "@/services/contents-hub";
-import { createInitialAssistantDraft } from "@/services/content-creation-assistant";
+import {
+  ContentCreationAssistantService,
+  createInitialAssistantDraft,
+} from "@/services/content-creation-assistant";
 
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -213,6 +216,179 @@ describe("Article creation UI", () => {
       .toBe("Entretien KLIQUE");
     expect((container.querySelector('[aria-label="Texte de la matière 1"]') as HTMLTextAreaElement).value)
       .toBe("Je veux progresser avec le groupe.");
+  });
+
+  it("selects, attributes and invalidates an exact interview excerpt without altering independent material", async () => {
+    const context: ContentCreationContext = {
+      mode: "contextual",
+      subjectId: "athlete-1",
+      subjectName: "Mila Martin",
+      subjectType: "athlete",
+      objective: "article",
+    };
+    const draft = createInitialAssistantDraft(context);
+    const sourceText = [
+      "Journaliste : Quel est votre objectif ?",
+      "Mila Martin : Je veux progresser avec le groupe.",
+    ].join("\n");
+    const answer = "Je veux progresser avec le groupe.";
+    const question = "Quel est votre objectif ?";
+    draft.objective.subtypeId = "portrait";
+    draft.parameters.manualEditorialMaterials = [{
+      id: "independent-note",
+      kind: "note",
+      text: "Note indépendante.",
+      provenance: "Carnet du journaliste",
+      sourceDate: "2026-10-21",
+    }];
+    draft.parameters.manualInterviewSource = {
+      id: "interview-1",
+      provenance: "Entretien KLIQUE fictif",
+      sourceDate: "2026-10-21",
+      interviewer: "Lea Journaliste",
+      interviewee: "Mila Martin",
+      sourceText,
+      excerpts: [{
+        id: "question-1",
+        start: sourceText.indexOf(question),
+        end: sourceText.indexOf(question) + question.length,
+        text: question,
+        speakerRole: "interviewer",
+        confirmed: true,
+      }],
+    };
+    window.sessionStorage.setItem(
+      "klique.contents.creation-assistant.workflow.v2",
+      JSON.stringify({
+        version: 2,
+        contextKey: JSON.stringify({
+          mode: context.mode,
+          subjectId: context.subjectId,
+          subjectName: context.subjectName,
+          subjectType: context.subjectType,
+          objective: context.objective,
+          presetId: "",
+        }),
+        draft,
+        stepIndex: 2,
+        contextState: {
+          loading: false,
+          errorMessage: null,
+          collectionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          expiresAt: "2026-10-20T10:00:00.000Z",
+          items: [],
+          reports: [],
+          hasCollected: true,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ai-credits/balance") return response({ ok: false }, 403);
+      if (url === "/api/media-subscriptions") return response({ ok: false }, 404);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<CreationAssistantScreen context={context} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Exploiter un entretien");
+    expect(container.textContent).toContain("Note indépendante.");
+    expect(container.textContent).toContain("Note — intervention de l’intervieweur");
+    expect(container.textContent).toContain("Le brouillon de l’entretien est conservé uniquement dans cet onglet.");
+
+    const sourceArea = container.querySelector<HTMLTextAreaElement>(
+      '[aria-label="Texte source de l’entretien"]',
+    );
+    const answerStart = sourceText.indexOf(answer);
+    sourceArea!.focus();
+    sourceArea!.setSelectionRange(answerStart, answerStart + answer.length);
+    await clickButton(container, "Ajouter cet extrait");
+
+    const speakerSelect = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Locuteur de l’extrait sélectionné"]',
+    );
+    expect(speakerSelect?.value).toBe("");
+    expect(container.textContent).toContain("Aperçu avant confirmation");
+    expect(container.textContent).toContain(answer);
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      valueSetter?.call(speakerSelect, "interviewee");
+      speakerSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await clickButton(container, "Confirmer l’extrait");
+
+    expect(container.textContent).toContain("Extrait ajouté. Vous le retrouvez ci-dessous");
+    expect(container.textContent).toContain("Citation exacte");
+    expect(container.textContent).toContain("Texte lié à l’entretien, en lecture seule.");
+
+    const provenanceInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Provenance de l’entretien"]',
+    );
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      valueSetter?.call(provenanceInput, "Entretien KLIQUE corrigé");
+      provenanceInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("La source a changé. Ses extraits ont été retirés");
+    expect(container.textContent).not.toContain("Citation exacte");
+    expect(container.textContent).toContain("Note indépendante.");
+    const persisted = JSON.parse(
+      window.sessionStorage.getItem("klique.contents.creation-assistant.workflow.v2") ?? "{}",
+    ) as {
+      draft?: { parameters?: { manualInterviewSource?: { excerpts?: unknown[] } } };
+      contextState?: { collectionId?: string; expiresAt?: string };
+    };
+    expect(persisted.draft?.parameters?.manualInterviewSource?.excerpts).toEqual([]);
+    expect(persisted.contextState?.collectionId).toBeUndefined();
+    expect(persisted.contextState?.expiresAt).toBeUndefined();
+  });
+
+  it("keeps the full interview source out of the Article generation payload", () => {
+    const context: ContentCreationContext = {
+      mode: "contextual",
+      subjectId: "athlete-1",
+      subjectName: "Mila Martin",
+      subjectType: "athlete",
+      objective: "article",
+    };
+    const draft = createInitialAssistantDraft(context);
+    draft.objective.subtypeId = "portrait";
+    draft.parameters.manualInterviewSource = {
+      id: "interview-private",
+      provenance: "Entretien KLIQUE fictif",
+      sourceDate: "2026-10-21",
+      interviewer: "Lea Journaliste",
+      interviewee: "Mila Martin",
+      sourceText: "TRANSCRIPTION_COMPLETE_CONFIDENTIELLE",
+      excerpts: [{
+        id: "excerpt-1",
+        start: 0,
+        end: 13,
+        text: "TRANSCRIPTION",
+        speakerRole: "interviewee",
+        confirmed: true,
+      }],
+    };
+
+    const payload = ContentCreationAssistantService.preparePayload({
+      context,
+      draft,
+      contextCollectionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      selectedContextItems: [],
+    });
+
+    expect(payload).not.toBeNull();
+    expect(JSON.stringify(payload)).not.toContain("TRANSCRIPTION_COMPLETE_CONFIDENTIELLE");
+    expect(JSON.stringify(payload)).not.toContain("manualInterviewSource");
   });
 
   it.each(["interview", "publication"] as const)(

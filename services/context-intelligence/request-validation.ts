@@ -1,8 +1,12 @@
-import type {
+import {
   ContextCollectionRequest,
   ContextConnectorId,
   ContextDateRange,
+  MANUAL_EDITORIAL_MATERIAL_LIMIT,
+  MANUAL_EDITORIAL_TEXT_LIMIT,
+  MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT,
   ManualEditorialMaterial,
+  ManualInterviewSource,
   ContextSearchDepth,
   ContextSourcePreference,
 } from "@/types/context-intelligence";
@@ -45,7 +49,7 @@ const parseDateRange = (value: unknown): ContextDateRange => {
 
 const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[] => {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 12) {
+  if (!Array.isArray(value) || value.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
     throw new ContextCollectionError(
       "INVALID_CONTEXT_REQUEST",
       "La matière journalistique doit contenir au maximum 12 éléments.",
@@ -73,7 +77,7 @@ const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[
         `Type de matière journalistique invalide à la position ${index + 1}.`,
       );
     }
-    if (!text || text.length > 680 || !provenance || provenance.length > 160) {
+    if (!text || text.length > MANUAL_EDITORIAL_TEXT_LIMIT || !provenance || provenance.length > 160) {
       throw new ContextCollectionError(
         "INVALID_CONTEXT_REQUEST",
         `Texte ou provenance invalide à la position ${index + 1}.`,
@@ -105,6 +109,134 @@ const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[
       sourceDate,
       ...(kind === "verbatim_quote" ? { speaker } : {}),
     } satisfies ManualEditorialMaterial;
+  });
+};
+
+const parseIsoDate = (value: unknown, message: string): string => {
+  const sourceDate = normalize(value);
+  const parsedSourceDate = new Date(`${sourceDate}T00:00:00.000Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)
+    || Number.isNaN(parsedSourceDate.getTime())
+    || parsedSourceDate.toISOString().slice(0, 10) !== sourceDate
+  ) {
+    throw new ContextCollectionError("INVALID_CONTEXT_REQUEST", message);
+  }
+  return sourceDate;
+};
+
+const parseManualInterviewSources = (value: unknown): ManualInterviewSource[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 1) {
+    throw new ContextCollectionError(
+      "INVALID_CONTEXT_REQUEST",
+      "Un seul entretien colle peut etre traite a la fois.",
+    );
+  }
+
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      throw new ContextCollectionError("INVALID_CONTEXT_REQUEST", "Entretien colle invalide.");
+    }
+
+    const item = entry as Record<string, unknown>;
+    const id = normalize(item.id);
+    const provenance = normalize(item.provenance);
+    const interviewer = normalize(item.interviewer);
+    const interviewee = normalize(item.interviewee);
+    const sourceText = typeof item.sourceText === "string" ? item.sourceText : "";
+    const sourceDate = parseIsoDate(item.sourceDate, "Date de l entretien invalide.");
+    const rawExcerpts = item.excerpts;
+
+    if (!id || !provenance || provenance.length > 160) {
+      throw new ContextCollectionError("INVALID_CONTEXT_REQUEST", "Provenance de l entretien invalide.");
+    }
+    if (!interviewer || interviewer.length > 120 || !interviewee || interviewee.length > 120) {
+      throw new ContextCollectionError("INVALID_CONTEXT_REQUEST", "Les deux intervenants de l entretien sont obligatoires.");
+    }
+    if (!sourceText || sourceText.length > MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT) {
+      throw new ContextCollectionError(
+        "INVALID_CONTEXT_REQUEST",
+        `Le texte source de l entretien doit contenir au maximum ${MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT} caracteres.`,
+      );
+    }
+    if (!Array.isArray(rawExcerpts)) {
+      throw new ContextCollectionError("INVALID_CONTEXT_REQUEST", "Extraits d entretien invalides.");
+    }
+
+    const excerpts = rawExcerpts.map((excerpt, index) => {
+      if (!excerpt || typeof excerpt !== "object") {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `Extrait d entretien invalide a la position ${index + 1}.`,
+        );
+      }
+      const candidate = excerpt as Record<string, unknown>;
+      const excerptId = normalize(candidate.id);
+      const start = candidate.start;
+      const end = candidate.end;
+      const text = typeof candidate.text === "string" ? candidate.text : "";
+      const speakerRole = candidate.speakerRole;
+
+      if (
+        !excerptId
+        || typeof start !== "number"
+        || typeof end !== "number"
+        || !Number.isInteger(start)
+        || !Number.isInteger(end)
+        || start < 0
+        || end <= start
+        || end > sourceText.length
+      ) {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `Bornes de l extrait invalides a la position ${index + 1}.`,
+        );
+      }
+      if (!text.trim() || text.length > MANUAL_EDITORIAL_TEXT_LIMIT) {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `L extrait d entretien doit contenir au maximum ${MANUAL_EDITORIAL_TEXT_LIMIT} caracteres.`,
+        );
+      }
+      if (sourceText.slice(start, end) !== text) {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `L extrait d entretien ne correspond pas exactement au texte source a la position ${index + 1}.`,
+        );
+      }
+      if (speakerRole !== "interviewer" && speakerRole !== "interviewee") {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `Le locuteur de l extrait doit etre choisi a la position ${index + 1}.`,
+        );
+      }
+      if (candidate.confirmed !== true) {
+        throw new ContextCollectionError(
+          "INVALID_CONTEXT_REQUEST",
+          `L extrait d entretien doit etre confirme a la position ${index + 1}.`,
+        );
+      }
+
+      return {
+        id: excerptId,
+        start,
+        end,
+        text,
+        speakerRole,
+        confirmed: true,
+      } as const;
+    });
+
+    return {
+      id,
+      provenance,
+      sourceDate,
+      interviewer,
+      interviewee,
+      sourceText,
+      excerpts,
+    };
   });
 };
 
@@ -145,6 +277,19 @@ export const validateContextCollectionRequest = (value: unknown): ContextCollect
   const languageRaw = normalize(payload.language).toLowerCase();
   const language = languageRaw === "fr" ? "fr" : "fr-CH";
 
+  const manualEditorialMaterials = parseManualEditorialMaterials(payload.manualEditorialMaterials);
+  const manualInterviewSources = parseManualInterviewSources(payload.manualInterviewSources);
+  const interviewExcerptCount = manualInterviewSources.reduce(
+    (total, source) => total + source.excerpts.length,
+    0,
+  );
+  if (manualEditorialMaterials.length + interviewExcerptCount > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+    throw new ContextCollectionError(
+      "INVALID_CONTEXT_REQUEST",
+      `La matiere journalistique doit contenir au maximum ${MANUAL_EDITORIAL_MATERIAL_LIMIT} elements.`,
+    );
+  }
+
   return {
     workspaceId: "",
     subject: {
@@ -165,7 +310,8 @@ export const validateContextCollectionRequest = (value: unknown): ContextCollect
     searchDepth,
     language,
     manualContext: normalize(payload.manualContext) || undefined,
-    manualEditorialMaterials: parseManualEditorialMaterials(payload.manualEditorialMaterials),
+    manualEditorialMaterials,
+    manualInterviewSources,
     contentType: normalize(payload.contentType) || "interview",
     interviewType: normalize(payload.interviewType) || undefined,
   };

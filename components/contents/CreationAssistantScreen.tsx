@@ -32,14 +32,19 @@ import type {
   GenerateContentApiResponse,
   PublicationAngleSuggestion,
 } from "@/types/content-generation";
-import type {
+import {
   ContextCollectionResponse,
   ContextConnectorId,
   ContextConnectorReport,
   ContextDateRange,
   ContextItem,
   ContextItemCategory,
+  MANUAL_EDITORIAL_MATERIAL_LIMIT,
+  MANUAL_EDITORIAL_TEXT_LIMIT,
+  MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT,
   ManualEditorialMaterial,
+  ManualInterviewSource,
+  ManualInterviewSpeakerRole,
 } from "@/types/context-intelligence";
 import { EntitySelector } from "@/components/ui/EntitySelector";
 import { getMediaSubscriptionPlan } from "@/lib/media-subscriptions/plans";
@@ -95,6 +100,14 @@ type ContextCollectState = {
 type ContextCategoryGroup = {
   category: string;
   items: ContextItem[];
+};
+
+type InterviewExcerptPreview = {
+  sourceId: string;
+  start: number;
+  end: number;
+  text: string;
+  speakerRole: ManualInterviewSpeakerRole | "";
 };
 
 type StepId = "subject" | "objective" | "match" | "angle" | "structure" | "parameters" | "context" | "summary";
@@ -367,6 +380,7 @@ const buildContextFingerprint = (draft: CreationAssistantDraft): string =>
     subtypeId: draft.objective.subtypeId,
     additionalContext: draft.parameters.additionalContext,
     manualEditorialMaterials: draft.parameters.manualEditorialMaterials ?? [],
+    manualInterviewSource: draft.parameters.manualInterviewSource ?? null,
     contextDateRangePreset: draft.parameters.contextDateRangePreset,
     contextCustomFrom: draft.parameters.contextCustomFrom,
     contextCustomTo: draft.parameters.contextCustomTo,
@@ -496,8 +510,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     itemId: string;
     value: string;
   } | null>(null);
+  const [interviewExcerptPreview, setInterviewExcerptPreview] = useState<InterviewExcerptPreview | null>(null);
+  const [interviewFeedback, setInterviewFeedback] = useState<{
+    kind: "error" | "success" | "information";
+    message: string;
+  } | null>(null);
   const contextFingerprint = useMemo(() => buildContextFingerprint(draft), [draft]);
   const previousFingerprintRef = useRef(contextFingerprint);
+  const interviewSourceTextRef = useRef<HTMLTextAreaElement | null>(null);
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationInFlightRef = useRef(false);
   const resultNavigationStartedRef = useRef(false);
@@ -869,6 +889,50 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               ? "Renseignez le texte exact, la provenance, la date et la personne qui parle."
               : "Renseignez le texte, la provenance et la date de chaque note.",
             focusSelector: `[data-manual-material='${incompleteMaterial.id}']`,
+          };
+        }
+        const oversizedMaterial = (draft.parameters.manualEditorialMaterials ?? []).find(
+          (material) => material.text.length > MANUAL_EDITORIAL_TEXT_LIMIT,
+        );
+        if (oversizedMaterial) {
+          return {
+            ok: false,
+            message: `Ramenez cette matière à ${MANUAL_EDITORIAL_TEXT_LIMIT} caractères maximum.`,
+            focusSelector: `[data-manual-material='${oversizedMaterial.id}']`,
+          };
+        }
+        const interviewSource = draft.parameters.manualInterviewSource;
+        if (interviewSource) {
+          if (
+            !normalize(interviewSource.provenance)
+            || !normalize(interviewSource.sourceDate)
+            || !normalize(interviewSource.interviewer)
+            || !normalize(interviewSource.interviewee)
+            || !interviewSource.sourceText.trim()
+          ) {
+            return {
+              ok: false,
+              message: "Complétez la provenance, la date, les deux intervenants et le texte de l’entretien.",
+              focusSelector: "[data-manual-interview='true']",
+            };
+          }
+          if (interviewSource.sourceText.length > MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT) {
+            return {
+              ok: false,
+              message: `Ramenez le texte de l’entretien à ${MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT.toLocaleString("fr-CH")} caractères maximum.`,
+              focusSelector: "[data-interview-source-text='true']",
+            };
+          }
+        }
+        const interviewExcerptCount = interviewSource?.excerpts.length ?? 0;
+        if (
+          (draft.parameters.manualEditorialMaterials ?? []).length + interviewExcerptCount
+          > MANUAL_EDITORIAL_MATERIAL_LIMIT
+        ) {
+          return {
+            ok: false,
+            message: `Conservez au maximum ${MANUAL_EDITORIAL_MATERIAL_LIMIT} notes et extraits au total.`,
+            focusSelector: "#article-material-title",
           };
         }
         return { ok: true };
@@ -1434,6 +1498,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     if (
       draft.parameters.contextEnableManual
       || (draft.parameters.manualEditorialMaterials ?? []).length > 0
+      || (draft.parameters.manualInterviewSource?.excerpts.length ?? 0) > 0
     ) {
       selectedConnectorIds.push("manual");
     }
@@ -1474,6 +1539,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           language: "fr-CH",
           manualContext: draft.parameters.additionalContext,
           manualEditorialMaterials: draft.parameters.manualEditorialMaterials,
+          manualInterviewSources: draft.parameters.manualInterviewSource?.excerpts.length
+            ? [draft.parameters.manualInterviewSource]
+            : [],
           contentType: draft.objective.objective ?? "interview",
           interviewType: draft.objective.subtypeId || undefined,
         }),
@@ -1652,6 +1720,16 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   }, []);
 
   const addManualEditorialMaterial = () => {
+    const totalMaterialCount =
+      (draft.parameters.manualEditorialMaterials ?? []).length
+      + (draft.parameters.manualInterviewSource?.excerpts.length ?? 0);
+    if (totalMaterialCount >= MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+      setInterviewFeedback({
+        kind: "error",
+        message: `Supprimez une matière avant d’en ajouter une nouvelle : la limite est de ${MANUAL_EDITORIAL_MATERIAL_LIMIT}.`,
+      });
+      return;
+    }
     const material: ManualEditorialMaterial = {
       id: crypto.randomUUID(),
       kind: "note",
@@ -1698,6 +1776,218 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     }));
   };
 
+  const createManualInterviewSource = () => {
+    const source: ManualInterviewSource = {
+      id: crypto.randomUUID(),
+      provenance: "",
+      sourceDate: new Date().toISOString().slice(0, 10),
+      interviewer: "",
+      interviewee: "",
+      sourceText: "",
+      excerpts: [],
+    };
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        manualInterviewSource: source,
+      },
+    }));
+    setInterviewExcerptPreview(null);
+    setInterviewFeedback(null);
+  };
+
+  const updateManualInterviewSource = (
+    field: "provenance" | "sourceDate" | "interviewer" | "interviewee" | "sourceText",
+    value: string,
+  ) => {
+    const invalidatedCount = draft.parameters.manualInterviewSource?.excerpts.length ?? 0;
+    setDraft((current) => {
+      const source = current.parameters.manualInterviewSource;
+      if (!source) return current;
+      return {
+        ...current,
+        parameters: {
+          ...current.parameters,
+          manualInterviewSource: {
+            ...source,
+            [field]: value,
+            excerpts: [],
+          },
+        },
+      };
+    });
+    setInterviewExcerptPreview(null);
+    setInterviewFeedback(invalidatedCount
+      ? {
+          kind: "information",
+          message: "La source a changé. Ses extraits ont été retirés : sélectionnez-les et confirmez-les à nouveau.",
+        }
+      : null);
+  };
+
+  const removeManualInterviewSource = () => {
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        manualInterviewSource: null,
+      },
+    }));
+    setInterviewExcerptPreview(null);
+    setInterviewFeedback({
+      kind: "information",
+      message: "L’entretien et ses extraits ont été retirés. Vos autres notes et citations sont conservées.",
+    });
+  };
+
+  const prepareInterviewExcerpt = () => {
+    const source = draft.parameters.manualInterviewSource;
+    const textarea = interviewSourceTextRef.current;
+    if (!source || !textarea || !source.sourceText.trim()) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "Collez d’abord le texte de l’entretien, puis sélectionnez le passage à conserver.",
+      });
+      return;
+    }
+    if (
+      !normalize(source.provenance)
+      || !normalize(source.sourceDate)
+      || !normalize(source.interviewer)
+      || !normalize(source.interviewee)
+    ) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "Complétez la provenance, la date et les deux intervenants avant de sélectionner un passage.",
+      });
+      return;
+    }
+    if (source.sourceText.length > MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT) {
+      setInterviewFeedback({
+        kind: "error",
+        message: `Le texte dépasse la limite de ${MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT.toLocaleString("fr-CH")} caractères. Réduisez-le avant de sélectionner un passage.`,
+      });
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const excerptText = source.sourceText.slice(start, end);
+    if (end <= start || !excerptText.trim()) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "Sélectionnez un passage précis dans le texte, puis cliquez de nouveau sur « Ajouter cet extrait ».",
+      });
+      return;
+    }
+    if (excerptText.length > MANUAL_EDITORIAL_TEXT_LIMIT) {
+      setInterviewFeedback({
+        kind: "error",
+        message: `La sélection compte ${excerptText.length} caractères. Réduisez-la à ${MANUAL_EDITORIAL_TEXT_LIMIT} caractères maximum.`,
+      });
+      return;
+    }
+    const totalMaterialCount =
+      (draft.parameters.manualEditorialMaterials ?? []).length + source.excerpts.length;
+    if (totalMaterialCount >= MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+      setInterviewFeedback({
+        kind: "error",
+        message: `Supprimez une matière avant d’ajouter cet extrait : la limite est de ${MANUAL_EDITORIAL_MATERIAL_LIMIT}.`,
+      });
+      return;
+    }
+
+    setInterviewExcerptPreview({
+      sourceId: source.id,
+      start,
+      end,
+      text: excerptText,
+      speakerRole: "",
+    });
+    setInterviewFeedback(null);
+  };
+
+  const confirmInterviewExcerpt = () => {
+    const source = draft.parameters.manualInterviewSource;
+    const preview = interviewExcerptPreview;
+    if (!source || !preview || source.id !== preview.sourceId) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "La source a changé. Sélectionnez le passage à nouveau.",
+      });
+      setInterviewExcerptPreview(null);
+      return;
+    }
+    if (!preview.speakerRole) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "Indiquez qui parle. Si le passage mélange plusieurs voix, sélectionnez un passage plus court.",
+      });
+      return;
+    }
+    if (source.sourceText.slice(preview.start, preview.end) !== preview.text) {
+      setInterviewFeedback({
+        kind: "error",
+        message: "Le texte source a changé. Sélectionnez le passage à nouveau.",
+      });
+      setInterviewExcerptPreview(null);
+      return;
+    }
+
+    setDraft((current) => {
+      const currentSource = current.parameters.manualInterviewSource;
+      if (!currentSource || currentSource.id !== preview.sourceId) return current;
+      return {
+        ...current,
+        parameters: {
+          ...current.parameters,
+          manualInterviewSource: {
+            ...currentSource,
+            excerpts: [
+              ...currentSource.excerpts,
+              {
+                id: crypto.randomUUID(),
+                start: preview.start,
+                end: preview.end,
+                text: preview.text,
+                speakerRole: preview.speakerRole as ManualInterviewSpeakerRole,
+                confirmed: true,
+              },
+            ],
+          },
+        },
+      };
+    });
+    setInterviewExcerptPreview(null);
+    setInterviewFeedback({
+      kind: "success",
+      message: "Extrait ajouté. Vous le retrouvez ci-dessous dans la Matière journalistique.",
+    });
+  };
+
+  const removeInterviewExcerpt = (excerptId: string) => {
+    setDraft((current) => {
+      const source = current.parameters.manualInterviewSource;
+      if (!source) return current;
+      return {
+        ...current,
+        parameters: {
+          ...current.parameters,
+          manualInterviewSource: {
+            ...source,
+            excerpts: source.excerpts.filter((excerpt) => excerpt.id !== excerptId),
+          },
+        },
+      };
+    });
+    setInterviewExcerptPreview(null);
+    setInterviewFeedback({
+      kind: "information",
+      message: "Extrait supprimé. Il ne sera pas repris lors de la prochaine collecte.",
+    });
+  };
+
   const startContextItemEdit = (item: ContextItem) => {
     setContextItemEditState({
       itemId: item.id,
@@ -1738,11 +2028,19 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     previousFingerprintRef.current = contextFingerprint;
 
     setContextState((previous) => {
-      if (!previous.hasCollected && previous.items.length === 0 && !previous.errorMessage) {
+      if (
+        !previous.hasCollected
+        && previous.items.length === 0
+        && !previous.errorMessage
+        && !previous.collectionId
+        && !previous.expiresAt
+      ) {
         return previous;
       }
       return {
         ...previous,
+        collectionId: undefined,
+        expiresAt: undefined,
         items: [],
         reports: [],
         researchedAt: undefined,
@@ -2498,6 +2796,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const renderParametersStep = () => {
     if (draft.objective.objective === "article") {
+      const interviewSource = draft.parameters.manualInterviewSource;
+      const totalMaterialCount =
+        (draft.parameters.manualEditorialMaterials ?? []).length
+        + (interviewSource?.excerpts.length ?? 0);
       return (
         <section className="creation-step-block" aria-labelledby="creation-params-title">
           <header className="creation-step-head">
@@ -2617,14 +2919,251 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     indépendamment.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="contents-ghost-button"
-                  onClick={addManualEditorialMaterial}
-                >
-                  Ajouter une note ou une citation
-                </button>
+                <div className="creation-material-actions">
+                  <button
+                    type="button"
+                    className="contents-ghost-button"
+                    disabled={totalMaterialCount >= MANUAL_EDITORIAL_MATERIAL_LIMIT}
+                    onClick={addManualEditorialMaterial}
+                  >
+                    Ajouter une note ou une citation
+                  </button>
+                  {!interviewSource ? (
+                    <button
+                      type="button"
+                      className="contents-ghost-button"
+                      onClick={createManualInterviewSource}
+                    >
+                      Exploiter un entretien
+                    </button>
+                  ) : null}
+                </div>
               </header>
+              <p className="creation-muted">
+                {totalMaterialCount}/{MANUAL_EDITORIAL_MATERIAL_LIMIT} matières ajoutées. Une citation exacte
+                reprend les mots prononcés sans les modifier. Une note personnelle apporte du contexte,
+                mais aucune des deux ne devient une information vérifiée sans contrôle indépendant.
+              </p>
+              {interviewSource ? (
+                <section
+                  className="creation-interview-tool"
+                  data-manual-interview="true"
+                  aria-labelledby="manual-interview-title"
+                >
+                  <div className="creation-context-category-head">
+                    <div>
+                      <h4 id="manual-interview-title">Exploiter un entretien</h4>
+                      <p>
+                        Collez votre entretien, puis choisissez mot pour mot les passages utiles à
+                        l’article. KLIQUE ne complète et ne reformule aucune réponse.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="contents-ghost-button"
+                      onClick={removeManualInterviewSource}
+                    >
+                      Retirer l’entretien
+                    </button>
+                  </div>
+                  <ol className="creation-interview-steps" aria-label="Étapes pour exploiter un entretien">
+                    <li>1. Coller l’entretien</li>
+                    <li>2. Sélectionner un passage</li>
+                    <li>3. Identifier le locuteur</li>
+                    <li>4. Confirmer</li>
+                  </ol>
+                  <details className="creation-interview-example">
+                    <summary>Voir un exemple fictif</summary>
+                    <p>
+                      <strong>Exemple fictif :</strong> Journaliste : « Quel est votre prochain
+                      objectif ? » — Athlète : « Je veux retrouver la compétition en décembre. »
+                      Sélectionnez uniquement la réponse si vous souhaitez l’utiliser comme citation.
+                    </p>
+                  </details>
+                  <div className="creation-fields-grid">
+                    <label>
+                      <span>Provenance</span>
+                      <input
+                        aria-label="Provenance de l’entretien"
+                        type="text"
+                        value={interviewSource.provenance}
+                        onChange={(event) =>
+                          updateManualInterviewSource("provenance", event.target.value)}
+                      />
+                      <small>Par exemple : entretien KLIQUE réalisé à Lausanne.</small>
+                    </label>
+                    <label>
+                      <span>Date de l’entretien</span>
+                      <input
+                        aria-label="Date de l’entretien"
+                        type="date"
+                        value={interviewSource.sourceDate}
+                        onChange={(event) =>
+                          updateManualInterviewSource("sourceDate", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Intervieweur</span>
+                      <input
+                        aria-label="Nom de l’intervieweur"
+                        type="text"
+                        value={interviewSource.interviewer}
+                        onChange={(event) =>
+                          updateManualInterviewSource("interviewer", event.target.value)}
+                      />
+                      <small>La personne qui pose les questions.</small>
+                    </label>
+                    <label>
+                      <span>Personne interrogée</span>
+                      <input
+                        aria-label="Nom de la personne interrogée"
+                        type="text"
+                        value={interviewSource.interviewee}
+                        onChange={(event) =>
+                          updateManualInterviewSource("interviewee", event.target.value)}
+                      />
+                      <small>La personne dont les réponses pourront devenir des citations.</small>
+                    </label>
+                  </div>
+                  <label className="creation-inline-field">
+                    <span>Texte de l’entretien</span>
+                    <textarea
+                      ref={interviewSourceTextRef}
+                      aria-label="Texte source de l’entretien"
+                      className="creation-textarea creation-interview-source"
+                      data-interview-source-text="true"
+                      value={interviewSource.sourceText}
+                      onChange={(event) =>
+                        updateManualInterviewSource("sourceText", event.target.value)}
+                    />
+                    <small>
+                      Collez les questions/réponses ou la transcription, puis sélectionnez un passage
+                      directement dans ce champ. Une modification retirera les extraits déjà confirmés.
+                    </small>
+                  </label>
+                  <div className="creation-interview-selection-bar">
+                    <span className={
+                      interviewSource.sourceText.length > MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT
+                        ? "creation-error"
+                        : "creation-muted"
+                    }>
+                      {interviewSource.sourceText.length.toLocaleString("fr-CH")}
+                      /{MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT.toLocaleString("fr-CH")} caractères
+                    </span>
+                    <button
+                      type="button"
+                      className="contents-ghost-button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={prepareInterviewExcerpt}
+                    >
+                      Ajouter cet extrait
+                    </button>
+                  </div>
+                  <p className="creation-muted">
+                    Sur mobile, maintenez le doigt sur le texte et ajustez les poignées de sélection
+                    avant de toucher « Ajouter cet extrait ».
+                  </p>
+                  {interviewExcerptPreview ? (
+                    <section className="creation-interview-preview" aria-labelledby="interview-preview-title">
+                      <h5 id="interview-preview-title">Aperçu avant confirmation</h5>
+                      <blockquote>{interviewExcerptPreview.text}</blockquote>
+                      <label>
+                        <span>Qui parle dans ce passage ?</span>
+                        <select
+                          aria-label="Locuteur de l’extrait sélectionné"
+                          value={interviewExcerptPreview.speakerRole}
+                          onChange={(event) =>
+                            setInterviewExcerptPreview((current) => current
+                              ? {
+                                  ...current,
+                                  speakerRole: event.target.value as ManualInterviewSpeakerRole | "",
+                                }
+                              : current)}
+                        >
+                          <option value="">Choisir le locuteur</option>
+                          <option value="interviewer">
+                            Intervieweur — {interviewSource.interviewer}
+                          </option>
+                          <option value="interviewee">
+                            Personne interrogée — {interviewSource.interviewee}
+                          </option>
+                        </select>
+                      </label>
+                      <p className="creation-muted">
+                        Si plusieurs personnes parlent dans ce passage, annulez et sélectionnez un
+                        passage plus court. Une intervention de l’intervieweur restera une note,
+                        jamais une citation de la personne interrogée.
+                      </p>
+                      <div className="creation-material-actions">
+                        <button
+                          type="button"
+                          className="contents-ghost-button"
+                          onClick={() => setInterviewExcerptPreview(null)}
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          className="crm-primary-action"
+                          onClick={confirmInterviewExcerpt}
+                        >
+                          Confirmer l’extrait
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+                  {interviewFeedback ? (
+                    <p
+                      className={interviewFeedback.kind === "error"
+                        ? "creation-error"
+                        : interviewFeedback.kind === "success"
+                          ? "creation-success-note"
+                          : "creation-muted"}
+                      role={interviewFeedback.kind === "error" ? "alert" : "status"}
+                    >
+                      {interviewFeedback.message}
+                    </p>
+                  ) : null}
+                  {interviewSource.excerpts.length ? (
+                    <div className="creation-interview-excerpts">
+                      <h5>Extraits ajoutés à la Matière journalistique</h5>
+                      {interviewSource.excerpts.map((excerpt, index) => {
+                        const isInterviewee = excerpt.speakerRole === "interviewee";
+                        const speaker = isInterviewee
+                          ? interviewSource.interviewee
+                          : interviewSource.interviewer;
+                        return (
+                          <article className="creation-context-category" key={excerpt.id}>
+                            <strong>
+                              {isInterviewee ? "Citation exacte" : "Note — intervention de l’intervieweur"}
+                            </strong>
+                            <p>{excerpt.text}</p>
+                            <p className="creation-muted">
+                              {speaker} — {interviewSource.provenance} — {interviewSource.sourceDate}
+                            </p>
+                            <p className="creation-muted">
+                              Texte lié à l’entretien, en lecture seule. Pour le modifier,
+                              sélectionnez un nouveau passage dans la source.
+                            </p>
+                            <button
+                              type="button"
+                              className="contents-ghost-button"
+                              aria-label={`Supprimer l’extrait ${index + 1}`}
+                              onClick={() => removeInterviewExcerpt(excerpt.id)}
+                            >
+                              Supprimer cet extrait
+                            </button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <p className="creation-muted">
+                    Le brouillon de l’entretien est conservé uniquement dans cet onglet. Il ne
+                    constitue pas une sauvegarde durable.
+                  </p>
+                </section>
+              ) : null}
               {(draft.parameters.manualEditorialMaterials ?? []).map((material, index) => (
                 <article
                   className="creation-context-category"
@@ -2701,6 +3240,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                       onChange={(event) =>
                         updateManualEditorialMaterial(material.id, { text: event.target.value })}
                     />
+                    <small>
+                      {material.text.length}/{MANUAL_EDITORIAL_TEXT_LIMIT} caractères maximum
+                    </small>
                   </label>
                   <button
                     type="button"

@@ -51,6 +51,7 @@ const buildItem = (args: {
   confidence: ContextConfidence;
   verificationStatus: ContextVerificationStatus;
   isEditable: boolean;
+  preserveText?: boolean;
   internalReference?: string;
   metadata?: Record<string, string | number | boolean | null>;
 }): ContextItem => ({
@@ -58,8 +59,12 @@ const buildItem = (args: {
   connectorId: args.connectorId,
   category: args.category,
   title: clampText(normalize(args.title), contextIntelligenceConfig.limits.maxCharactersPerItem),
-  summary: clampText(normalize(args.summary), contextIntelligenceConfig.limits.maxCharactersPerItem),
-  factualStatement: clampText(normalize(args.factualStatement), contextIntelligenceConfig.limits.maxCharactersPerItem),
+  summary: args.preserveText
+    ? args.summary
+    : clampText(normalize(args.summary), contextIntelligenceConfig.limits.maxCharactersPerItem),
+  factualStatement: args.preserveText
+    ? args.factualStatement
+    : clampText(normalize(args.factualStatement), contextIntelligenceConfig.limits.maxCharactersPerItem),
   statementType: args.statementType,
   sourceType: args.sourceType,
   sourceName: normalize(args.sourceName),
@@ -311,7 +316,8 @@ class ManualContextConnector implements ContextConnector {
   async collect(request: ContextCollectionRequest): Promise<ContextConnectorResult> {
     const text = normalize(request.manualContext);
     const materials = request.manualEditorialMaterials ?? [];
-    if (!text && materials.length === 0) {
+    const interviewSources = request.manualInterviewSources ?? [];
+    if (!text && materials.length === 0 && interviewSources.length === 0) {
       return {
         connectorId: this.id,
         status: "empty",
@@ -353,6 +359,7 @@ class ManualContextConnector implements ContextConnector {
         confidence: "unknown",
         verificationStatus: "user_provided",
         isEditable: false,
+        preserveText: true,
         metadata: {
           materialKind: material.kind,
           eventDate: `${material.sourceDate}T00:00:00.000Z`,
@@ -363,11 +370,48 @@ class ManualContextConnector implements ContextConnector {
       }),
       isSelected: true,
     }));
+    const interviewItems = interviewSources.flatMap((source) =>
+      source.excerpts.map((excerpt) => {
+        const isInterviewee = excerpt.speakerRole === "interviewee";
+        const speaker = isInterviewee ? source.interviewee : source.interviewer;
+        return {
+          ...buildItem({
+            id: `manual-interview-${source.id}-${excerpt.id}`,
+            connectorId: this.id,
+            category: "user_note",
+            title: isInterviewee
+              ? `Citation de ${speaker}`
+              : `Question ou intervention de ${speaker}`,
+            summary: excerpt.text,
+            factualStatement: excerpt.text,
+            statementType: "editorial_lead",
+            sourceType: "user",
+            sourceName: source.provenance,
+            publishedAt: `${source.sourceDate}T00:00:00.000Z`,
+            confidence: "unknown",
+            verificationStatus: "user_provided",
+            isEditable: false,
+            preserveText: true,
+            metadata: {
+              materialKind: isInterviewee ? "verbatim_quote" : "note",
+              eventDate: `${source.sourceDate}T00:00:00.000Z`,
+              interviewSourceId: source.id,
+              interviewExcerptId: excerpt.id,
+              interviewSpeakerRole: excerpt.speakerRole,
+              sourceStart: excerpt.start,
+              sourceEnd: excerpt.end,
+              ...(isInterviewee ? { citation: true, author: speaker } : {}),
+            },
+          }),
+          isSelected: true,
+        };
+      }),
+    );
 
     return {
       connectorId: this.id,
       status: "completed",
-      items: [...legacyItems, ...structuredItems],
+      items: [...legacyItems, ...structuredItems, ...interviewItems],
     };
   }
 }
