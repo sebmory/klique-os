@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { InterviewResultScreen } from "@/components/contents/InterviewResultScreen";
 import { ArticleResultScreen } from "@/components/contents/ArticleResultScreen";
 import { ArticleDocumentEditor } from "@/components/contents/ArticleDocumentEditor";
+import { ArticleDerivativePanel } from "@/components/contents/ArticleDerivativePanel";
 import { ContentDocumentEditor } from "@/components/contents/ContentDocumentEditor";
 import { ContentDocumentDraftService } from "@/services/content-documents/draft-service";
 import { mapArticleGenerationToDocument } from "@/services/content-documents/document-mapper";
@@ -26,6 +27,7 @@ export function InterviewResultPageClient() {
   const [parsed, setParsed] = useState<StoredInterviewResult | null>(null);
   const [articleResult, setArticleResult] = useState<StoredArticlePreviewResult | null>(null);
   const [articleDocument, setArticleDocument] = useState<ArticleDocument | null>(null);
+  const [savedArticleUpdatedAt, setSavedArticleUpdatedAt] = useState<string | null>(null);
   const [articleEditing, setArticleEditing] = useState(false);
   const [articleEditError, setArticleEditError] = useState<string | null>(null);
   const [articleRegenerating, setArticleRegenerating] = useState(false);
@@ -57,6 +59,7 @@ export function InterviewResultPageClient() {
           if (storedDraft) {
             const storedDocument = storedDraft.document;
             setArticleDocument(storedDocument.type === "article" ? storedDocument : null);
+            setSavedArticleUpdatedAt(storedDocument.type === "article" ? storedDocument.updatedAt : null);
             setArticleResult(null);
             setParsed(null);
             setRestoredDraft(storedDocument.type === "article" ? null : storedDocument);
@@ -139,6 +142,7 @@ export function InterviewResultPageClient() {
         throw new Error(saved.cloud.message || "Conflit de version du brouillon Article.");
       }
       setArticleDocument(saved.document as ArticleDocument);
+      setSavedArticleUpdatedAt(saved.document.updatedAt);
       const url = new URL(window.location.href);
       url.searchParams.set("documentId", saved.document.id);
       window.history.replaceState(null, "", `${url.pathname}${url.search}`);
@@ -155,6 +159,7 @@ export function InterviewResultPageClient() {
       throw new Error(saved.cloud.message || "Conflit de version du brouillon Article.");
     }
     setArticleDocument(saved.document as ArticleDocument);
+    setSavedArticleUpdatedAt(saved.document.updatedAt);
   };
 
   const regenerateArticle = async () => {
@@ -221,6 +226,11 @@ export function InterviewResultPageClient() {
         <>
           {articleResult ? <button type="button" className="contents-secondary-button" onClick={() => setArticleDocument(null)}>Revenir à l’aperçu</button> : null}
           <ArticleDocumentEditor initialDocument={articleDocument} onDocumentChange={setArticleDocument} onSave={saveArticleDocument} />
+          <ArticleDerivativePanel
+            sourceDocumentId={articleDocument.id}
+            sourceDocumentUpdatedAt={articleDocument.updatedAt}
+            hasUnsavedArticleChanges={savedArticleUpdatedAt !== null && articleDocument.updatedAt !== savedArticleUpdatedAt}
+          />
         </>
       );
     }

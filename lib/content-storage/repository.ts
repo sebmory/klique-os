@@ -277,6 +277,21 @@ export const ContentStorageRepository = {
     return rows[0] ? mapVariantRow(rows[0]) : null;
   },
 
+  async updateVariant(id: string, variant: ContentVariant, access: ContentAccessContext) {
+    const sql = createContentStorageClient();
+    const rows = (await sql`
+      UPDATE content_variants
+      SET updated_at = NOW(),
+          payload_json = ${JSON.stringify(variant)}::jsonb
+      WHERE workspace_id = ${access.workspaceId}
+        AND id = ${normalize(id)}
+        AND source_document_id = ${normalize(variant.sourceDocumentId)}
+        AND (${access.isAdmin}::boolean OR media_id = ${access.mediaId ?? null}::uuid)
+      RETURNING id, source_document_id, workspace_id, user_id, media_id, created_at, updated_at, payload_json
+    `) as VariantRow[];
+    return rows[0] ? mapVariantRow(rows[0]) : null;
+  },
+
   async listVariantsBySourceDocumentId(sourceDocumentId: string, access: ContentAccessContext) {
     const sql = createContentStorageClient();
     const rows = (await sql`

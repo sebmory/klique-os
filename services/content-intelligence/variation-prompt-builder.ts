@@ -28,6 +28,19 @@ export const buildVariationPrompt = (request: ContentVariationRequest, promptVer
     "- Produire un contenu concret et actionnable.",
     "- Limiter les hashtags inutiles et les CTA artificiels.",
     "- Ne pas transformer automatiquement en promotion.",
+    ...(request.sourceDocumentType === "article"
+      ? [
+          "Regles declinaison d article:",
+          "- Utiliser uniquement le contenu de l article fourni, sans recherche externe.",
+          "- Conserver mot pour mot les citations, leurs attributions et les reserves editoriales.",
+          "- Conserver toute mention indiquant un contenu fictif ou non publiable.",
+          "- Ne produire aucun lien, resultat, partenariat ou appel a l action absent de l article.",
+          "- Pour Instagram, fournir une accroche et une legende.",
+          "- Pour LinkedIn, adapter la publication a un lectorat professionnel sans la rendre promotionnelle.",
+          "- Pour Newsletter, utiliser title comme objet, hook comme pre-en-tete et body comme resume.",
+          "- Le champ callToAction doit contenir Aucun; il sera retire avant affichage.",
+        ]
+      : []),
     quoteGuardrail,
     "Contexte et demande:",
     JSON.stringify(request, null, 2),

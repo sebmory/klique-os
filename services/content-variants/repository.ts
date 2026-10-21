@@ -152,11 +152,38 @@ class BrowserStorageContentVariantRepository implements ContentVariantRepository
     }
   }
 
+  private async updateCloudVariant(variant: ContentVariant): Promise<CloudReadResult<ContentVariant>> {
+    try {
+      const response = await fetch(`/api/contents/storage/variants/${encodeURIComponent(variant.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ variant }),
+      });
+      const payload = (await this.parseJsonResponse<CloudVariantResponse>(response)) ?? {};
+      if (!response.ok || !payload.variant) {
+        return { status: "unavailable", message: payload.message };
+      }
+      return { status: "ok", value: payload.variant };
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
+
   async save(variant: ContentVariant): Promise<void> {
     if (!canUseLocalContentStorage()) {
       const cloud = await this.readCloudVariantById(variant.id);
       if (cloud.status === "missing") {
-        await this.createCloudVariant(variant);
+        const created = await this.createCloudVariant(variant);
+        if (created.status !== "ok") {
+          throw new Error(("message" in created ? created.message : "") || "Enregistrement de la variante impossible.");
+        }
+      } else if (cloud.status === "ok") {
+        const updated = await this.updateCloudVariant(variant);
+        if (updated.status !== "ok") {
+          throw new Error(("message" in updated ? updated.message : "") || "Enregistrement de la variante impossible.");
+        }
+      } else {
+        throw new Error(cloud.message || "Stockage des variantes indisponible.");
       }
       return;
     }
@@ -170,6 +197,7 @@ class BrowserStorageContentVariantRepository implements ContentVariantRepository
 
     const cloud = await this.readCloudVariantById(variant.id);
     if (cloud.status === "ok") {
+      await this.updateCloudVariant(variant);
       return;
     }
 

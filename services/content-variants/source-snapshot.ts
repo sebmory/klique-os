@@ -42,6 +42,31 @@ export const buildSourceDocumentSnapshot = (args: {
     };
   }
 
+  if (document.type === "article") {
+    return {
+      documentId: document.id,
+      documentType: document.type,
+      documentVersionId: document.activeVersionId,
+      documentUpdatedAt: document.updatedAt,
+      subjectName: normalize(document.sidebar.subject),
+      objective: normalize(document.sidebar.objective) || undefined,
+      title: normalize(document.sections.title),
+      editorialAngle: normalize(document.sections.selectedAngle.title),
+      introduction: normalize(document.sections.lead),
+      questions: document.sections.sections.map((section) => ({
+        id: `article-section-${section.order}`,
+        text: normalize(section.heading),
+        purpose: "",
+        topic: "",
+        followUps: section.paragraphs.map((paragraph) => normalize(paragraph)).filter(Boolean),
+      })),
+      conclusion: normalize(document.sections.conclusion),
+      selectedContextItems: document.contextUsage.selectedItems ?? [],
+      contextDateRange: document.contextUsage.dateRange,
+      contextResearchedAt: document.contextUsage.researchedAt,
+    };
+  }
+
   if (document.type !== "interview") {
     return {
       documentId: document.id,

@@ -233,6 +233,9 @@ export type ContentVariantOrigin = {
   type: "after_match_pack";
   packId: string;
   deliverable: "reel" | "stories";
+} | {
+  type: "article_derivative";
+  format: "instagram" | "linkedin" | "newsletter";
 };
 
 export type ContentVariant = {
