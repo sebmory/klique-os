@@ -128,7 +128,8 @@ export const secureArticleRequest = async <T extends ArticleGenerationRequest | 
       })),
   };
   const angleWasReframed = prepared.selection.metadata.generationMode === "limited"
-    && "selectedAngle" in request.brief;
+    && "selectedAngle" in request.brief
+    && prepared.selection.metadata.identityBasis !== "declared_interview";
   const editorialGeneration = {
     ...prepared.selection.metadata,
     warnings: Array.from(new Set([

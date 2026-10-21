@@ -923,6 +923,26 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
               focusSelector: "[data-interview-source-text='true']",
             };
           }
+          if (
+            draft.subject.type === "free_topic"
+            && !interviewSource.subjectIdentityConfirmed
+          ) {
+            return {
+              ok: false,
+              message: "Confirmez explicitement que la personne interrogée est le sujet de l’article.",
+              focusSelector: "[data-interview-subject-confirmation='true']",
+            };
+          }
+          if (
+            draft.subject.type === "free_topic"
+            && !interviewSource.excerpts.some((excerpt) => excerpt.speakerRole === "interviewee")
+          ) {
+            return {
+              ok: false,
+              message: "Ajoutez au moins une citation exacte de la personne interrogée.",
+              focusSelector: "[data-manual-interview='true']",
+            };
+          }
         }
         const interviewExcerptCount = interviewSource?.excerpts.length ?? 0;
         if (
@@ -1783,6 +1803,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       sourceDate: new Date().toISOString().slice(0, 10),
       interviewer: "",
       interviewee: "",
+      subjectIdentityConfirmed: false,
       sourceText: "",
       excerpts: [],
     };
@@ -1812,6 +1833,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           manualInterviewSource: {
             ...source,
             [field]: value,
+            subjectIdentityConfirmed: false,
             excerpts: [],
           },
         },
@@ -1824,6 +1846,32 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           message: "La source a changé. Ses extraits ont été retirés : sélectionnez-les et confirmez-les à nouveau.",
         }
       : null);
+  };
+
+  const setManualInterviewSubjectIdentityConfirmed = (confirmed: boolean) => {
+    setDraft((current) => {
+      const source = current.parameters.manualInterviewSource;
+      if (!source) return current;
+      return {
+        ...current,
+        parameters: {
+          ...current.parameters,
+          manualInterviewSource: {
+            ...source,
+            subjectIdentityConfirmed: confirmed,
+          },
+        },
+      };
+    });
+    setInterviewFeedback(confirmed
+      ? {
+          kind: "information",
+          message: "Identité déclarée confirmée. Elle reste distincte d’une identité vérifiée dans le CRM.",
+        }
+      : {
+          kind: "information",
+          message: "Confirmation retirée. Le Portrait sur sujet libre sera bloqué jusqu’à une nouvelle confirmation.",
+        });
   };
 
   const removeManualInterviewSource = () => {
@@ -2480,11 +2528,15 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const renderAngleStep = () => {
     if (draft.objective.objective === "article") {
+      const interviewIdentityBlocked = articleWorkflowState.blockDetails?.reasons.some((reason) =>
+        reason.includes("sujet libre")
+        || reason.includes("identité déclarée")
+        || reason.includes("citation verbatim confirmée")) === true;
       return (
         <section className="creation-step-block" aria-labelledby="creation-angle-title">
           <header className="creation-step-head">
             <h2 id="creation-angle-title">Angle editorial de l article</h2>
-            <p>Le moteur propose trois angles a partir du dossier editorial reconstruit cote serveur.</p>
+            <p>Le moteur propose jusqu&apos;a trois angles soutenus par le dossier editorial reconstruit cote serveur.</p>
           </header>
           <section className="creation-panel">
             <div className="creation-footer-actions">
@@ -2547,6 +2599,11 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                       Les faits historiques disponibles pourraient convenir à un Portrait ou une Analyse.
                       Ce changement ne garantit pas que la génération sera autorisée.
                     </p>
+                  ) : interviewIdentityBlocked ? (
+                    <p>
+                      Revenez à l’entretien pour confirmer que la personne interrogée est le sujet
+                      et sélectionner au moins une de ses réponses comme citation exacte.
+                    </p>
                   ) : (
                     <p>Ajoutez un fait vérifié répondant aux exigences du type d’article sélectionné.</p>
                   )}
@@ -2554,8 +2611,12 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     <button type="button" className="contents-secondary-button" onClick={() => moveToStep("objective")}>
                       Revenir au type d’article
                     </button>
-                    <button type="button" className="contents-secondary-button" onClick={() => moveToStep("context")}>
-                      Ajouter une information vérifiée
+                    <button
+                      type="button"
+                      className="contents-secondary-button"
+                      onClick={() => moveToStep(interviewIdentityBlocked ? "parameters" : "context")}
+                    >
+                      {interviewIdentityBlocked ? "Revenir à l’entretien" : "Ajouter une information vérifiée"}
                     </button>
                   </div>
                 </div>
@@ -3025,6 +3086,33 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                       <small>La personne dont les réponses pourront devenir des citations.</small>
                     </label>
                   </div>
+                  {draft.subject.type === "free_topic" ? (
+                    <label
+                      className="creation-toggle-row creation-interview-subject-confirmation"
+                      data-interview-subject-confirmation="true"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={interviewSource.subjectIdentityConfirmed === true}
+                        onChange={(event) =>
+                          setManualInterviewSubjectIdentityConfirmed(event.target.checked)}
+                      />
+                      <span>
+                        Je confirme que {interviewSource.interviewee || "la personne interrogée"} est
+                        le sujet de cet article.
+                      </span>
+                      <small>
+                        Cette confirmation établit une identité déclarée pour ce brouillon. Elle ne
+                        crée pas de fiche CRM et ne vérifie ni l’identité ni les déclarations.
+                      </small>
+                    </label>
+                  ) : null}
+                  {interviewSource.subjectIdentityConfirmed ? (
+                    <p className="creation-muted">
+                      Article fondé sur un entretien fourni par l’utilisateur. Identité et
+                      déclarations non vérifiées indépendamment.
+                    </p>
+                  ) : null}
                   <label className="creation-inline-field">
                     <span>Texte de l’entretien</span>
                     <textarea
@@ -4856,7 +4944,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                 {creditModal.kind === "external_search"
                   ? "Confirmer la recherche externe"
                   : creditModal.kind === "publication_angles"
-                    ? "Générer 3 angles éditoriaux"
+                    ? "Générer jusqu’à 3 angles éditoriaux"
                     : "Confirmer la génération"}
               </h3>
             </header>

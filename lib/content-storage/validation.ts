@@ -384,7 +384,7 @@ const validateEditorialGenerationMetadata = (value: unknown, field: string): voi
   assertAllowed(metadata.generationMode, `${field}.generationMode`, ["ready", "limited"] as const);
   const confidence = requireObject(metadata.confidence, `${field}.confidence`);
   assertAllowed(confidence.level, `${field}.confidence.level`, ["high", "medium", "low", "unknown"] as const);
-  requireNumber(confidence.score, `${field}.confidence.score`);
+  if (confidence.score !== null) requireNumber(confidence.score, `${field}.confidence.score`);
   requireStringArray(confidence.explanation, `${field}.confidence.explanation`);
   if (!Array.isArray(metadata.usedSources)) {
     throw new ContentStorageValidationError(`${field}.usedSources doit etre un tableau.`);

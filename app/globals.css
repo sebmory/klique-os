@@ -2776,6 +2776,19 @@ button {
   white-space: pre-wrap;
 }
 
+.creation-interview-subject-confirmation {
+  align-items: flex-start;
+  border: 1px solid #d6e2db;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.creation-interview-subject-confirmation small {
+  flex-basis: 100%;
+  margin-left: 24px;
+}
+
 .creation-interview-selection-bar {
   display: flex;
   align-items: center;

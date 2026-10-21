@@ -4,8 +4,12 @@ import {
   buildArticleFinalPrompt,
   buildArticleStructurePrompt,
 } from "@/services/content-intelligence/article-prompt-builder";
-import { buildArticleStructureSuggestionsJsonSchema } from "@/services/content-intelligence/article-schema";
 import {
+  buildArticleAngleSuggestionsJsonSchema,
+  buildArticleStructureSuggestionsJsonSchema,
+} from "@/services/content-intelligence/article-schema";
+import {
+  filterValidArticleAngleQualifications,
   validateArticleAngleQualifications,
   validateArticleFinalResult,
   validateArticleStructureSuggestion,
@@ -115,12 +119,43 @@ describe("Article journalistic quality in limited mode", () => {
 
     expect(buildArticleAngleSuggestionsPrompt(angleRequest)).toContain("Ancrer chaque angle");
     expect(buildArticleAngleSuggestionsPrompt(angleRequest)).toContain("Mode limited");
-    expect(buildArticleStructurePrompt(request)).toContain("utiliser une seule section");
-    expect(buildArticleStructurePrompt(request)).toContain("L angle selectionne est une preference editoriale, jamais une preuve");
-    expect(buildArticleFinalPrompt(request, structure)).toContain("objectif maximal, jamais un minimum");
-    expect(buildArticleFinalPrompt(request, structure)).toContain("Ne poser aucune question rhetorique");
-    expect(buildArticleFinalPrompt(request, structure)).toContain("jamais une preuve d inactivite");
-    expect(buildArticleFinalPrompt(request, structure)).toContain("ne prouve pas un role tactique precis");
+    const structurePrompt = buildArticleStructurePrompt(request);
+    const finalPrompt = buildArticleFinalPrompt(request, structure);
+    expect(structurePrompt).toContain("utiliser une seule section");
+    expect(structurePrompt).toContain("L angle selectionne est une preference editoriale, jamais une preuve");
+    expect(structurePrompt).toContain("Le titre de la structure et sa premiere section doivent developper cette promesse");
+    expect(structurePrompt).toContain("sans se contenter d en reprendre les mots");
+    expect(structurePrompt).toContain("ne doivent jamais remplacer, diluer ou elargir l angle selectionne");
+    expect(finalPrompt).toContain("objectif maximal, jamais un minimum");
+    expect(finalPrompt).toContain("Faire du titre, du chapeau et de la premiere section la continuite editoriale");
+    expect(finalPrompt).toContain("Angle directeur retenu:");
+    expect(finalPrompt).toContain(request.brief.selectedAngle);
+    expect(finalPrompt).toContain("Ne poser aucune question rhetorique");
+    expect(finalPrompt).toContain("jamais une preuve d inactivite");
+    expect(finalPrompt).toContain("ne prouve pas un role tactique precis");
+    expect(finalPrompt).toContain("ne figure pas parmi les extraits selectionnes");
+  });
+
+  it("allows one to three grounded angle proposals without artificial completion", () => {
+    const schema = buildArticleAngleSuggestionsJsonSchema();
+    const suggestions = (schema.properties as Record<string, Record<string, unknown>>).suggestions;
+    const angleRequest = {
+      ...request,
+      editorialGeneration: {
+        ...request.editorialGeneration,
+        identityBasis: "declared_interview",
+      },
+      brief: {
+        ...request.brief,
+        selectedAngle: undefined,
+      },
+    } as unknown as ArticleAngleSuggestionsRequest;
+    const prompt = buildArticleAngleSuggestionsPrompt(angleRequest);
+
+    expect(suggestions).toMatchObject({ minItems: 1, maxItems: 3 });
+    expect(prompt).toContain("entre 1 et 3 angles");
+    expect(prompt).toContain("Ne jamais forcer un nombre de propositions");
+    expect(prompt).toContain("ils ne permettent jamais d inferer un trait de personnalite");
   });
 
   it("keeps a legacy limited angle out of the provider evidence context", () => {
@@ -194,6 +229,39 @@ describe("Article journalistic quality in limited mode", () => {
     ])).toThrow(/motivations ou ambitions/);
   });
 
+  it("keeps two valid angles when a third invents personality", () => {
+    const angleRequest = {
+      ...request,
+      brief: {
+        ...request.brief,
+        selectedAngle: undefined,
+      },
+    } as unknown as ArticleAngleSuggestionsRequest;
+
+    expect(filterValidArticleAngleQualifications(angleRequest, [
+      { id: "1", title: "Un repère factuel", rationale: "Présenter le club confirmé." },
+      { id: "2", title: "Une information attribuée", rationale: "Rester sur la source disponible." },
+      { id: "3", title: "Un caractère déterminé", rationale: "Décrire sa personnalité combative." },
+    ])).toEqual([
+      { id: "1", title: "Un repère factuel", rationale: "Présenter le club confirmé." },
+      { id: "2", title: "Une information attribuée", rationale: "Rester sur la source disponible." },
+    ]);
+  });
+
+  it("rejects the response explicitly when no angle passes editorial controls", () => {
+    const angleRequest = {
+      ...request,
+      brief: {
+        ...request.brief,
+        selectedAngle: undefined,
+      },
+    } as unknown as ArticleAngleSuggestionsRequest;
+
+    expect(() => filterValidArticleAngleQualifications(angleRequest, [
+      { id: "1", title: "Un caractère déterminé", rationale: "Décrire sa personnalité combative." },
+    ])).toThrow(/Aucun angle n'a passé les contrôles éditoriaux/);
+  });
+
   it("keeps a missing search result as a methodological limitation", () => {
     expect(isDocumentaryAbsenceText(
       "Aucune participation récente n'a été retrouvée dans les résultats consultés.",
@@ -231,5 +299,47 @@ describe("Article journalistic quality in limited mode", () => {
     };
 
     expect(() => validateArticleFinalResult(result, request, structure)).toThrow(/intertitre generique/i);
+  });
+
+  it("rejects an abstract heading that implies an unestablished outcome", () => {
+    const result: ArticleFinalResult = {
+      title: "Athlète Test au Club Test",
+      lead: "Athlète Test évolue au Club Test, selon la source attribuée au dossier.",
+      sections: [{
+        order: 1,
+        heading: "L'organisation au service de la progression sportive",
+        paragraphs: ["La matière disponible confirme uniquement ce rattachement au club."],
+      }],
+      conclusion: "",
+      usedCitations: [],
+      usedSources: [],
+      estimatedWordCount: 0,
+      metadata: { templateId: "article", templateVersion: "v1" },
+    };
+
+    expect(() => validateArticleFinalResult(result, request, structure)).toThrow(/intertitre generique/i);
+  });
+
+  it("rejects commentary about details absent from selected material", () => {
+    const result: ArticleFinalResult = {
+      title: "Athlète Test au Club Test",
+      lead: "Athlète Test évolue au Club Test, selon la source attribuée au dossier.",
+      sections: [{
+        order: 1,
+        heading: "Une information confirmée",
+        paragraphs: [
+          "Il ne décrit toutefois pas de changement précis dans ses déplacements.",
+        ],
+      }],
+      conclusion: "",
+      usedCitations: [],
+      usedSources: [],
+      estimatedWordCount: 0,
+      metadata: { templateId: "article", templateVersion: "v1" },
+    };
+
+    expect(() => validateArticleFinalResult(result, request, structure)).toThrow(
+      /Commentaire sur une lacune documentaire interdit/i,
+    );
   });
 });

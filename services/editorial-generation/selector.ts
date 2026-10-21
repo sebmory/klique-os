@@ -144,6 +144,11 @@ export const selectEditorialGenerationContext = (
       ...(dossier.subject.sport ? { sport: dossier.subject.sport } : {}),
       ...(dossier.subject.clubOrOrganization ? { clubOrOrganization: dossier.subject.clubOrOrganization } : {}),
       ...(dossier.subject.publicRoleOrPosition ? { publicRoleOrPosition: dossier.subject.publicRoleOrPosition } : {}),
+      identityBasis: dossier.subject.canonicalId
+        ? "canonical"
+        : dossier.subject.declaredInterviewIdentity?.hasAttributedCitation
+          ? "declared_interview"
+          : undefined,
     },
     facts: facts.map((fact) => ({
       category: fact.category,
@@ -183,10 +188,12 @@ export const selectEditorialGenerationContext = (
       confidence: {
         level: dossier.confidence.level,
         score: dossier.confidence.score,
-        explanation: [
-          "La confiance globale correspond au fait exploitable le moins fiable transmis.",
-          `Niveau limitant: ${dossier.confidence.level}.`,
-        ],
+        explanation: dossier.confidence.level === "unknown"
+          ? []
+          : [
+              "La confiance globale correspond au fait exploitable le moins fiable transmis.",
+              `Niveau limitant: ${dossier.confidence.level}.`,
+            ],
       },
       usedSources: sources.map((source) => ({
         name: source.name,
@@ -199,6 +206,11 @@ export const selectEditorialGenerationContext = (
       contradictions,
       missingInformation: eligibility.missingInformation,
       warnings: eligibility.warnings,
+      identityBasis: dossier.subject.canonicalId
+        ? "canonical"
+        : dossier.subject.declaredInterviewIdentity?.hasAttributedCitation
+          ? "declared_interview"
+          : undefined,
     },
   };
 };

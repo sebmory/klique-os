@@ -77,6 +77,7 @@ export type ManualInterviewSource = {
   sourceDate: string;
   interviewer: string;
   interviewee: string;
+  subjectIdentityConfirmed?: boolean;
   sourceText: string;
   excerpts: ManualInterviewExcerpt[];
 };

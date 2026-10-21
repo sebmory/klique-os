@@ -297,6 +297,30 @@ const buildSubject = (subject: ContextSubject, items: ContextItem[]): EditorialS
     const value = itemFormulation(item);
     if (fieldId && value && !trustedFields.has(fieldId)) trustedFields.set(fieldId, value);
   }
+  const declaredSubjectName = normalizeComparable(subject.displayName);
+  const confirmedInterviewItem = subject.source === "temporary"
+    ? items.find((item) =>
+        metadataBoolean(item, "interviewSubjectIdentityConfirmed")
+        && normalizeComparable(metadataText(item, "declaredSubjectName")) === declaredSubjectName
+        && Boolean(metadataText(item, "interviewSourceId"))
+        && Boolean(metadataText(item, "interviewSubjectName")))
+    : undefined;
+  const declaredInterviewIdentity = confirmedInterviewItem
+    ? {
+        confirmed: true as const,
+        sourceId: metadataText(confirmedInterviewItem, "interviewSourceId"),
+        interviewee: metadataText(confirmedInterviewItem, "interviewSubjectName"),
+        hasAttributedCitation: items.some((item) =>
+          metadataText(item, "interviewSourceId") === metadataText(confirmedInterviewItem, "interviewSourceId")
+          && metadataText(item, "interviewSpeakerRole") === "interviewee"
+          && metadataBoolean(item, "citation")
+          && normalizeComparable(metadataText(item, "author"))
+            === normalizeComparable(metadataText(confirmedInterviewItem, "interviewSubjectName"))
+          && Boolean(itemFormulation(item))
+          && Boolean(normalizeText(item.sourceName))
+          && Boolean(normalizeText(item.publishedAt))),
+      }
+    : undefined;
 
   return {
     type: normalizeText(subject.type) || "other",
@@ -305,6 +329,7 @@ const buildSubject = (subject: ContextSubject, items: ContextItem[]): EditorialS
     sport: trustedFields.get("sport") || normalizeText(subject.sport) || undefined,
     clubOrOrganization: trustedFields.get("club") || normalizeText(subject.clubOrOrganization) || undefined,
     publicRoleOrPosition: trustedFields.get("position") || normalizeText(subject.disciplineOrPosition) || undefined,
+    declaredInterviewIdentity,
   };
 };
 
@@ -340,7 +365,7 @@ const buildOverallConfidence = (facts: EditorialFact[]): EditorialDossier["confi
   if (!usableFacts.length) {
     return {
       level: "unknown",
-      score: 0,
+      score: null,
       usableFactIds: [],
       reasons: ["Aucun fait exploitable: la generation factuelle peut etre bloquee, mais les angles restent possibles."],
     };
@@ -397,6 +422,7 @@ const projectSubject = (
       sport: subject.sport,
       clubOrOrganization: subject.clubOrOrganization,
       publicRoleOrPosition: subject.publicRoleOrPosition,
+      declaredInterviewIdentity: subject.declaredInterviewIdentity,
     }
   : subject;
 

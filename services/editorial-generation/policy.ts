@@ -121,13 +121,47 @@ export const evaluateEditorialGenerationEligibility = (
 ): EditorialGenerationEligibility => {
   const reasons: string[] = [];
   const warnings: string[] = [];
-  const missingInformation = dossier.missingInformation.map((item) => item.label);
   const contradictions = contradictionSummaries(dossier);
-  const identityPresent = Boolean(dossier.subject.canonicalId?.trim() && dossier.subject.displayName.trim());
+  const canonicalIdentityPresent = Boolean(dossier.subject.canonicalId?.trim() && dossier.subject.displayName.trim());
+  const declaredInterviewIdentity = dossier.subject.declaredInterviewIdentity;
+  const declaredPortraitIdentityPresent = Boolean(
+    target.type === "article"
+    && target.articleType === "portrait"
+    && declaredInterviewIdentity?.confirmed
+    && declaredInterviewIdentity.hasAttributedCitation
+    && dossier.subject.displayName.trim(),
+  );
+  const identityPresent = canonicalIdentityPresent || declaredPortraitIdentityPresent;
+  const missingInformation = dossier.missingInformation
+    .filter((item) =>
+      !declaredPortraitIdentityPresent
+      || ![
+        "SUBJECT_CANONICAL_ID",
+        "SUBJECT_SPORT",
+        "SUBJECT_ORGANIZATION",
+        "SUBJECT_PUBLIC_ROLE",
+        "NO_USABLE_FACTS",
+      ].includes(item.code))
+    .map((item) => item.label);
   const projectedElementCount = dossier.facts.length + dossier.editorialLeads.length + dossier.citations.length;
 
   if (!identityPresent) {
-    reasons.push("L identite canonique du sujet est absente ou incomplete.");
+    if (
+      target.type === "article"
+      && target.articleType === "portrait"
+      && declaredInterviewIdentity?.confirmed
+      && !declaredInterviewIdentity.hasAttributedCitation
+    ) {
+      reasons.push(
+        "L’identité déclarée exige au moins une citation verbatim confirmée de la personne interrogée, avec provenance et date.",
+      );
+    } else if (target.type === "article" && target.articleType === "portrait" && !canonicalIdentityPresent) {
+      reasons.push(
+        "Pour un sujet libre, confirmez explicitement que la personne interrogée est le sujet de l’article.",
+      );
+    } else {
+      reasons.push("L identite canonique du sujet est absente ou incomplete.");
+    }
   }
   if (projectedElementCount === 0) {
     reasons.push("La projection autorisee pour ce role ne contient aucun element editorial.");
@@ -174,7 +208,22 @@ export const evaluateEditorialGenerationEligibility = (
         || dossier.chronology.some((entry) => !entry.blocked)
         || dossier.citations.some((citation) => citation.verificationStatus !== "rejected")
         || dossier.editorialLeads.some((lead) => lead.verificationStatus !== "rejected");
-      if (!hasSafePortraitMaterial) {
+      if (declaredPortraitIdentityPresent && contradictions.length > 0) {
+        articleStatus = "blocked";
+        articleReasons = [
+          "Une contradiction non résolue empêche d’utiliser l’entretien comme seule base du portrait.",
+        ];
+      } else if (declaredPortraitIdentityPresent) {
+        articleStatus = "limited";
+        articleReasons = [
+          "La matière disponible permet un portrait limité aux déclarations attribuées de l’entretien.",
+        ];
+        articleWarnings = [
+          "Article fondé sur un entretien fourni par l’utilisateur. Identité et déclarations non vérifiées indépendamment.",
+          "Attribuer clairement les déclarations au sujet et ne pas les présenter comme corroborées.",
+          "Ne pas inventer le parcours, les motivations, les résultats, les scènes ni les traits de caractère du sujet.",
+        ];
+      } else if (!hasSafePortraitMaterial) {
         articleStatus = "blocked";
         articleReasons = ["Aucun élément exploitable n’est disponible pour construire un portrait prudent."];
       } else if (narrativeFacts.length >= 2 && contradictions.length === 0) {

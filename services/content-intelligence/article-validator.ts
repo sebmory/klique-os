@@ -158,6 +158,7 @@ const genericEditorialHeadingPatterns = [
   /^affiliation (?:au )?club$/,
   /^donnees? (?:precises? )?sur la participation(?: en match officiel)?$/,
   /^participation en match officiel$/,
+  /^.+ au service (?:de|du|des) .+$/,
 ] as const;
 
 const assertNoGenericEditorialHeadings = (candidates: Array<{ location: string; text: string }>): void => {
@@ -167,6 +168,32 @@ const assertNoGenericEditorialHeadings = (candidates: Array<{ location: string; 
       throw new ContentGenerationError(
         "INVALID_PROVIDER_RESPONSE",
         `Intertitre generique interdit '${normalize(candidate.text)}' dans ${candidate.location}`,
+      );
+    }
+  }
+};
+
+const documentaryCommentaryPatterns = [
+  /\b(?:il|elle|le sujet|la personne)\s+ne\s+(?:decrit|detaille|precise|indique|mentionne|fournit)\s+(?:toutefois\s+|cependant\s+)?(?:pas\s+|aucun(?:e)?\s+)[^.!?]*/u,
+  /\b(?:les|ces)\s+(?:elements|extraits|donnees|informations)\s+ne\s+(?:permettent|suffisent)\s+pas[^.!?]*/u,
+  /\brien dans (?:le dossier|les extraits|les informations|les donnees)\b[^.!?]*/u,
+] as const;
+
+const assertNoDocumentaryCommentary = (
+  request: ArticleGenerationRequest,
+  candidates: Array<{ location: string; text: string }>,
+): void => {
+  const evidence = buildArticleEvidenceCorpus(request);
+  for (const candidate of candidates) {
+    const text = normalizeEvidence(candidate.text);
+    const unsupportedCommentary = documentaryCommentaryPatterns
+      .map((pattern) => text.match(pattern)?.[0]?.trim())
+      .filter((match): match is string => Boolean(match))
+      .find((match) => !evidence.includes(match));
+    if (unsupportedCommentary) {
+      throw new ContentGenerationError(
+        "INVALID_PROVIDER_RESPONSE",
+        `Commentaire sur une lacune documentaire interdit dans ${candidate.location}`,
       );
     }
   }
@@ -641,6 +668,7 @@ export const validateArticleFinalResult = (
   ];
   assertSupportedEditorialThemes(request, finalTextCandidates);
   assertLimitedArticleQuality(request, finalTextCandidates);
+  assertNoDocumentaryCommentary(request, finalTextCandidates);
   assertNoGenericEditorialHeadings([
     { location: "titre de l article", text: result.title },
     ...result.sections.map((section, index) => ({
@@ -745,25 +773,39 @@ export const validateArticleAngleSuggestions = (parsedContent: unknown): Publica
     throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Structure JSON des angles Article invalide");
   }
   const suggestions = (parsedContent as { suggestions?: unknown }).suggestions;
-  if (!Array.isArray(suggestions) || suggestions.length !== 3) {
-    throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Article: exactement 3 angles sont requis");
+  if (!Array.isArray(suggestions) || suggestions.length < 1 || suggestions.length > 3) {
+    throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Article: entre 1 et 3 angles sont requis");
   }
 
   const titles = new Set<string>();
-  return suggestions.map((suggestion, index) => {
-    if (!suggestion || typeof suggestion !== "object") {
-      throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Suggestion d angle Article invalide");
+  const validSuggestions: PublicationAngleSuggestion[] = [];
+  for (const [index, suggestion] of suggestions.entries()) {
+    try {
+      if (!suggestion || typeof suggestion !== "object") {
+        throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Suggestion d angle Article invalide");
+      }
+      const candidate = suggestion as { title?: unknown; rationale?: unknown };
+      const title = normalize(candidate.title);
+      const rationale = normalize(candidate.rationale);
+      if (!title || !rationale || titles.has(title.toLowerCase())) {
+        throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Suggestion d angle Article vide ou dupliquee");
+      }
+      assertNoGenericEditorialHeadings([{ location: `angle ${index + 1}, titre`, text: title }]);
+      titles.add(title.toLowerCase());
+      validSuggestions.push({ id: `article-angle-${index + 1}`, title, rationale });
+    } catch (error) {
+      if (!(error instanceof ContentGenerationError) || error.code !== "INVALID_PROVIDER_RESPONSE") {
+        throw error;
+      }
     }
-    const candidate = suggestion as { title?: unknown; rationale?: unknown };
-    const title = normalize(candidate.title);
-    const rationale = normalize(candidate.rationale);
-    if (!title || !rationale || titles.has(title.toLowerCase())) {
-      throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Suggestion d angle Article vide ou dupliquee");
-    }
-    assertNoGenericEditorialHeadings([{ location: `angle ${index + 1}, titre`, text: title }]);
-    titles.add(title.toLowerCase());
-    return { id: `article-angle-${index + 1}`, title, rationale };
-  });
+  }
+  if (validSuggestions.length === 0) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      "Aucun angle exploitable n'a été proposé. Le formulaire est conservé ; vous pouvez relancer manuellement.",
+    );
+  }
+  return validSuggestions;
 };
 
 export const validateArticleAngleQualifications = (
@@ -782,6 +824,31 @@ export const validateArticleAngleQualifications = (
     { location: `angle ${index + 1}, titre`, text: suggestion.title },
     { location: `angle ${index + 1}, promesse`, text: suggestion.rationale },
   ]));
+};
+
+export const filterValidArticleAngleQualifications = (
+  request: ArticleAngleSuggestionsRequest,
+  suggestions: PublicationAngleSuggestion[],
+): PublicationAngleSuggestion[] => {
+  const validSuggestions = suggestions.filter((suggestion) => {
+    try {
+      validateArticleAngleQualifications(request, [suggestion]);
+      return true;
+    } catch (error) {
+      if (error instanceof ContentGenerationError && error.code === "INVALID_PROVIDER_RESPONSE") {
+        return false;
+      }
+      throw error;
+    }
+  });
+
+  if (validSuggestions.length === 0) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      "Aucun angle n'a passé les contrôles éditoriaux. Le formulaire est conservé ; vous pouvez relancer manuellement.",
+    );
+  }
+  return validSuggestions;
 };
 
 export const validateArticleStructureQualifications = (

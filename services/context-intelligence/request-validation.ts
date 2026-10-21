@@ -144,6 +144,7 @@ const parseManualInterviewSources = (value: unknown): ManualInterviewSource[] =>
     const provenance = normalize(item.provenance);
     const interviewer = normalize(item.interviewer);
     const interviewee = normalize(item.interviewee);
+    const subjectIdentityConfirmed = item.subjectIdentityConfirmed === true;
     const sourceText = typeof item.sourceText === "string" ? item.sourceText : "";
     const sourceDate = parseIsoDate(item.sourceDate, "Date de l entretien invalide.");
     const rawExcerpts = item.excerpts;
@@ -234,6 +235,7 @@ const parseManualInterviewSources = (value: unknown): ManualInterviewSource[] =>
       sourceDate,
       interviewer,
       interviewee,
+      subjectIdentityConfirmed,
       sourceText,
       excerpts,
     };

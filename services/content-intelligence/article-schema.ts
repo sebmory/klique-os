@@ -57,6 +57,28 @@ const finalContentSectionSchema: JsonSchema = {
   },
 };
 
+export const buildArticleAngleSuggestionsJsonSchema = (): JsonSchema => ({
+  type: "object",
+  additionalProperties: false,
+  required: ["suggestions"],
+  properties: {
+    suggestions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "rationale"],
+        properties: {
+          title: nonEmptyStringSchema,
+          rationale: nonEmptyStringSchema,
+        },
+      },
+    },
+  },
+});
+
 export const buildArticleStructureSuggestionsJsonSchema = (
   generationMode: EditorialGenerationMode = "ready",
   length: ArticleLengthId = "court",

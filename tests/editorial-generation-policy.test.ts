@@ -20,7 +20,134 @@ const build = (role: "admin" | "media" = "admin", items = editorialDossierItems)
     role,
   });
 
+const buildDeclaredInterviewPortrait = (item: ContextItem) =>
+  buildEditorialDossier({
+    collection: {
+      ...securedEditorialCollectionFixture,
+      items: [item],
+    },
+    authenticatedWorkspaceId: "workspace-1",
+    subject: {
+      source: "temporary",
+      type: "free_topic",
+      displayName: "Alex Exemple",
+    },
+    role: "admin",
+  });
+
+const declaredInterviewCitation: ContextItem = {
+  id: "manual-interview-alex-answer",
+  connectorId: "manual",
+  category: "user_note",
+  title: "Citation de Alex Exemple",
+  summary: "Je ne cherche pas à devenir professionnel.",
+  factualStatement: "Je ne cherche pas à devenir professionnel.",
+  statementType: "editorial_lead",
+  sourceType: "user",
+  sourceName: "Entretien fictif KLIQUE — non publiable",
+  publishedAt: "2026-10-21T00:00:00.000Z",
+  retrievedAt: "2026-10-21T10:00:00.000Z",
+  confidence: "unknown",
+  verificationStatus: "user_provided",
+  isSelected: true,
+  isEditable: false,
+  metadata: {
+    materialKind: "verbatim_quote",
+    citation: true,
+    author: "Alex Exemple",
+    interviewSourceId: "interview-alex",
+    interviewExcerptId: "answer-1",
+    interviewSpeakerRole: "interviewee",
+    interviewSubjectIdentityConfirmed: true,
+    interviewSubjectName: "Alex Exemple",
+    declaredSubjectName: "Alex Exemple",
+  },
+};
+
 describe("editorial generation policy and context selection", () => {
+  it("allows a declared free subject Portrait only in limited mode from an attributed interview quote", () => {
+    const dossier = buildDeclaredInterviewPortrait(declaredInterviewCitation);
+    const target = { type: "article", articleType: "portrait" } as const;
+    const eligibility = evaluateEditorialGenerationEligibility(dossier, target);
+    const selection = selectEditorialGenerationContext(dossier, eligibility, target);
+
+    expect(dossier.subject).toMatchObject({
+      canonicalId: undefined,
+      displayName: "Alex Exemple",
+      declaredInterviewIdentity: {
+        confirmed: true,
+        interviewee: "Alex Exemple",
+        hasAttributedCitation: true,
+      },
+    });
+    expect(dossier.facts).toEqual([]);
+    expect(eligibility.status).toBe("limited");
+    expect(eligibility.missingInformation).not.toContain("Identifiant canonique du sujet manquant.");
+    expect(eligibility.missingInformation).not.toContain("Aucun fait exploitable sans contradiction.");
+    expect(eligibility.warnings).toContain(
+      "Article fondé sur un entretien fourni par l’utilisateur. Identité et déclarations non vérifiées indépendamment.",
+    );
+    expect(selection.modelContext.facts).toEqual([]);
+    expect(selection.modelContext.citations).toContainEqual(expect.objectContaining({
+      text: "Je ne cherche pas à devenir professionnel.",
+      author: "Alex Exemple",
+      verificationStatus: "user_provided",
+    }));
+    expect(selection.metadata.identityBasis).toBe("declared_interview");
+  });
+
+  it("blocks a free subject Portrait without confirmation or with only the interviewer as speaker", () => {
+    const unconfirmedDossier = buildDeclaredInterviewPortrait({
+      ...declaredInterviewCitation,
+      metadata: {
+        ...declaredInterviewCitation.metadata,
+        interviewSubjectIdentityConfirmed: false,
+      },
+    });
+    const interviewerDossier = buildDeclaredInterviewPortrait({
+      ...declaredInterviewCitation,
+      title: "Question de Camille Test",
+      metadata: {
+        ...declaredInterviewCitation.metadata,
+        citation: false,
+        author: "Camille Test",
+        interviewSpeakerRole: "interviewer",
+      },
+    });
+
+    const unconfirmed = evaluateEditorialGenerationEligibility(unconfirmedDossier, {
+      type: "article",
+      articleType: "portrait",
+    });
+    const wrongSpeaker = evaluateEditorialGenerationEligibility(interviewerDossier, {
+      type: "article",
+      articleType: "portrait",
+    });
+
+    expect(unconfirmed.status).toBe("blocked");
+    expect(unconfirmed.reasons).toContain(
+      "Pour un sujet libre, confirmez explicitement que la personne interrogée est le sujet de l’article.",
+    );
+    expect(wrongSpeaker.status).toBe("blocked");
+    expect(wrongSpeaker.reasons).toContain(
+      "L’identité déclarée exige au moins une citation verbatim confirmée de la personne interrogée, avec provenance et date.",
+    );
+  });
+
+  it.each(["actualite", "analyse"] as const)(
+    "keeps %s blocked for a declared interview without verified facts",
+    (articleType) => {
+      const dossier = buildDeclaredInterviewPortrait(declaredInterviewCitation);
+      const eligibility = evaluateEditorialGenerationEligibility(dossier, {
+        type: "article",
+        articleType,
+      });
+
+      expect(eligibility.status).toBe("blocked");
+      expect(eligibility.eligibleFactIds).toEqual([]);
+    },
+  );
+
   it("authorizes a reliable Admin dossier in ready mode", () => {
     const dossier = build("admin", editorialDossierItems.filter((item) =>
       !item.id.startsWith("contradiction-")

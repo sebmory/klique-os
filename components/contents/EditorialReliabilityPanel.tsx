@@ -42,10 +42,20 @@ export function EditorialReliabilityPanel({
           <strong>Mode :</strong>{" "}
           {metadata.generationMode === "ready" ? "Génération complète" : "Génération limitée"}
         </p>
-        <p>
-          <strong>Confiance :</strong>{" "}
-          {confidenceLabels[metadata.confidence.level]} ({metadata.confidence.score}/100)
-        </p>
+        {metadata.confidence.level === "unknown" || metadata.confidence.score === null ? (
+          <>
+            <p><strong>Vérification indépendante :</strong> non effectuée</p>
+            <p>
+              La correspondance exacte des extraits avec le texte fourni est contrôlée séparément.
+              Elle ne constitue pas une vérification indépendante des déclarations.
+            </p>
+          </>
+        ) : (
+          <p>
+            <strong>Confiance :</strong>{" "}
+            {confidenceLabels[metadata.confidence.level]} ({metadata.confidence.score}/100)
+          </p>
+        )}
         {metadata.confidence.explanation.length ? (
           <ul>
             {metadata.confidence.explanation.map((reason) => <li key={reason}>{reason}</li>)}

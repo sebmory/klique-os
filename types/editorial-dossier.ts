@@ -55,6 +55,12 @@ export type EditorialSubject = {
   sport?: string;
   clubOrOrganization?: string;
   publicRoleOrPosition?: string;
+  declaredInterviewIdentity?: {
+    confirmed: true;
+    sourceId: string;
+    interviewee: string;
+    hasAttributedCitation: boolean;
+  };
 };
 
 export type EditorialSource = {
@@ -161,7 +167,8 @@ export type EditorialDossier = {
   contradictions: EditorialContradiction[];
   missingInformation: EditorialMissingInformation[];
   freshness: EditorialFreshness;
-  confidence: EditorialConfidence & {
+  confidence: Omit<EditorialConfidence, "score"> & {
+    score: number | null;
     usableFactIds: string[];
   };
   generatedAt: string;

@@ -21,6 +21,7 @@ const formatArticleWordCountRange = (length: ArticleLengthId): string => {
 const serializeArticleContext = (request: ArticleGenerationRequest | ArticleAngleSuggestionsRequest) => {
   const brief = request.editorialGeneration?.generationMode === "limited"
     && "selectedAngle" in request.brief
+    && request.editorialGeneration.identityBasis !== "declared_interview"
     ? {
         ...request.brief,
         selectedAngle: "Presentation factuelle limitee aux seuls elements documentes.",
@@ -50,6 +51,8 @@ const articleFactualRules = [
   "- Ne jamais inventer, completer ou deduire un fait, une citation, un auteur ou une source.",
   "- Si une information manque, l omettre au lieu de la remplacer par une formulation generique.",
   "- Distinguer explicitement les faits verifies, l analyse editoriale et les citations fournies.",
+  "- Une déclaration fournie par l utilisateur peut être rapportée uniquement avec une attribution claire à son locuteur; elle ne devient jamais un fait corroboré.",
+  "- Pour un article fondé sur un entretien déclaré, ne déduire aucune biographie, scène, performance, motivation ou caractéristique personnelle au-delà des propos attribués.",
   "- Ne pas modifier une citation fournie ni changer son auteur ou sa source.",
   "- Ne citer comme source que les sources externes verifiees reellement utilisees.",
   "- Ne jamais deduire qu un evenement est le premier, le dernier, un retour, une reprise, une premiere apparition ou une premiere titularisation uniquement parce qu aucun evenement anterieur n est present dans le contexte.",
@@ -117,8 +120,11 @@ export const buildArticleFinalCorrectionInstruction = (args: {
 
 export const buildArticleAngleSuggestionsPrompt = (request: ArticleAngleSuggestionsRequest): string => {
   const isLimited = request.editorialGeneration?.generationMode === "limited";
+  const isDeclaredInterviewPortrait = request.brief.articleType === "portrait"
+    && request.editorialGeneration?.identityBasis === "declared_interview";
   const angleRules = [
-    "- Produire exactement 3 angles journalistiques reellement distincts.",
+    "- Produire entre 1 et 3 angles journalistiques reellement distincts selon la richesse de la matiere.",
+    "- Ne jamais forcer un nombre de propositions ni completer artificiellement la liste.",
     "- Chaque angle doit etre precis, realisable et adapte au type et a la longueur d article demandes.",
     "- Chaque angle doit contenir un titre et une explication breve de sa promesse editoriale et de son traitement.",
     "- Ancrer chaque angle dans un ou plusieurs elements precis du dossier et les nommer dans son explication.",
@@ -130,7 +136,13 @@ export const buildArticleAngleSuggestionsPrompt = (request: ArticleAngleSuggesti
     ...(isLimited
       ? ["- Mode limited: proposer uniquement des cadrages sobres de presentation factuelle; ne pas promettre un portrait approfondi."]
       : []),
-    "- La sortie doit respecter strictement le format PublicationAngleSuggestionsResult, avec exactement 3 suggestions.",
+    ...(isDeclaredInterviewPortrait
+      ? [
+          "- Portrait fonde sur un entretien declare: chaque promesse doit etre directement soutenue par les extraits selectionnes.",
+          "- Les choix et objectifs explicitement declares peuvent etre traites avec attribution; ils ne permettent jamais d inferer un trait de personnalite.",
+        ]
+      : []),
+    "- La sortie doit respecter strictement le format PublicationAngleSuggestionsResult, avec entre 1 et 3 suggestions.",
   ].join("\n");
 
   return [
@@ -164,12 +176,16 @@ export const buildArticleStructurePrompt = (request: ArticleGenerationRequest): 
     "- Produire exactement 3 propositions de structure reellement distinctes.",
     "- Respecter le sujet, le type d article, la longueur, le ton, l audience, la langue et les sujets obligatoires.",
     "- L angle selectionne est une preference editoriale, jamais une preuve: n en conserver que la partie soutenue par les faits, citations ou sources du dossier.",
+    "- Traiter la promesse soutenue de l angle selectionne comme le fil directeur de chaque proposition.",
+    "- Le titre de la structure et sa premiere section doivent developper cette promesse a partir des faits ou citations qui la fondent, sans se contenter d en reprendre les mots.",
+    "- Les informations secondaires peuvent contextualiser le sujet apres cette ouverture, mais ne doivent jamais remplacer, diluer ou elargir l angle selectionne.",
     "- Si un ancien angle mentionne un theme non documente, ne pas le reprendre dans le titre, la promesse, les sections ou les points; recentrer la structure sur la matiere verifiable.",
     "- Chaque proposition doit inclure un id, un titre, une promesse editoriale, des sections ordonnees et une estimation du nombre de mots.",
     "- Chaque section doit inclure son ordre, son titre, son objectif et les points a traiter.",
     "- Chaque section et chaque point doivent etre redigeables uniquement avec des faits, citations ou sources explicitement presents dans le dossier.",
     "- Supprimer toute section qui exigerait une hypothese, une generalite sur le poste ou le sport, une motivation supposee, une scene inventee ou une question sans reponse.",
     "- Eviter les intertitres administratifs ou descriptifs tels que 'Profil sportif et affiliation club' ou 'Donnees precises sur la participation en match officiel'.",
+    "- Formuler des intertitres concrets a partir d un fait, d une action ou d une citation documentee; eviter les notions abstraites et toute progression, amelioration ou consequence qui n est pas etablie.",
     sectionCountRule,
     "- Les trois structures doivent se distinguer par leur promesse editoriale, leur ordre narratif et leur hierarchie des faits, sans changer les faits disponibles.",
     isLimited
@@ -226,6 +242,9 @@ export const buildArticleFinalPrompt = (
   const finalRules = [
     "- Rediger un seul article complet, pret a etre publie.",
     "- Suivre exactement la structure selectionnee sans ajouter de section factuelle non justifiee.",
+    "- Faire du titre, du chapeau et de la premiere section la continuite editoriale de l angle selectionne et de sa promesse soutenue.",
+    "- Ouvrir sur le fait ou la citation qui fonde cet angle, puis developper son enchainement documentaire avant les informations secondaires.",
+    "- Les informations secondaires servent uniquement a contextualiser l angle; elles ne doivent pas devenir le sujet principal.",
     "- Produire uniquement les paragraphs de chaque section, dans le meme ordre et avec exactement le meme nombre de sections que la structure selectionnee.",
     "- Ne pas recopier les titres ni les numeros des sections: ils sont imposes par la structure selectionnee.",
     "- Chaque groupe de paragraphs doit contenir au moins un paragraphe non vide.",
@@ -244,6 +263,8 @@ export const buildArticleFinalPrompt = (
     "- Interdire les generalites interchangeables sur le poste ou le sport, les scenarios hypothetiques, les motivations supposees et les conclusions abstraites sur le collectif, le parcours ou les defis a venir.",
     "- Ne jamais inventer une scene, une observation de match, un resultat, une citation ou un element biographique pour rendre le texte vivant.",
     "- L absence de resultat ou de participation retrouvee dans les sources est une limite documentaire, jamais une preuve d inactivite; ne pas l ecrire dans l article.",
+    "- Ne jamais commenter dans le texte publiable ce que le sujet, l entretien, les extraits ou le dossier ne decrivent pas, ne precisent pas ou ne permettent pas d etablir; omettre simplement le detail indisponible.",
+    "- Ne jamais supposer ni recuperer un passage de transcription qui ne figure pas parmi les extraits selectionnes.",
     "- Un placement sur une composition ou une feuille de match ne prouve pas un role tactique precis; ne pas en deduire un poste ou une fonction.",
     "- Ne poser aucune question rhetorique ou sans reponse dans le texte publiable; les lacunes restent des pistes d interview hors de l article.",
     "- Attribuer naturellement dans le texte les faits qui reposent sur une source externe; le panneau de sources ne remplace pas cette attribution.",
@@ -275,6 +296,8 @@ export const buildArticleFinalPrompt = (
     articleFactualRules,
     "Contraintes de redaction:",
     finalRules,
+    "Angle directeur retenu:",
+    request.brief.selectedAngle,
     "Structure selectionnee:",
     JSON.stringify(selectedStructure, null, 2),
     "Contexte et demande:",

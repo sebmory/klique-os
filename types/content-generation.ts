@@ -47,7 +47,7 @@ export type EditorialGenerationMetadata = {
   generationMode: EditorialGenerationMode;
   confidence: {
     level: ContextItem["confidence"];
-    score: number;
+    score: number | null;
     explanation: string[];
   };
   usedSources: EditorialGenerationSource[];
@@ -61,6 +61,7 @@ export type EditorialGenerationMetadata = {
   contradictions: string[];
   missingInformation: string[];
   warnings: string[];
+  identityBasis?: "canonical" | "declared_interview";
 };
 
 export type EditorialModelContext = {
@@ -71,6 +72,7 @@ export type EditorialModelContext = {
     sport?: string;
     clubOrOrganization?: string;
     publicRoleOrPosition?: string;
+    identityBasis?: "canonical" | "declared_interview";
   };
   facts: Array<{
     category: string;

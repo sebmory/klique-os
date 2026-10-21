@@ -41,6 +41,7 @@ describe("EditorialReliabilityPanel", () => {
     expect(html).toContain("hidden=");
     expect(html).toContain("Fiabilité et sources");
     expect(html).toContain("Génération limitée");
+    expect(html).toContain("Moyenne (65/100)");
     expect(html).toContain("Sources utilisées");
     expect(html).toContain("Matière fournie par l’utilisateur");
     expect(html).toContain("ne sont pas vérifiés indépendamment");
@@ -48,5 +49,37 @@ describe("EditorialReliabilityPanel", () => {
     expect(html).toContain("Informations manquantes");
     expect(html).toContain("Contradictions non tranchées");
     expect(html).toContain("Certains éléments restent à vérifier");
+  });
+
+  it("describes an unevaluated reliability without turning it into a zero score", () => {
+    const html = renderToStaticMarkup(
+      <EditorialReliabilityPanel
+        metadata={{
+          dossierRevision: 1,
+          generationMode: "limited",
+          confidence: {
+            level: "unknown",
+            score: null,
+            explanation: [],
+          },
+          usedSources: [],
+          userProvidedMaterials: [{
+            kind: "verbatim_quote",
+            text: "Citation exacte.",
+            provenance: "Entretien fourni",
+            speaker: "Sujet déclaré",
+          }],
+          contradictions: [],
+          missingInformation: [],
+          warnings: [],
+        }}
+      />,
+    );
+
+    expect(html).toContain("Vérification indépendante :</strong> non effectuée");
+    expect(html).toContain("correspondance exacte des extraits avec le texte fourni");
+    expect(html).toContain("ne constitue pas une vérification indépendante");
+    expect(html).not.toContain("0/100");
+    expect(html).not.toContain("Inconnue");
   });
 });

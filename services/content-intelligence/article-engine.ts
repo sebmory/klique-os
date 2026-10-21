@@ -4,24 +4,23 @@ import { recordAiUsageEvent } from "@/lib/ai-usage/repository";
 import { ContentGenerationError, toContentGenerationError } from "@/services/content-generation/errors";
 import {
   buildArticleAngleSuggestionsPrompt,
-  buildArticleFactualCorrectionInstruction,
   buildArticleFinalCorrectionInstruction,
   buildArticleFinalPrompt,
   buildArticleStructurePrompt,
 } from "@/services/content-intelligence/article-prompt-builder";
 import {
+  buildArticleAngleSuggestionsJsonSchema,
   buildArticleFinalJsonSchema,
   buildArticleStructureSuggestionsJsonSchema,
   type ArticleFinalContentRaw,
 } from "@/services/content-intelligence/article-schema";
 import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
-import { buildPublicationAnglesJsonSchema } from "@/services/content-intelligence/publication-schema";
 import {
   ArticleFinalLengthError,
   ArticleFinalParagraphCountError,
   ArticleFinalSentenceRepetitionError,
+  filterValidArticleAngleQualifications,
   validateArticleAngleSuggestions,
-  validateArticleAngleQualifications,
   validateArticleAngleSuggestionsRequest,
   validateArticleFinalResult,
   validateArticleRequest,
@@ -248,36 +247,26 @@ export const runArticleAngleSuggestionsEngine = async (
 
   try {
     validateArticleAngleSuggestionsRequest(request);
-    const response = await client.responses.create({
-      model,
-      instructions: systemInstructions,
-      input: buildArticleAngleSuggestionsPrompt(request),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "article_angle_suggestions",
-          strict: true,
-          schema: buildPublicationAnglesJsonSchema(),
-        },
-      },
-    });
-    let suggestions = validateArticleAngleSuggestions(parseArticleResponse(response));
-    try {
-      validateArticleAngleQualifications(request, suggestions);
-    } catch (error) {
-      if (!(error instanceof ContentGenerationError) || error.code !== "INVALID_PROVIDER_RESPONSE") throw error;
-      await recordArticleUsage({ callContext, operation: "article_angle_suggestions", model, status: "failed", durationMs: Math.max(1, Date.now() - requestStartedAt), response, errorCode: error.code });
-      const correctionResponse = await client.responses.create({
+    const response = await client.responses.create(
+      {
         model,
         instructions: systemInstructions,
-        input: `${buildArticleAngleSuggestionsPrompt(request)}\n\n${buildArticleFactualCorrectionInstruction(error.message, suggestions)}`,
-        text: { format: { type: "json_schema", name: "article_angle_suggestions", strict: true, schema: buildPublicationAnglesJsonSchema() } },
-      });
-      suggestions = validateArticleAngleSuggestions(parseArticleResponse(correctionResponse));
-      validateArticleAngleQualifications(request, suggestions);
-      await recordArticleUsage({ callContext: callContext ? { ...callContext, retryNumber: (callContext.retryNumber ?? 0) + 1 } : undefined, operation: "article_angle_suggestions", model, status: "succeeded", durationMs: Math.max(1, Date.now() - requestStartedAt), response: correctionResponse });
-      return { suggestions, metadata: createMetadata(model, requestStartedAt) };
-    }
+        input: buildArticleAngleSuggestionsPrompt(request),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "article_angle_suggestions",
+            strict: true,
+            schema: buildArticleAngleSuggestionsJsonSchema(),
+          },
+        },
+      },
+      { timeout: contentIntelligenceConfig.requestTimeoutMs, maxRetries: 0 },
+    );
+    const suggestions = filterValidArticleAngleQualifications(
+      request,
+      validateArticleAngleSuggestions(parseArticleResponse(response)),
+    );
     const metadata = createMetadata(model, requestStartedAt);
     await recordArticleUsage({
       callContext,

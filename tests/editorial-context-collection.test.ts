@@ -158,6 +158,7 @@ describe("editorial context collections", () => {
         sourceDate: "2026-10-21",
         interviewer: "Lea Journaliste",
         interviewee: "Mila Martin",
+        subjectIdentityConfirmed: true,
         sourceText,
         excerpts: [
           {
@@ -195,6 +196,9 @@ describe("editorial context collections", () => {
         interviewSourceId: "interview-1",
         interviewExcerptId: "answer-1",
         interviewSpeakerRole: "interviewee",
+        interviewSubjectIdentityConfirmed: true,
+        interviewSubjectName: "Mila Martin",
+        declaredSubjectName: "Mila Martin",
         sourceStart: answerStart,
         sourceEnd: answerStart + answer.length,
       },

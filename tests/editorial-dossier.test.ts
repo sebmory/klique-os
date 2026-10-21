@@ -169,6 +169,11 @@ describe("canonical EditorialDossier", () => {
     ]);
     expect(dossier.missingInformation.find((item) => item.code === "NO_USABLE_FACTS"))
       .toMatchObject({ blocksFactualGeneration: true });
+    expect(dossier.confidence).toMatchObject({
+      level: "unknown",
+      score: null,
+      usableFactIds: [],
+    });
     expect(dossier.confidence.reasons.join(" ")).toContain("angles restent possibles");
   });
 
