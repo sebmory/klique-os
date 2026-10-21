@@ -318,6 +318,18 @@ Les configurations utilisent des variables d'environnement.
 
 Aucun secret ne doit être présent dans le code source.
 
+## Brouillons Article durables
+
+`KLIQUE_ARTICLE_CREATION_DRAFTS_ENABLED=true` active la sauvegarde serveur privée
+des brouillons Article. Toute valeur différente, ou l'absence de la variable,
+laisse la fonctionnalité désactivée et ne consulte pas la table
+`article_creation_drafts`.
+
+L'activation exige l'application préalable de la migration
+`20261021_article_creation_drafts_v1.sql`. Une activation sans ce schéma doit
+rester une erreur explicite et ne doit jamais être présentée comme un
+enregistrement réussi.
+
 ---
 
 # Observabilité

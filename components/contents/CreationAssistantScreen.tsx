@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -69,9 +77,16 @@ import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } 
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
 import { runContentsBackfill } from "@/services/content-backfill";
+import { useArticleDraftPersistence } from "@/components/contents/useArticleDraftPersistence";
+import type {
+  ArticleCreationDraftPayload,
+  ArticleCreationDraftStepId,
+} from "@/types/article-creation-draft";
 
 type CreationAssistantScreenProps = {
   context: ContentCreationContext;
+  durableArticleDraftsEnabled?: boolean;
+  initialArticleDraftId?: string;
 };
 
 type CreationGenerateState = {
@@ -459,7 +474,12 @@ const readArticleBlockDetails = (payload: ArticleApiError | null): ArticleBlockD
   };
 };
 
-export function CreationAssistantScreen({ context }: CreationAssistantScreenProps) {
+export function CreationAssistantScreen({
+  context,
+  durableArticleDraftsEnabled = false,
+  initialArticleDraftId,
+}: CreationAssistantScreenProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const summaryStepRequested = searchParams.get("step") === "summary";
   const currentContextKey = creationContextKey(context);
@@ -491,7 +511,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [generateState, setGenerateState] = useState<CreationGenerateState>({ loading: false, errorMessage: null });
   const [contextState, setContextState] = useState<ContextCollectState>(emptyContextCollectState);
-  const [workflowHydrated, setWorkflowHydrated] = useState(false);
+  const [workflowHydrated, setWorkflowHydrated] = useState(
+    () => durableArticleDraftsEnabled && context.objective === "article",
+  );
   const [stepErrorMessage, setStepErrorMessage] = useState<string | null>(null);
   const [publicationAnglesState, setPublicationAnglesState] = useState<PublicationAngleState>({
     loading: false,
@@ -506,6 +528,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     selectedStructureId: "",
     blockDetails: null,
   });
+  const [articleChoicesNeedReview, setArticleChoicesNeedReview] = useState(false);
   const [contextItemEditState, setContextItemEditState] = useState<{
     itemId: string;
     value: string;
@@ -640,8 +663,137 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     () => ContentCreationAssistantService.parametersForObjective(draft.objective.objective),
     [draft.objective.objective]
   );
+  const durableArticleDraftsActive = durableArticleDraftsEnabled && isArticleFlow;
+  const articleDraftPayload = useMemo<ArticleCreationDraftPayload>(() => ({
+    schemaVersion: 1,
+    contextKey: currentContextKey,
+    draft,
+    stepId: (step?.id ?? "subject") as ArticleCreationDraftStepId,
+    contextState: {
+      collectionId: contextState.collectionId,
+      expiresAt: contextState.expiresAt,
+      items: contextState.items,
+      reports: contextState.reports,
+      researchedAt: contextState.researchedAt,
+      dateRange: contextState.dateRange,
+      hasCollected: contextState.hasCollected,
+    },
+    articleWorkflow: {
+      suggestions: articleWorkflowState.suggestions,
+      structures: articleWorkflowState.structures,
+      selectedStructureId: articleWorkflowState.selectedStructureId,
+      choicesNeedReview: articleChoicesNeedReview,
+    },
+  }), [
+    articleChoicesNeedReview,
+    articleWorkflowState.selectedStructureId,
+    articleWorkflowState.structures,
+    articleWorkflowState.suggestions,
+    contextState.collectionId,
+    contextState.dateRange,
+    contextState.expiresAt,
+    contextState.hasCollected,
+    contextState.items,
+    contextState.reports,
+    contextState.researchedAt,
+    currentContextKey,
+    draft,
+    step?.id,
+  ]);
+  const restoreArticleDraft = useCallback((payload: ArticleCreationDraftPayload) => {
+    previousFingerprintRef.current = buildContextFingerprint(payload.draft);
+    setDraft(payload.draft);
+    const restoredSteps = getStepsForObjective("article", hasPreselectedObjective, payload.draft.presetId);
+    const restoredStepIndex = restoredSteps.findIndex((item) => item.id === payload.stepId);
+    setStepIndex(restoredStepIndex >= 0 ? restoredStepIndex : 0);
+    setContextState({
+      ...payload.contextState,
+      loading: false,
+      errorMessage: null,
+    });
+    setArticleWorkflowState({
+      loadingAction: null,
+      errorMessage: null,
+      suggestions: payload.articleWorkflow.suggestions,
+      structures: payload.articleWorkflow.structures,
+      selectedStructureId: payload.articleWorkflow.selectedStructureId,
+      blockDetails: null,
+    });
+    setArticleChoicesNeedReview(payload.articleWorkflow.choicesNeedReview);
+    setStepErrorMessage(null);
+  }, [hasPreselectedObjective]);
+  const resetArticleDraft = useCallback(() => {
+    const initialDraft = createInitialAssistantDraft(context);
+    previousFingerprintRef.current = buildContextFingerprint(initialDraft);
+    setDraft(initialDraft);
+    setStepIndex(0);
+    setContextState(emptyContextCollectState());
+    setArticleWorkflowState({
+      loadingAction: null,
+      errorMessage: null,
+      suggestions: [],
+      structures: [],
+      selectedStructureId: "",
+      blockDetails: null,
+    });
+    setArticleChoicesNeedReview(false);
+    setStepErrorMessage(null);
+  }, [context]);
+  const buildLegacyArticleDraftPayload = useCallback((raw: string): ArticleCreationDraftPayload | null => {
+    try {
+      const persisted = JSON.parse(raw) as PersistedCreationWorkflow;
+      if (
+        persisted.version !== 2
+        || persisted.draft?.objective?.objective !== "article"
+        || !persisted.contextState
+      ) {
+        return null;
+      }
+      const legacySteps = getStepsForObjective("article", hasPreselectedObjective, persisted.draft.presetId);
+      const legacyStep = legacySteps[Math.max(0, Math.min(persisted.stepIndex, legacySteps.length - 1))]?.id ?? "subject";
+      return {
+        schemaVersion: 1,
+        contextKey: persisted.contextKey,
+        draft: persisted.draft,
+        stepId: legacyStep as ArticleCreationDraftStepId,
+        contextState: {
+          collectionId: persisted.contextState.collectionId,
+          expiresAt: persisted.contextState.expiresAt,
+          items: persisted.contextState.items,
+          reports: persisted.contextState.reports,
+          researchedAt: persisted.contextState.researchedAt,
+          dateRange: persisted.contextState.dateRange,
+          hasCollected: persisted.contextState.hasCollected,
+        },
+        articleWorkflow: {
+          suggestions: [],
+          structures: [],
+          selectedStructureId: "",
+          choicesNeedReview: false,
+        },
+      };
+    } catch {
+      return null;
+    }
+  }, [hasPreselectedObjective]);
+  const articleDraftPersistence = useArticleDraftPersistence({
+    enabled: durableArticleDraftsEnabled,
+    active: isArticleFlow,
+    initialDraftId: initialArticleDraftId,
+    contextKey: currentContextKey,
+    hydrated: workflowHydrated,
+    payload: articleDraftPayload,
+    meaningful: Boolean(draft.subject.displayName.trim()) && draft.objective.objective === "article",
+    onRestore: restoreArticleDraft,
+    onNew: resetArticleDraft,
+    buildLegacyPayload: buildLegacyArticleDraftPayload,
+  });
+  const [articleContextExpired, setArticleContextExpired] = useState(false);
 
   useEffect(() => {
+    if (durableArticleDraftsEnabled && context.objective === "article") {
+      return;
+    }
     try {
       const workflowRaw = window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY);
       if (workflowRaw) {
@@ -679,10 +831,29 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     } finally {
       setWorkflowHydrated(true);
     }
-  }, []);
+  }, [context.objective, durableArticleDraftsEnabled]);
+
+  useEffect(() => {
+    const expiresAt = contextState.collectionId && contextState.expiresAt
+      ? new Date(contextState.expiresAt).getTime()
+      : null;
+    const remainingMs = expiresAt === null ? null : expiresAt - Date.now();
+    const refreshTimer = window.setTimeout(
+      () => setArticleContextExpired(remainingMs !== null && remainingMs <= 0),
+      0,
+    );
+    const expiryTimer = remainingMs !== null && remainingMs > 0
+      ? window.setTimeout(() => setArticleContextExpired(true), remainingMs)
+      : null;
+    return () => {
+      window.clearTimeout(refreshTimer);
+      if (expiryTimer !== null) window.clearTimeout(expiryTimer);
+    };
+  }, [contextState.collectionId, contextState.expiresAt]);
 
   useEffect(() => {
     if (!workflowHydrated) return;
+    if (durableArticleDraftsActive) return;
     const workflow: PersistedCreationWorkflow = {
       version: 2,
       contextKey: currentContextKey,
@@ -691,7 +862,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       contextState,
     };
     window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(workflow));
-  }, [contextState, currentContextKey, draft, effectiveStepIndex, workflowHydrated]);
+  }, [contextState, currentContextKey, draft, durableArticleDraftsActive, effectiveStepIndex, workflowHydrated]);
 
   useEffect(() => {
     if (!workflowHydrated || previousContextKeyRef.current === currentContextKey) return;
@@ -1172,6 +1343,10 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
   };
 
   const restartAssistant = () => {
+    if (durableArticleDraftsActive) {
+      void articleDraftPersistence.startNew();
+      return;
+    }
     window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
     window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
     setDraft(createInitialAssistantDraft(context));
@@ -1188,6 +1363,16 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
       selectedStructureId: "",
       blockDetails: null,
     });
+    setArticleChoicesNeedReview(false);
+  };
+
+  const quitAssistant = async (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (!durableArticleDraftsActive) return;
+    event.preventDefault();
+    const canLeave = await articleDraftPersistence.flushBeforeNavigation();
+    if (canLeave) {
+      router.push("/contents");
+    }
   };
 
   const selectSubjectType = (type: CreationSubjectType) => {
@@ -1347,6 +1532,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const generateArticleAngles = async () => {
     if (!preparedPayload || articleWorkflowState.loadingAction) return;
+    if (articleContextExpired) {
+      setArticleWorkflowState((current) => ({
+        ...current,
+        errorMessage: "Le contexte a expiré. Renouvelez-le avant de proposer des angles.",
+      }));
+      return;
+    }
 
     setArticleWorkflowState((current) => ({ ...current, loadingAction: "angles", errorMessage: null }));
     try {
@@ -1377,6 +1569,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         structures: [],
         selectedStructureId: "",
       });
+      setArticleChoicesNeedReview(false);
     } catch {
       setArticleWorkflowState((current) => ({
         ...current,
@@ -1391,6 +1584,13 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const generateArticleStructures = async () => {
     if (!preparedPayload || !normalize(draft.parameters.articleSelectedAngle) || articleWorkflowState.loadingAction) return;
+    if (articleContextExpired) {
+      setArticleWorkflowState((current) => ({
+        ...current,
+        errorMessage: "Le contexte a expiré. Renouvelez-le avant de proposer des structures.",
+      }));
+      return;
+    }
 
     setArticleWorkflowState((current) => ({ ...current, loadingAction: "structures", errorMessage: null }));
     try {
@@ -1422,6 +1622,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         structures: payload.result.suggestions,
         selectedStructureId: "",
       }));
+      setArticleChoicesNeedReview(false);
     } catch {
       setArticleWorkflowState((current) => ({
         ...current,
@@ -1435,6 +1636,15 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const runArticleFinalGeneration = async () => {
     if (!preparedPayload || generationInFlightRef.current || resultNavigationStartedRef.current) return;
+    if (articleContextExpired || articleChoicesNeedReview) {
+      setGenerateState({
+        loading: false,
+        errorMessage: articleContextExpired
+          ? "Le contexte a expiré. Renouvelez-le avant de générer l’article."
+          : "Revalidez l’angle et la structure après la modification de la matière.",
+      });
+      return;
+    }
     const selectedStructure = articleWorkflowState.structures.find(
       (structure) => structure.id === articleWorkflowState.selectedStructureId,
     );
@@ -1511,6 +1721,8 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
 
   const collectContext = useCallback(async () => {
     if (!draft.subject.type || !normalize(draft.subject.displayName)) return;
+    const previousContextItems = contextState.items;
+    const renewingExpiredContext = articleContextExpired;
 
     const selectedConnectorIds: ContextConnectorId[] = [];
     if (draft.parameters.contextEnableCrm) selectedConnectorIds.push("crm");
@@ -1580,10 +1792,28 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         return;
       }
 
+      const previousById = new Map(previousContextItems.map((item) => [item.id, item]));
+      const refreshedItems = payload.items.map((item) => {
+        const previous = previousById.get(item.id);
+        if (!previous) return item;
+        return {
+          ...item,
+          isSelected: previous.isSelected,
+          editedSummary: previous.editedSummary,
+        };
+      });
+      const selectedMatterChanged = renewingExpiredContext
+        && previousContextItems.some((previous) => {
+          if (!previous.isSelected) return false;
+          const refreshed = payload.items.find((item) => item.id === previous.id);
+          return !refreshed
+            || refreshed.summary !== previous.summary
+            || refreshed.factualStatement !== previous.factualStatement;
+        });
       setContextState({
         loading: false,
         errorMessage: null,
-        items: payload.items,
+        items: refreshedItems,
         reports: payload.reports,
         collectionId: payload.collectionId,
         expiresAt: payload.expiresAt,
@@ -1591,6 +1821,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         dateRange: payload.summary.dateRange,
         hasCollected: true,
       });
+      if (selectedMatterChanged) {
+        setArticleChoicesNeedReview(true);
+      }
     } catch {
       setContextState((previous) => ({
         ...previous,
@@ -1601,7 +1834,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     } finally {
       void loadCreditBalance();
     }
-  }, [draft, loadCreditBalance]);
+  }, [articleContextExpired, contextState.items, draft, loadCreditBalance]);
 
   const generatePublicationAngles = useCallback(async () => {
     if (!preparedPayload || draft.objective.objective !== "publication") return;
@@ -2074,6 +2307,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
     if (!workflowHydrated) return;
     if (previousFingerprintRef.current === contextFingerprint) return;
     previousFingerprintRef.current = contextFingerprint;
+    const choicesReviewTimer = articleWorkflowState.suggestions.length || articleWorkflowState.structures.length
+      ? window.setTimeout(() => setArticleChoicesNeedReview(true), 0)
+      : null;
 
     setContextState((previous) => {
       if (
@@ -2097,7 +2333,15 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         hasCollected: false,
       };
     });
-  }, [contextFingerprint, workflowHydrated]);
+    return () => {
+      if (choicesReviewTimer !== null) window.clearTimeout(choicesReviewTimer);
+    };
+  }, [
+    articleWorkflowState.structures.length,
+    articleWorkflowState.suggestions.length,
+    contextFingerprint,
+    workflowHydrated,
+  ]);
 
   const renderSubjectStep = () => {
     return (
@@ -2640,6 +2884,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                         selectedStructureId: "",
                         errorMessage: null,
                       }));
+                      setArticleChoicesNeedReview(false);
                     }}
                   >
                     <strong>{suggestion.title}</strong>
@@ -2835,13 +3080,14 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                   key={structure.id}
                   type="button"
                   className={articleWorkflowState.selectedStructureId === structure.id ? "creation-option-card is-active" : "creation-option-card"}
-                  onClick={() =>
+                  onClick={() => {
                     setArticleWorkflowState((current) => ({
                       ...current,
                       selectedStructureId: structure.id,
                       errorMessage: null,
-                    }))
-                  }
+                    }));
+                    setArticleChoicesNeedReview(false);
+                  }}
                 >
                   <strong>{structure.title}</strong>
                   <p>{structure.editorialPromise}</p>
@@ -3247,8 +3493,9 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
                     </div>
                   ) : null}
                   <p className="creation-muted">
-                    Le brouillon de l’entretien est conservé uniquement dans cet onglet. Il ne
-                    constitue pas une sauvegarde durable.
+                    {durableArticleDraftsActive
+                      ? "L’entretien est inclus dans votre brouillon privé dès que l’état « Enregistré » est affiché."
+                      : "Le brouillon de l’entretien est conservé uniquement dans cet onglet. Il ne constitue pas une sauvegarde durable."}
                   </p>
                 </section>
               ) : null}
@@ -4873,8 +5120,151 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
         <button type="button" className="contents-ghost-button" onClick={restartAssistant}>
           Recommencer
         </button>
-        <Link href="/contents" className="crm-secondary-action-link">Quitter</Link>
+        <Link href="/contents" className="crm-secondary-action-link" onClick={quitAssistant}>Quitter</Link>
       </header>
+
+      {durableArticleDraftsActive ? (
+        <section className="creation-panel" aria-label="Brouillons Article durables">
+          <div className="creation-footer-actions">
+            <div>
+              <strong>
+                {articleDraftPersistence.saveState === "saving"
+                  ? "Enregistrement…"
+                  : articleDraftPersistence.saveState === "saved"
+                    ? "Enregistré"
+                    : articleDraftPersistence.saveState === "loading"
+                      ? "Chargement des brouillons…"
+                      : "Brouillon privé"}
+              </strong>
+              {articleDraftPersistence.activeVersion ? (
+                <p className="creation-muted">Version {articleDraftPersistence.activeVersion}</p>
+              ) : null}
+            </div>
+            <div className="creation-footer-right">
+              <button
+                type="button"
+                className="contents-secondary-button"
+                onClick={() => articleDraftPersistence.setManagerOpen(!articleDraftPersistence.managerOpen)}
+              >
+                Mes brouillons
+              </button>
+              <button
+                type="button"
+                className="contents-secondary-button"
+                onClick={() => void articleDraftPersistence.startNew()}
+              >
+                Nouveau brouillon
+              </button>
+            </div>
+          </div>
+
+          {articleDraftPersistence.privacyNoticeVisible ? (
+            <div className="creation-interview-feedback is-information" role="status">
+              <p>
+                Votre entretien et votre brouillon sont enregistrés dans votre espace privé pour être retrouvés sur vos appareils.
+              </p>
+              <p>
+                Ils sont conservés jusqu’à leur suppression manuelle. Les sauvegardes techniques suivent la politique de conservation de l’hébergeur.
+              </p>
+              <button type="button" className="contents-ghost-button" onClick={articleDraftPersistence.dismissPrivacyNotice}>
+                J’ai compris
+              </button>
+            </div>
+          ) : null}
+
+          {articleDraftPersistence.legacyDraftAvailable ? (
+            <div className="creation-interview-feedback is-information">
+              <p>Un ancien brouillon local existe dans cet onglet. Il n’a pas été importé automatiquement.</p>
+              <button
+                type="button"
+                className="contents-secondary-button"
+                onClick={() => void articleDraftPersistence.importLegacyDraft()}
+              >
+                Enregistrer ce brouillon dans mon espace privé
+              </button>
+            </div>
+          ) : null}
+
+          {articleDraftPersistence.errorMessage ? (
+            <div className="creation-error" role="alert">
+              <p>{articleDraftPersistence.errorMessage}</p>
+              {articleDraftPersistence.conflictVersion !== null ? (
+                <div className="creation-footer-right">
+                  <button type="button" className="contents-secondary-button" onClick={() => void articleDraftPersistence.loadServerVersion()}>
+                    Charger la version serveur
+                  </button>
+                  <button type="button" className="contents-secondary-button" onClick={() => void articleDraftPersistence.duplicateLocalVersion()}>
+                    Enregistrer mon travail dans un nouveau brouillon
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="contents-secondary-button" onClick={() => void articleDraftPersistence.retry()}>
+                  Réessayer
+                </button>
+              )}
+            </div>
+          ) : null}
+
+          {articleDraftPersistence.managerOpen ? (
+            <div>
+              <h2>Mes brouillons</h2>
+              {articleDraftPersistence.drafts.length ? (
+                <ul className="creation-connector-list">
+                  {articleDraftPersistence.drafts.map((savedDraft) => (
+                    <li key={savedDraft.id}>
+                      <div>
+                        <strong>{savedDraft.displayTitle}</strong>
+                        <small>
+                          {`Étape ${savedDraft.stepId} · ${formatDateTimeLabel(savedDraft.updatedAt)}`}
+                        </small>
+                      </div>
+                      <div className="creation-footer-right">
+                        <button
+                          type="button"
+                          className="contents-secondary-button"
+                          disabled={savedDraft.id === articleDraftPersistence.activeDraftId}
+                          onClick={() => void articleDraftPersistence.loadDraft(savedDraft.id)}
+                        >
+                          {savedDraft.id === articleDraftPersistence.activeDraftId ? "Ouvert" : "Reprendre"}
+                        </button>
+                        <button
+                          type="button"
+                          className="contents-ghost-button"
+                          onClick={() => void articleDraftPersistence.removeDraft(savedDraft.id)}
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="creation-muted">Aucun brouillon Article enregistré.</p>
+              )}
+            </div>
+          ) : null}
+
+          {articleContextExpired ? (
+            <div className="creation-interview-feedback is-information" role="status">
+              <p>Le contexte collecté a expiré. Votre brouillon est conservé.</p>
+              <button
+                type="button"
+                className="contents-secondary-button"
+                disabled={contextState.loading}
+                onClick={requestContextSearch}
+              >
+                Renouveler le contexte
+              </button>
+            </div>
+          ) : null}
+
+          {articleChoicesNeedReview ? (
+            <p className="creation-interview-feedback is-information" role="status">
+              La matière a changé. L’angle et la structure conservés doivent être revalidés avant une nouvelle génération.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <nav className="creation-steps-track" aria-label="Progression de l assistant">
         {steps.map((item, index) => {
@@ -4910,7 +5300,7 @@ export function CreationAssistantScreen({ context }: CreationAssistantScreenProp
           <ArrowLeft size={15} aria-hidden /> Precedent
         </button>
         <div className="creation-footer-right">
-          <Link href="/contents" className="contents-ghost-button">Quitter</Link>
+          <Link href="/contents" className="contents-ghost-button" onClick={quitAssistant}>Quitter</Link>
           <button
             type="button"
             className="crm-primary-action"
