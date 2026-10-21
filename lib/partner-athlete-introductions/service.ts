@@ -490,7 +490,19 @@ export const createPartnerAthleteIntroductionService = (
       });
       if (result.outcome === "identity_ambiguous") {
         throw new PartnerAthleteIntroductionConflictError(
-          "Plusieurs accès actifs correspondent au partenaire ou à l’athlète.",
+          "Plusieurs accès actifs correspondent à l’athlète.",
+          result.outcome,
+        );
+      }
+      if (result.outcome === "ineligible_athlete") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "L’athlète ne dispose pas d’un accès actif permettant de recevoir cette demande.",
+          result.outcome,
+        );
+      }
+      if (result.outcome === "solicitation_disabled") {
+        throw new PartnerAthleteIntroductionConflictError(
+          "Les sollicitations sont désactivées pour ce partenaire.",
           result.outcome,
         );
       }

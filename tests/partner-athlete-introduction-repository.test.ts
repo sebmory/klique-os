@@ -208,7 +208,7 @@ describe("partner introduction transactional repository", () => {
     expect(mutation).toContain("workspace_id =");
   });
 
-  it("activates one historical request atomically with exact access checks and one outbox event", async () => {
+  it("activates one historical request without requiring partner access and with one athlete outbox event", async () => {
     double.setResults([[], [{ outcome: "transitioned", ...requestRow }]]);
     const repository = createPartnerAthleteIntroductionRepository(double.sql);
     const admin = { ...actor, role: "admin" as const, partnerId: null };
@@ -231,8 +231,8 @@ describe("partner introduction transactional repository", () => {
     expect(normalizeSql(double.planned[0])).toContain("for update");
     const mutation = normalizeSql(double.planned[1]);
     expect(mutation).toContain("pg_advisory_xact_lock");
-    expect(mutation).toContain("access.partner_id = request.partner_id");
     expect(mutation).toContain("access.athlete_id = request.athlete_id");
+    expect(mutation).not.toContain("access.partner_id = request.partner_id");
     expect(mutation).toContain("request.flow_version < ?");
     expect(mutation).toContain("request.status = 'pending'");
     expect(mutation).toContain("athlete_response_enabled_at = ?::timestamptz");

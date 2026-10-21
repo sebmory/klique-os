@@ -431,6 +431,29 @@ describe("partner introduction server service", () => {
       expect(repository.activateHistorical).not.toHaveBeenCalled();
   });
 
+  it("reports a missing active athlete access without presenting it as an Admin denial", async () => {
+      vi.mocked(repository.getForAdmin).mockResolvedValue(adminDetail());
+      vi.mocked(repository.activateHistorical).mockResolvedValue({
+        outcome: "ineligible_athlete",
+        request: null,
+        retryAt: null,
+      });
+      const service = createPartnerAthleteIntroductionService({
+        repository,
+        directory,
+        contactReferenceSecret: () => secret,
+      });
+
+      await expect(service.activateHistorical({
+        actor: { ...partnerActor, role: "admin", partnerId: null },
+        requestId: "request-1",
+        idempotencyKey: "activate-1",
+      })).rejects.toMatchObject({
+        message: "L’athlète ne dispose pas d’un accès actif permettant de recevoir cette demande.",
+        outcome: "ineligible_athlete",
+      });
+  });
+
   it("does not offer activation semantics to a resolved historical request", async () => {
       vi.mocked(repository.getForAdmin).mockResolvedValue(adminDetail({ status: "resolved" }));
       const service = createPartnerAthleteIntroductionService({

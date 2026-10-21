@@ -522,15 +522,6 @@ export const createPartnerAthleteIntroductionRepository = (
             AND role = 'admin'
             AND status = 'active'
         ),
-        partner_access AS (
-          SELECT access.clerk_user_id
-          FROM candidate request
-          JOIN user_access access
-            ON access.workspace_id = request.workspace_id
-            AND access.partner_id = request.partner_id
-          WHERE access.role = 'partner_expert'
-            AND access.status = 'active'
-        ),
         athlete_access AS (
           SELECT access.clerk_user_id
           FROM candidate request
@@ -598,7 +589,6 @@ export const createPartnerAthleteIntroductionRepository = (
             AND request.status = 'pending'
             AND request.moderation_status = 'clear'
             AND EXISTS (SELECT 1 FROM actor_access)
-            AND (SELECT COUNT(*) FROM partner_access) = 1
             AND (SELECT COUNT(*) FROM athlete_access) = 1
             AND EXISTS (SELECT 1 FROM pair_lock)
             AND (SELECT allowed FROM solicitation)
@@ -645,10 +635,7 @@ export const createPartnerAthleteIntroductionRepository = (
               WHERE payload_hash IS DISTINCT FROM ${input.payloadHash}
             ) THEN 'idempotency_conflict'
             WHEN EXISTS (SELECT 1 FROM replay) THEN 'replay'
-            WHEN (SELECT COUNT(*) FROM partner_access) > 1
-              OR (SELECT COUNT(*) FROM athlete_access) > 1
-              THEN 'identity_ambiguous'
-            WHEN NOT EXISTS (SELECT 1 FROM partner_access) THEN 'forbidden'
+            WHEN (SELECT COUNT(*) FROM athlete_access) > 1 THEN 'identity_ambiguous'
             WHEN NOT EXISTS (SELECT 1 FROM athlete_access) THEN 'ineligible_athlete'
             WHEN NOT (SELECT allowed FROM solicitation) THEN 'solicitation_disabled'
             WHEN EXISTS (SELECT 1 FROM incompatible) THEN 'unresolved_request'
