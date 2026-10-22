@@ -82,11 +82,14 @@ import type {
   ArticleCreationDraftPayload,
   ArticleCreationDraftStepId,
 } from "@/types/article-creation-draft";
+import type { AthleteNewsArticlePrefill } from "@/types/athlete-news-report";
+import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
 
 type CreationAssistantScreenProps = {
   context: ContentCreationContext;
   durableArticleDraftsEnabled?: boolean;
   initialArticleDraftId?: string;
+  initialAthleteNewsReportId?: string;
 };
 
 type CreationGenerateState = {
@@ -478,6 +481,7 @@ export function CreationAssistantScreen({
   context,
   durableArticleDraftsEnabled = false,
   initialArticleDraftId,
+  initialAthleteNewsReportId,
 }: CreationAssistantScreenProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -544,6 +548,9 @@ export function CreationAssistantScreen({
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationInFlightRef = useRef(false);
   const resultNavigationStartedRef = useRef(false);
+  const athleteNewsPrefillAppliedRef = useRef(false);
+  const [athleteNewsPrefill, setAthleteNewsPrefill] = useState<AthleteNewsArticlePrefill | null>(null);
+  const [athleteNewsPrefillError, setAthleteNewsPrefillError] = useState<string | null>(null);
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
@@ -789,6 +796,57 @@ export function CreationAssistantScreen({
     buildLegacyPayload: buildLegacyArticleDraftPayload,
   });
   const [articleContextExpired, setArticleContextExpired] = useState(false);
+
+  useEffect(() => {
+    if (
+      !initialAthleteNewsReportId
+      || !isArticleFlow
+      || !articleDraftPersistence.initialized
+      || athleteNewsPrefillAppliedRef.current
+    ) {
+      return;
+    }
+    athleteNewsPrefillAppliedRef.current = true;
+    const materialId = `athlete-news-report-${initialAthleteNewsReportId}`;
+    void fetch(`/api/admin/athlete-news-reports/${encodeURIComponent(initialAthleteNewsReportId)}`, {
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          prefill?: AthleteNewsArticlePrefill;
+          message?: string;
+        };
+        if (!response.ok || !payload.prefill) {
+          throw new Error(payload.message || "Impossible de charger le signalement Athlète.");
+        }
+        setAthleteNewsPrefill(payload.prefill);
+        setDraft((current) => {
+          const materials = current.parameters.manualEditorialMaterials ?? [];
+          if (materials.some((material) => material.id === materialId)) return current;
+          return {
+            ...current,
+            parameters: {
+              ...current.parameters,
+              useContextIntelligence: true,
+              contextEnableManual: true,
+              manualEditorialMaterials: [
+                ...materials,
+                buildAthleteNewsEditorialMaterial(payload.prefill!),
+              ],
+            },
+          };
+        });
+      })
+      .catch((error: unknown) => {
+        setAthleteNewsPrefillError(
+          error instanceof Error ? error.message : "Impossible de charger le signalement Athlète.",
+        );
+      });
+  }, [
+    articleDraftPersistence.initialized,
+    initialAthleteNewsReportId,
+    isArticleFlow,
+  ]);
 
   useEffect(() => {
     if (durableArticleDraftsEnabled && context.objective === "article") {
@@ -5122,6 +5180,34 @@ export function CreationAssistantScreen({
         </button>
         <Link href="/contents" className="crm-secondary-action-link" onClick={quitAssistant}>Quitter</Link>
       </header>
+
+      {athleteNewsPrefill ? (
+        <section className="creation-panel" aria-label="Signalement Athlète transféré">
+          <strong>Signalement Athlète transféré</strong>
+          <p className="creation-muted">
+            Déclaration attribuée à l’athlète et non vérifiée indépendamment. Elle est ajoutée comme note, jamais comme fait vérifié ou citation verbatim.
+          </p>
+          <p>{athleteNewsPrefill.message}</p>
+          <p className="creation-muted">Date déclarée : {athleteNewsPrefill.eventDate}</p>
+          <div className="creation-footer-actions">
+            {athleteNewsPrefill.externalUrl ? (
+              <a href={athleteNewsPrefill.externalUrl} target="_blank" rel="noreferrer">
+                Ouvrir le lien fourni
+              </a>
+            ) : null}
+            {athleteNewsPrefill.photoHref ? (
+              <a href={athleteNewsPrefill.photoHref} target="_blank" rel="noreferrer">
+                Voir la photo privée
+              </a>
+            ) : null}
+          </div>
+          <p className="creation-muted">Aucune recherche ni génération n’a été lancée.</p>
+        </section>
+      ) : null}
+
+      {athleteNewsPrefillError ? (
+        <p role="alert" className="creation-error">{athleteNewsPrefillError}</p>
+      ) : null}
 
       {durableArticleDraftsActive ? (
         <section className="creation-panel" aria-label="Brouillons Article durables">

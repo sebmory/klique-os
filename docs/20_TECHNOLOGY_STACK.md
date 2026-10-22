@@ -330,6 +330,18 @@ L'activation exige l'application préalable de la migration
 rester une erreur explicite et ne doit jamais être présentée comme un
 enregistrement réussi.
 
+## Photos privées des actualités Athlètes
+
+`KLIQUE_ATHLETE_NEWS_BLOB_READ_WRITE_TOKEN` contient le jeton du Blob Store
+privé exclusivement réservé aux photos transmises par « J’ai une actu ».
+L'absence de cette variable bloque explicitement l'upload et la lecture.
+
+Ce stockage ne réutilise jamais `BLOB_READ_WRITE_TOKEN`, réservé aux autres
+modules, et ne bascule jamais vers un store public. Le store Vercel Blob doit
+être créé avec l'accès `Private` et le préfixe de variable
+`KLIQUE_ATHLETE_NEWS_BLOB` afin que Vercel fournisse exactement
+`KLIQUE_ATHLETE_NEWS_BLOB_READ_WRITE_TOKEN`.
+
 ---
 
 # Observabilité

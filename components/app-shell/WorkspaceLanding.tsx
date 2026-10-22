@@ -14,6 +14,7 @@ import {
 } from "@/components/app-shell/AthleteServicePlanningCard";
 import { WeeklyResponsesCockpit } from "@/components/app-shell/WeeklyResponsesCockpit";
 import { PartnerIntroductionsAdminCockpit } from "@/components/app-shell/PartnerIntroductionsAdminCockpit";
+import { AthleteNewsReportsAdminCard } from "@/components/app-shell/AthleteNewsReportsAdminCard";
 import {
   getWeeklyResponseKey,
   parseWeeklyResponseDate,
@@ -779,6 +780,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           <div><strong>{monthlyResponses.length}</strong><span>Réponses mensuelles</span></div>
         </div>
       </section>
+
+      <AthleteNewsReportsAdminCard athletes={athletes} />
 
       <PartnerIntroductionsAdminCockpit />
 

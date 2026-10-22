@@ -10,6 +10,7 @@ type CreateContentPageProps = {
     objective?: string;
     preset?: string;
     draftId?: string;
+    athleteNewsReportId?: string;
   }>;
 };
 
@@ -22,6 +23,7 @@ export default async function CreateContentPage({ searchParams }: CreateContentP
       context={context}
       durableArticleDraftsEnabled={isArticleCreationDraftsEnabled()}
       initialArticleDraftId={params.draftId}
+      initialAthleteNewsReportId={params.athleteNewsReportId}
     />
   );
 }

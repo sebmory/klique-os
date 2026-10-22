@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/nextjs";
+import { AthleteNewsReportsCard } from "@/components/athlete/AthleteNewsReportsCard";
 import {
   ClipboardList,
   Sparkles,
@@ -478,6 +479,8 @@ export default function AthletePage() {
       </header>
 
       <PartnerIntroductionRequests />
+
+      <AthleteNewsReportsCard />
 
       {/* HERO */}
       <article

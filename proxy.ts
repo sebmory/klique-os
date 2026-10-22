@@ -44,6 +44,13 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return method === "GET" || method === "PATCH";
   }
 
+  if (pathname === "/api/athlete-news-reports") {
+    return method === "GET" || method === "POST";
+  }
+  if (/^\/api\/athlete-news-reports\/[^/]+\/photo$/.test(pathname)) {
+    return method === "GET";
+  }
+
   if (pathname === "/api/athlete/partner-contact-requests") {
     return method === "GET";
   }
