@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   verifySafvBinding: vi.fn(),
   confirmSafvBinding: vi.fn(),
   disableSafvBinding: vi.fn(),
+  importUpload: vi.fn(),
+  importExtract: vi.fn(),
+  importConfirm: vi.fn(),
+  importGet: vi.fn(),
 }));
 
 vi.mock("@/lib/sports-watch/activation", () => ({
@@ -43,6 +47,15 @@ vi.mock("@/lib/sports-watch/service", () => ({
   },
 }));
 
+vi.mock("@/lib/sports-watch/import-service", () => ({
+  SportsWatchImportService: {
+    upload: mocks.importUpload,
+    extract: mocks.importExtract,
+    confirm: mocks.importConfirm,
+    get: mocks.importGet,
+  },
+}));
+
 import { GET, POST } from "@/app/api/admin/sports-watch/route";
 import { POST as VERIFY } from "@/app/api/admin/sports-watch/swiss-bindings/verify/route";
 import {
@@ -59,6 +72,10 @@ import {
   DELETE as DISABLE_SAFV,
   PUT as CONFIRM_SAFV,
 } from "@/app/api/admin/sports-watch/safv-bindings/[athleteId]/route";
+import { POST as UPLOAD_IMPORT } from "@/app/api/admin/sports-watch/imports/route";
+import { POST as EXTRACT_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/extract/route";
+import { POST as CONFIRM_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/confirm/route";
+import { GET as GET_IMPORT_FILE } from "@/app/api/admin/sports-watch/imports/[importId]/file/route";
 
 describe("disabled sports watch routes", () => {
   beforeEach(() => {
@@ -109,6 +126,22 @@ describe("disabled sports watch routes", () => {
       "http://localhost/api/admin/sports-watch/safv-bindings/athlete-1",
       { method: "DELETE" },
     ), context);
+    const importContext = { params: Promise.resolve({ importId: "11111111-1111-4111-8111-111111111111" }) };
+    const uploadImportResponse = await UPLOAD_IMPORT(new Request(
+      "http://localhost/api/admin/sports-watch/imports",
+      { method: "POST" },
+    ));
+    const extractImportResponse = await EXTRACT_IMPORT(new Request(
+      "http://localhost/api/admin/sports-watch/imports/11111111-1111-4111-8111-111111111111/extract",
+      { method: "POST" },
+    ), importContext);
+    const confirmImportResponse = await CONFIRM_IMPORT(new Request(
+      "http://localhost/api/admin/sports-watch/imports/11111111-1111-4111-8111-111111111111/confirm",
+      { method: "POST" },
+    ), importContext);
+    const getImportFileResponse = await GET_IMPORT_FILE(new Request(
+      "http://localhost/api/admin/sports-watch/imports/11111111-1111-4111-8111-111111111111/file",
+    ), importContext);
 
     expect(getResponse.status).toBe(404);
     expect(postResponse.status).toBe(404);
@@ -121,6 +154,10 @@ describe("disabled sports watch routes", () => {
     expect(verifySafvResponse.status).toBe(404);
     expect(confirmSafvResponse.status).toBe(404);
     expect(disableSafvResponse.status).toBe(404);
+    expect(uploadImportResponse.status).toBe(404);
+    expect(extractImportResponse.status).toBe(404);
+    expect(confirmImportResponse.status).toBe(404);
+    expect(getImportFileResponse.status).toBe(404);
     expect(mocks.requireAdmin).not.toHaveBeenCalled();
     expect(mocks.list).not.toHaveBeenCalled();
     expect(mocks.listSwissBindings).not.toHaveBeenCalled();
@@ -136,5 +173,9 @@ describe("disabled sports watch routes", () => {
     expect(mocks.verifySafvBinding).not.toHaveBeenCalled();
     expect(mocks.confirmSafvBinding).not.toHaveBeenCalled();
     expect(mocks.disableSafvBinding).not.toHaveBeenCalled();
+    expect(mocks.importUpload).not.toHaveBeenCalled();
+    expect(mocks.importExtract).not.toHaveBeenCalled();
+    expect(mocks.importConfirm).not.toHaveBeenCalled();
+    expect(mocks.importGet).not.toHaveBeenCalled();
   });
 });

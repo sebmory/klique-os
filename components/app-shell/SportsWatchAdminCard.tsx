@@ -7,14 +7,15 @@ import {
   type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
 import { Card } from "@/src/design-system/components";
+import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
 import type {
   IwwfBinding,
   IwwfIdentityVerification,
   SafvBinding,
   SafvTeamVerification,
   SportsWatchCandidate,
+  SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
-  SportsWatchSourceKey,
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
@@ -68,7 +69,7 @@ const disciplineSummary = (group: SportsWatchDisciplineGroup): string => {
 };
 
 const sourceOptions: Array<{
-  key: SportsWatchSourceKey;
+  key: SportsWatchCollectionSourceKey;
   label: string;
   url: string;
 }> = [
@@ -106,7 +107,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
   const [safvBindings, setSafvBindings] = useState<SafvBinding[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
-  const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchSourceKey>("bc-bulle");
+  const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchCollectionSourceKey>("bc-bulle");
   const [swissProfileUrl, setSwissProfileUrl] = useState("");
   const [swissPlayerId, setSwissPlayerId] = useState("");
   const [swissVerification, setSwissVerification] =
@@ -619,7 +620,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           aria-label="Source de veille"
           value={selectedSourceKey}
           disabled={busy}
-          onChange={(event) => setSelectedSourceKey(event.target.value as SportsWatchSourceKey)}
+          onChange={(event) => setSelectedSourceKey(event.target.value as SportsWatchCollectionSourceKey)}
           style={{ minWidth: "16rem", flex: "1 1 16rem" }}
         >
           {sourceOptions.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
@@ -1017,6 +1018,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           )}
         </details>
       ) : null}
+
+      <SportsWatchImportPanel
+        athletes={athletes}
+        onCandidateCreated={(candidate) => {
+          setCandidates((current) => [
+            candidate,
+            ...current.filter((item) => item.id !== candidate.id),
+          ]);
+        }}
+      />
 
       {message ? <p role="status" style={{ color: "#166534", fontSize: "0.84rem" }}>{message}</p> : null}
       {error ? <p role="alert" style={{ color: "#b91c1c", fontSize: "0.84rem" }}>{error}</p> : null}

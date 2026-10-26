@@ -48,15 +48,15 @@ import type {
   SportsWatchAdminStatus,
   SportsWatchArticlePrefill,
   SportsWatchCandidate,
+  SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
-  SportsWatchSourceKey,
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
 import type { Athlete } from "@/types/athlete";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const sourceDefinitions: Record<SportsWatchSourceKey, {
+const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
   name: string;
   url: string;
   noRecentMessage: string;
@@ -111,7 +111,7 @@ const requireUuid = (value: unknown): string => {
   return id;
 };
 
-const requireSourceKey = (value: unknown): SportsWatchSourceKey => {
+const requireSourceKey = (value: unknown): SportsWatchCollectionSourceKey => {
   const sourceKey = normalize(value);
   if (
     sourceKey !== "bc-bulle"
@@ -173,7 +173,7 @@ type SportsWatchCollector = (
 type SportsWatchServiceDependencies = {
   repository: SportsWatchRepository;
   getAthletes: () => Promise<Athlete[]>;
-  collectors: Record<SportsWatchSourceKey, SportsWatchCollector>;
+  collectors: Record<SportsWatchCollectionSourceKey, SportsWatchCollector>;
   verifySwissProfile: typeof verifySwissBadmintonProfile;
   verifyIwwfProfile: typeof verifyIwwfProfile;
   verifySafvTeam: typeof verifySafvTeam;
@@ -214,7 +214,7 @@ const defaultDependencies: SportsWatchServiceDependencies = {
 };
 
 const runMessage = (
-  sourceKey: SportsWatchSourceKey,
+  sourceKey: SportsWatchCollectionSourceKey,
   recentCount: number,
   createdCount: number,
   candidateCount: number,

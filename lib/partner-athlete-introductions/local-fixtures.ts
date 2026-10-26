@@ -78,9 +78,27 @@ export const localSportsWatchAthlete: Athlete = {
   nationality: "Suisse",
 };
 
+export const localSportsWatchImportAthlete: Athlete = {
+  ...localIntroductionAthlete,
+  key: "sports-watch-import-athlete-test",
+  athleteId: "sports-watch-import-athlete-test",
+  name: "Footballeur Test KLIQUE",
+  initials: "FT",
+  sport: "Football",
+  club: "FC Test",
+  instagram: "",
+  email: "football.import.fixture@example.test",
+  palmares: "Fixture locale d’import de résultat",
+  objective: "Valider un document sportif fictif",
+};
+
 export const localAdminFixtureAthletes = (): Athlete[] => [
   localIntroductionAthlete,
   ...(localSportsWatchFixturesEnabled() ? [localSportsWatchAthlete] : []),
+  ...(process.env.NODE_ENV === "development"
+    && process.env.KLIQUE_SPORTS_WATCH_IMPORT_LOCAL_ATHLETE === "true"
+    ? [localSportsWatchImportAthlete]
+    : []),
 ];
 
 export const localIntroductionAthleteDirectoryEntry: PublicAthleteDirectoryEntry = {

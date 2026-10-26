@@ -9,7 +9,10 @@ export type SportsWatchSourceKey =
   | "swiss-badminton"
   | "iwwf-wakesurf"
   | "kenpokan"
-  | "safv";
+  | "safv"
+  | "manual-import";
+
+export type SportsWatchCollectionSourceKey = Exclude<SportsWatchSourceKey, "manual-import">;
 
 export type SwissBadmintonOfficialIdentity = {
   profileUrl: string;
@@ -149,4 +152,52 @@ export type SportsWatchArticlePrefill = {
   athleteId: string;
   verificationStatus: SportsWatchVerificationStatus;
   material: ManualEditorialMaterial;
+};
+
+export type SportsWatchImportExtraction = {
+  sourceName: string | null;
+  documentDate: string | null;
+  matchDate: string | null;
+  competition: string | null;
+  participantA: string | null;
+  participantB: string | null;
+  score: string | null;
+  resultKind: SportsWatchResultKind | null;
+  individualParticipationExplicit: boolean;
+  individualEvidence: string | null;
+  individualStatistics: string[];
+  warnings: string[];
+};
+
+export type SportsWatchImport = {
+  id: string;
+  athleteId: string;
+  athleteName: string;
+  athleteSport: string;
+  athleteClub: string;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+  fileHref: string;
+  status: "uploaded" | "extracted" | "confirmed";
+  extraction: SportsWatchImportExtraction | null;
+  extractionProvider: string | null;
+  extractionModel: string | null;
+  extractedAt: string | null;
+  candidateId: string | null;
+  version: number;
+};
+
+export type SportsWatchImportConfirmation = {
+  sourceName: string;
+  documentDate: string | null;
+  matchDate: string | null;
+  competition: string | null;
+  participantA: string | null;
+  participantB: string | null;
+  score: string | null;
+  resultKind: SportsWatchResultKind;
+  individualParticipationExplicit: boolean;
+  individualEvidence: string | null;
+  individualStatistics: string[];
 };

@@ -378,6 +378,33 @@ Aucune équipe SAFV réelle n'est insérée automatiquement. Le calendrier et le
 nom officiel de l'équipe doivent être vérifiés puis confirmés par un Admin.
 La désactivation bloque les nouvelles collectes sans supprimer l'historique.
 
+### Import manuel de résultats
+
+L'Admin peut importer dans la veille un document JPEG, PNG, WebP ou PDF pour
+un athlète basket, football ou tennis. Le fichier est conservé dans le Blob
+Store privé et reste accessible uniquement par une route Admin isolée par
+workspace. La limite est de 10 Mo et les PDF sont validés côté serveur avec
+un maximum de cinq pages.
+
+Le bouton « Extraire les résultats » déclenche exactement un appel Responses,
+sans retry automatique et sans débit de crédit KLIQUE. Le modèle
+`gpt-4.1` est choisi explicitement pour ce parcours : la documentation OpenAI
+confirme les entrées image et PDF dans Responses pour ce modèle. L'appel
+utilise un schéma JSON strict ; les valeurs absentes ou illisibles restent
+nulles. Seuls les compteurs d'usage, le modèle, le statut et l'identifiant de
+réponse sont journalisés, jamais le document, le prompt ou l'extraction.
+
+L'extraction reste un brouillon modifiable. Une confirmation humaine est
+obligatoire avant la création idempotente d'un candidat `pending` et
+`unverified`. Un résultat collectif conserve explicitement la mention que la
+participation individuelle n'est pas vérifiée. Le transfert Article transmet
+la provenance de la route privée sans rendre le fichier public ni élargir ses
+autorisations.
+
+Ce parcours exige la migration additive
+`20261026_sports_watch_manual_imports.sql`. Elle ne contient aucune donnée et
+ne doit pas être exécutée automatiquement.
+
 ## Photos privées des actualités Athlètes
 
 `KLIQUE_ATHLETE_NEWS_BLOB_READ_WRITE_TOKEN` contient le jeton du Blob Store
