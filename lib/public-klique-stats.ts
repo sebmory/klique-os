@@ -36,6 +36,16 @@ const normalize = (value: unknown): string => String(value ?? "")
   .replace(/[\u0300-\u036f]/g, "")
   .toLocaleLowerCase("fr");
 
+const normalizePublicSportLabelsForCount = (value: unknown): string[] => {
+  const label = String(value ?? "").trim().replace(/\s+/g, " ");
+  const key = normalize(label).replace(/[-_/]+/g, " ").replace(/\s+/g, " ");
+
+  if (key === "foot us et basket") {
+    return ["Football américain", "Basketball"];
+  }
+  return [normalizePublicSportLabel(label)];
+};
+
 const isCanonicalPublicAthlete = (athlete: StatsAthlete): boolean =>
   typeof athlete.row === "number"
   && athlete.row > 0
@@ -62,7 +72,7 @@ export const calculatePublicKliqueStats = (
   const publicAthletes = athletes.filter(isCanonicalPublicAthlete);
   const normalizedSports = new Set(
     publicAthletes
-      .map((athlete) => normalizePublicSportLabel(athlete.sport))
+      .flatMap((athlete) => normalizePublicSportLabelsForCount(athlete.sport))
       .map(normalize)
       .filter(Boolean),
   );

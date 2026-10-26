@@ -15,6 +15,7 @@ import {
 import { WeeklyResponsesCockpit } from "@/components/app-shell/WeeklyResponsesCockpit";
 import { PartnerIntroductionsAdminCockpit } from "@/components/app-shell/PartnerIntroductionsAdminCockpit";
 import { AthleteNewsReportsAdminCard } from "@/components/app-shell/AthleteNewsReportsAdminCard";
+import { SportsWatchAdminCard } from "@/components/app-shell/SportsWatchAdminCard";
 import {
   getWeeklyResponseKey,
   parseWeeklyResponseDate,
@@ -23,6 +24,7 @@ import {
 
 type WorkspaceLandingProps = {
   sectionTitle?: string;
+  sportsWatchEnabled?: boolean;
 };
 
 type AthleteOfTheMonthNomination = {
@@ -212,7 +214,10 @@ const getMonthlyPreviewInformation = (
     .slice(0, 2);
 };
 
-export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLandingProps) {
+export function WorkspaceLanding({
+  sectionTitle = "Aujourd'hui",
+  sportsWatchEnabled = false,
+}: WorkspaceLandingProps) {
   const [dashboardNow] = useState(() => Date.now());
   const lastCompletedAwardPeriod = getLastCompletedAwardPeriod(new Date(dashboardNow));
   const [selectedAwardPeriod, setSelectedAwardPeriod] = useState(lastCompletedAwardPeriod);
@@ -259,7 +264,14 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
           const athletesPayload = (await athletesResponse.json()) as AthletesResponse | { error?: string };
           if (!active) return;
 
-          if (athletesResponse.ok && "source" in athletesPayload && athletesPayload.source === "google-sheets") {
+          if (
+            athletesResponse.ok
+            && "source" in athletesPayload
+            && (
+              athletesPayload.source === "google-sheets"
+              || athletesPayload.source === "local-introduction-fixtures"
+            )
+          ) {
             setAthletesAvailable(true);
             setAthletes(athletesPayload.athletes);
           } else {
@@ -782,6 +794,8 @@ export function WorkspaceLanding({ sectionTitle = "Aujourd'hui" }: WorkspaceLand
       </section>
 
       <AthleteNewsReportsAdminCard athletes={athletes} />
+
+      {sportsWatchEnabled ? <SportsWatchAdminCard athletes={athletes} /> : null}
 
       <PartnerIntroductionsAdminCockpit />
 

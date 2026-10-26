@@ -28,6 +28,26 @@ describe("public KLIQUE statistics", () => {
     });
   });
 
+  it("counts explicit multi-sport labels without duplicating normalized or unknown sports", () => {
+    const stats = calculatePublicKliqueStats(
+      [
+        { row: 4, athleteId: "athlete-1", name: "Mila", sport: "Football", status: "Actif" },
+        { row: 5, athleteId: "athlete-2", name: "Noa", sport: "Foot U17", status: "Membre" },
+        { row: 6, athleteId: "athlete-3", name: "Alex", sport: "Basket U18", status: "Actif" },
+        { row: 7, athleteId: "athlete-4", name: "Sam", sport: "Basketball", status: "Actif" },
+        { row: 8, athleteId: "athlete-5", name: "Charlie", sport: "Football américain", status: "Actif" },
+        { row: 9, athleteId: "athlete-6", name: "Lou", sport: "Foot us et basket", status: "Actif" },
+        { row: 10, athleteId: "athlete-7", name: "Jo", sport: "Badminton", status: "Actif" },
+        { row: 11, athleteId: "athlete-8", name: "Alix", sport: "Tennis", status: "Actif" },
+        { row: 12, athleteId: "athlete-9", name: "Cam", sport: "Judo", status: "Actif" },
+        { row: 13, athleteId: "athlete-10", name: "Sasha", sport: "Course et orientation", status: "Actif" },
+      ],
+      [],
+    );
+
+    expect(stats.sportCount).toBe(7);
+  });
+
   it("counts only active canonical partner and expert records", () => {
     const stats = calculatePublicKliqueStats(
       [],

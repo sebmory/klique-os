@@ -116,7 +116,7 @@ export type AthleteUpdate = Pick<Athlete, "row"> &
 
 export type AthletesResponse = {
   athletes: Athlete[];
-  source: "google-sheets" | "demo";
+  source: "google-sheets" | "demo" | "local-introduction-fixtures";
   message?: string;
 };
 

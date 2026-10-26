@@ -330,6 +330,14 @@ L'activation exige l'application préalable de la migration
 rester une erreur explicite et ne doit jamais être présentée comme un
 enregistrement réussi.
 
+## Veille sportive manuelle
+
+`KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille BC Bulle.
+Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
+rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
+et `sports_watch_candidates`. L'activation exige l'application préalable de la
+migration additive `20261026_sports_watch_v1.sql`.
+
 ## Photos privées des actualités Athlètes
 
 `KLIQUE_ATHLETE_NEWS_BLOB_READ_WRITE_TOKEN` contient le jeton du Blob Store

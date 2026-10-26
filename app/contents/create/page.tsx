@@ -11,6 +11,7 @@ type CreateContentPageProps = {
     preset?: string;
     draftId?: string;
     athleteNewsReportId?: string;
+    sportsWatchCandidateId?: string;
   }>;
 };
 
@@ -24,6 +25,7 @@ export default async function CreateContentPage({ searchParams }: CreateContentP
       durableArticleDraftsEnabled={isArticleCreationDraftsEnabled()}
       initialArticleDraftId={params.draftId}
       initialAthleteNewsReportId={params.athleteNewsReportId}
+      initialSportsWatchCandidateId={params.sportsWatchCandidateId}
     />
   );
 }

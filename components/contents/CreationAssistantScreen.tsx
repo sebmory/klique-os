@@ -83,6 +83,7 @@ import type {
   ArticleCreationDraftStepId,
 } from "@/types/article-creation-draft";
 import type { AthleteNewsArticlePrefill } from "@/types/athlete-news-report";
+import type { SportsWatchArticlePrefill } from "@/types/sports-watch";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
 
 type CreationAssistantScreenProps = {
@@ -90,6 +91,7 @@ type CreationAssistantScreenProps = {
   durableArticleDraftsEnabled?: boolean;
   initialArticleDraftId?: string;
   initialAthleteNewsReportId?: string;
+  initialSportsWatchCandidateId?: string;
 };
 
 type CreationGenerateState = {
@@ -482,6 +484,7 @@ export function CreationAssistantScreen({
   durableArticleDraftsEnabled = false,
   initialArticleDraftId,
   initialAthleteNewsReportId,
+  initialSportsWatchCandidateId,
 }: CreationAssistantScreenProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -549,8 +552,11 @@ export function CreationAssistantScreen({
   const generationInFlightRef = useRef(false);
   const resultNavigationStartedRef = useRef(false);
   const athleteNewsPrefillAppliedRef = useRef(false);
+  const sportsWatchPrefillAppliedRef = useRef(false);
   const [athleteNewsPrefill, setAthleteNewsPrefill] = useState<AthleteNewsArticlePrefill | null>(null);
   const [athleteNewsPrefillError, setAthleteNewsPrefillError] = useState<string | null>(null);
+  const [sportsWatchPrefill, setSportsWatchPrefill] = useState<SportsWatchArticlePrefill | null>(null);
+  const [sportsWatchPrefillError, setSportsWatchPrefillError] = useState<string | null>(null);
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
@@ -845,6 +851,54 @@ export function CreationAssistantScreen({
   }, [
     articleDraftPersistence.initialized,
     initialAthleteNewsReportId,
+    isArticleFlow,
+  ]);
+
+  useEffect(() => {
+    if (
+      !initialSportsWatchCandidateId
+      || !isArticleFlow
+      || !articleDraftPersistence.initialized
+      || sportsWatchPrefillAppliedRef.current
+    ) {
+      return;
+    }
+    sportsWatchPrefillAppliedRef.current = true;
+    const materialId = `sports-watch-${initialSportsWatchCandidateId}`;
+    void fetch(`/api/admin/sports-watch/${encodeURIComponent(initialSportsWatchCandidateId)}`, {
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          prefill?: SportsWatchArticlePrefill;
+          message?: string;
+        };
+        if (!response.ok || !payload.prefill) {
+          throw new Error(payload.message || "Impossible de charger le candidat de veille.");
+        }
+        setSportsWatchPrefill(payload.prefill);
+        setDraft((current) => {
+          const materials = current.parameters.manualEditorialMaterials ?? [];
+          if (materials.some((material) => material.id === materialId)) return current;
+          return {
+            ...current,
+            parameters: {
+              ...current.parameters,
+              useContextIntelligence: true,
+              contextEnableManual: true,
+              manualEditorialMaterials: [...materials, payload.prefill!.material],
+            },
+          };
+        });
+      })
+      .catch((error: unknown) => {
+        setSportsWatchPrefillError(
+          error instanceof Error ? error.message : "Impossible de charger le candidat de veille.",
+        );
+      });
+  }, [
+    articleDraftPersistence.initialized,
+    initialSportsWatchCandidateId,
     isArticleFlow,
   ]);
 
@@ -5207,6 +5261,23 @@ export function CreationAssistantScreen({
 
       {athleteNewsPrefillError ? (
         <p role="alert" className="creation-error">{athleteNewsPrefillError}</p>
+      ) : null}
+
+      {sportsWatchPrefill ? (
+        <section className="creation-panel" aria-label="Candidat de veille transféré">
+          <strong>Candidat de veille transféré</strong>
+          <p>
+            Validation éditoriale acquise. Vérification factuelle :{" "}
+            {sportsWatchPrefill.verificationStatus === "verified" ? "vérifiée" : "non vérifiée"}.
+          </p>
+          <p>{sportsWatchPrefill.material.text}</p>
+          <p className="creation-muted">{sportsWatchPrefill.material.provenance}</p>
+          <p className="creation-muted">Aucune recherche ni génération n’a été lancée.</p>
+        </section>
+      ) : null}
+
+      {sportsWatchPrefillError ? (
+        <p role="alert" className="creation-error">{sportsWatchPrefillError}</p>
       ) : null}
 
       {durableArticleDraftsActive ? (
