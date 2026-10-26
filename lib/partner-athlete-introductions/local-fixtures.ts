@@ -58,7 +58,10 @@ export const localIntroductionAthlete: Athlete = {
 
 export const localSportsWatchFixturesEnabled = (): boolean =>
   process.env.NODE_ENV === "development"
-  && process.env.KLIQUE_SPORTS_WATCH_SWISS_LOCAL_FIXTURE === "three-disciplines";
+  && (
+    process.env.KLIQUE_SPORTS_WATCH_SWISS_LOCAL_FIXTURE === "three-disciplines"
+    || process.env.KLIQUE_SPORTS_WATCH_SWISS_LOCAL_ATHLETE === "true"
+  );
 
 export const localSportsWatchAthlete: Athlete = {
   ...localIntroductionAthlete,

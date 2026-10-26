@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   collectSwissBadmintonCandidates,
@@ -23,6 +24,10 @@ const profile = {
   club: athlete.club,
 };
 const tournamentId = "B2E4D29A-5E0D-4935-B2B3-3A5DD226E8C4";
+const realProfileOwnerFixture = readFileSync(
+  new URL("./fixtures/swiss-badminton-profile-owner.html", import.meta.url),
+  "utf8",
+);
 
 type FixtureMember = { name: string; id: string };
 
@@ -125,6 +130,33 @@ const collect = (html: string, now = "2026-10-26T10:00:00.000Z") =>
   });
 
 describe("Swiss Badminton sports watch collector", () => {
+  it("reads the profile owner identity without confusing match participants", async () => {
+    const dependencies = {
+      fetch: vi.fn<typeof fetch>().mockImplementation(
+        async () => new Response(realProfileOwnerFixture, { status: 200 }),
+      ),
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    };
+
+    await expect(verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      playerId: SWISS_BADMINTON_PLAYER_ID,
+      dependencies,
+    })).resolves.toMatchObject({
+      officialIdentity: {
+        name: "Antoine Majeux",
+        playerId: SWISS_BADMINTON_PLAYER_ID,
+        club: "BC Bulle",
+      },
+    });
+
+    await expect(verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      playerId: "202582",
+      dependencies,
+    })).rejects.toThrow("ne concorde pas avec le profil officiel");
+  });
+
   it("orients a simple score from Antoine's certain second position", async () => {
     const html = profileHtml(tournamentHtml(eventHtml(
       "SM1",

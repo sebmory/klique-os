@@ -191,17 +191,35 @@ const readOfficialIdentity = (
   if (!normalize(html).includes(normalize(profileUuid))) {
     throw sourceError("l’identifiant du profil n’est pas présent dans la réponse officielle.");
   }
-  const tournamentsIndex = html.search(/\bTurniere\b/i);
-  const identityScope = tournamentsIndex >= 0 ? html.slice(0, tournamentsIndex) : html;
-  const headings = Array.from(identityScope.matchAll(/<(h[1-4])\b[^>]*>([\s\S]*?)<\/\1>/gi))
+  const profileTitleIdentities = Array.from(html.matchAll(
+    /<h2\b[^>]*class=(?:"[^"]*\bmedia__title--large\b[^"]*"|'[^']*\bmedia__title--large\b[^']*')[^>]*>([\s\S]*?)<\/h2>/gi,
+  )).map((match) => {
+    const name = match[1].match(
+      /<span\b[^>]*class=(?:"[^"]*\bnav-link__value\b[^"]*"|'[^']*\bnav-link__value\b[^']*')[^>]*>([\s\S]*?)<\/span>/i,
+    );
+    const playerId = match[1].match(
+      /<span\b[^>]*class=(?:"[^"]*\bmedia__title-aside\b[^"]*"|'[^']*\bmedia__title-aside\b[^']*')[^>]*>\s*\((\d{4,})\)\s*<\/span>/i,
+    );
+    return name && playerId
+      ? { name: toPlainText(name[1]), playerId: playerId[1] }
+      : null;
+  }).filter((identity): identity is { name: string; playerId: string } => Boolean(
+    identity?.name && identity.playerId,
+  ));
+  const firstTournamentIndex = html.search(
+    /<h4\b[^>]*class=(?:"[^"]*\bmedia__title--medium\b[^"]*"|'[^']*\bmedia__title--medium\b[^']*')/i,
+  );
+  const identityScope = firstTournamentIndex >= 0 ? html.slice(0, firstTournamentIndex) : html;
+  const fallbackHeadingIdentities = Array.from(
+    identityScope.matchAll(/<(h[1-4])\b[^>]*>([\s\S]*?)<\/\1>/gi),
+  )
     .map((match) => toPlainText(match[2]))
-    .filter(Boolean);
-  const headingIdentities = headings
     .map((heading) => heading.match(/^(.+?)\s*\((\d{4,})\)\s*$/))
     .filter((match): match is RegExpMatchArray => Boolean(match))
     .map((match) => ({ name: match[1].trim(), playerId: match[2] }));
   const uniqueHeadingIdentities = Array.from(new Map(
-    headingIdentities.map((identity) => [`${normalize(identity.name)}|${identity.playerId}`, identity]),
+    [...profileTitleIdentities, ...fallbackHeadingIdentities]
+      .map((identity) => [`${normalize(identity.name)}|${identity.playerId}`, identity]),
   ).values());
   const requestedPlayerId = String(manualPlayerId ?? "").trim();
   if (requestedPlayerId && !/^\d{4,}$/.test(requestedPlayerId)) {
@@ -231,7 +249,9 @@ const readOfficialIdentity = (
           : "l’identifiant joueur ne peut pas être extrait sans ambiguïté ; saisissez-le manuellement.",
       );
     }
-    const nameHeading = headings.find((heading) =>
+    const nameHeading = Array.from(
+      identityScope.matchAll(/<(h[1-4])\b[^>]*>([\s\S]*?)<\/\1>/gi),
+    ).map((match) => toPlainText(match[2])).find((heading) =>
       !/\b(?:turniere|tournaments?|compétitions?)\b/i.test(heading)
       && !/\(\d{4,}\)/.test(heading));
     if (!nameHeading) throw sourceError("le nom officiel du profil est absent.");
