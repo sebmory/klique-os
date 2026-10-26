@@ -36,8 +36,8 @@ export async function POST(request: Request) {
   if (!isSportsWatchEnabled()) return disabledResponse();
   try {
     const identity = await requireSportsWatchAdmin(request);
-    const body = await request.json() as { athleteId?: unknown };
-    const result = await SportsWatchService.run(body.athleteId, identity);
+    const body = await request.json() as { sourceKey?: unknown; athleteId?: unknown };
+    const result = await SportsWatchService.run(body.sourceKey, body.athleteId, identity);
     return NextResponse.json(
       { ok: true, result },
       { headers: { "Cache-Control": "private, no-store" } },

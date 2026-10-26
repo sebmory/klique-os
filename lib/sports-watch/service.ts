@@ -1,7 +1,7 @@
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
 import {
-  localIntroductionAthlete,
+  localAdminFixtureAthletes,
   localIntroductionFixturesEnabled,
 } from "@/lib/partner-athlete-introductions/local-fixtures";
 import {
@@ -11,6 +11,11 @@ import {
   type SportsWatchAthleteSnapshot,
 } from "@/lib/sports-watch/bcbulle-collector";
 import {
+  SWISS_BADMINTON_PROFILE_URL,
+  SWISS_BADMINTON_SOURCE_NAME,
+  collectSwissBadmintonCandidates,
+} from "@/lib/sports-watch/swiss-badminton-collector";
+import {
   PostgresSportsWatchRepository,
   type SportsWatchRepository,
 } from "@/lib/sports-watch/repository";
@@ -19,11 +24,27 @@ import type {
   SportsWatchArticlePrefill,
   SportsWatchCandidate,
   SportsWatchRunResult,
+  SportsWatchSourceKey,
 } from "@/types/sports-watch";
 import type { Athlete } from "@/types/athlete";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KEY = "bc-bulle";
+const sourceDefinitions: Record<SportsWatchSourceKey, {
+  name: string;
+  url: string;
+  noRecentMessage: string;
+}> = {
+  "bc-bulle": {
+    name: BC_BULLE_SOURCE_NAME,
+    url: BC_BULLE_FEED_URL,
+    noRecentMessage: "Aucune publication BC Bulle des 30 derniers jours. Aucune archive n’a été remontée.",
+  },
+  "swiss-badminton": {
+    name: SWISS_BADMINTON_SOURCE_NAME,
+    url: SWISS_BADMINTON_PROFILE_URL,
+    noRecentMessage: "Aucun résultat Swiss Badminton daté des 30 derniers jours. Aucun résultat ancien n’a été remonté.",
+  },
+};
 
 export type SportsWatchAdminIdentity = {
   workspaceId: string;
@@ -46,6 +67,14 @@ const requireUuid = (value: unknown): string => {
   const id = normalize(value);
   if (!UUID_PATTERN.test(id)) throw new SportsWatchError("validation", "Le candidat de veille est invalide.");
   return id;
+};
+
+const requireSourceKey = (value: unknown): SportsWatchSourceKey => {
+  const sourceKey = normalize(value);
+  if (sourceKey !== "bc-bulle" && sourceKey !== "swiss-badminton") {
+    throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
+  }
+  return sourceKey;
 };
 
 export const requireSportsWatchAdmin = async (request: Request): Promise<SportsWatchAdminIdentity> => {
@@ -85,22 +114,30 @@ const resolveSelectedAthlete = (
 type SportsWatchServiceDependencies = {
   repository: SportsWatchRepository;
   getAthletes: () => Promise<Athlete[]>;
-  collect: typeof collectBcBulleCandidates;
+  collectors: Record<SportsWatchSourceKey, typeof collectBcBulleCandidates>;
   now: () => Date;
 };
 
 const defaultDependencies: SportsWatchServiceDependencies = {
   repository: PostgresSportsWatchRepository,
   getAthletes: () => localIntroductionFixturesEnabled()
-    ? Promise.resolve([localIntroductionAthlete])
+    ? Promise.resolve(localAdminFixtureAthletes())
     : getAthletesFromGoogleSheets(),
-  collect: collectBcBulleCandidates,
+  collectors: {
+    "bc-bulle": collectBcBulleCandidates,
+    "swiss-badminton": collectSwissBadmintonCandidates,
+  },
   now: () => new Date(),
 };
 
-const runMessage = (recentCount: number, createdCount: number, candidateCount: number): string => {
+const runMessage = (
+  sourceKey: SportsWatchSourceKey,
+  recentCount: number,
+  createdCount: number,
+  candidateCount: number,
+): string => {
   if (recentCount === 0) {
-    return "Aucune publication BC Bulle des 30 derniers jours. Aucune archive n’a été remontée.";
+    return sourceDefinitions[sourceKey].noRecentMessage;
   }
   if (candidateCount === 0) {
     return "Aucune publication récente ne peut être attribuée à cet athlète avec les éléments disponibles.";
@@ -114,29 +151,46 @@ const runMessage = (recentCount: number, createdCount: number, candidateCount: n
 const dateLabel = (value: string | null): string => value?.slice(0, 10) ?? "inconnue";
 
 export const createSportsWatchService = (
-  dependencies: SportsWatchServiceDependencies = defaultDependencies,
-) => ({
+  overrides: Partial<Omit<SportsWatchServiceDependencies, "collectors">> & {
+    collectors?: Partial<SportsWatchServiceDependencies["collectors"]>;
+  } = {},
+) => {
+  const dependencies: SportsWatchServiceDependencies = {
+    ...defaultDependencies,
+    ...overrides,
+    collectors: {
+      ...defaultDependencies.collectors,
+      ...overrides.collectors,
+    },
+  };
+  return {
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
   },
 
-  async run(athleteId: unknown, identity: SportsWatchAdminIdentity): Promise<SportsWatchRunResult> {
+  async run(
+    sourceKeyValue: unknown,
+    athleteId: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchRunResult> {
+    const sourceKey = requireSourceKey(sourceKeyValue);
+    const source = sourceDefinitions[sourceKey];
     const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
     const now = dependencies.now().toISOString();
     const runId = await dependencies.repository.startRun({
       workspaceId: identity.workspaceId,
-      sourceKey: SOURCE_KEY,
+      sourceKey,
       athleteId: athlete.id,
       athleteName: athlete.name,
       clerkUserId: identity.clerkUserId,
       now,
     });
     if (!runId) {
-      throw new SportsWatchError("conflict", "Une collecte BC Bulle est déjà en cours pour cet espace.");
+      throw new SportsWatchError("conflict", `Une collecte ${source.name} est déjà en cours pour cet espace.`);
     }
 
     try {
-      const collection = await dependencies.collect(athlete, {
+      const collection = await dependencies.collectors[sourceKey](athlete, {
         lookbackDays: 30,
         dependencies: { now: dependencies.now },
       });
@@ -145,6 +199,7 @@ export const createSportsWatchService = (
         collection.candidates,
       );
       const message = runMessage(
+        sourceKey,
         collection.recentCount,
         createdCount,
         collection.candidates.length,
@@ -158,8 +213,8 @@ export const createSportsWatchService = (
         message,
       });
       return {
-        sourceName: BC_BULLE_SOURCE_NAME,
-        sourceUrl: BC_BULLE_FEED_URL,
+        sourceName: source.name,
+        sourceUrl: source.url,
         message,
         scannedCount: collection.scannedCount,
         recentCount: collection.recentCount,
@@ -167,7 +222,7 @@ export const createSportsWatchService = (
         candidates: await dependencies.repository.listCandidates(identity.workspaceId),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "La collecte BC Bulle a échoué.";
+      const message = error instanceof Error ? error.message : `La collecte ${source.name} a échoué.`;
       await dependencies.repository.failRun({ workspaceId: identity.workspaceId, runId, message });
       if (error instanceof SportsWatchError) throw error;
       throw new SportsWatchError("source", message);
@@ -236,7 +291,8 @@ export const createSportsWatchService = (
       },
     };
   },
-});
+  };
+};
 
 export const SportsWatchService = createSportsWatchService();
 

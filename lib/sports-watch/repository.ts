@@ -196,7 +196,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
           event_date_from, event_date_to, collected_at, attribution_status,
           attribution_evidence_json, logical_key, content_hash, supersedes_candidate_id
         ) VALUES (
-          $4::uuid, $1, 'bc-bulle', $2, $5, $6, $7, $8, $9,
+          $4::uuid, $1, $21, $2, $5, $6, $7, $8, $9,
           $10, $11, $12, $13, $14::timestamptz,
           $15::date, $16::date, $17::timestamptz, $18,
           $19::jsonb, $3, $20, (SELECT id FROM previous)
@@ -225,6 +225,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         candidate.attributionStatus,
         JSON.stringify(candidate.attributionEvidence),
         candidate.contentHash,
+        candidate.sourceKey,
       ]) as Array<{ id: string }>;
       if (rows[0]) createdCount += 1;
     }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createSportsWatchService,
   type SportsWatchAdminIdentity,
@@ -24,6 +24,7 @@ const athlete = {
 } as Athlete;
 
 const collectedCandidate = (contentHash: string, excerpt: string): CollectedSportsWatchCandidate => ({
+  sourceKey: "bc-bulle",
   athlete: {
     id: athlete.athleteId!,
     name: athlete.name,
@@ -145,26 +146,59 @@ const createMemoryRepository = (): SportsWatchRepository => {
 };
 
 describe("sports watch service", () => {
+  it("uses the server-selected collector and run key", async () => {
+    const repository = createMemoryRepository();
+    const startRun = vi.spyOn(repository, "startRun");
+    const collectSwiss = vi.fn(async () => ({
+      candidates: [{
+        ...collectedCandidate("swiss-hash", "Résultat officiel Swiss Badminton."),
+        sourceKey: "swiss-badminton",
+        sourceName: "Swiss Badminton / Tournamentsoftware",
+        sourceUrl: "https://sb.tournamentsoftware.com/player-profile/official",
+        articleUrl: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=1",
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    }));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete],
+      collectors: { "swiss-badminton": collectSwiss },
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    await service.run("swiss-badminton", athlete.athleteId, identity("workspace-a"));
+
+    expect(collectSwiss).toHaveBeenCalledOnce();
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-a",
+      sourceKey: "swiss-badminton",
+      athleteId: "antoine-majeux",
+    }));
+  });
+
   it("deduplicates an identical result and creates a pending successor for a modified result", async () => {
     const repository = createMemoryRepository();
     let current = collectedCandidate("hash-v1", "Antoine Majeux termine à la 2ème place.");
     const service = createSportsWatchService({
       repository,
       getAthletes: async () => [athlete],
-      collect: async () => ({ candidates: [current], scannedCount: 1, recentCount: 1 }),
+      collectors: {
+        "bc-bulle": async () => ({ candidates: [current], scannedCount: 1, recentCount: 1 }),
+      },
       now: () => new Date("2026-10-26T10:00:00.000Z"),
     });
 
-    const first = await service.run(athlete.athleteId, identity("workspace-a"));
+    const first = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(first.createdCount).toBe(1);
     const firstCandidate = first.candidates[0];
     await service.review(firstCandidate.id, "validated", firstCandidate.version, identity("workspace-a"));
 
-    const duplicate = await service.run(athlete.athleteId, identity("workspace-a"));
+    const duplicate = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(duplicate.createdCount).toBe(0);
 
     current = collectedCandidate("hash-v2", "Antoine Majeux termine à la 1ère place.");
-    const modified = await service.run(athlete.athleteId, identity("workspace-a"));
+    const modified = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(modified.createdCount).toBe(1);
     expect(modified.candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: firstCandidate.id, adminStatus: "validated" }),
@@ -181,14 +215,16 @@ describe("sports watch service", () => {
     const service = createSportsWatchService({
       repository,
       getAthletes: async () => [athlete],
-      collect: async () => ({
-        candidates: [collectedCandidate("hash-v1", "Antoine Majeux termine à la 2ème place.")],
-        scannedCount: 1,
-        recentCount: 1,
-      }),
+      collectors: {
+        "bc-bulle": async () => ({
+          candidates: [collectedCandidate("hash-v1", "Antoine Majeux termine à la 2ème place.")],
+          scannedCount: 1,
+          recentCount: 1,
+        }),
+      },
       now: () => new Date("2026-10-26T10:00:00.000Z"),
     });
-    const run = await service.run(athlete.athleteId, identity("workspace-a"));
+    const run = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     const candidate = await service.review(
       run.candidates[0].id,
       "validated",

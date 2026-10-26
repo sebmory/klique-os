@@ -36,6 +36,7 @@ export type SportsWatchAthleteSnapshot = {
 };
 
 export type CollectedSportsWatchCandidate = {
+  sourceKey: string;
   athlete: SportsWatchAthleteSnapshot;
   sourceName: string;
   sourceUrl: string;
@@ -274,6 +275,7 @@ const buildCandidate = (
   }));
 
   return {
+    sourceKey: "bc-bulle",
     athlete,
     sourceName: BC_BULLE_SOURCE_NAME,
     sourceUrl: BC_BULLE_FEED_URL,

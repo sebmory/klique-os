@@ -4,6 +4,7 @@ export type SportsWatchAdminStatus = "pending" | "validated" | "rejected";
 export type SportsWatchAttributionStatus = "matched" | "ambiguous";
 export type SportsWatchVerificationStatus = "unverified" | "verified" | "disputed";
 export type SportsWatchResultKind = "individual_result" | "collective_result" | "participation" | "news_excerpt";
+export type SportsWatchSourceKey = "bc-bulle" | "swiss-badminton";
 
 export type SportsWatchCandidate = {
   id: string;

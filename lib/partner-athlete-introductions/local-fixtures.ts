@@ -7,6 +7,7 @@ import type { Partner } from "@/types/partner";
 
 export const LOCAL_INTRODUCTION_WORKSPACE_ID = "intro-workspace-test";
 export const LOCAL_INTRODUCTION_ATHLETE_ID = "intro-athlete-test";
+export const LOCAL_SPORTS_WATCH_ATHLETE_ID = "sports-watch-antoine-test";
 export const LOCAL_INTRODUCTION_PARTNER_ID = "intro-partner-test";
 
 export const localIntroductionFixturesEnabled = (): boolean =>
@@ -54,6 +55,30 @@ export const localIntroductionAthlete: Athlete = {
   competitionPhoto: false,
   adhesionDate: "",
 };
+
+export const localSportsWatchFixturesEnabled = (): boolean =>
+  process.env.NODE_ENV === "development"
+  && process.env.KLIQUE_SPORTS_WATCH_SWISS_LOCAL_FIXTURE === "three-disciplines";
+
+export const localSportsWatchAthlete: Athlete = {
+  ...localIntroductionAthlete,
+  key: LOCAL_SPORTS_WATCH_ATHLETE_ID,
+  athleteId: LOCAL_SPORTS_WATCH_ATHLETE_ID,
+  name: "Antoine Majeux",
+  initials: "AM",
+  sport: "Badminton",
+  club: "BC Bulle",
+  instagram: "",
+  email: "antoine.majeux.fixture@example.test",
+  palmares: "Fixture locale du connecteur Swiss Badminton",
+  objective: "Valider les résultats simples, doubles et mixtes",
+  nationality: "Suisse",
+};
+
+export const localAdminFixtureAthletes = (): Athlete[] => [
+  localIntroductionAthlete,
+  ...(localSportsWatchFixturesEnabled() ? [localSportsWatchAthlete] : []),
+];
 
 export const localIntroductionAthleteDirectoryEntry: PublicAthleteDirectoryEntry = {
   athleteId: LOCAL_INTRODUCTION_ATHLETE_ID,

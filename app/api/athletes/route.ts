@@ -10,7 +10,7 @@ import {
 import { canViewAthleteById } from "@/lib/public-athletes";
 import type { Athlete, AthletesResponse, AthleteUpdate } from "@/types/athlete";
 import {
-  localIntroductionAthlete,
+  localAdminFixtureAthletes,
   localIntroductionFixturesEnabled,
 } from "@/lib/partner-athlete-introductions/local-fixtures";
 
@@ -36,14 +36,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (localIntroductionFixturesEnabled()) {
-      const visible = canViewAthleteById(localIntroductionAthlete.key, {
-        role,
-        athleteId,
-      });
+      const athletes = localAdminFixtureAthletes();
+      const visibleAthletes = athletes.filter((fixtureAthlete) =>
+        canViewAthleteById(fixtureAthlete.key, { role, athleteId }));
       return NextResponse.json({
-        athletes: visible ? [localIntroductionAthlete] : [],
+        athletes: visibleAthletes,
         source: "local-introduction-fixtures",
-        memberIndex: visible ? 0 : null,
+        memberIndex: visibleAthletes.length > 0 ? 0 : null,
       });
     }
 

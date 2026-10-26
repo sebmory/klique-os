@@ -332,7 +332,13 @@ enregistrement réussi.
 
 ## Veille sportive manuelle
 
-`KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille BC Bulle.
+`KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille sportive.
+Il propose la source éditoriale BC Bulle et le profil officiel Swiss Badminton /
+Tournamentsoftware du pilote Antoine Majeux. Le choix de source et le
+rattachement à l'athlète CRM sont revalidés côté serveur.
+Le connecteur fédéral conserve l'ordre officiel des joueurs et des équipes pour
+les simples, doubles et mixtes. Les scores ne sont réorientés qu'après
+confirmation de la position de l'identifiant joueur officiel.
 Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
 rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
 et `sports_watch_candidates`. L'activation exige l'application préalable de la

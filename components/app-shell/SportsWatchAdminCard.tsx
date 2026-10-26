@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/src/design-system/components";
-import type { SportsWatchCandidate, SportsWatchRunResult } from "@/types/sports-watch";
+import type {
+  SportsWatchCandidate,
+  SportsWatchRunResult,
+  SportsWatchSourceKey,
+} from "@/types/sports-watch";
 
 type AthleteSummary = {
   key: string;
@@ -32,10 +36,28 @@ const verificationLabels = {
   disputed: "Contesté",
 } as const;
 
+const sourceOptions: Array<{
+  key: SportsWatchSourceKey;
+  label: string;
+  url: string;
+}> = [
+  {
+    key: "bc-bulle",
+    label: "Badminton Club Bulle",
+    url: "https://bcbulle.ch/feed/",
+  },
+  {
+    key: "swiss-badminton",
+    label: "Swiss Badminton / Tournamentsoftware",
+    url: "https://sb.tournamentsoftware.com/player-profile/E4A0E261-0D72-4F64-AA20-CF9AAB291A68",
+  },
+];
+
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
+  const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchSourceKey>("bc-bulle");
   const [busy, setBusy] = useState(false);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -50,6 +72,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       .sort((left, right) => left.label.localeCompare(right.label, "fr")),
     [athletes],
   );
+  const selectedSource = sourceOptions.find((source) => source.key === selectedSourceKey)
+    ?? sourceOptions[0];
 
   useEffect(() => {
     let active = true;
@@ -76,7 +100,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       const response = await fetch("/api/admin/sports-watch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ athleteId: selectedAthleteId }),
+        body: JSON.stringify({ sourceKey: selectedSourceKey, athleteId: selectedAthleteId }),
       });
       const payload = await response.json() as { result?: SportsWatchRunResult; message?: string };
       if (!response.ok || !payload.result) {
@@ -131,13 +155,22 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         <div>
           <h2>Veille sportive</h2>
           <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.82rem" }}>
-            Source consultée : <a href="https://bcbulle.ch/feed/" target="_blank" rel="noreferrer">Badminton Club Bulle</a>
+            Source sélectionnée : <a href={selectedSource.url} target="_blank" rel="noreferrer">{selectedSource.label}</a>
           </p>
         </div>
         <span className="card-pill">{candidates.filter((candidate) => candidate.adminStatus === "pending").length} en attente</span>
       </header>
 
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+        <select
+          aria-label="Source de veille"
+          value={selectedSourceKey}
+          disabled={busy}
+          onChange={(event) => setSelectedSourceKey(event.target.value as SportsWatchSourceKey)}
+          style={{ minWidth: "16rem", flex: "1 1 16rem" }}
+        >
+          {sourceOptions.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
+        </select>
         <select
           aria-label="Athlète CRM à surveiller"
           value={selectedAthleteId}
@@ -186,6 +219,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                 <p style={{ margin: "0.45rem 0", whiteSpace: "pre-wrap" }}>{candidate.excerpt}</p>
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.8rem" }}>
                   <a href={candidate.articleUrl} target="_blank" rel="noreferrer">Voir la source</a>
+                  <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">{candidate.sourceName}</a>
                   <span>Attribution : {candidate.attributionStatus === "matched" ? "concordante" : "à vérifier"}</span>
                   <span>Vérification factuelle : {verificationLabels[candidate.verificationStatus]}</span>
                   {candidate.supersedesCandidateId ? <span>Version modifiée</span> : null}
