@@ -13,6 +13,10 @@ const iwwfBindingsMigration = readFileSync(
   new URL("../db/migrations/20261026_sports_watch_iwwf_bindings.sql", import.meta.url),
   "utf8",
 );
+const safvBindingsMigration = readFileSync(
+  new URL("../db/migrations/20261026_sports_watch_safv_bindings.sql", import.meta.url),
+  "utf8",
+);
 
 describe("sports watch additive schema", () => {
   it("isolates workspaces, prevents concurrent runs and keeps content versions", () => {
@@ -42,5 +46,14 @@ describe("sports watch additive schema", () => {
     expect(iwwfBindingsMigration.match(/WHERE active/g)).toHaveLength(2);
     expect(iwwfBindingsMigration).toContain("disabled_at TIMESTAMPTZ NULL");
     expect(iwwfBindingsMigration).not.toMatch(/\bINSERT\s+INTO\b/i);
+  });
+
+  it("keeps SAFV bindings private, soft-deletable and additive", () => {
+    expect(safvBindingsMigration).toContain("workspace_id TEXT NOT NULL");
+    expect(safvBindingsMigration).toContain("UNIQUE (workspace_id, athlete_id)");
+    expect(safvBindingsMigration).toContain("official_team_id TEXT NOT NULL");
+    expect(safvBindingsMigration).toContain("league_id TEXT NOT NULL");
+    expect(safvBindingsMigration).toContain("disabled_at TIMESTAMPTZ NULL");
+    expect(safvBindingsMigration).not.toMatch(/\bINSERT\s+INTO\b/i);
   });
 });

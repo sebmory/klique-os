@@ -336,7 +336,7 @@ enregistrement réussi.
 Il propose la source éditoriale BC Bulle, des profils officiels Swiss
 Badminton / Tournamentsoftware et des profils IWWF configurés par workspace
 et athlète CRM, ainsi que le flux officiel Kenpokan Dojo avec sélection
-explicite de l'athlète CRM au lancement.
+explicite de l'athlète CRM au lancement et les calendriers collectifs SAFV.
 Chaque rattachement doit être vérifié puis confirmé explicitement par un Admin.
 La confirmation, la modification et la réactivation relisent la source côté
 serveur ; les preuves du navigateur ne sont jamais acceptées comme autorité.
@@ -352,12 +352,19 @@ la présence du nom complet et la concordance du sport, du club CRM et du
 contexte du dojo. Une attribution ambiguë reste consultable et rejetable, mais
 sa validation éditoriale est bloquée. Une disqualification n'est jamais
 transformée en classement.
+Le connecteur SAFV découvre les rencontres depuis un calendrier de ligue et
+une équipe confirmés. Il ne conserve que les matches terminés, non annulés,
+datés des 30 derniers jours et dotés d'un score final explicite. Les équipes
+et le score restent dans l'ordre officiel. Chaque candidat et transfert
+Article indique « Résultat collectif — participation individuelle non
+vérifiée » : aucune présence ni performance de l'athlète n'est déduite.
 Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
 rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
 et `sports_watch_candidates`. L'activation exige l'application préalable des
 migrations additives `20261026_sports_watch_v1.sql` et
 `20261026_sports_watch_swiss_bindings.sql`. La source IWWF exige en plus
-`20261026_sports_watch_iwwf_bindings.sql`.
+`20261026_sports_watch_iwwf_bindings.sql` et la source SAFV
+`20261026_sports_watch_safv_bindings.sql`.
 
 Aucun profil réel n'est inséré automatiquement. Les candidats historiques
 d'Antoine Majeux restent inchangés, mais son rattachement Tournamentsoftware
@@ -367,6 +374,9 @@ Aucun profil IWWF réel n'est inséré automatiquement ; il doit être vérifié
 confirmé par un Admin avant la première collecte.
 Le flux Kenpokan ne nécessite aucune table supplémentaire : le rattachement est
 la sélection explicite de la fiche CRM lors de chaque lancement.
+Aucune équipe SAFV réelle n'est insérée automatiquement. Le calendrier et le
+nom officiel de l'équipe doivent être vérifiés puis confirmés par un Admin.
+La désactivation bloque les nouvelles collectes sans supprimer l'historique.
 
 ## Photos privées des actualités Athlètes
 

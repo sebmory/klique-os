@@ -4,6 +4,8 @@ import type { CollectedSportsWatchCandidate } from "@/lib/sports-watch/bcbulle-c
 import type {
   IwwfBinding,
   IwwfIdentityVerification,
+  SafvBinding,
+  SafvTeamVerification,
   SportsWatchAdminStatus,
   SportsWatchCandidate,
   SwissBadmintonBinding,
@@ -56,6 +58,25 @@ type IwwfBindingRow = {
   official_athlete_id: string;
   official_name_snapshot: string;
   official_birth_year_snapshot: number | string | null;
+  verification_evidence_json: string[] | string;
+  verified_at: string | Date;
+  confirmed_at: string | Date;
+  active: boolean;
+  disabled_at: string | Date | null;
+  version: number | string;
+};
+
+type SafvBindingRow = {
+  id: string;
+  athlete_id: string;
+  schedule_url: string;
+  league_id: string;
+  official_team_id: string;
+  official_team_name_snapshot: string;
+  competition_name_snapshot: string;
+  season_id_snapshot: string;
+  season_name_snapshot: string;
+  club_comparison: SafvBinding["clubComparison"];
   verification_evidence_json: string[] | string;
   verified_at: string | Date;
   confirmed_at: string | Date;
@@ -141,6 +162,27 @@ const mapIwwfBinding = (row: IwwfBindingRow): IwwfBinding => ({
   version: Number(row.version),
 });
 
+const mapSafvBinding = (row: SafvBindingRow): SafvBinding => ({
+  id: row.id,
+  athleteId: row.athlete_id,
+  officialTeam: {
+    scheduleUrl: row.schedule_url,
+    leagueId: row.league_id,
+    teamId: row.official_team_id,
+    teamName: row.official_team_name_snapshot,
+    competitionName: row.competition_name_snapshot,
+    seasonId: row.season_id_snapshot,
+    seasonName: row.season_name_snapshot,
+  },
+  clubComparison: row.club_comparison,
+  evidence: readStringArray(row.verification_evidence_json),
+  verifiedAt: normalizeTimestamp(row.verified_at) ?? "",
+  confirmedAt: normalizeTimestamp(row.confirmed_at) ?? "",
+  active: row.active,
+  disabledAt: normalizeTimestamp(row.disabled_at),
+  version: Number(row.version),
+});
+
 const candidateColumns = `
   id, athlete_id, athlete_name_snapshot, source_name, source_url, article_url,
   title, excerpt, result_kind, publication_date,
@@ -209,6 +251,21 @@ export type SportsWatchRepository = {
     expectedVersion: number;
     clerkUserId: string;
   }): Promise<IwwfBinding | null>;
+  listSafvBindings(workspaceId: string): Promise<SafvBinding[]>;
+  getActiveSafvBinding(workspaceId: string, athleteId: string): Promise<SafvBinding | null>;
+  saveSafvBinding(input: {
+    workspaceId: string;
+    verification: SafvTeamVerification;
+    expectedVersion: number;
+    clerkUserId: string;
+    confirmedAt: string;
+  }): Promise<SafvBinding | null>;
+  disableSafvBinding(input: {
+    workspaceId: string;
+    athleteId: string;
+    expectedVersion: number;
+    clerkUserId: string;
+  }): Promise<SafvBinding | null>;
 };
 
 export const PostgresSportsWatchRepository: SportsWatchRepository = {
@@ -625,5 +682,132 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.clerkUserId,
     ]) as IwwfBindingRow[];
     return rows[0] ? mapIwwfBinding(rows[0]) : null;
+  },
+
+  async listSafvBindings(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, schedule_url, league_id, official_team_id,
+        official_team_name_snapshot, competition_name_snapshot,
+        season_id_snapshot, season_name_snapshot, club_comparison,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_safv_bindings
+      WHERE workspace_id = $1
+      ORDER BY active DESC, updated_at DESC
+    `, [workspaceId]) as SafvBindingRow[];
+    return rows.map(mapSafvBinding);
+  },
+
+  async getActiveSafvBinding(workspaceId, athleteId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, schedule_url, league_id, official_team_id,
+        official_team_name_snapshot, competition_name_snapshot,
+        season_id_snapshot, season_name_snapshot, club_comparison,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_safv_bindings
+      WHERE workspace_id = $1 AND athlete_id = $2 AND active
+      LIMIT 1
+    `, [workspaceId, athleteId]) as SafvBindingRow[];
+    return rows[0] ? mapSafvBinding(rows[0]) : null;
+  },
+
+  async saveSafvBinding(input) {
+    const sql = createContentStorageClient();
+    const official = input.verification.officialTeam;
+    const rows = await sql.query(`
+      INSERT INTO sports_watch_safv_bindings (
+        id, workspace_id, athlete_id, schedule_url, league_id,
+        official_team_id, official_team_name_snapshot,
+        competition_name_snapshot, season_id_snapshot, season_name_snapshot,
+        club_comparison, verification_evidence_json, verified_at,
+        confirmed_by_clerk_user_id, confirmed_at
+      )
+      SELECT
+        $1::uuid, $2, $3, $4, $5,
+        $6, $7, $8, $9, $10,
+        $11, $12::jsonb, $13::timestamptz, $14, $15::timestamptz
+      WHERE $16 = 0
+         OR EXISTS (
+           SELECT 1
+           FROM sports_watch_safv_bindings
+           WHERE workspace_id = $2 AND athlete_id = $3
+         )
+      ON CONFLICT (workspace_id, athlete_id) DO UPDATE
+      SET schedule_url = EXCLUDED.schedule_url,
+          league_id = EXCLUDED.league_id,
+          official_team_id = EXCLUDED.official_team_id,
+          official_team_name_snapshot = EXCLUDED.official_team_name_snapshot,
+          competition_name_snapshot = EXCLUDED.competition_name_snapshot,
+          season_id_snapshot = EXCLUDED.season_id_snapshot,
+          season_name_snapshot = EXCLUDED.season_name_snapshot,
+          club_comparison = EXCLUDED.club_comparison,
+          verification_evidence_json = EXCLUDED.verification_evidence_json,
+          verified_at = EXCLUDED.verified_at,
+          confirmed_by_clerk_user_id = EXCLUDED.confirmed_by_clerk_user_id,
+          confirmed_at = EXCLUDED.confirmed_at,
+          active = TRUE,
+          disabled_by_clerk_user_id = NULL,
+          disabled_at = NULL,
+          version = sports_watch_safv_bindings.version + 1,
+          updated_at = NOW()
+      WHERE sports_watch_safv_bindings.version = $16
+      RETURNING
+        id, athlete_id, schedule_url, league_id, official_team_id,
+        official_team_name_snapshot, competition_name_snapshot,
+        season_id_snapshot, season_name_snapshot, club_comparison,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      randomUUID(),
+      input.workspaceId,
+      input.verification.athlete.id,
+      official.scheduleUrl,
+      official.leagueId,
+      official.teamId,
+      official.teamName,
+      official.competitionName,
+      official.seasonId,
+      official.seasonName,
+      input.verification.clubComparison,
+      JSON.stringify(input.verification.evidence),
+      input.verification.verifiedAt,
+      input.clerkUserId,
+      input.confirmedAt,
+      input.expectedVersion,
+    ]) as SafvBindingRow[];
+    return rows[0] ? mapSafvBinding(rows[0]) : null;
+  },
+
+  async disableSafvBinding(input) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      UPDATE sports_watch_safv_bindings
+      SET active = FALSE,
+          disabled_by_clerk_user_id = $4,
+          disabled_at = NOW(),
+          version = version + 1,
+          updated_at = NOW()
+      WHERE workspace_id = $1
+        AND athlete_id = $2
+        AND version = $3
+        AND active
+      RETURNING
+        id, athlete_id, schedule_url, league_id, official_team_id,
+        official_team_name_snapshot, competition_name_snapshot,
+        season_id_snapshot, season_name_snapshot, club_comparison,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      input.workspaceId,
+      input.athleteId,
+      input.expectedVersion,
+      input.clerkUserId,
+    ]) as SafvBindingRow[];
+    return rows[0] ? mapSafvBinding(rows[0]) : null;
   },
 };

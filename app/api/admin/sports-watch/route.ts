@@ -19,13 +19,14 @@ export async function GET(request: Request) {
   if (!isSportsWatchEnabled()) return disabledResponse();
   try {
     const identity = await requireSportsWatchAdmin(request);
-    const [candidates, swissBindings, iwwfBindings] = await Promise.all([
+    const [candidates, swissBindings, iwwfBindings, safvBindings] = await Promise.all([
       SportsWatchService.list(identity),
       SportsWatchService.listSwissBindings(identity),
       SportsWatchService.listIwwfBindings(identity),
+      SportsWatchService.listSafvBindings(identity),
     ]);
     return NextResponse.json(
-      { ok: true, candidates, swissBindings, iwwfBindings },
+      { ok: true, candidates, swissBindings, iwwfBindings, safvBindings },
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {

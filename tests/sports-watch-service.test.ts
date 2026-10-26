@@ -10,6 +10,7 @@ import type { SportsWatchRepository } from "@/lib/sports-watch/repository";
 import type { Athlete } from "@/types/athlete";
 import type {
   IwwfBinding,
+  SafvBinding,
   SportsWatchCandidate,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
@@ -71,6 +72,35 @@ const iwwfVerification = (selectedAthlete = iwwfAthlete, officialAthleteId = "SU
   verifiedAt: "2026-10-26T10:00:00.000Z",
 });
 
+const safvAthlete = {
+  key: "herez-moussa",
+  athleteId: "herez-moussa",
+  name: "Herez Moussa",
+  sport: "Football américain",
+  club: "Lausanne Owls",
+} as Athlete;
+
+const safvVerification = () => ({
+  athlete: {
+    id: safvAthlete.athleteId!,
+    name: safvAthlete.name,
+    sport: safvAthlete.sport,
+    club: safvAthlete.club,
+  },
+  officialTeam: {
+    scheduleUrl: "https://www.safv.ch/spiele-366618v4/leagues/14028",
+    leagueId: "14028",
+    teamId: "352051",
+    teamName: "LUCAF Owls",
+    competitionName: "NLB",
+    seasonId: "217",
+    seasonName: "2026",
+  },
+  clubComparison: "matching" as const,
+  evidence: ["Résultat collectif uniquement."],
+  verifiedAt: "2026-07-10T10:00:00.000Z",
+});
+
 const collectedCandidate = (contentHash: string, excerpt: string): CollectedSportsWatchCandidate => ({
   sourceKey: "bc-bulle",
   athlete: {
@@ -110,6 +140,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
   let runActive = false;
   const bindings: Array<{ workspaceId: string; binding: SwissBadmintonBinding }> = [];
   const iwwfBindings: Array<{ workspaceId: string; binding: IwwfBinding }> = [];
+  const safvBindings: Array<{ workspaceId: string; binding: SafvBinding }> = [];
 
   return {
     async startRun() {
@@ -308,10 +339,137 @@ const createMemoryRepository = (): SportsWatchRepository => {
       };
       return existing.binding;
     },
+    async listSafvBindings(workspaceId) {
+      return safvBindings
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.binding);
+    },
+    async getActiveSafvBinding(workspaceId, athleteId) {
+      return safvBindings.find((record) =>
+        record.workspaceId === workspaceId
+        && record.binding.athleteId === athleteId
+        && record.binding.active)?.binding ?? null;
+    },
+    async saveSafvBinding(input) {
+      const existing = safvBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.verification.athlete.id);
+      if (existing && existing.binding.version !== input.expectedVersion) return null;
+      const binding: SafvBinding = {
+        id: existing?.binding.id ?? `30000000-0000-4000-8000-${String(safvBindings.length + 1).padStart(12, "0")}`,
+        athleteId: input.verification.athlete.id,
+        officialTeam: input.verification.officialTeam,
+        clubComparison: input.verification.clubComparison,
+        evidence: input.verification.evidence,
+        verifiedAt: input.verification.verifiedAt,
+        confirmedAt: input.confirmedAt,
+        active: true,
+        disabledAt: null,
+        version: existing ? existing.binding.version + 1 : 1,
+      };
+      if (existing) existing.binding = binding;
+      else safvBindings.push({ workspaceId: input.workspaceId, binding });
+      return binding;
+    },
+    async disableSafvBinding(input) {
+      const existing = safvBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.athleteId
+        && record.binding.active
+        && record.binding.version === input.expectedVersion);
+      if (!existing) return null;
+      existing.binding = {
+        ...existing.binding,
+        active: false,
+        disabledAt: "2026-10-26T10:00:00.000Z",
+        version: existing.binding.version + 1,
+      };
+      return existing.binding;
+    },
   };
 };
 
 describe("sports watch service", () => {
+  it("uses an active SAFV binding and keeps collective provenance unverified for Article", async () => {
+    const repository = createMemoryRepository();
+    const excerpt = [
+      "Résultat collectif — participation individuelle non vérifiée.",
+      "NLB 2026.",
+      "Équipes dans l’ordre officiel : Langenthal Invaders puis LUCAF Owls.",
+      "Score final explicite : 28-7.",
+    ].join(" ");
+    const collectSafv = vi.fn(async () => ({
+      candidates: [{
+        ...collectedCandidate("safv-hash", excerpt),
+        sourceKey: "safv" as const,
+        athlete: safvVerification().athlete,
+        sourceName: "SAFV",
+        sourceUrl: safvVerification().officialTeam.scheduleUrl,
+        articleUrl: "https://www.safv.ch/games/2447915",
+        title: "NLB 2026 — Langenthal Invaders vs LUCAF Owls",
+        resultKind: "collective_result" as const,
+        publicationDate: null,
+        eventDateFrom: "2026-07-04",
+        eventDateTo: "2026-07-04",
+        logicalKey: "safv|14028|2447915",
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    }));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [safvAthlete],
+      collectors: { safv: collectSafv },
+      verifySafvTeam: vi.fn(async () => safvVerification()),
+      now: () => new Date("2026-07-10T10:00:00.000Z"),
+    });
+
+    await expect(service.run("safv", safvAthlete.athleteId, identity("workspace-a")))
+      .rejects.toThrow("Configurez et confirmez");
+
+    const binding = await service.confirmSafvBinding(
+      safvAthlete.athleteId,
+      safvVerification().officialTeam.scheduleUrl,
+      "LUCAF Owls",
+      0,
+      identity("workspace-a"),
+    );
+    const run = await service.run("safv", safvAthlete.athleteId, identity("workspace-a"));
+    expect(collectSafv).toHaveBeenCalledWith(
+      expect.objectContaining({ id: safvAthlete.athleteId }),
+      expect.objectContaining({ safvTeam: binding.officialTeam }),
+    );
+    expect(run.createdCount).toBe(1);
+    const duplicateRun = await service.run(
+      "safv",
+      safvAthlete.athleteId,
+      identity("workspace-a"),
+    );
+    expect(duplicateRun.createdCount).toBe(0);
+    expect(duplicateRun.candidates).toHaveLength(1);
+
+    const validated = await service.review(
+      run.candidates[0].id,
+      "validated",
+      run.candidates[0].version,
+      identity("workspace-a"),
+    );
+    const prefill = await service.buildArticlePrefill(validated.id, identity("workspace-a"));
+    expect(prefill.verificationStatus).toBe("unverified");
+    expect(prefill.material.text).toBe(excerpt);
+
+    const disabled = await service.disableSafvBinding(
+      safvAthlete.athleteId,
+      binding.version,
+      identity("workspace-a"),
+    );
+    expect(disabled.active).toBe(false);
+    await expect(service.run("safv", safvAthlete.athleteId, identity("workspace-a")))
+      .rejects.toThrow("Configurez et confirmez");
+    expect(await service.list(identity("workspace-a"))).toHaveLength(1);
+    expect(await service.listSafvBindings(identity("workspace-b"))).toEqual([]);
+  });
+
   it("keeps an honest empty Kempo run and blocks validation when attribution is ambiguous", async () => {
     const repository = createMemoryRepository();
     const ambiguous = {

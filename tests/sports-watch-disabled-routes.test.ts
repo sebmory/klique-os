@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   verifyIwwfBinding: vi.fn(),
   confirmIwwfBinding: vi.fn(),
   disableIwwfBinding: vi.fn(),
+  listSafvBindings: vi.fn(),
+  verifySafvBinding: vi.fn(),
+  confirmSafvBinding: vi.fn(),
+  disableSafvBinding: vi.fn(),
 }));
 
 vi.mock("@/lib/sports-watch/activation", () => ({
@@ -32,6 +36,10 @@ vi.mock("@/lib/sports-watch/service", () => ({
     verifyIwwfBinding: mocks.verifyIwwfBinding,
     confirmIwwfBinding: mocks.confirmIwwfBinding,
     disableIwwfBinding: mocks.disableIwwfBinding,
+    listSafvBindings: mocks.listSafvBindings,
+    verifySafvBinding: mocks.verifySafvBinding,
+    confirmSafvBinding: mocks.confirmSafvBinding,
+    disableSafvBinding: mocks.disableSafvBinding,
   },
 }));
 
@@ -46,6 +54,11 @@ import {
   DELETE as DISABLE_IWWF,
   PUT as CONFIRM_IWWF,
 } from "@/app/api/admin/sports-watch/iwwf-bindings/[athleteId]/route";
+import { POST as VERIFY_SAFV } from "@/app/api/admin/sports-watch/safv-bindings/verify/route";
+import {
+  DELETE as DISABLE_SAFV,
+  PUT as CONFIRM_SAFV,
+} from "@/app/api/admin/sports-watch/safv-bindings/[athleteId]/route";
 
 describe("disabled sports watch routes", () => {
   beforeEach(() => {
@@ -84,6 +97,18 @@ describe("disabled sports watch routes", () => {
       "http://localhost/api/admin/sports-watch/iwwf-bindings/athlete-1",
       { method: "DELETE" },
     ), context);
+    const verifySafvResponse = await VERIFY_SAFV(new Request(
+      "http://localhost/api/admin/sports-watch/safv-bindings/verify",
+      { method: "POST" },
+    ));
+    const confirmSafvResponse = await CONFIRM_SAFV(new Request(
+      "http://localhost/api/admin/sports-watch/safv-bindings/athlete-1",
+      { method: "PUT" },
+    ), context);
+    const disableSafvResponse = await DISABLE_SAFV(new Request(
+      "http://localhost/api/admin/sports-watch/safv-bindings/athlete-1",
+      { method: "DELETE" },
+    ), context);
 
     expect(getResponse.status).toBe(404);
     expect(postResponse.status).toBe(404);
@@ -93,10 +118,14 @@ describe("disabled sports watch routes", () => {
     expect(verifyIwwfResponse.status).toBe(404);
     expect(confirmIwwfResponse.status).toBe(404);
     expect(disableIwwfResponse.status).toBe(404);
+    expect(verifySafvResponse.status).toBe(404);
+    expect(confirmSafvResponse.status).toBe(404);
+    expect(disableSafvResponse.status).toBe(404);
     expect(mocks.requireAdmin).not.toHaveBeenCalled();
     expect(mocks.list).not.toHaveBeenCalled();
     expect(mocks.listSwissBindings).not.toHaveBeenCalled();
     expect(mocks.listIwwfBindings).not.toHaveBeenCalled();
+    expect(mocks.listSafvBindings).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
     expect(mocks.verifySwissBinding).not.toHaveBeenCalled();
     expect(mocks.confirmSwissBinding).not.toHaveBeenCalled();
@@ -104,5 +133,8 @@ describe("disabled sports watch routes", () => {
     expect(mocks.verifyIwwfBinding).not.toHaveBeenCalled();
     expect(mocks.confirmIwwfBinding).not.toHaveBeenCalled();
     expect(mocks.disableIwwfBinding).not.toHaveBeenCalled();
+    expect(mocks.verifySafvBinding).not.toHaveBeenCalled();
+    expect(mocks.confirmSafvBinding).not.toHaveBeenCalled();
+    expect(mocks.disableSafvBinding).not.toHaveBeenCalled();
   });
 });

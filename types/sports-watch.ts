@@ -8,7 +8,8 @@ export type SportsWatchSourceKey =
   | "bc-bulle"
   | "swiss-badminton"
   | "iwwf-wakesurf"
-  | "kenpokan";
+  | "kenpokan"
+  | "safv";
 
 export type SwissBadmintonOfficialIdentity = {
   profileUrl: string;
@@ -67,6 +68,42 @@ export type IwwfBinding = {
   id: string;
   athleteId: string;
   officialIdentity: IwwfOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+  confirmedAt: string;
+  active: boolean;
+  disabledAt: string | null;
+  version: number;
+};
+
+export type SafvOfficialTeam = {
+  scheduleUrl: string;
+  leagueId: string;
+  teamId: string;
+  teamName: string;
+  competitionName: string;
+  seasonId: string;
+  seasonName: string;
+};
+
+export type SafvTeamVerification = {
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  officialTeam: SafvOfficialTeam;
+  clubComparison: "matching" | "different" | "unknown";
+  evidence: string[];
+  verifiedAt: string;
+};
+
+export type SafvBinding = {
+  id: string;
+  athleteId: string;
+  officialTeam: SafvOfficialTeam;
+  clubComparison: SafvTeamVerification["clubComparison"];
   evidence: string[];
   verifiedAt: string;
   confirmedAt: string;

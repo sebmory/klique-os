@@ -23,6 +23,13 @@ import {
   collectKenpokanCandidates,
 } from "@/lib/sports-watch/kenpokan-collector";
 import {
+  SAFV_BASE_URL,
+  SAFV_SOURCE_NAME,
+  collectSafvCandidates,
+  verifySafvTeam,
+  type SafvTeamConfig,
+} from "@/lib/sports-watch/safv-collector";
+import {
   SWISS_BADMINTON_BASE_URL,
   SWISS_BADMINTON_SOURCE_NAME,
   collectSwissBadmintonCandidates,
@@ -36,6 +43,8 @@ import {
 import type {
   IwwfBinding,
   IwwfIdentityVerification,
+  SafvBinding,
+  SafvTeamVerification,
   SportsWatchAdminStatus,
   SportsWatchArticlePrefill,
   SportsWatchCandidate,
@@ -72,6 +81,11 @@ const sourceDefinitions: Record<SportsWatchSourceKey, {
     url: KENPOKAN_FEED_URL,
     noRecentMessage: "Aucune publication Kenpokan Dojo des 30 derniers jours. Aucune archive n’a été remontée.",
   },
+  safv: {
+    name: SAFV_SOURCE_NAME,
+    url: SAFV_BASE_URL,
+    noRecentMessage: "Aucun résultat collectif SAFV terminé dans les 30 derniers jours. Aucun match futur ou ancien n’a été remonté.",
+  },
 };
 
 export type SportsWatchAdminIdentity = {
@@ -104,6 +118,7 @@ const requireSourceKey = (value: unknown): SportsWatchSourceKey => {
     && sourceKey !== "swiss-badminton"
     && sourceKey !== "iwwf-wakesurf"
     && sourceKey !== "kenpokan"
+    && sourceKey !== "safv"
   ) {
     throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
   }
@@ -151,6 +166,7 @@ type SportsWatchCollector = (
     dependencies: { now: () => Date };
     swissProfile?: SwissBadmintonProfileConfig;
     iwwfProfile?: IwwfProfileConfig;
+    safvTeam?: SafvTeamConfig;
   },
 ) => ReturnType<typeof collectBcBulleCandidates>;
 
@@ -160,6 +176,7 @@ type SportsWatchServiceDependencies = {
   collectors: Record<SportsWatchSourceKey, SportsWatchCollector>;
   verifySwissProfile: typeof verifySwissBadmintonProfile;
   verifyIwwfProfile: typeof verifyIwwfProfile;
+  verifySafvTeam: typeof verifySafvTeam;
   now: () => Date;
 };
 
@@ -183,9 +200,16 @@ const defaultDependencies: SportsWatchServiceDependencies = {
         profile: options.iwwfProfile,
       }),
     kenpokan: collectKenpokanCandidates,
+    safv: (athlete, options) =>
+      collectSafvCandidates(athlete, {
+        lookbackDays: options.lookbackDays,
+        dependencies: options.dependencies,
+        team: options.safvTeam,
+      }),
   },
   verifySwissProfile: verifySwissBadmintonProfile,
   verifyIwwfProfile,
+  verifySafvTeam,
   now: () => new Date(),
 };
 
@@ -272,6 +296,31 @@ export const createSportsWatchService = (
       );
     }
   };
+  const verifySafvBinding = async (
+    athleteId: unknown,
+    scheduleUrl: unknown,
+    teamName: unknown,
+    _identity: SportsWatchAdminIdentity,
+  ): Promise<SafvTeamVerification> => {
+    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const url = normalize(scheduleUrl);
+    const officialTeamName = normalize(teamName);
+    if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du calendrier SAFV.");
+    if (!officialTeamName) throw new SportsWatchError("validation", "Saisissez le nom officiel de l’équipe.");
+    try {
+      return await dependencies.verifySafvTeam(athlete, {
+        scheduleUrl: url,
+        teamName: officialTeamName,
+        dependencies: { now: dependencies.now },
+      });
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      throw new SportsWatchError(
+        "source",
+        error instanceof Error ? error.message : "La vérification de l’équipe SAFV a échoué.",
+      );
+    }
+  };
   return {
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
@@ -285,8 +334,13 @@ export const createSportsWatchService = (
     return dependencies.repository.listIwwfBindings(identity.workspaceId);
   },
 
+  async listSafvBindings(identity: SportsWatchAdminIdentity): Promise<SafvBinding[]> {
+    return dependencies.repository.listSafvBindings(identity.workspaceId);
+  },
+
   verifySwissBinding,
   verifyIwwfBinding,
+  verifySafvBinding,
 
   async confirmSwissBinding(
     athleteId: unknown,
@@ -426,6 +480,67 @@ export const createSportsWatchService = (
     return binding;
   },
 
+  async confirmSafvBinding(
+    athleteId: unknown,
+    scheduleUrl: unknown,
+    teamName: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SafvBinding> {
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const verification = await verifySafvBinding(
+      athleteId,
+      scheduleUrl,
+      teamName,
+      identity,
+    );
+    const binding = await dependencies.repository.saveSafvBinding({
+      workspaceId: identity.workspaceId,
+      verification,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+      confirmedAt: dependencies.now().toISOString(),
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié. Rechargez sa configuration avant de confirmer.",
+      );
+    }
+    return binding;
+  },
+
+  async disableSafvBinding(
+    athleteId: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SafvBinding> {
+    const selectedAthleteId = normalize(athleteId);
+    if (!selectedAthleteId) {
+      throw new SportsWatchError("validation", "Le rattachement SAFV est invalide.");
+    }
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const binding = await dependencies.repository.disableSafvBinding({
+      workspaceId: identity.workspaceId,
+      athleteId: selectedAthleteId,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié, désactivé ou n’est pas accessible dans cet espace.",
+      );
+    }
+    return binding;
+  },
+
   async run(
     sourceKeyValue: unknown,
     athleteId: unknown,
@@ -440,6 +555,9 @@ export const createSportsWatchService = (
     const iwwfBinding = sourceKey === "iwwf-wakesurf"
       ? await dependencies.repository.getActiveIwwfBinding(identity.workspaceId, athlete.id)
       : null;
+    const safvBinding = sourceKey === "safv"
+      ? await dependencies.repository.getActiveSafvBinding(identity.workspaceId, athlete.id)
+      : null;
     if (sourceKey === "swiss-badminton" && !swissBinding) {
       throw new SportsWatchError(
         "validation",
@@ -450,6 +568,12 @@ export const createSportsWatchService = (
       throw new SportsWatchError(
         "validation",
         "Configurez et confirmez le profil IWWF de cet athlète avant de lancer la veille.",
+      );
+    }
+    if (sourceKey === "safv" && !safvBinding) {
+      throw new SportsWatchError(
+        "validation",
+        "Configurez et confirmez l’équipe SAFV de cet athlète avant de lancer la veille.",
       );
     }
     const now = dependencies.now().toISOString();
@@ -471,6 +595,7 @@ export const createSportsWatchService = (
         dependencies: { now: dependencies.now },
         swissProfile: swissBinding?.officialIdentity,
         iwwfProfile: iwwfBinding?.officialIdentity,
+        safvTeam: safvBinding?.officialTeam,
       });
       const createdCount = await dependencies.repository.saveCandidates(
         identity.workspaceId,
@@ -494,6 +619,7 @@ export const createSportsWatchService = (
         sourceName: source.name,
         sourceUrl: swissBinding?.officialIdentity.profileUrl
           ?? iwwfBinding?.officialIdentity.profileUrl
+          ?? safvBinding?.officialTeam.scheduleUrl
           ?? source.url,
         message,
         scannedCount: collection.scannedCount,

@@ -10,6 +10,8 @@ import { Card } from "@/src/design-system/components";
 import type {
   IwwfBinding,
   IwwfIdentityVerification,
+  SafvBinding,
+  SafvTeamVerification,
   SportsWatchCandidate,
   SportsWatchRunResult,
   SportsWatchSourceKey,
@@ -90,6 +92,11 @@ const sourceOptions: Array<{
     label: "Kenpokan Dojo",
     url: "https://kenpokan-dojo.ch/feed/",
   },
+  {
+    key: "safv",
+    label: "SAFV / football américain",
+    url: "https://www.safv.ch/spiele-366618v4/",
+  },
 ];
 
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
@@ -97,6 +104,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
   const [swissBindings, setSwissBindings] = useState<SwissBadmintonBinding[]>([]);
   const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
+  const [safvBindings, setSafvBindings] = useState<SafvBinding[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
   const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchSourceKey>("bc-bulle");
   const [swissProfileUrl, setSwissProfileUrl] = useState("");
@@ -108,6 +116,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [iwwfVerification, setIwwfVerification] =
     useState<IwwfIdentityVerification | null>(null);
   const [iwwfConfigBusy, setIwwfConfigBusy] = useState(false);
+  const [safvScheduleUrl, setSafvScheduleUrl] = useState("");
+  const [safvTeamName, setSafvTeamName] = useState("");
+  const [safvVerification, setSafvVerification] =
+    useState<SafvTeamVerification | null>(null);
+  const [safvConfigBusy, setSafvConfigBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -130,10 +143,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     binding.athleteId === selectedAthleteId);
   const selectedIwwfBinding = iwwfBindings.find((binding) =>
     binding.athleteId === selectedAthleteId);
+  const selectedSafvBinding = safvBindings.find((binding) =>
+    binding.athleteId === selectedAthleteId);
   const selectedSourceUrl = selectedSourceKey === "swiss-badminton"
     ? selectedSwissBinding?.officialIdentity.profileUrl ?? selectedSource.url
     : selectedSourceKey === "iwwf-wakesurf"
       ? selectedIwwfBinding?.officialIdentity.profileUrl ?? selectedSource.url
+      : selectedSourceKey === "safv"
+        ? selectedSafvBinding?.officialTeam.scheduleUrl ?? selectedSource.url
     : selectedSource.url;
   const tournamentGroups = useMemo(
     () => buildSportsWatchTournamentGroups(candidates),
@@ -148,6 +165,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           candidates?: SportsWatchCandidate[];
           swissBindings?: SwissBadmintonBinding[];
           iwwfBindings?: IwwfBinding[];
+          safvBindings?: SafvBinding[];
           message?: string;
         };
         if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
@@ -155,6 +173,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           setCandidates(payload.candidates ?? []);
           setSwissBindings(payload.swissBindings ?? []);
           setIwwfBindings(payload.iwwfBindings ?? []);
+          setSafvBindings(payload.safvBindings ?? []);
         }
       })
       .catch((caught: unknown) => {
@@ -176,6 +195,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     setIwwfVerification(null);
   }, [selectedAthleteId, selectedIwwfBinding]);
 
+  useEffect(() => {
+    setSafvScheduleUrl(selectedSafvBinding?.officialTeam.scheduleUrl ?? "");
+    setSafvTeamName(selectedSafvBinding?.officialTeam.teamName ?? "");
+    setSafvVerification(null);
+  }, [selectedAthleteId, selectedSafvBinding]);
+
   const updateSwissBinding = (binding: SwissBadmintonBinding) => {
     setSwissBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
@@ -185,6 +210,13 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const updateIwwfBinding = (binding: IwwfBinding) => {
     setIwwfBindings((current) => {
+      const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
+      return [binding, ...remaining];
+    });
+  };
+
+  const updateSafvBinding = (binding: SafvBinding) => {
+    setSafvBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
@@ -364,6 +396,95 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     }
   };
 
+  const verifySafvTeam = async () => {
+    if (!selectedAthleteId || safvConfigBusy) return;
+    setSafvConfigBusy(true);
+    setSafvVerification(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/sports-watch/safv-bindings/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          athleteId: selectedAthleteId,
+          scheduleUrl: safvScheduleUrl,
+          teamName: safvTeamName,
+        }),
+      });
+      const payload = await response.json() as {
+        verification?: SafvTeamVerification;
+        message?: string;
+      };
+      if (!response.ok || !payload.verification) {
+        throw new Error(payload.message || "Impossible de vérifier l’équipe SAFV.");
+      }
+      setSafvVerification(payload.verification);
+      setSafvScheduleUrl(payload.verification.officialTeam.scheduleUrl);
+      setSafvTeamName(payload.verification.officialTeam.teamName);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Vérification impossible.");
+    } finally {
+      setSafvConfigBusy(false);
+    }
+  };
+
+  const confirmSafvBinding = async () => {
+    if (!selectedAthleteId || !safvVerification || safvConfigBusy) return;
+    setSafvConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/safv-bindings/${encodeURIComponent(selectedAthleteId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scheduleUrl: safvScheduleUrl,
+            teamName: safvTeamName,
+            expectedVersion: selectedSafvBinding?.version ?? 0,
+          }),
+        },
+      );
+      const payload = await response.json() as { binding?: SafvBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de confirmer le rattachement SAFV.");
+      }
+      updateSafvBinding(payload.binding);
+      setSafvVerification(null);
+      setMessage("Équipe SAFV vérifiée et confirmée.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Confirmation impossible.");
+    } finally {
+      setSafvConfigBusy(false);
+    }
+  };
+
+  const disableSafvBinding = async () => {
+    if (!selectedSafvBinding?.active || safvConfigBusy) return;
+    setSafvConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/safv-bindings/${encodeURIComponent(selectedSafvBinding.athleteId)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedVersion: selectedSafvBinding.version }),
+        },
+      );
+      const payload = await response.json() as { binding?: SafvBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de désactiver le rattachement SAFV.");
+      }
+      updateSafvBinding(payload.binding);
+      setMessage("Rattachement SAFV désactivé. Les résultats historiques sont conservés.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Désactivation impossible.");
+    } finally {
+      setSafvConfigBusy(false);
+    }
+  };
+
   const runWatch = async () => {
     if (busy || !selectedAthleteId) return;
     setBusy(true);
@@ -521,6 +642,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             || !selectedAthleteId
             || (selectedSourceKey === "swiss-badminton" && !selectedSwissBinding?.active)
             || (selectedSourceKey === "iwwf-wakesurf" && !selectedIwwfBinding?.active)
+            || (selectedSourceKey === "safv" && !selectedSafvBinding?.active)
           }
           onClick={() => void runWatch()}
         >
@@ -758,6 +880,137 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               ) : (
                 <small>
                   Aucun rattachement actif : vérifiez puis confirmez le profil avant toute collecte IWWF.
+                </small>
+              )}
+            </div>
+          )}
+        </details>
+      ) : null}
+
+      {selectedSourceKey === "safv" ? (
+        <details
+          style={{
+            marginTop: "0.7rem",
+            minWidth: 0,
+            border: "1px solid #e5e7eb",
+            borderRadius: "8px",
+            padding: "0.65rem 0.75rem",
+            background: "#fafafa",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 750 }}>
+            Équipe officielle SAFV · {selectedSafvBinding?.active
+              ? "rattachement actif"
+              : selectedSafvBinding
+                ? "rattachement désactivé"
+                : "à configurer"}
+          </summary>
+          <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.76rem" }}>
+            Le serveur relit le calendrier avant chaque confirmation. La veille conserve uniquement
+            le résultat collectif officiel et ne vérifie aucune participation individuelle.
+          </p>
+          {!selectedAthleteId ? (
+            <p style={{ margin: 0, fontSize: "0.8rem" }}>
+              Sélectionnez d’abord un athlète CRM.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: "0.55rem", minWidth: 0 }}>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                URL officielle du calendrier de ligue SAFV
+                <input
+                  type="url"
+                  value={safvScheduleUrl}
+                  disabled={safvConfigBusy}
+                  placeholder="https://www.safv.ch/spiele-366618v4/leagues/…"
+                  onChange={(event) => {
+                    setSafvScheduleUrl(event.target.value);
+                    setSafvVerification(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                Nom officiel de l’équipe
+                <input
+                  type="text"
+                  value={safvTeamName}
+                  disabled={safvConfigBusy}
+                  placeholder="LUCAF Owls"
+                  onChange={(event) => {
+                    setSafvTeamName(event.target.value);
+                    setSafvVerification(null);
+                  }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="card-link-button"
+                  disabled={safvConfigBusy || !safvScheduleUrl.trim() || !safvTeamName.trim()}
+                  onClick={() => void verifySafvTeam()}
+                >
+                  {safvConfigBusy ? "Vérification…" : "Vérifier l’équipe"}
+                </button>
+                {selectedSafvBinding?.active ? (
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={safvConfigBusy}
+                    onClick={() => void disableSafvBinding()}
+                  >
+                    Désactiver
+                  </button>
+                ) : null}
+              </div>
+              {safvVerification ? (
+                <div
+                  style={{
+                    borderLeft: "3px solid #2563eb",
+                    paddingLeft: "0.65rem",
+                    fontSize: "0.78rem",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <strong>Comparaison avant confirmation</strong>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Fiche CRM : {selectedAthlete?.name} · {selectedAthlete?.sport || "sport inconnu"}
+                    {" · "}{selectedAthlete?.club || "club inconnu"}
+                  </p>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Équipe officielle : {safvVerification.officialTeam.teamName}
+                    {" · "}{safvVerification.officialTeam.competitionName}
+                    {" · saison "}{safvVerification.officialTeam.seasonName}
+                  </p>
+                  {safvVerification.clubComparison === "different" ? (
+                    <p style={{ margin: "0.35rem 0", color: "#92400e" }}>
+                      Le club CRM diffère de l’équipe officielle. Cette différence est signalée sans
+                      déduire une mauvaise identité.
+                    </p>
+                  ) : null}
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Résultat collectif — participation individuelle non vérifiée.
+                  </p>
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={safvConfigBusy}
+                    onClick={() => void confirmSafvBinding()}
+                  >
+                    Confirmer explicitement le rattachement
+                  </button>
+                </div>
+              ) : selectedSafvBinding ? (
+                <small>
+                  {selectedSafvBinding.officialTeam.teamName}
+                  {" · "}{selectedSafvBinding.officialTeam.competitionName}
+                  {" · saison "}{selectedSafvBinding.officialTeam.seasonName}
+                  {" · vérifié le "}{formatDate(selectedSafvBinding.verifiedAt)}
+                  {!selectedSafvBinding.active
+                    ? " · Une nouvelle vérification est obligatoire pour réactiver."
+                    : ""}
+                </small>
+              ) : (
+                <small>
+                  Aucun rattachement actif : vérifiez puis confirmez l’équipe avant toute collecte SAFV.
                 </small>
               )}
             </div>
