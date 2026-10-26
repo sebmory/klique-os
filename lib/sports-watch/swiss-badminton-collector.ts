@@ -5,17 +5,16 @@ import {
   type CollectedSportsWatchCandidate,
   type SportsWatchAthleteSnapshot,
 } from "@/lib/sports-watch/bcbulle-collector";
+import type {
+  SwissBadmintonIdentityVerification,
+  SwissBadmintonOfficialIdentity,
+} from "@/types/sports-watch";
 
 export const SWISS_BADMINTON_SOURCE_KEY = "swiss-badminton";
 export const SWISS_BADMINTON_SOURCE_NAME = "Swiss Badminton / Tournamentsoftware";
-export const SWISS_BADMINTON_PROFILE_URL =
-  "https://sb.tournamentsoftware.com/player-profile/E4A0E261-0D72-4F64-AA20-CF9AAB291A68";
-export const SWISS_BADMINTON_PLAYER_ID = "206063";
+export const SWISS_BADMINTON_BASE_URL = "https://sb.tournamentsoftware.com/";
 
 const SOURCE_HOSTNAME = "sb.tournamentsoftware.com";
-const PROFILE_UUID = "E4A0E261-0D72-4F64-AA20-CF9AAB291A68";
-const PILOT_NAME = "Antoine Majeux";
-const PILOT_CLUB = "BC Bulle";
 const DEFAULT_LOOKBACK_DAYS = 30;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 2;
@@ -27,6 +26,8 @@ type CollectorDependencies = {
   fetch: typeof fetch;
   now: () => Date;
 };
+
+export type SwissBadmintonProfileConfig = SwissBadmintonOfficialIdentity;
 
 type HtmlBlock = {
   html: string;
@@ -88,7 +89,7 @@ const sourceError = (detail: string): SportsWatchSourceError =>
     `La source ${SWISS_BADMINTON_SOURCE_NAME} est inexploitable : ${detail}`,
   );
 
-const safeSourceUrl = (value: string, base = SWISS_BADMINTON_PROFILE_URL): URL => {
+const safeSourceUrl = (value: string, base = SWISS_BADMINTON_BASE_URL): URL => {
   let url: URL;
   try {
     url = new URL(decodeHtml(value), base);
@@ -102,11 +103,25 @@ const safeSourceUrl = (value: string, base = SWISS_BADMINTON_PROFILE_URL): URL =
   return url;
 };
 
-const fetchBoundedProfile = async (dependencies: CollectorDependencies): Promise<string> => {
+const readProfileUrl = (value: string): { url: URL; profileUuid: string } => {
+  const url = safeSourceUrl(value);
+  const match = url.pathname.match(
+    /^\/player-profile\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/?$/i,
+  );
+  if (!match || url.search) {
+    throw sourceError("l’URL ne correspond pas à un profil joueur officiel.");
+  }
+  return { url, profileUuid: match[1].toUpperCase() };
+};
+
+const fetchBoundedProfile = async (
+  profileUrl: string,
+  dependencies: CollectorDependencies,
+): Promise<string> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    let url = safeSourceUrl(SWISS_BADMINTON_PROFILE_URL);
+    let url = readProfileUrl(profileUrl).url;
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
       const response = await dependencies.fetch(url, {
         headers: {
@@ -122,7 +137,7 @@ const fetchBoundedProfile = async (dependencies: CollectorDependencies): Promise
         if (!location || redirectCount === MAX_REDIRECTS) {
           throw sourceError("la redirection officielle est invalide ou trop longue.");
         }
-        url = safeSourceUrl(location, url.toString());
+        url = readProfileUrl(safeSourceUrl(location, url.toString()).toString()).url;
         continue;
       }
       if (!response.ok) {
@@ -131,9 +146,7 @@ const fetchBoundedProfile = async (dependencies: CollectorDependencies): Promise
           response.status,
         );
       }
-      if (safeSourceUrl(response.url || url.toString()).hostname !== SOURCE_HOSTNAME) {
-        throw sourceError("la réponse quitte le domaine officiel autorisé.");
-      }
+      readProfileUrl(response.url || url.toString());
       const contentLength = Number(response.headers.get("content-length") ?? 0);
       if (contentLength > MAX_RESPONSE_BYTES) {
         throw sourceError("la réponse dépasse la taille autorisée.");
@@ -169,6 +182,127 @@ const readAttribute = (html: string, name: string): string | null => {
   return match ? decodeHtml(match[1] ?? match[2] ?? "") : null;
 };
 
+const readOfficialIdentity = (
+  html: string,
+  profileUrl: string,
+  manualPlayerId?: string,
+): SwissBadmintonOfficialIdentity => {
+  const { url, profileUuid } = readProfileUrl(profileUrl);
+  if (!normalize(html).includes(normalize(profileUuid))) {
+    throw sourceError("l’identifiant du profil n’est pas présent dans la réponse officielle.");
+  }
+  const tournamentsIndex = html.search(/\bTurniere\b/i);
+  const identityScope = tournamentsIndex >= 0 ? html.slice(0, tournamentsIndex) : html;
+  const headings = Array.from(identityScope.matchAll(/<(h[1-4])\b[^>]*>([\s\S]*?)<\/\1>/gi))
+    .map((match) => toPlainText(match[2]))
+    .filter(Boolean);
+  const headingIdentities = headings
+    .map((heading) => heading.match(/^(.+?)\s*\((\d{4,})\)\s*$/))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => ({ name: match[1].trim(), playerId: match[2] }));
+  const uniqueHeadingIdentities = Array.from(new Map(
+    headingIdentities.map((identity) => [`${normalize(identity.name)}|${identity.playerId}`, identity]),
+  ).values());
+  const requestedPlayerId = String(manualPlayerId ?? "").trim();
+  if (requestedPlayerId && !/^\d{4,}$/.test(requestedPlayerId)) {
+    throw sourceError("l’identifiant joueur saisi est invalide.");
+  }
+
+  let identity = uniqueHeadingIdentities.length === 1 ? uniqueHeadingIdentities[0] : null;
+  if (uniqueHeadingIdentities.length > 1) {
+    throw sourceError("plusieurs identités de profil ont été trouvées.");
+  }
+  if (identity && requestedPlayerId && identity.playerId !== requestedPlayerId) {
+    throw sourceError("l’identifiant joueur saisi ne concorde pas avec le profil officiel.");
+  }
+  if (!identity) {
+    const markerIds = Array.from(html.matchAll(
+      /(?:data-(?:member|player)-id=(?:"(\d+)"|'(\d+)')|name=(?:"(?:MemberID|PlayerID)"|'(?:MemberID|PlayerID)')[^>]*value=(?:"(\d+)"|'(\d+)'))/gi,
+    )).map((match) => match.slice(1).find(Boolean) ?? "");
+    const uniqueMarkerIds = Array.from(new Set(markerIds.filter(Boolean)));
+    if (
+      !requestedPlayerId
+      || uniqueMarkerIds.length !== 1
+      || uniqueMarkerIds[0] !== requestedPlayerId
+    ) {
+      throw sourceError(
+        requestedPlayerId
+          ? "l’identifiant joueur saisi ne peut pas être vérifié sans ambiguïté sur le profil."
+          : "l’identifiant joueur ne peut pas être extrait sans ambiguïté ; saisissez-le manuellement.",
+      );
+    }
+    const nameHeading = headings.find((heading) =>
+      !/\b(?:turniere|tournaments?|compétitions?)\b/i.test(heading)
+      && !/\(\d{4,}\)/.test(heading));
+    if (!nameHeading) throw sourceError("le nom officiel du profil est absent.");
+    identity = { name: nameHeading, playerId: requestedPlayerId };
+  }
+
+  const clubAnchor = Array.from(html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi))
+    .find((match) => /\/association\/group\//i.test(readAttribute(match[1], "href") ?? ""));
+  const club = clubAnchor ? toPlainText(clubAnchor[2]) || null : null;
+  return {
+    profileUrl: url.toString(),
+    profileUuid,
+    playerId: identity.playerId,
+    name: identity.name,
+    club,
+  };
+};
+
+export const verifySwissBadmintonProfile = async (
+  athlete: SportsWatchAthleteSnapshot,
+  input: {
+    profileUrl: string;
+    playerId?: string;
+    dependencies?: Partial<CollectorDependencies>;
+  },
+): Promise<SwissBadmintonIdentityVerification> => {
+  const dependencies: CollectorDependencies = {
+    fetch: input.dependencies?.fetch ?? fetch,
+    now: input.dependencies?.now ?? (() => new Date()),
+  };
+  if (!normalize(athlete.sport).includes("badminton")) {
+    throw sourceError("la discipline de la fiche CRM ne correspond pas au badminton.");
+  }
+  const requestedProfile = readProfileUrl(input.profileUrl);
+  const html = localFixtureEnabled()
+    ? buildLocalFixtureProfile({
+      profileUrl: requestedProfile.url.toString(),
+      profileUuid: requestedProfile.profileUuid,
+      playerId: String(input.playerId ?? "").trim() || "990001",
+      name: athlete.name,
+      club: athlete.club || null,
+    })
+    : await fetchBoundedProfile(input.profileUrl, dependencies);
+  const officialIdentity = readOfficialIdentity(html, input.profileUrl, input.playerId);
+  if (normalize(officialIdentity.name) !== normalize(athlete.name)) {
+    throw sourceError("le nom officiel ne concorde pas avec la fiche CRM sélectionnée.");
+  }
+  const clubComparison = !officialIdentity.club || !athlete.club.trim()
+    ? "unknown"
+    : normalize(officialIdentity.club) === normalize(athlete.club)
+      ? "matching"
+      : "different";
+  const evidence = [
+    `Profil officiel ${officialIdentity.profileUuid}.`,
+    `Identifiant joueur Swiss Badminton ${officialIdentity.playerId}.`,
+    `Nom officiel ${officialIdentity.name} concordant avec la fiche CRM.`,
+    clubComparison === "matching"
+      ? `Club officiel ${officialIdentity.club} concordant avec la fiche CRM.`
+      : clubComparison === "different"
+        ? `Club officiel ${officialIdentity.club} différent du club CRM ${athlete.club}; confirmation Admin requise.`
+        : "Comparaison du club impossible avec les informations disponibles.",
+  ];
+  return {
+    athlete,
+    officialIdentity,
+    clubComparison,
+    evidence,
+    verifiedAt: dependencies.now().toISOString(),
+  };
+};
+
 const readDottedDate = (html: string): string | null => {
   const match = toPlainText(html).match(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/);
   if (!match) return null;
@@ -196,10 +330,13 @@ const readDiscipline = (
   return /^(?:DM|DD|HD|MD|WD|DH|DF)\d*$/i.test(eventCode) ? "double" : null;
 };
 
-const readH2hTeams = (html: string): [string[], string[]] | null => {
+const readH2hTeams = (
+  html: string,
+  profileUrl: string,
+): [string[], string[]] | null => {
   const href = html.match(/href=(?:"([^"]*\/head-2-head\?[^"]+)"|'([^']*\/head-2-head\?[^']+)')/i);
   if (!href) return null;
-  const url = safeSourceUrl(href[1] ?? href[2] ?? "");
+  const url = safeSourceUrl(href[1] ?? href[2] ?? "", profileUrl);
   const teams = ([1, 2] as const).map((team) =>
     ([1, 2] as const)
       .map((player) => url.searchParams.get(`T${team}P${player}MemberID`))
@@ -264,10 +401,11 @@ const parseMatch = (
     drawUrl: string;
     explicitRanking: string | null;
   },
+  profile: SwissBadmintonProfileConfig,
 ): ParsedMatch | null => {
-  if (!normalize(toPlainText(matchHtml)).includes(normalize(PILOT_NAME))) return null;
+  if (!normalize(toPlainText(matchHtml)).includes(normalize(profile.name))) return null;
   const rows = readMatchRows(matchHtml);
-  const orderedPlayerIds = readH2hTeams(matchHtml);
+  const orderedPlayerIds = readH2hTeams(matchHtml, profile.profileUrl);
   const displayedScores = readDisplayedScores(matchHtml);
   const matchDate = readDottedDate(matchHtml);
   const header = matchHtml.match(
@@ -275,7 +413,7 @@ const parseMatch = (
   );
   const stage = header ? toPlainText(header[1]).replace(/\b\d+\s*m\b/i, "").trim() : "";
   if (!rows || !orderedPlayerIds || !displayedScores || !matchDate || !stage) {
-    throw sourceError("un match attribué à Antoine Majeux possède un HTML incomplet.");
+    throw sourceError(`un match attribué à ${profile.name} possède un HTML incomplet.`);
   }
   if (
     rows.teams[0].length !== orderedPlayerIds[0].length
@@ -289,15 +427,15 @@ const parseMatch = (
   }
   const officialPositions = orderedPlayerIds.flatMap((team, teamIndex) =>
     team.map((id, playerIndex) => ({ id, teamIndex, playerIndex })))
-    .filter((position) => position.id === SWISS_BADMINTON_PLAYER_ID);
+    .filter((position) => position.id === profile.playerId);
   if (officialPositions.length !== 1) {
-    throw sourceError("la position d’Antoine Majeux est absente ou ambiguë.");
+    throw sourceError(`la position de ${profile.name} est absente ou ambiguë.`);
   }
   const [{ teamIndex, playerIndex }] = officialPositions;
   if (
-    normalize(rows.teams[teamIndex][playerIndex]) !== normalize(PILOT_NAME)
+    normalize(rows.teams[teamIndex][playerIndex]) !== normalize(profile.name)
   ) {
-    throw sourceError("la position d’Antoine Majeux ne concorde pas avec son identifiant officiel.");
+    throw sourceError(`la position de ${profile.name} ne concorde pas avec son identifiant officiel.`);
   }
   const discipline = readDiscipline(context.eventCode, rows.teams);
   if (!discipline) {
@@ -318,12 +456,16 @@ const parseMatch = (
   };
 };
 
-const parseProfile = (html: string): ParsedMatch[] => {
+const parseProfile = (
+  html: string,
+  profile: SwissBadmintonProfileConfig,
+): ParsedMatch[] => {
   const plain = toPlainText(html);
+  const currentIdentity = readOfficialIdentity(html, profile.profileUrl, profile.playerId);
   if (
-    !plain.includes(`${PILOT_NAME} (${SWISS_BADMINTON_PLAYER_ID})`)
-    || !normalize(plain).includes(normalize(PILOT_CLUB))
-    || !html.includes(PROFILE_UUID)
+    normalize(currentIdentity.profileUuid) !== normalize(profile.profileUuid)
+    || currentIdentity.playerId !== profile.playerId
+    || normalize(currentIdentity.name) !== normalize(profile.name)
   ) {
     throw sourceError("l’identité officielle du profil ne concorde pas.");
   }
@@ -344,7 +486,7 @@ const parseProfile = (html: string): ParsedMatch[] => {
     const anchor = heading.match(/<a\b([^>]*)>([\s\S]*?)<\/a>/i);
     if (!anchor) throw sourceError("une compétition ne possède pas de lien officiel exploitable.");
     const href = readAttribute(anchor[1], "href");
-    const tournamentUrl = href ? safeSourceUrl(href) : null;
+    const tournamentUrl = href ? safeSourceUrl(href, profile.profileUrl) : null;
     const tournamentId = tournamentUrl?.searchParams.get("id");
     const tournamentTitle = toPlainText(anchor[2]);
     if (!tournamentId || !tournamentTitle) {
@@ -369,22 +511,26 @@ const parseProfile = (html: string): ParsedMatch[] => {
       if (!drawHref) {
         throw sourceError("une épreuve ne possède pas de lien de tableau exploitable.");
       }
-      const drawUrl = safeSourceUrl(drawHref[1] ?? drawHref[2] ?? "").toString();
+      const drawUrl = safeSourceUrl(drawHref[1] ?? drawHref[2] ?? "", profile.profileUrl).toString();
       const matchBlocks = findBlocks(eventBlock.html, /<div class="match">/gi, MAX_MATCHES);
       if (
         matchBlocks.length === 0
-        && normalize(toPlainText(eventBlock.html)).includes(normalize(PILOT_NAME))
+        && normalize(toPlainText(eventBlock.html)).includes(normalize(profile.name))
       ) {
-        throw sourceError("une épreuve attribuée à Antoine Majeux ne contient aucun match exploitable.");
+        throw sourceError(`une épreuve attribuée à ${profile.name} ne contient aucun match exploitable.`);
       }
       for (const matchBlock of matchBlocks) {
-        const parsed = parseMatch(matchBlock.html, {
-          tournamentId,
-          tournamentTitle,
-          eventCode: eventCodeMatch[1],
-          drawUrl,
-          explicitRanking: readExplicitRanking(eventBlock.html),
-        });
+        const parsed = parseMatch(
+          matchBlock.html,
+          {
+            tournamentId,
+            tournamentTitle,
+            eventCode: eventCodeMatch[1],
+            drawUrl,
+            explicitRanking: readExplicitRanking(eventBlock.html),
+          },
+          profile,
+        );
         if (parsed) matches.push(parsed);
       }
     }
@@ -396,6 +542,7 @@ const buildCandidate = (
   athlete: SportsWatchAthleteSnapshot,
   match: ParsedMatch,
   collectedAt: string,
+  profile: SwissBadmintonProfileConfig,
 ): CollectedSportsWatchCandidate => {
   const displayedScore = match.displayedScores
     .map(([first, second]) => `${first}-${second}`)
@@ -416,22 +563,22 @@ const buildCandidate = (
       `Ordre officiel : ${teamLabel(match.orderedTeams[0])} puis ${teamLabel(match.orderedTeams[1])}.`,
       `Vainqueur explicite : ${teamLabel(winnerTeam)}.`,
       `Scores dans l’ordre officiel : ${displayedScore}.`,
-      `Score du point de vue d’${PILOT_NAME} : ${athleteScore}.`,
+      `Score du point de vue d’${profile.name} : ${athleteScore}.`,
     );
   } else {
-    const partner = athleteTeam.players.find((player) => normalize(player) !== normalize(PILOT_NAME));
+    const partner = athleteTeam.players.find((player) => normalize(player) !== normalize(profile.name));
     if (!partner || opponentTeam.players.length !== 2) {
-      throw sourceError("le partenaire ou les adversaires d’Antoine Majeux sont ambigus.");
+      throw sourceError(`le partenaire ou les adversaires de ${profile.name} sont ambigus.`);
     }
     excerptParts.push(
       `Équipe 1 officielle : ${teamLabel(match.orderedTeams[0])}.`,
       `Équipe 2 officielle : ${teamLabel(match.orderedTeams[1])}.`,
-      `Équipe d’${PILOT_NAME} : ${teamLabel(athleteTeam)}.`,
-      `Partenaire d’${PILOT_NAME} : ${partner}.`,
+      `Équipe d’${profile.name} : ${teamLabel(athleteTeam)}.`,
+      `Partenaire d’${profile.name} : ${partner}.`,
       `Adversaires : ${teamLabel(opponentTeam)}.`,
       `Équipe gagnante explicite : ${teamLabel(winnerTeam)}.`,
       `Scores dans l’ordre officiel des équipes : ${displayedScore}.`,
-      `Scores du point de vue de l’équipe d’${PILOT_NAME} : ${athleteScore}.`,
+      `Scores du point de vue de l’équipe d’${profile.name} : ${athleteScore}.`,
     );
   }
   if (match.explicitRanking) {
@@ -457,7 +604,7 @@ const buildCandidate = (
     sourceKey: SWISS_BADMINTON_SOURCE_KEY,
     athlete,
     sourceName: SWISS_BADMINTON_SOURCE_NAME,
-    sourceUrl: SWISS_BADMINTON_PROFILE_URL,
+    sourceUrl: profile.profileUrl,
     articleUrl: match.drawUrl,
     title: `${match.tournamentTitle} — ${match.eventCode}`,
     excerpt,
@@ -468,10 +615,12 @@ const buildCandidate = (
     collectedAt,
     attributionStatus: "matched",
     attributionEvidence: [
-      `Profil officiel ${PROFILE_UUID}.`,
-      `Identifiant joueur Swiss Badminton ${SWISS_BADMINTON_PLAYER_ID}.`,
-      `Nom officiel ${PILOT_NAME} et club ${PILOT_CLUB} concordants.`,
-      `Équipe et position confirmées dans le match par l’identifiant membre ${SWISS_BADMINTON_PLAYER_ID}.`,
+      `Profil officiel ${profile.profileUuid}.`,
+      `Identifiant joueur Swiss Badminton ${profile.playerId}.`,
+      profile.club
+        ? `Nom officiel ${profile.name} et club officiel ${profile.club}.`
+        : `Nom officiel ${profile.name}; club officiel non disponible.`,
+      `Équipe et position confirmées dans le match par l’identifiant membre ${profile.playerId}.`,
     ],
     logicalKey,
     contentHash,
@@ -515,7 +664,7 @@ const fixtureMatch = (input: {
   </div>
 `;
 
-const buildLocalFixtureProfile = (): string => {
+const buildLocalFixtureProfile = (profile: SwissBadmintonProfileConfig): string => {
   const tournamentId = "B2E4D29A-5E0D-4935-B2B3-3A5DD226E8C4";
   const event = (code: string, draw: number, match: string) => `
     <h4 class="module-divider"><span>Konkurrenz: ${code}</span></h4>
@@ -524,9 +673,9 @@ const buildLocalFixtureProfile = (): string => {
   `;
   return `
     <html>
-      <body data-profile="${PROFILE_UUID}">
-        <h2>${PILOT_NAME} (${SWISS_BADMINTON_PLAYER_ID})</h2>
-        <a href="/association/group/bc-bulle">${PILOT_CLUB}</a>
+      <body data-profile="${profile.profileUuid}">
+        <h2>${profile.name} (${profile.playerId})</h2>
+        <a href="/association/group/fixture">${profile.club ?? "Club non indiqué"}</a>
         <h3>Turniere</h3>
         <h4 class="media__title media__title--medium">
           <a href="/sport/tournament?id=${tournamentId}">[FIXTURE LOCALE] Neuch'Cup 2026</a>
@@ -536,7 +685,7 @@ const buildLocalFixtureProfile = (): string => {
           date: "25.10.2026",
           teams: [
             [{ name: "Matteo Marmillod", id: "118994" }],
-            [{ name: PILOT_NAME, id: SWISS_BADMINTON_PLAYER_ID }],
+            [{ name: profile.name, id: profile.playerId }],
           ],
           winnerTeamIndex: 1,
           scores: [["15", "13"], ["9", "15"], ["15", "17"]],
@@ -550,7 +699,7 @@ const buildLocalFixtureProfile = (): string => {
               { name: "Ethan Roth", id: "202288" },
             ],
             [
-              { name: PILOT_NAME, id: SWISS_BADMINTON_PLAYER_ID },
+              { name: profile.name, id: profile.playerId },
               { name: "Max Pasquier", id: "202582" },
             ],
           ],
@@ -562,7 +711,7 @@ const buildLocalFixtureProfile = (): string => {
           date: "24.10.2026",
           teams: [
             [
-              { name: PILOT_NAME, id: SWISS_BADMINTON_PLAYER_ID },
+              { name: profile.name, id: profile.playerId },
               { name: "Anja Stehlin", id: "205947" },
             ],
             [
@@ -581,16 +730,20 @@ const buildLocalFixtureProfile = (): string => {
 export const collectSwissBadmintonCandidates = async (
   athlete: SportsWatchAthleteSnapshot,
   options: {
+    profile?: SwissBadmintonProfileConfig;
     lookbackDays?: number;
     dependencies?: Partial<CollectorDependencies>;
   } = {},
 ): Promise<SwissBadmintonCollectionResult> => {
+  const profile = options.profile;
+  if (!profile) {
+    throw sourceError("aucun profil officiel actif n’est configuré pour cet athlète.");
+  }
   if (
-    normalize(athlete.name) !== normalize(PILOT_NAME)
+    normalize(athlete.name) !== normalize(profile.name)
     || !normalize(athlete.sport).includes("badminton")
-    || !normalize(athlete.club).includes("bulle")
   ) {
-    throw sourceError("l’athlète CRM sélectionné ne concorde pas avec le pilote officiel.");
+    throw sourceError("l’athlète CRM sélectionné ne concorde pas avec le profil officiel configuré.");
   }
   const dependencies: CollectorDependencies = {
     fetch: options.dependencies?.fetch ?? fetch,
@@ -601,15 +754,15 @@ export const collectSwissBadmintonCandidates = async (
   const cutoff = collectedAtDate.getTime()
     - (options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000;
   const profileHtml = localFixtureEnabled()
-    ? buildLocalFixtureProfile()
-    : await fetchBoundedProfile(dependencies);
-  const parsedMatches = parseProfile(profileHtml);
+    ? buildLocalFixtureProfile(profile)
+    : await fetchBoundedProfile(profile.profileUrl, dependencies);
+  const parsedMatches = parseProfile(profileHtml, profile);
   const recentCandidates = parsedMatches
     .filter((match) => {
       const timestamp = new Date(`${match.matchDate}T23:59:59.999Z`).getTime();
       return timestamp >= cutoff && timestamp <= collectedAtDate.getTime();
     })
-    .map((match) => buildCandidate(athlete, match, collectedAt));
+    .map((match) => buildCandidate(athlete, match, collectedAt, profile));
   const candidatesByMatch = new Map<string, CollectedSportsWatchCandidate>();
   for (const candidate of recentCandidates) {
     const existing = candidatesByMatch.get(candidate.logicalKey);

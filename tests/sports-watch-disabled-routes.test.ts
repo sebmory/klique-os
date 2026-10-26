@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireAdmin: vi.fn(),
   list: vi.fn(),
+  listSwissBindings: vi.fn(),
   run: vi.fn(),
+  verifySwissBinding: vi.fn(),
+  confirmSwissBinding: vi.fn(),
+  disableSwissBinding: vi.fn(),
 }));
 
 vi.mock("@/lib/sports-watch/activation", () => ({
@@ -15,11 +19,20 @@ vi.mock("@/lib/sports-watch/service", () => ({
   sportsWatchErrorStatus: vi.fn(),
   SportsWatchService: {
     list: mocks.list,
+    listSwissBindings: mocks.listSwissBindings,
     run: mocks.run,
+    verifySwissBinding: mocks.verifySwissBinding,
+    confirmSwissBinding: mocks.confirmSwissBinding,
+    disableSwissBinding: mocks.disableSwissBinding,
   },
 }));
 
 import { GET, POST } from "@/app/api/admin/sports-watch/route";
+import { POST as VERIFY } from "@/app/api/admin/sports-watch/swiss-bindings/verify/route";
+import {
+  DELETE as DISABLE,
+  PUT as CONFIRM,
+} from "@/app/api/admin/sports-watch/swiss-bindings/[athleteId]/route";
 
 describe("disabled sports watch routes", () => {
   beforeEach(() => {
@@ -33,11 +46,31 @@ describe("disabled sports watch routes", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ athleteId: "athlete-1" }),
     }));
+    const verifyResponse = await VERIFY(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-bindings/verify",
+      { method: "POST" },
+    ));
+    const context = { params: Promise.resolve({ athleteId: "athlete-1" }) };
+    const confirmResponse = await CONFIRM(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-bindings/athlete-1",
+      { method: "PUT" },
+    ), context);
+    const disableResponse = await DISABLE(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-bindings/athlete-1",
+      { method: "DELETE" },
+    ), context);
 
     expect(getResponse.status).toBe(404);
     expect(postResponse.status).toBe(404);
+    expect(verifyResponse.status).toBe(404);
+    expect(confirmResponse.status).toBe(404);
+    expect(disableResponse.status).toBe(404);
     expect(mocks.requireAdmin).not.toHaveBeenCalled();
     expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.listSwissBindings).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.verifySwissBinding).not.toHaveBeenCalled();
+    expect(mocks.confirmSwissBinding).not.toHaveBeenCalled();
+    expect(mocks.disableSwissBinding).not.toHaveBeenCalled();
   });
 });

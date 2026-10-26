@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  SWISS_BADMINTON_PLAYER_ID,
-  SWISS_BADMINTON_PROFILE_URL,
   collectSwissBadmintonCandidates,
+  verifySwissBadmintonProfile,
 } from "@/lib/sports-watch/swiss-badminton-collector";
 
+const SWISS_BADMINTON_PROFILE_URL =
+  "https://sb.tournamentsoftware.com/player-profile/E4A0E261-0D72-4F64-AA20-CF9AAB291A68";
+const SWISS_BADMINTON_PLAYER_ID = "206063";
 const athlete = {
   id: "antoine-majeux",
   name: "Antoine Majeux",
@@ -13,6 +15,13 @@ const athlete = {
 };
 
 const profileUuid = "E4A0E261-0D72-4F64-AA20-CF9AAB291A68";
+const profile = {
+  profileUrl: SWISS_BADMINTON_PROFILE_URL,
+  profileUuid,
+  playerId: SWISS_BADMINTON_PLAYER_ID,
+  name: athlete.name,
+  club: athlete.club,
+};
 const tournamentId = "B2E4D29A-5E0D-4935-B2B3-3A5DD226E8C4";
 
 type FixtureMember = { name: string; id: string };
@@ -84,11 +93,19 @@ const tournamentHtml = (events: string, title = "Neuch'Cup 2026") => `
   ${events}
 `;
 
-const profileHtml = (tournaments: string) => `
+const profileHtml = (
+  tournaments: string,
+  identity = {
+    profileUuid,
+    name: athlete.name,
+    playerId: SWISS_BADMINTON_PLAYER_ID,
+    club: athlete.club,
+  },
+) => `
   <html>
-    <body data-profile="${profileUuid}">
-      <h2>Antoine Majeux (${SWISS_BADMINTON_PLAYER_ID})</h2>
-      <a href="/association/group/bc-bulle">BC Bulle</a>
+    <body data-profile="${identity.profileUuid}">
+      <h2>${identity.name} (${identity.playerId})</h2>
+      <a href="/association/group/official">${identity.club}</a>
       <h3>Turniere</h3>
       ${tournaments}
     </body>
@@ -97,6 +114,7 @@ const profileHtml = (tournaments: string) => `
 
 const collect = (html: string, now = "2026-10-26T10:00:00.000Z") =>
   collectSwissBadmintonCandidates(athlete, {
+    profile,
     dependencies: {
       fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(html, {
         status: 200,
@@ -248,6 +266,7 @@ describe("Swiss Badminton sports watch collector", () => {
 
   it("reports an HTTP refusal instead of returning no result", async () => {
     await expect(collectSwissBadmintonCandidates(athlete, {
+      profile,
       dependencies: {
         fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response("Forbidden", { status: 403 })),
         now: () => new Date("2026-10-26T10:00:00.000Z"),
@@ -259,11 +278,110 @@ describe("Swiss Badminton sports watch collector", () => {
     await expect(collectSwissBadmintonCandidates(
       { ...athlete, name: "Autre athlète" },
       {
+        profile,
         dependencies: {
           fetch: vi.fn<typeof fetch>(),
           now: () => new Date("2026-10-26T10:00:00.000Z"),
         },
       },
     )).rejects.toThrow("l’athlète CRM sélectionné ne concorde pas");
+  });
+
+  it("extracts and verifies official identities for two distinct profiles", async () => {
+    const secondAthlete = {
+      id: "second-athlete",
+      name: "Deuxième Athlète",
+      sport: "Badminton",
+      club: "Autre Club",
+    };
+    const secondUuid = "11111111-1111-4111-8111-111111111111";
+    const fetchFirst = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      profileHtml("<h3>Turniere</h3>"),
+      { status: 200 },
+    ));
+    const fetchSecond = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      profileHtml("<h3>Turniere</h3>", {
+        profileUuid: secondUuid,
+        name: secondAthlete.name,
+        playerId: "306064",
+        club: secondAthlete.club,
+      }),
+      { status: 200 },
+    ));
+
+    const first = await verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      dependencies: {
+        fetch: fetchFirst,
+        now: () => new Date("2026-10-26T10:00:00.000Z"),
+      },
+    });
+    const second = await verifySwissBadmintonProfile(secondAthlete, {
+      profileUrl: `https://sb.tournamentsoftware.com/player-profile/${secondUuid}`,
+      dependencies: {
+        fetch: fetchSecond,
+        now: () => new Date("2026-10-26T10:00:00.000Z"),
+      },
+    });
+
+    expect(first.officialIdentity).toMatchObject({ playerId: "206063", name: "Antoine Majeux" });
+    expect(second.officialIdentity).toMatchObject({ playerId: "306064", name: "Deuxième Athlète" });
+  });
+
+  it("rejects a manually supplied player ID that differs from the official profile", async () => {
+    await expect(verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      playerId: "999999",
+      dependencies: {
+        fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(profileHtml(""), { status: 200 })),
+        now: () => new Date("2026-10-26T10:00:00.000Z"),
+      },
+    })).rejects.toThrow("ne concorde pas avec le profil officiel");
+  });
+
+  it("accepts a manual fallback ID only when an unambiguous source marker confirms it", async () => {
+    const html = `
+      <html>
+        <body data-profile="${profileUuid}">
+          <h2>Antoine Majeux</h2>
+          <input type="hidden" name="PlayerID" value="${SWISS_BADMINTON_PLAYER_ID}">
+          <a href="/association/group/official">BC Bulle</a>
+        </body>
+      </html>
+    `;
+    const dependencies = {
+      fetch: vi.fn<typeof fetch>().mockImplementation(
+        async () => new Response(html, { status: 200 }),
+      ),
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    };
+
+    await expect(verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      dependencies,
+    })).rejects.toThrow("saisissez-le manuellement");
+
+    const verified = await verifySwissBadmintonProfile(athlete, {
+      profileUrl: SWISS_BADMINTON_PROFILE_URL,
+      playerId: SWISS_BADMINTON_PLAYER_ID,
+      dependencies,
+    });
+    expect(verified.officialIdentity.playerId).toBe(SWISS_BADMINTON_PLAYER_ID);
+  });
+
+  it("reports a club difference without rejecting the verified identity", async () => {
+    const verification = await verifySwissBadmintonProfile(
+      { ...athlete, club: "Ancien Club CRM" },
+      {
+        profileUrl: SWISS_BADMINTON_PROFILE_URL,
+        dependencies: {
+          fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(profileHtml(""), { status: 200 })),
+          now: () => new Date("2026-10-26T10:00:00.000Z"),
+        },
+      },
+    );
+
+    expect(verification.clubComparison).toBe("different");
+    expect(verification.evidence.join(" ")).toContain("confirmation Admin requise");
   });
 });

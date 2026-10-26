@@ -6,6 +6,40 @@ export type SportsWatchVerificationStatus = "unverified" | "verified" | "dispute
 export type SportsWatchResultKind = "individual_result" | "collective_result" | "participation" | "news_excerpt";
 export type SportsWatchSourceKey = "bc-bulle" | "swiss-badminton";
 
+export type SwissBadmintonOfficialIdentity = {
+  profileUrl: string;
+  profileUuid: string;
+  playerId: string;
+  name: string;
+  club: string | null;
+};
+
+export type SwissBadmintonIdentityVerification = {
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  officialIdentity: SwissBadmintonOfficialIdentity;
+  clubComparison: "matching" | "different" | "unknown";
+  evidence: string[];
+  verifiedAt: string;
+};
+
+export type SwissBadmintonBinding = {
+  id: string;
+  athleteId: string;
+  officialIdentity: SwissBadmintonOfficialIdentity;
+  clubComparison: SwissBadmintonIdentityVerification["clubComparison"];
+  evidence: string[];
+  verifiedAt: string;
+  confirmedAt: string;
+  active: boolean;
+  disabledAt: string | null;
+  version: number;
+};
+
 export type SportsWatchCandidate = {
   id: string;
   athleteId: string;

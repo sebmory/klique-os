@@ -333,16 +333,24 @@ enregistrement réussi.
 ## Veille sportive manuelle
 
 `KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille sportive.
-Il propose la source éditoriale BC Bulle et le profil officiel Swiss Badminton /
-Tournamentsoftware du pilote Antoine Majeux. Le choix de source et le
-rattachement à l'athlète CRM sont revalidés côté serveur.
+Il propose la source éditoriale BC Bulle et des profils officiels Swiss
+Badminton / Tournamentsoftware configurés par workspace et athlète CRM.
+Chaque rattachement doit être vérifié puis confirmé explicitement par un Admin.
+La confirmation, la modification et la réactivation relisent la source côté
+serveur ; les preuves du navigateur ne sont jamais acceptées comme autorité.
 Le connecteur fédéral conserve l'ordre officiel des joueurs et des équipes pour
 les simples, doubles et mixtes. Les scores ne sont réorientés qu'après
 confirmation de la position de l'identifiant joueur officiel.
 Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
 rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
-et `sports_watch_candidates`. L'activation exige l'application préalable de la
-migration additive `20261026_sports_watch_v1.sql`.
+et `sports_watch_candidates`. L'activation exige l'application préalable des
+migrations additives `20261026_sports_watch_v1.sql` et
+`20261026_sports_watch_swiss_bindings.sql`.
+
+Aucun profil réel n'est inséré automatiquement. Les candidats historiques
+d'Antoine Majeux restent inchangés, mais son rattachement Tournamentsoftware
+devra être vérifié et confirmé lors de l'activation de cette migration. Une
+désactivation du rattachement ne supprime jamais les candidats existants.
 
 ## Photos privées des actualités Athlètes
 

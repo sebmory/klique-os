@@ -8,7 +8,10 @@ import type {
 } from "@/lib/sports-watch/bcbulle-collector";
 import type { SportsWatchRepository } from "@/lib/sports-watch/repository";
 import type { Athlete } from "@/types/athlete";
-import type { SportsWatchCandidate } from "@/types/sports-watch";
+import type {
+  SportsWatchCandidate,
+  SwissBadmintonBinding,
+} from "@/types/sports-watch";
 
 const identity = (workspaceId: string): SportsWatchAdminIdentity => ({
   workspaceId,
@@ -22,6 +25,25 @@ const athlete = {
   sport: "Badminton",
   club: "BC Bulle",
 } as Athlete;
+
+const swissVerification = (selectedAthlete = athlete, playerId = "206063") => ({
+  athlete: {
+    id: selectedAthlete.athleteId!,
+    name: selectedAthlete.name,
+    sport: selectedAthlete.sport,
+    club: selectedAthlete.club,
+  },
+  officialIdentity: {
+    profileUrl: `https://sb.tournamentsoftware.com/player-profile/00000000-0000-4000-8000-${playerId.padStart(12, "0")}`,
+    profileUuid: `00000000-0000-4000-8000-${playerId.padStart(12, "0")}`,
+    playerId,
+    name: selectedAthlete.name,
+    club: selectedAthlete.club,
+  },
+  clubComparison: "matching" as const,
+  evidence: [`Identifiant joueur ${playerId}.`],
+  verifiedAt: "2026-10-26T10:00:00.000Z",
+});
 
 const collectedCandidate = (contentHash: string, excerpt: string): CollectedSportsWatchCandidate => ({
   sourceKey: "bc-bulle",
@@ -60,6 +82,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
   }> = [];
   let sequence = 0;
   let runActive = false;
+  const bindings: Array<{ workspaceId: string; binding: SwissBadmintonBinding }> = [];
 
   return {
     async startRun() {
@@ -142,6 +165,62 @@ const createMemoryRepository = (): SportsWatchRepository => {
         && record.candidate.id === candidateId
         && record.candidate.adminStatus === "validated")?.candidate ?? null;
     },
+    async listSwissBindings(workspaceId) {
+      return bindings
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.binding);
+    },
+    async getActiveSwissBinding(workspaceId, athleteId) {
+      return bindings.find((record) =>
+        record.workspaceId === workspaceId
+        && record.binding.athleteId === athleteId
+        && record.binding.active)?.binding ?? null;
+    },
+    async saveSwissBinding(input) {
+      const existing = bindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.verification.athlete.id);
+      if (existing && existing.binding.version !== input.expectedVersion) return null;
+      const duplicate = bindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId !== input.verification.athlete.id
+        && record.binding.active
+        && (
+          record.binding.officialIdentity.playerId === input.verification.officialIdentity.playerId
+          || record.binding.officialIdentity.profileUuid === input.verification.officialIdentity.profileUuid
+        ));
+      if (duplicate) throw Object.assign(new Error("duplicate"), { code: "23505" });
+      const binding: SwissBadmintonBinding = {
+        id: existing?.binding.id ?? `10000000-0000-4000-8000-${String(bindings.length + 1).padStart(12, "0")}`,
+        athleteId: input.verification.athlete.id,
+        officialIdentity: input.verification.officialIdentity,
+        clubComparison: input.verification.clubComparison,
+        evidence: input.verification.evidence,
+        verifiedAt: input.verification.verifiedAt,
+        confirmedAt: input.confirmedAt,
+        active: true,
+        disabledAt: null,
+        version: existing ? existing.binding.version + 1 : 1,
+      };
+      if (existing) existing.binding = binding;
+      else bindings.push({ workspaceId: input.workspaceId, binding });
+      return binding;
+    },
+    async disableSwissBinding(input) {
+      const existing = bindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.athleteId
+        && record.binding.active
+        && record.binding.version === input.expectedVersion);
+      if (!existing) return null;
+      existing.binding = {
+        ...existing.binding,
+        active: false,
+        disabledAt: "2026-10-26T10:00:00.000Z",
+        version: existing.binding.version + 1,
+      };
+      return existing.binding;
+    },
   };
 };
 
@@ -164,12 +243,26 @@ describe("sports watch service", () => {
       repository,
       getAthletes: async () => [athlete],
       collectors: { "swiss-badminton": collectSwiss },
+      verifySwissProfile: vi.fn(async () => swissVerification()),
       now: () => new Date("2026-10-26T10:00:00.000Z"),
     });
 
+    await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
     await service.run("swiss-badminton", athlete.athleteId, identity("workspace-a"));
 
     expect(collectSwiss).toHaveBeenCalledOnce();
+    expect(collectSwiss).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "antoine-majeux" }),
+      expect.objectContaining({
+        swissProfile: expect.objectContaining({ playerId: "206063" }),
+      }),
+    );
     expect(startRun).toHaveBeenCalledWith(expect.objectContaining({
       workspaceId: "workspace-a",
       sourceKey: "swiss-badminton",
@@ -248,5 +341,147 @@ describe("sports watch service", () => {
 
     await expect(service.buildArticlePrefill(candidate.id, identity("workspace-b")))
       .rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("keeps distinct verified profiles isolated by athlete and workspace", async () => {
+    const repository = createMemoryRepository();
+    const secondAthlete = {
+      ...athlete,
+      key: "second-athlete",
+      athleteId: "second-athlete",
+      name: "Deuxième Athlète",
+      club: "Autre Club",
+    } as Athlete;
+    const verifySwissProfile = vi.fn(async (selected: {
+      id: string;
+      name: string;
+      sport: string;
+      club: string;
+    }) => swissVerification(
+      selected.id === athlete.athleteId ? athlete : secondAthlete,
+      selected.id === athlete.athleteId ? "206063" : "306064",
+    ));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete, secondAthlete],
+      verifySwissProfile,
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification(athlete, "206063").officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
+    await service.confirmSwissBinding(
+      secondAthlete.athleteId,
+      swissVerification(secondAthlete, "306064").officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
+
+    expect(await service.listSwissBindings(identity("workspace-a"))).toHaveLength(2);
+    expect(await service.listSwissBindings(identity("workspace-b"))).toEqual([]);
+    await expect(service.run(
+      "swiss-badminton",
+      athlete.athleteId,
+      identity("workspace-b"),
+    )).rejects.toThrow("Configurez et confirmez");
+  });
+
+  it("rejects a duplicate active official profile in the same workspace", async () => {
+    const repository = createMemoryRepository();
+    const secondAthlete = {
+      ...athlete,
+      key: "second-athlete",
+      athleteId: "second-athlete",
+      name: "Deuxième Athlète",
+    } as Athlete;
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete, secondAthlete],
+      verifySwissProfile: vi.fn(async (selected) => ({
+        ...swissVerification(athlete, "206063"),
+        athlete: selected,
+        officialIdentity: {
+          ...swissVerification(athlete, "206063").officialIdentity,
+          name: selected.name,
+        },
+      })),
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
+    await expect(service.confirmSwissBinding(
+      secondAthlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "206063",
+      0,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("disables and re-verifies a binding without deleting historical candidates", async () => {
+    const repository = createMemoryRepository();
+    const verifySwissProfile = vi.fn(async () => swissVerification());
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete],
+      verifySwissProfile,
+      collectors: {
+        "swiss-badminton": async () => ({
+          candidates: [{
+            ...collectedCandidate("swiss-history", "Résultat Swiss historique."),
+            sourceKey: "swiss-badminton",
+          }],
+          scannedCount: 1,
+          recentCount: 1,
+        }),
+      },
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    const active = await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
+    await service.run("swiss-badminton", athlete.athleteId, identity("workspace-a"));
+    const disabled = await service.disableSwissBinding(
+      athlete.athleteId,
+      active.version,
+      identity("workspace-a"),
+    );
+
+    expect(disabled.active).toBe(false);
+    expect(await service.list(identity("workspace-a"))).toEqual([
+      expect.objectContaining({ excerpt: "Résultat Swiss historique." }),
+    ]);
+    await expect(service.run(
+      "swiss-badminton",
+      athlete.athleteId,
+      identity("workspace-a"),
+    )).rejects.toThrow("Configurez et confirmez");
+
+    const reactivated = await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "206063",
+      disabled.version,
+      identity("workspace-a"),
+    );
+    expect(reactivated.active).toBe(true);
+    expect(verifySwissProfile).toHaveBeenCalledTimes(2);
   });
 });

@@ -11,9 +11,11 @@ import {
   type SportsWatchAthleteSnapshot,
 } from "@/lib/sports-watch/bcbulle-collector";
 import {
-  SWISS_BADMINTON_PROFILE_URL,
+  SWISS_BADMINTON_BASE_URL,
   SWISS_BADMINTON_SOURCE_NAME,
   collectSwissBadmintonCandidates,
+  verifySwissBadmintonProfile,
+  type SwissBadmintonProfileConfig,
 } from "@/lib/sports-watch/swiss-badminton-collector";
 import {
   PostgresSportsWatchRepository,
@@ -25,6 +27,8 @@ import type {
   SportsWatchCandidate,
   SportsWatchRunResult,
   SportsWatchSourceKey,
+  SwissBadmintonBinding,
+  SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
 import type { Athlete } from "@/types/athlete";
 
@@ -41,7 +45,7 @@ const sourceDefinitions: Record<SportsWatchSourceKey, {
   },
   "swiss-badminton": {
     name: SWISS_BADMINTON_SOURCE_NAME,
-    url: SWISS_BADMINTON_PROFILE_URL,
+    url: SWISS_BADMINTON_BASE_URL,
     noRecentMessage: "Aucun résultat Swiss Badminton daté des 30 derniers jours. Aucun résultat ancien n’a été remonté.",
   },
 };
@@ -111,10 +115,20 @@ const resolveSelectedAthlete = (
   };
 };
 
+type SportsWatchCollector = (
+  athlete: SportsWatchAthleteSnapshot,
+  options: {
+    lookbackDays: number;
+    dependencies: { now: () => Date };
+    swissProfile?: SwissBadmintonProfileConfig;
+  },
+) => ReturnType<typeof collectBcBulleCandidates>;
+
 type SportsWatchServiceDependencies = {
   repository: SportsWatchRepository;
   getAthletes: () => Promise<Athlete[]>;
-  collectors: Record<SportsWatchSourceKey, typeof collectBcBulleCandidates>;
+  collectors: Record<SportsWatchSourceKey, SportsWatchCollector>;
+  verifySwissProfile: typeof verifySwissBadmintonProfile;
   now: () => Date;
 };
 
@@ -125,8 +139,14 @@ const defaultDependencies: SportsWatchServiceDependencies = {
     : getAthletesFromGoogleSheets(),
   collectors: {
     "bc-bulle": collectBcBulleCandidates,
-    "swiss-badminton": collectSwissBadmintonCandidates,
+    "swiss-badminton": (athlete, options) =>
+      collectSwissBadmintonCandidates(athlete, {
+        lookbackDays: options.lookbackDays,
+        dependencies: options.dependencies,
+        profile: options.swissProfile,
+      }),
   },
+  verifySwissProfile: verifySwissBadmintonProfile,
   now: () => new Date(),
 };
 
@@ -150,6 +170,12 @@ const runMessage = (
 
 const dateLabel = (value: string | null): string => value?.slice(0, 10) ?? "inconnue";
 
+const isPostgresUniqueViolation = (error: unknown): boolean =>
+  typeof error === "object"
+  && error !== null
+  && "code" in error
+  && (error as { code?: unknown }).code === "23505";
+
 export const createSportsWatchService = (
   overrides: Partial<Omit<SportsWatchServiceDependencies, "collectors">> & {
     collectors?: Partial<SportsWatchServiceDependencies["collectors"]>;
@@ -163,9 +189,110 @@ export const createSportsWatchService = (
       ...overrides.collectors,
     },
   };
+  const verifySwissBinding = async (
+    athleteId: unknown,
+    profileUrl: unknown,
+    playerId: unknown,
+    _identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBadmintonIdentityVerification> => {
+    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const url = normalize(profileUrl);
+    if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du profil officiel.");
+    try {
+      return await dependencies.verifySwissProfile(athlete, {
+        profileUrl: url,
+        playerId: normalize(playerId) || undefined,
+        dependencies: { now: dependencies.now },
+      });
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      throw new SportsWatchError(
+        "source",
+        error instanceof Error ? error.message : "La vérification du profil officiel a échoué.",
+      );
+    }
+  };
   return {
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
+  },
+
+  async listSwissBindings(identity: SportsWatchAdminIdentity): Promise<SwissBadmintonBinding[]> {
+    return dependencies.repository.listSwissBindings(identity.workspaceId);
+  },
+
+  verifySwissBinding,
+
+  async confirmSwissBinding(
+    athleteId: unknown,
+    profileUrl: unknown,
+    playerId: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBadmintonBinding> {
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const verification = await verifySwissBinding(
+      athleteId,
+      profileUrl,
+      playerId,
+      identity,
+    );
+    try {
+      const binding = await dependencies.repository.saveSwissBinding({
+        workspaceId: identity.workspaceId,
+        verification,
+        expectedVersion,
+        clerkUserId: identity.clerkUserId,
+        confirmedAt: dependencies.now().toISOString(),
+      });
+      if (!binding) {
+        throw new SportsWatchError(
+          "conflict",
+          "Le rattachement a été modifié. Rechargez sa configuration avant de confirmer.",
+        );
+      }
+      return binding;
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      if (isPostgresUniqueViolation(error)) {
+        throw new SportsWatchError(
+          "conflict",
+          "Ce profil ou cet identifiant joueur est déjà rattaché à un autre athlète actif de cet espace.",
+        );
+      }
+      throw error;
+    }
+  },
+
+  async disableSwissBinding(
+    athleteId: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBadmintonBinding> {
+    const selectedAthleteId = normalize(athleteId);
+    if (!selectedAthleteId) {
+      throw new SportsWatchError("validation", "Le rattachement Swiss Badminton est invalide.");
+    }
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const binding = await dependencies.repository.disableSwissBinding({
+      workspaceId: identity.workspaceId,
+      athleteId: selectedAthleteId,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié, désactivé ou n’est pas accessible dans cet espace.",
+      );
+    }
+    return binding;
   },
 
   async run(
@@ -176,6 +303,15 @@ export const createSportsWatchService = (
     const sourceKey = requireSourceKey(sourceKeyValue);
     const source = sourceDefinitions[sourceKey];
     const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const swissBinding = sourceKey === "swiss-badminton"
+      ? await dependencies.repository.getActiveSwissBinding(identity.workspaceId, athlete.id)
+      : null;
+    if (sourceKey === "swiss-badminton" && !swissBinding) {
+      throw new SportsWatchError(
+        "validation",
+        "Configurez et confirmez le profil Swiss Badminton de cet athlète avant de lancer la veille.",
+      );
+    }
     const now = dependencies.now().toISOString();
     const runId = await dependencies.repository.startRun({
       workspaceId: identity.workspaceId,
@@ -193,6 +329,7 @@ export const createSportsWatchService = (
       const collection = await dependencies.collectors[sourceKey](athlete, {
         lookbackDays: 30,
         dependencies: { now: dependencies.now },
+        swissProfile: swissBinding?.officialIdentity,
       });
       const createdCount = await dependencies.repository.saveCandidates(
         identity.workspaceId,
@@ -214,7 +351,7 @@ export const createSportsWatchService = (
       });
       return {
         sourceName: source.name,
-        sourceUrl: source.url,
+        sourceUrl: swissBinding?.officialIdentity.profileUrl ?? source.url,
         message,
         scannedCount: collection.scannedCount,
         recentCount: collection.recentCount,
