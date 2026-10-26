@@ -85,6 +85,11 @@ const sourceOptions: Array<{
     label: "IWWF / Wakesurf",
     url: "https://ems.iwwf.sport/",
   },
+  {
+    key: "kenpokan",
+    label: "Kenpokan Dojo",
+    url: "https://kenpokan-dojo.ch/feed/",
+  },
 ];
 
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
@@ -422,7 +427,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       <button
         type="button"
         className="card-link-button"
-        disabled={busyCandidateId === candidate.id}
+        disabled={
+          busyCandidateId === candidate.id
+          || candidate.attributionStatus === "ambiguous"
+        }
         onClick={() => void review(candidate, "validated")}
       >
         Valider
@@ -443,6 +451,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         >
           Préparer un article
         </button>
+      ) : null}
+      {candidate.attributionStatus === "ambiguous" ? (
+        <small style={{ color: "#92400e", alignSelf: "center" }}>
+          Validation bloquée : attribution à confirmer.
+        </small>
       ) : null}
     </div>
   );

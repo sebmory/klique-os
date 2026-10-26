@@ -173,6 +173,11 @@ const createMemoryRepository = (): SportsWatchRepository => {
     async listCandidates(workspaceId) {
       return records.filter((record) => record.workspaceId === workspaceId).map((record) => record.candidate);
     },
+    async getCandidate(workspaceId, candidateId) {
+      return records.find((record) =>
+        record.workspaceId === workspaceId
+        && record.candidate.id === candidateId)?.candidate ?? null;
+    },
     async reviewCandidate(input) {
       const record = records.find((item) =>
         item.workspaceId === input.workspaceId
@@ -307,6 +312,61 @@ const createMemoryRepository = (): SportsWatchRepository => {
 };
 
 describe("sports watch service", () => {
+  it("keeps an honest empty Kempo run and blocks validation when attribution is ambiguous", async () => {
+    const repository = createMemoryRepository();
+    const ambiguous = {
+      ...collectedCandidate("kempo-ambiguous", "Timothée Fuchs participe à une compétition."),
+      sourceKey: "kenpokan",
+      athlete: {
+        id: "timothee-fuchs",
+        name: "Timothée Fuchs",
+        sport: "Kempo",
+        club: "Club inconnu",
+      },
+      sourceName: "Kenpokan Dojo",
+      sourceUrl: "https://kenpokan-dojo.ch/feed/",
+      articleUrl: "https://kenpokan-dojo.ch/competition/",
+      attributionStatus: "ambiguous" as const,
+    };
+    let collection = { candidates: [] as CollectedSportsWatchCandidate[], scannedCount: 1, recentCount: 0 };
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [{
+        key: "timothee-fuchs",
+        athleteId: "timothee-fuchs",
+        name: "Timothée Fuchs",
+        sport: "Kempo",
+        club: "Kenpokandojo",
+      } as Athlete],
+      collectors: {
+        kenpokan: async () => collection,
+      },
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    const empty = await service.run("kenpokan", "timothee-fuchs", identity("workspace-a"));
+    expect(empty).toMatchObject({
+      createdCount: 0,
+      recentCount: 0,
+      message: "Aucune publication Kenpokan Dojo des 30 derniers jours. Aucune archive n’a été remontée.",
+    });
+
+    collection = { candidates: [ambiguous], scannedCount: 1, recentCount: 1 };
+    const run = await service.run("kenpokan", "timothee-fuchs", identity("workspace-a"));
+    await expect(service.review(
+      run.candidates[0].id,
+      "validated",
+      run.candidates[0].version,
+      identity("workspace-a"),
+    )).rejects.toThrow("attribution de ce candidat est ambiguë");
+    await expect(service.review(
+      run.candidates[0].id,
+      "rejected",
+      run.candidates[0].version,
+      identity("workspace-a"),
+    )).resolves.toMatchObject({ adminStatus: "rejected" });
+  });
+
   it("verifies, confirms and injects an IWWF binding into the shared collector flow", async () => {
     const repository = createMemoryRepository();
     const collectIwwf = vi.fn(async () => ({

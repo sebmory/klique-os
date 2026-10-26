@@ -65,6 +65,25 @@ type CollectorDependencies = {
   now: () => Date;
 };
 
+export type RssSportsWatchSourceConfig = {
+  key: string;
+  name: string;
+  feedUrl: string;
+  hostname: string;
+  sportLabels: string[];
+  clubLabels: string[];
+  requireArticleClubContext?: boolean;
+};
+
+const BC_BULLE_RSS_SOURCE: RssSportsWatchSourceConfig = {
+  key: "bc-bulle",
+  name: BC_BULLE_SOURCE_NAME,
+  feedUrl: BC_BULLE_FEED_URL,
+  hostname: SOURCE_HOSTNAME,
+  sportLabels: ["badminton"],
+  clubLabels: ["bulle"],
+};
+
 export class SportsWatchSourceError extends Error {
   constructor(message: string, public readonly httpStatus?: number) {
     super(message);
@@ -122,10 +141,13 @@ const toIsoTimestamp = (value: string): string | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 };
 
-const safeSourceArticleUrl = (value: string): string | null => {
+const safeSourceArticleUrl = (
+  value: string,
+  source: RssSportsWatchSourceConfig,
+): string | null => {
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== SOURCE_HOSTNAME) return null;
+    if (url.protocol !== "https:" || url.hostname !== source.hostname) return null;
     url.hash = "";
     return url.toString();
   } catch {
@@ -136,6 +158,7 @@ const safeSourceArticleUrl = (value: string): string | null => {
 const fetchBoundedText = async (
   url: string,
   dependencies: CollectorDependencies,
+  source: RssSportsWatchSourceConfig,
 ): Promise<string> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -151,7 +174,7 @@ const fetchBoundedText = async (
     });
     if (!response.ok) {
       throw new SportsWatchSourceError(
-        `La source ${BC_BULLE_SOURCE_NAME} a refusé la lecture (HTTP ${response.status}).`,
+        `La source ${source.name} a refusé la lecture (HTTP ${response.status}).`,
         response.status,
       );
     }
@@ -169,7 +192,7 @@ const fetchBoundedText = async (
     if (error instanceof Error && error.name === "AbortError") {
       throw new SportsWatchSourceError("La lecture de la source a dépassé le délai autorisé.");
     }
-    throw new SportsWatchSourceError("La source BC Bulle est techniquement inaccessible.");
+    throw new SportsWatchSourceError(`La source ${source.name} est techniquement inaccessible.`);
   } finally {
     clearTimeout(timeout);
   }
@@ -208,6 +231,15 @@ const extractEventDates = (text: string): { from: string | null; to: string | nu
       to: buildIsoDate(Number(range[2]), range[3], Number(range[4])),
     };
   }
+  const joinedRange = normalize(text).match(
+    /(?:les|du)\s+(\d{1,2})\s+et\s+(\d{1,2})\s+([a-z]+)\s+(\d{4})/,
+  );
+  if (joinedRange) {
+    return {
+      from: buildIsoDate(Number(joinedRange[1]), joinedRange[3], Number(joinedRange[4])),
+      to: buildIsoDate(Number(joinedRange[2]), joinedRange[3], Number(joinedRange[4])),
+    };
+  }
   const single = normalize(text).match(/(?:le|du)\s+(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
   const date = single ? buildIsoDate(Number(single[1]), single[2], Number(single[3])) : null;
   return { from: date, to: date };
@@ -237,32 +269,39 @@ const classifyExplicitInformation = (excerpt: string): SportsWatchResultKind => 
 
 const buildAttribution = (
   athlete: SportsWatchAthleteSnapshot,
+  articleText: string,
+  source: RssSportsWatchSourceConfig,
 ): { status: SportsWatchAttributionStatus; evidence: string[] } => {
-  const evidence = [`Nom complet présent dans la publication officielle de ${BC_BULLE_SOURCE_NAME}.`];
-  const sportMatches = normalize(athlete.sport).includes("badminton");
-  const clubMatches = normalize(athlete.club).includes("bulle");
-  if (sportMatches) evidence.push("Le sport CRM concorde avec le badminton.");
-  if (clubMatches) evidence.push("Le club CRM concorde avec BC Bulle.");
+  const evidence = [`Nom complet présent dans la publication officielle de ${source.name}.`];
+  const sportMatches = source.sportLabels.some((label) => normalize(athlete.sport).includes(normalize(label)));
+  const crmClubMatches = source.clubLabels.some((label) => normalize(athlete.club).includes(normalize(label)));
+  const articleContextMatches = !source.requireArticleClubContext
+    || source.clubLabels.some((label) => normalize(articleText).includes(normalize(label)));
+  if (sportMatches) evidence.push(`Le sport CRM concorde avec ${source.name}.`);
+  if (crmClubMatches && articleContextMatches) {
+    evidence.push(`Le club CRM et le contexte de la publication concordent avec ${source.name}.`);
+  }
   return {
-    status: sportMatches && clubMatches ? "matched" : "ambiguous",
+    status: sportMatches && crmClubMatches && articleContextMatches ? "matched" : "ambiguous",
     evidence,
   };
 };
 
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
-const buildCandidate = (
+const buildRssCandidate = (
   athlete: SportsWatchAthleteSnapshot,
   item: { title: string; articleUrl: string; publicationDate: string },
   articleHtml: string,
   collectedAt: string,
+  source: RssSportsWatchSourceConfig,
 ): CollectedSportsWatchCandidate | null => {
   const articleText = toPlainText(articleHtml);
   if (!includesExactName(articleText, athlete.name)) return null;
 
   const excerpt = excerptAroundName(articleText, athlete.name);
   const eventDates = extractEventDates(articleText);
-  const attribution = buildAttribution(athlete);
+  const attribution = buildAttribution(athlete, articleText, source);
   const resultKind = classifyExplicitInformation(excerpt);
   const logicalKey = sha256(`${athlete.id}|${item.articleUrl}`);
   const contentHash = sha256(JSON.stringify({
@@ -275,10 +314,10 @@ const buildCandidate = (
   }));
 
   return {
-    sourceKey: "bc-bulle",
+    sourceKey: source.key,
     athlete,
-    sourceName: BC_BULLE_SOURCE_NAME,
-    sourceUrl: BC_BULLE_FEED_URL,
+    sourceName: source.name,
+    sourceUrl: source.feedUrl,
     articleUrl: item.articleUrl,
     title: item.title,
     excerpt,
@@ -291,6 +330,69 @@ const buildCandidate = (
     attributionEvidence: attribution.evidence,
     logicalKey,
     contentHash,
+  };
+};
+
+const buildCandidate = (
+  athlete: SportsWatchAthleteSnapshot,
+  item: { title: string; articleUrl: string; publicationDate: string },
+  articleHtml: string,
+  collectedAt: string,
+): CollectedSportsWatchCandidate | null =>
+  buildRssCandidate(athlete, item, articleHtml, collectedAt, BC_BULLE_RSS_SOURCE);
+
+export const collectRssSportsWatchCandidates = async (
+  athlete: SportsWatchAthleteSnapshot,
+  source: RssSportsWatchSourceConfig,
+  options: {
+    lookbackDays?: number;
+    dependencies?: Partial<CollectorDependencies>;
+  } = {},
+): Promise<BcBulleCollectionResult> => {
+  const dependencies: CollectorDependencies = {
+    fetch: options.dependencies?.fetch ?? fetch,
+    now: options.dependencies?.now ?? (() => new Date()),
+  };
+  const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+  const collectedAtDate = dependencies.now();
+  const collectedAt = collectedAtDate.toISOString();
+  const cutoff = collectedAtDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
+  const feed = await fetchBoundedText(source.feedUrl, dependencies, source);
+  const items = Array.from(feed.matchAll(/<item\b[\s\S]*?<\/item>/gi))
+    .slice(0, MAX_FEED_ITEMS)
+    .map((match) => {
+      const articleUrl = safeSourceArticleUrl(readXmlTag(match[0], "link"), source);
+      const publicationDate = toIsoTimestamp(readXmlTag(match[0], "pubDate"));
+      return {
+        title: readXmlTag(match[0], "title"),
+        articleUrl,
+        publicationDate,
+      };
+    });
+
+  const recentItems = items.filter((item) =>
+    item.articleUrl
+    && item.publicationDate
+    && new Date(item.publicationDate).getTime() >= cutoff
+    && new Date(item.publicationDate).getTime() <= collectedAtDate.getTime());
+  const candidates: CollectedSportsWatchCandidate[] = [];
+  for (const item of recentItems) {
+    if (!item.articleUrl || !item.publicationDate) continue;
+    const articleHtml = await fetchBoundedText(item.articleUrl, dependencies, source);
+    const candidate = buildRssCandidate(
+      athlete,
+      { title: item.title, articleUrl: item.articleUrl, publicationDate: item.publicationDate },
+      articleHtml,
+      collectedAt,
+      source,
+    );
+    if (candidate) candidates.push(candidate);
+  }
+
+  return {
+    candidates,
+    scannedCount: items.length,
+    recentCount: recentItems.length,
   };
 };
 
@@ -340,47 +442,15 @@ export const collectBcBulleCandidates = async (
       recentCount: 1,
     };
   }
-  const cutoff = collectedAtDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
-  const feed = await fetchBoundedText(BC_BULLE_FEED_URL, dependencies);
-  const items = Array.from(feed.matchAll(/<item\b[\s\S]*?<\/item>/gi))
-    .slice(0, MAX_FEED_ITEMS)
-    .map((match) => {
-      const articleUrl = safeSourceArticleUrl(readXmlTag(match[0], "link"));
-      const publicationDate = toIsoTimestamp(readXmlTag(match[0], "pubDate"));
-      return {
-        title: readXmlTag(match[0], "title"),
-        articleUrl,
-        publicationDate,
-      };
-    });
-
-  const recentItems = items.filter((item) =>
-    item.articleUrl
-    && item.publicationDate
-    && new Date(item.publicationDate).getTime() >= cutoff
-    && new Date(item.publicationDate).getTime() <= collectedAtDate.getTime());
-  const candidates: CollectedSportsWatchCandidate[] = [];
-  for (const item of recentItems) {
-    if (!item.articleUrl || !item.publicationDate) continue;
-    const articleHtml = await fetchBoundedText(item.articleUrl, dependencies);
-    const candidate = buildCandidate(
-      athlete,
-      { title: item.title, articleUrl: item.articleUrl, publicationDate: item.publicationDate },
-      articleHtml,
-      collectedAt,
-    );
-    if (candidate) candidates.push(candidate);
-  }
-
-  return {
-    candidates,
-    scannedCount: items.length,
-    recentCount: recentItems.length,
-  };
+  return collectRssSportsWatchCandidates(athlete, BC_BULLE_RSS_SOURCE, {
+    lookbackDays,
+    dependencies,
+  });
 };
 
 export const sportsWatchCollectorTestUtils = {
   buildCandidate,
+  buildRssCandidate,
   extractEventDates,
   toPlainText,
 };

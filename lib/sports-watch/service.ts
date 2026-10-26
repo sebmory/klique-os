@@ -18,6 +18,11 @@ import {
   type IwwfProfileConfig,
 } from "@/lib/sports-watch/iwwf-wakesurf-collector";
 import {
+  KENPOKAN_FEED_URL,
+  KENPOKAN_SOURCE_NAME,
+  collectKenpokanCandidates,
+} from "@/lib/sports-watch/kenpokan-collector";
+import {
   SWISS_BADMINTON_BASE_URL,
   SWISS_BADMINTON_SOURCE_NAME,
   collectSwissBadmintonCandidates,
@@ -62,6 +67,11 @@ const sourceDefinitions: Record<SportsWatchSourceKey, {
     url: IWWF_BASE_URL,
     noRecentMessage: "Aucun résultat IWWF daté des 30 derniers jours. Aucun résultat ancien n’a été remonté.",
   },
+  kenpokan: {
+    name: KENPOKAN_SOURCE_NAME,
+    url: KENPOKAN_FEED_URL,
+    noRecentMessage: "Aucune publication Kenpokan Dojo des 30 derniers jours. Aucune archive n’a été remontée.",
+  },
 };
 
 export type SportsWatchAdminIdentity = {
@@ -93,6 +103,7 @@ const requireSourceKey = (value: unknown): SportsWatchSourceKey => {
     sourceKey !== "bc-bulle"
     && sourceKey !== "swiss-badminton"
     && sourceKey !== "iwwf-wakesurf"
+    && sourceKey !== "kenpokan"
   ) {
     throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
   }
@@ -171,6 +182,7 @@ const defaultDependencies: SportsWatchServiceDependencies = {
         dependencies: options.dependencies,
         profile: options.iwwfProfile,
       }),
+    kenpokan: collectKenpokanCandidates,
   },
   verifySwissProfile: verifySwissBadmintonProfile,
   verifyIwwfProfile,
@@ -508,6 +520,24 @@ export const createSportsWatchService = (
     const version = Number(versionValue);
     if (!["validated", "rejected"].includes(status) || !Number.isInteger(version) || version < 1) {
       throw new SportsWatchError("validation", "Décision ou version invalide.");
+    }
+    if (status === "validated") {
+      const current = await dependencies.repository.getCandidate(
+        identity.workspaceId,
+        candidateId,
+      );
+      if (!current) {
+        throw new SportsWatchError(
+          "not_found",
+          "Candidat introuvable dans cet espace.",
+        );
+      }
+      if (current.attributionStatus === "ambiguous") {
+        throw new SportsWatchError(
+          "validation",
+          "L’attribution de ce candidat est ambiguë. La validation éditoriale est bloquée.",
+        );
+      }
     }
     const candidate = await dependencies.repository.reviewCandidate({
       workspaceId: identity.workspaceId,

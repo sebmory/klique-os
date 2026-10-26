@@ -170,6 +170,7 @@ export type SportsWatchRepository = {
   failRun(input: { workspaceId: string; runId: string; message: string }): Promise<void>;
   saveCandidates(workspaceId: string, candidates: CollectedSportsWatchCandidate[]): Promise<number>;
   listCandidates(workspaceId: string): Promise<SportsWatchCandidate[]>;
+  getCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
   reviewCandidate(input: {
     workspaceId: string;
     candidateId: string;
@@ -347,6 +348,17 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       LIMIT 50
     `, [workspaceId]) as CandidateRow[];
     return rows.map(mapCandidate);
+  },
+
+  async getCandidate(workspaceId, candidateId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates
+      WHERE workspace_id = $1 AND id = $2::uuid
+      LIMIT 1
+    `, [workspaceId, candidateId]) as CandidateRow[];
+    return rows[0] ? mapCandidate(rows[0]) : null;
   },
 
   async reviewCandidate(input) {

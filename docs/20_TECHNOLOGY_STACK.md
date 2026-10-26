@@ -335,7 +335,8 @@ enregistrement réussi.
 `KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille sportive.
 Il propose la source éditoriale BC Bulle, des profils officiels Swiss
 Badminton / Tournamentsoftware et des profils IWWF configurés par workspace
-et athlète CRM.
+et athlète CRM, ainsi que le flux officiel Kenpokan Dojo avec sélection
+explicite de l'athlète CRM au lancement.
 Chaque rattachement doit être vérifié puis confirmé explicitement par un Admin.
 La confirmation, la modification et la réactivation relisent la source côté
 serveur ; les preuves du navigateur ne sont jamais acceptées comme autorité.
@@ -346,6 +347,11 @@ Le connecteur IWWF découvre les compétitions depuis le profil confirmé. Il
 sépare les tours explicitement nommés, notamment qualifications et finale, et
 ne conserve un score ou un classement que lorsqu'il apparaît dans la source.
 La fenêtre de récence reste fondée sur la date d'événement.
+Le connecteur Kenpokan réutilise le collecteur RSS borné de BC Bulle. Il exige
+la présence du nom complet et la concordance du sport, du club CRM et du
+contexte du dojo. Une attribution ambiguë reste consultable et rejetable, mais
+sa validation éditoriale est bloquée. Une disqualification n'est jamais
+transformée en classement.
 Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
 rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
 et `sports_watch_candidates`. L'activation exige l'application préalable des
@@ -359,6 +365,8 @@ devra être vérifié et confirmé lors de l'activation de cette migration. Une
 désactivation du rattachement ne supprime jamais les candidats existants.
 Aucun profil IWWF réel n'est inséré automatiquement ; il doit être vérifié puis
 confirmé par un Admin avant la première collecte.
+Le flux Kenpokan ne nécessite aucune table supplémentaire : le rattachement est
+la sélection explicite de la fiche CRM lors de chaque lancement.
 
 ## Photos privées des actualités Athlètes
 
