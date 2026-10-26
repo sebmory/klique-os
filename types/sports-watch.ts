@@ -4,7 +4,7 @@ export type SportsWatchAdminStatus = "pending" | "validated" | "rejected";
 export type SportsWatchAttributionStatus = "matched" | "ambiguous";
 export type SportsWatchVerificationStatus = "unverified" | "verified" | "disputed";
 export type SportsWatchResultKind = "individual_result" | "collective_result" | "participation" | "news_excerpt";
-export type SportsWatchSourceKey = "bc-bulle" | "swiss-badminton";
+export type SportsWatchSourceKey = "bc-bulle" | "swiss-badminton" | "iwwf-wakesurf";
 
 export type SwissBadmintonOfficialIdentity = {
   profileUrl: string;
@@ -32,6 +32,37 @@ export type SwissBadmintonBinding = {
   athleteId: string;
   officialIdentity: SwissBadmintonOfficialIdentity;
   clubComparison: SwissBadmintonIdentityVerification["clubComparison"];
+  evidence: string[];
+  verifiedAt: string;
+  confirmedAt: string;
+  active: boolean;
+  disabledAt: string | null;
+  version: number;
+};
+
+export type IwwfOfficialIdentity = {
+  profileUrl: string;
+  athleteId: string;
+  name: string;
+  birthYear: number | null;
+};
+
+export type IwwfIdentityVerification = {
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  officialIdentity: IwwfOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+};
+
+export type IwwfBinding = {
+  id: string;
+  athleteId: string;
+  officialIdentity: IwwfOfficialIdentity;
   evidence: string[];
   verifiedAt: string;
   confirmedAt: string;

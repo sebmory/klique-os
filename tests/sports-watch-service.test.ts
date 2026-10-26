@@ -9,6 +9,7 @@ import type {
 import type { SportsWatchRepository } from "@/lib/sports-watch/repository";
 import type { Athlete } from "@/types/athlete";
 import type {
+  IwwfBinding,
   SportsWatchCandidate,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
@@ -42,6 +43,31 @@ const swissVerification = (selectedAthlete = athlete, playerId = "206063") => ({
   },
   clubComparison: "matching" as const,
   evidence: [`Identifiant joueur ${playerId}.`],
+  verifiedAt: "2026-10-26T10:00:00.000Z",
+});
+
+const iwwfAthlete = {
+  key: "giuliano-muret",
+  athleteId: "giuliano-muret",
+  name: "Giuliano Muret",
+  sport: "Wakesurf",
+  club: "Aloha Wake à Estavayer-le-Lac",
+} as Athlete;
+
+const iwwfVerification = (selectedAthlete = iwwfAthlete, officialAthleteId = "SUI982014944") => ({
+  athlete: {
+    id: selectedAthlete.athleteId!,
+    name: selectedAthlete.name,
+    sport: selectedAthlete.sport,
+    club: selectedAthlete.club,
+  },
+  officialIdentity: {
+    profileUrl: `https://ems.iwwf.sport/Athletes/Profile/${officialAthleteId}`,
+    athleteId: officialAthleteId,
+    name: selectedAthlete.name,
+    birthYear: 2015,
+  },
+  evidence: [`Identifiant athlète IWWF ${officialAthleteId}.`],
   verifiedAt: "2026-10-26T10:00:00.000Z",
 });
 
@@ -83,6 +109,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
   let sequence = 0;
   let runActive = false;
   const bindings: Array<{ workspaceId: string; binding: SwissBadmintonBinding }> = [];
+  const iwwfBindings: Array<{ workspaceId: string; binding: IwwfBinding }> = [];
 
   return {
     async startRun() {
@@ -221,10 +248,160 @@ const createMemoryRepository = (): SportsWatchRepository => {
       };
       return existing.binding;
     },
+    async listIwwfBindings(workspaceId) {
+      return iwwfBindings
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.binding);
+    },
+    async getActiveIwwfBinding(workspaceId, athleteId) {
+      return iwwfBindings.find((record) =>
+        record.workspaceId === workspaceId
+        && record.binding.athleteId === athleteId
+        && record.binding.active)?.binding ?? null;
+    },
+    async saveIwwfBinding(input) {
+      const existing = iwwfBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.verification.athlete.id);
+      if (existing && existing.binding.version !== input.expectedVersion) return null;
+      const duplicate = iwwfBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId !== input.verification.athlete.id
+        && record.binding.active
+        && (
+          record.binding.officialIdentity.athleteId === input.verification.officialIdentity.athleteId
+          || record.binding.officialIdentity.profileUrl === input.verification.officialIdentity.profileUrl
+        ));
+      if (duplicate) throw Object.assign(new Error("duplicate"), { code: "23505" });
+      const binding: IwwfBinding = {
+        id: existing?.binding.id ?? `20000000-0000-4000-8000-${String(iwwfBindings.length + 1).padStart(12, "0")}`,
+        athleteId: input.verification.athlete.id,
+        officialIdentity: input.verification.officialIdentity,
+        evidence: input.verification.evidence,
+        verifiedAt: input.verification.verifiedAt,
+        confirmedAt: input.confirmedAt,
+        active: true,
+        disabledAt: null,
+        version: existing ? existing.binding.version + 1 : 1,
+      };
+      if (existing) existing.binding = binding;
+      else iwwfBindings.push({ workspaceId: input.workspaceId, binding });
+      return binding;
+    },
+    async disableIwwfBinding(input) {
+      const existing = iwwfBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.athleteId
+        && record.binding.active
+        && record.binding.version === input.expectedVersion);
+      if (!existing) return null;
+      existing.binding = {
+        ...existing.binding,
+        active: false,
+        disabledAt: "2026-10-26T10:00:00.000Z",
+        version: existing.binding.version + 1,
+      };
+      return existing.binding;
+    },
   };
 };
 
 describe("sports watch service", () => {
+  it("verifies, confirms and injects an IWWF binding into the shared collector flow", async () => {
+    const repository = createMemoryRepository();
+    const collectIwwf = vi.fn(async () => ({
+      candidates: [{
+        ...collectedCandidate("iwwf-hash", "Tour : Final. Score explicite : 36,67."),
+        sourceKey: "iwwf-wakesurf",
+        athlete: {
+          id: iwwfAthlete.athleteId!,
+          name: iwwfAthlete.name,
+          sport: iwwfAthlete.sport,
+          club: iwwfAthlete.club,
+        },
+        sourceName: "IWWF Event Management System",
+        sourceUrl: iwwfVerification().officialIdentity.profileUrl,
+        articleUrl: "https://ems.iwwf.sport/Competitions/Details/official",
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    }));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [iwwfAthlete],
+      collectors: { "iwwf-wakesurf": collectIwwf },
+      verifyIwwfProfile: vi.fn(async () => iwwfVerification()),
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+
+    await expect(service.run(
+      "iwwf-wakesurf",
+      iwwfAthlete.athleteId,
+      identity("workspace-a"),
+    )).rejects.toThrow("Configurez et confirmez");
+
+    const binding = await service.confirmIwwfBinding(
+      iwwfAthlete.athleteId,
+      iwwfVerification().officialIdentity.profileUrl,
+      0,
+      identity("workspace-a"),
+    );
+    const result = await service.run(
+      "iwwf-wakesurf",
+      iwwfAthlete.athleteId,
+      identity("workspace-a"),
+    );
+
+    expect(binding).toMatchObject({
+      athleteId: "giuliano-muret",
+      active: true,
+      officialIdentity: { athleteId: "SUI982014944" },
+    });
+    expect(collectIwwf).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "giuliano-muret" }),
+      expect.objectContaining({
+        iwwfProfile: expect.objectContaining({ athleteId: "SUI982014944" }),
+      }),
+    );
+    expect(result).toMatchObject({
+      sourceName: "IWWF Event Management System",
+      sourceUrl: iwwfVerification().officialIdentity.profileUrl,
+      createdCount: 1,
+    });
+    const candidate = await service.review(
+      result.candidates[0].id,
+      "validated",
+      result.candidates[0].version,
+      identity("workspace-a"),
+    );
+    const prefill = await service.buildArticlePrefill(candidate.id, identity("workspace-a"));
+    expect(prefill).toMatchObject({
+      athleteId: "giuliano-muret",
+      verificationStatus: "unverified",
+      material: {
+        text: "Tour : Final. Score explicite : 36,67.",
+      },
+    });
+    expect(prefill.material.provenance).toContain(
+      "https://ems.iwwf.sport/Competitions/Details/official",
+    );
+
+    await service.disableIwwfBinding(
+      iwwfAthlete.athleteId,
+      binding.version,
+      identity("workspace-a"),
+    );
+    await expect(service.run(
+      "iwwf-wakesurf",
+      iwwfAthlete.athleteId,
+      identity("workspace-a"),
+    )).rejects.toThrow("Configurez et confirmez");
+    expect(await service.list(identity("workspace-a"))).toEqual([
+      expect.objectContaining({ id: candidate.id, adminStatus: "validated" }),
+    ]);
+    expect(await service.listIwwfBindings(identity("workspace-b"))).toEqual([]);
+  });
+
   it("uses the server-selected collector and run key", async () => {
     const repository = createMemoryRepository();
     const startRun = vi.spyOn(repository, "startRun");

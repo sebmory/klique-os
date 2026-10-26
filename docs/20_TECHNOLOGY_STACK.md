@@ -333,24 +333,32 @@ enregistrement réussi.
 ## Veille sportive manuelle
 
 `KLIQUE_SPORTS_WATCH_ENABLED=true` active le bloc Admin de veille sportive.
-Il propose la source éditoriale BC Bulle et des profils officiels Swiss
-Badminton / Tournamentsoftware configurés par workspace et athlète CRM.
+Il propose la source éditoriale BC Bulle, des profils officiels Swiss
+Badminton / Tournamentsoftware et des profils IWWF configurés par workspace
+et athlète CRM.
 Chaque rattachement doit être vérifié puis confirmé explicitement par un Admin.
 La confirmation, la modification et la réactivation relisent la source côté
 serveur ; les preuves du navigateur ne sont jamais acceptées comme autorité.
-Le connecteur fédéral conserve l'ordre officiel des joueurs et des équipes pour
+Le connecteur Swiss Badminton conserve l'ordre officiel des joueurs et des équipes pour
 les simples, doubles et mixtes. Les scores ne sont réorientés qu'après
 confirmation de la position de l'identifiant joueur officiel.
+Le connecteur IWWF découvre les compétitions depuis le profil confirmé. Il
+sépare les tours explicitement nommés, notamment qualifications et finale, et
+ne conserve un score ou un classement que lorsqu'il apparaît dans la source.
+La fenêtre de récence reste fondée sur la date d'événement.
 Toute autre valeur laisse la fonctionnalité désactivée : l'interface n'est pas
 rendue et les routes répondent avant tout accès aux tables `sports_watch_runs`
 et `sports_watch_candidates`. L'activation exige l'application préalable des
 migrations additives `20261026_sports_watch_v1.sql` et
-`20261026_sports_watch_swiss_bindings.sql`.
+`20261026_sports_watch_swiss_bindings.sql`. La source IWWF exige en plus
+`20261026_sports_watch_iwwf_bindings.sql`.
 
 Aucun profil réel n'est inséré automatiquement. Les candidats historiques
 d'Antoine Majeux restent inchangés, mais son rattachement Tournamentsoftware
 devra être vérifié et confirmé lors de l'activation de cette migration. Une
 désactivation du rattachement ne supprime jamais les candidats existants.
+Aucun profil IWWF réel n'est inséré automatiquement ; il doit être vérifié puis
+confirmé par un Admin avant la première collecte.
 
 ## Photos privées des actualités Athlètes
 

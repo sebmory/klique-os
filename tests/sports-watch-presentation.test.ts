@@ -215,4 +215,42 @@ describe("sports watch tournament presentation", () => {
     ]);
     expect(sportsWatchPresentationTestUtils.translateRound("Tour suisse")).toBe("Tour suisse");
   });
+
+  it("groups explicit IWWF rounds as compact sourced results without inventing match data", () => {
+    const base = candidate(
+      "iwwf-qualifications",
+      "Swiss National Championships - Aloha Wake — Under 18 M Skim",
+      "Swiss National Championships - Aloha Wake — 26SUI009. Discipline : Wakesurf. Catégorie : Under 18 M Skim. Tour : Qualifications. Score explicite : 39,17. Classement explicitement indiqué : 2.",
+      1,
+      "2026-10-20",
+      {
+        athleteId: "giuliano-muret",
+        athleteName: "Giuliano Muret",
+        sourceName: "IWWF Event Management System",
+        sourceUrl: "https://ems.iwwf.sport/Athletes/Profile/SUI982014944",
+        articleUrl: "https://ems.iwwf.sport/Competitions/Details/2e958517-8cf0-4236-9206-8a145d75deb2",
+      },
+    );
+    const final = {
+      ...base,
+      id: "iwwf-final",
+      excerpt: base.excerpt
+        .replace("Qualifications", "Final")
+        .replace("39,17", "36,67"),
+    };
+
+    expect(buildSportsWatchTournamentGroups([base, final])).toEqual([
+      expect.objectContaining({
+        athleteName: "Giuliano Muret",
+        competitionName: "Swiss National Championships - Aloha Wake — Under 18 M Skim",
+        matchCount: 0,
+        unstructuredCount: 2,
+        disciplines: [],
+        unstructuredCandidates: [
+          expect.objectContaining({ candidate: expect.objectContaining({ id: "iwwf-qualifications" }) }),
+          expect.objectContaining({ candidate: expect.objectContaining({ id: "iwwf-final" }) }),
+        ],
+      }),
+    ]);
+  });
 });

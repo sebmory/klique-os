@@ -8,6 +8,8 @@ import {
 } from "@/lib/sports-watch/presentation";
 import { Card } from "@/src/design-system/components";
 import type {
+  IwwfBinding,
+  IwwfIdentityVerification,
   SportsWatchCandidate,
   SportsWatchRunResult,
   SportsWatchSourceKey,
@@ -78,12 +80,18 @@ const sourceOptions: Array<{
     label: "Swiss Badminton / Tournamentsoftware",
     url: "https://sb.tournamentsoftware.com/",
   },
+  {
+    key: "iwwf-wakesurf",
+    label: "IWWF / Wakesurf",
+    url: "https://ems.iwwf.sport/",
+  },
 ];
 
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
   const [swissBindings, setSwissBindings] = useState<SwissBadmintonBinding[]>([]);
+  const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
   const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchSourceKey>("bc-bulle");
   const [swissProfileUrl, setSwissProfileUrl] = useState("");
@@ -91,6 +99,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [swissVerification, setSwissVerification] =
     useState<SwissBadmintonIdentityVerification | null>(null);
   const [swissConfigBusy, setSwissConfigBusy] = useState(false);
+  const [iwwfProfileUrl, setIwwfProfileUrl] = useState("");
+  const [iwwfVerification, setIwwfVerification] =
+    useState<IwwfIdentityVerification | null>(null);
+  const [iwwfConfigBusy, setIwwfConfigBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -111,8 +123,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     (athlete.athleteId?.trim() || athlete.key.trim()) === selectedAthleteId);
   const selectedSwissBinding = swissBindings.find((binding) =>
     binding.athleteId === selectedAthleteId);
+  const selectedIwwfBinding = iwwfBindings.find((binding) =>
+    binding.athleteId === selectedAthleteId);
   const selectedSourceUrl = selectedSourceKey === "swiss-badminton"
     ? selectedSwissBinding?.officialIdentity.profileUrl ?? selectedSource.url
+    : selectedSourceKey === "iwwf-wakesurf"
+      ? selectedIwwfBinding?.officialIdentity.profileUrl ?? selectedSource.url
     : selectedSource.url;
   const tournamentGroups = useMemo(
     () => buildSportsWatchTournamentGroups(candidates),
@@ -126,12 +142,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         const payload = await response.json() as {
           candidates?: SportsWatchCandidate[];
           swissBindings?: SwissBadmintonBinding[];
+          iwwfBindings?: IwwfBinding[];
           message?: string;
         };
         if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
         if (active) {
           setCandidates(payload.candidates ?? []);
           setSwissBindings(payload.swissBindings ?? []);
+          setIwwfBindings(payload.iwwfBindings ?? []);
         }
       })
       .catch((caught: unknown) => {
@@ -148,8 +166,20 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     setSwissVerification(null);
   }, [selectedAthleteId, selectedSwissBinding]);
 
+  useEffect(() => {
+    setIwwfProfileUrl(selectedIwwfBinding?.officialIdentity.profileUrl ?? "");
+    setIwwfVerification(null);
+  }, [selectedAthleteId, selectedIwwfBinding]);
+
   const updateSwissBinding = (binding: SwissBadmintonBinding) => {
     setSwissBindings((current) => {
+      const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
+      return [binding, ...remaining];
+    });
+  };
+
+  const updateIwwfBinding = (binding: IwwfBinding) => {
+    setIwwfBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
@@ -240,6 +270,92 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       setError(caught instanceof Error ? caught.message : "Désactivation impossible.");
     } finally {
       setSwissConfigBusy(false);
+    }
+  };
+
+  const verifyIwwfProfile = async () => {
+    if (!selectedAthleteId || iwwfConfigBusy) return;
+    setIwwfConfigBusy(true);
+    setIwwfVerification(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/sports-watch/iwwf-bindings/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          athleteId: selectedAthleteId,
+          profileUrl: iwwfProfileUrl,
+        }),
+      });
+      const payload = await response.json() as {
+        verification?: IwwfIdentityVerification;
+        message?: string;
+      };
+      if (!response.ok || !payload.verification) {
+        throw new Error(payload.message || "Impossible de vérifier le profil IWWF.");
+      }
+      setIwwfVerification(payload.verification);
+      setIwwfProfileUrl(payload.verification.officialIdentity.profileUrl);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Vérification impossible.");
+    } finally {
+      setIwwfConfigBusy(false);
+    }
+  };
+
+  const confirmIwwfBinding = async () => {
+    if (!selectedAthleteId || !iwwfVerification || iwwfConfigBusy) return;
+    setIwwfConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/iwwf-bindings/${encodeURIComponent(selectedAthleteId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profileUrl: iwwfProfileUrl,
+            expectedVersion: selectedIwwfBinding?.version ?? 0,
+          }),
+        },
+      );
+      const payload = await response.json() as { binding?: IwwfBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de confirmer le rattachement IWWF.");
+      }
+      updateIwwfBinding(payload.binding);
+      setIwwfVerification(null);
+      setMessage("Profil IWWF vérifié et confirmé.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Confirmation impossible.");
+    } finally {
+      setIwwfConfigBusy(false);
+    }
+  };
+
+  const disableIwwfBinding = async () => {
+    if (!selectedIwwfBinding?.active || iwwfConfigBusy) return;
+    setIwwfConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/iwwf-bindings/${encodeURIComponent(selectedIwwfBinding.athleteId)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedVersion: selectedIwwfBinding.version }),
+        },
+      );
+      const payload = await response.json() as { binding?: IwwfBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de désactiver le rattachement IWWF.");
+      }
+      updateIwwfBinding(payload.binding);
+      setMessage("Rattachement IWWF désactivé. Les résultats historiques sont conservés.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Désactivation impossible.");
+    } finally {
+      setIwwfConfigBusy(false);
     }
   };
 
@@ -391,6 +507,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             busy
             || !selectedAthleteId
             || (selectedSourceKey === "swiss-badminton" && !selectedSwissBinding?.active)
+            || (selectedSourceKey === "iwwf-wakesurf" && !selectedIwwfBinding?.active)
           }
           onClick={() => void runWatch()}
         >
@@ -525,6 +642,116 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         </details>
       ) : null}
 
+      {selectedSourceKey === "iwwf-wakesurf" ? (
+        <details
+          style={{
+            marginTop: "0.7rem",
+            minWidth: 0,
+            border: "1px solid #e5e7eb",
+            borderRadius: "8px",
+            padding: "0.65rem 0.75rem",
+            background: "#fafafa",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 750 }}>
+            Profil officiel IWWF · {selectedIwwfBinding?.active
+              ? "rattachement actif"
+              : selectedIwwfBinding
+                ? "rattachement désactivé"
+                : "à configurer"}
+          </summary>
+          <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.76rem" }}>
+            Le serveur relit le profil avant chaque confirmation et contrôle le nom ainsi que
+            l’identifiant athlète IWWF stable. Les résultats sont ensuite découverts depuis ce profil.
+          </p>
+          {!selectedAthleteId ? (
+            <p style={{ margin: 0, fontSize: "0.8rem" }}>
+              Sélectionnez d’abord un athlète CRM.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: "0.55rem", minWidth: 0 }}>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                URL officielle du profil IWWF
+                <input
+                  type="url"
+                  value={iwwfProfileUrl}
+                  disabled={iwwfConfigBusy}
+                  placeholder="https://ems.iwwf.sport/Athletes/Profile/…"
+                  onChange={(event) => {
+                    setIwwfProfileUrl(event.target.value);
+                    setIwwfVerification(null);
+                  }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="card-link-button"
+                  disabled={iwwfConfigBusy || !iwwfProfileUrl.trim()}
+                  onClick={() => void verifyIwwfProfile()}
+                >
+                  {iwwfConfigBusy ? "Vérification…" : "Vérifier le profil"}
+                </button>
+                {selectedIwwfBinding?.active ? (
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={iwwfConfigBusy}
+                    onClick={() => void disableIwwfBinding()}
+                  >
+                    Désactiver
+                  </button>
+                ) : null}
+              </div>
+              {iwwfVerification ? (
+                <div
+                  style={{
+                    borderLeft: "3px solid #2563eb",
+                    paddingLeft: "0.65rem",
+                    fontSize: "0.78rem",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <strong>Comparaison avant confirmation</strong>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Fiche CRM : {selectedAthlete?.name} · {selectedAthlete?.sport || "sport inconnu"}
+                    {" · "}{selectedAthlete?.club || "club inconnu"}
+                  </p>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Profil officiel : {iwwfVerification.officialIdentity.name}
+                    {" · ID "}{iwwfVerification.officialIdentity.athleteId}
+                    {iwwfVerification.officialIdentity.birthYear
+                      ? ` · naissance ${iwwfVerification.officialIdentity.birthYear}`
+                      : ""}
+                  </p>
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={iwwfConfigBusy}
+                    onClick={() => void confirmIwwfBinding()}
+                  >
+                    Confirmer explicitement le rattachement
+                  </button>
+                </div>
+              ) : selectedIwwfBinding ? (
+                <small>
+                  {selectedIwwfBinding.officialIdentity.name}
+                  {" · ID "}{selectedIwwfBinding.officialIdentity.athleteId}
+                  {" · vérifié le "}{formatDate(selectedIwwfBinding.verifiedAt)}
+                  {!selectedIwwfBinding.active
+                    ? " · Une nouvelle vérification est obligatoire pour réactiver."
+                    : ""}
+                </small>
+              ) : (
+                <small>
+                  Aucun rattachement actif : vérifiez puis confirmez le profil avant toute collecte IWWF.
+                </small>
+              )}
+            </div>
+          )}
+        </details>
+      ) : null}
+
       {message ? <p role="status" style={{ color: "#166534", fontSize: "0.84rem" }}>{message}</p> : null}
       {error ? <p role="alert" style={{ color: "#b91c1c", fontSize: "0.84rem" }}>{error}</p> : null}
 
@@ -548,7 +775,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                       {group.competitionName}
                     </h3>
                   </div>
-                  <span className="priority-badge">{pluralize(group.matchCount, "match", "matches")}</span>
+                  <span className="priority-badge">
+                    {group.matchCount > 0
+                      ? pluralize(group.matchCount, "match", "matches")
+                      : pluralize(group.unstructuredCount, "résultat")}
+                  </span>
                 </div>
                 <small>
                   {formatDate(group.eventDateFrom)}

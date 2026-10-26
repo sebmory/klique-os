@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import type { CollectedSportsWatchCandidate } from "@/lib/sports-watch/bcbulle-collector";
 import type {
+  IwwfBinding,
+  IwwfIdentityVerification,
   SportsWatchAdminStatus,
   SportsWatchCandidate,
   SwissBadmintonBinding,
@@ -39,6 +41,21 @@ type SwissBindingRow = {
   official_name_snapshot: string;
   official_club_snapshot: string | null;
   club_comparison: SwissBadmintonBinding["clubComparison"];
+  verification_evidence_json: string[] | string;
+  verified_at: string | Date;
+  confirmed_at: string | Date;
+  active: boolean;
+  disabled_at: string | Date | null;
+  version: number | string;
+};
+
+type IwwfBindingRow = {
+  id: string;
+  athlete_id: string;
+  profile_url: string;
+  official_athlete_id: string;
+  official_name_snapshot: string;
+  official_birth_year_snapshot: number | string | null;
   verification_evidence_json: string[] | string;
   verified_at: string | Date;
   confirmed_at: string | Date;
@@ -105,6 +122,25 @@ const mapSwissBinding = (row: SwissBindingRow): SwissBadmintonBinding => ({
   version: Number(row.version),
 });
 
+const mapIwwfBinding = (row: IwwfBindingRow): IwwfBinding => ({
+  id: row.id,
+  athleteId: row.athlete_id,
+  officialIdentity: {
+    profileUrl: row.profile_url,
+    athleteId: row.official_athlete_id,
+    name: row.official_name_snapshot,
+    birthYear: row.official_birth_year_snapshot === null
+      ? null
+      : Number(row.official_birth_year_snapshot),
+  },
+  evidence: readStringArray(row.verification_evidence_json),
+  verifiedAt: normalizeTimestamp(row.verified_at) ?? "",
+  confirmedAt: normalizeTimestamp(row.confirmed_at) ?? "",
+  active: row.active,
+  disabledAt: normalizeTimestamp(row.disabled_at),
+  version: Number(row.version),
+});
+
 const candidateColumns = `
   id, athlete_id, athlete_name_snapshot, source_name, source_url, article_url,
   title, excerpt, result_kind, publication_date,
@@ -157,6 +193,21 @@ export type SportsWatchRepository = {
     expectedVersion: number;
     clerkUserId: string;
   }): Promise<SwissBadmintonBinding | null>;
+  listIwwfBindings(workspaceId: string): Promise<IwwfBinding[]>;
+  getActiveIwwfBinding(workspaceId: string, athleteId: string): Promise<IwwfBinding | null>;
+  saveIwwfBinding(input: {
+    workspaceId: string;
+    verification: IwwfIdentityVerification;
+    expectedVersion: number;
+    clerkUserId: string;
+    confirmedAt: string;
+  }): Promise<IwwfBinding | null>;
+  disableIwwfBinding(input: {
+    workspaceId: string;
+    athleteId: string;
+    expectedVersion: number;
+    clerkUserId: string;
+  }): Promise<IwwfBinding | null>;
 };
 
 export const PostgresSportsWatchRepository: SportsWatchRepository = {
@@ -449,5 +500,118 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.clerkUserId,
     ]) as SwissBindingRow[];
     return rows[0] ? mapSwissBinding(rows[0]) : null;
+  },
+
+  async listIwwfBindings(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, profile_url, official_athlete_id,
+        official_name_snapshot, official_birth_year_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_iwwf_bindings
+      WHERE workspace_id = $1
+      ORDER BY active DESC, updated_at DESC
+    `, [workspaceId]) as IwwfBindingRow[];
+    return rows.map(mapIwwfBinding);
+  },
+
+  async getActiveIwwfBinding(workspaceId, athleteId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, profile_url, official_athlete_id,
+        official_name_snapshot, official_birth_year_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_iwwf_bindings
+      WHERE workspace_id = $1 AND athlete_id = $2 AND active
+      LIMIT 1
+    `, [workspaceId, athleteId]) as IwwfBindingRow[];
+    return rows[0] ? mapIwwfBinding(rows[0]) : null;
+  },
+
+  async saveIwwfBinding(input) {
+    const sql = createContentStorageClient();
+    const official = input.verification.officialIdentity;
+    const rows = await sql.query(`
+      INSERT INTO sports_watch_iwwf_bindings (
+        id, workspace_id, athlete_id, profile_url, official_athlete_id,
+        official_name_snapshot, official_birth_year_snapshot,
+        verification_evidence_json, verified_at,
+        confirmed_by_clerk_user_id, confirmed_at
+      )
+      SELECT
+        $1::uuid, $2, $3, $4, $5,
+        $6, $7, $8::jsonb, $9::timestamptz, $10, $11::timestamptz
+      WHERE $12 = 0
+         OR EXISTS (
+           SELECT 1
+           FROM sports_watch_iwwf_bindings
+           WHERE workspace_id = $2 AND athlete_id = $3
+         )
+      ON CONFLICT (workspace_id, athlete_id) DO UPDATE
+      SET profile_url = EXCLUDED.profile_url,
+          official_athlete_id = EXCLUDED.official_athlete_id,
+          official_name_snapshot = EXCLUDED.official_name_snapshot,
+          official_birth_year_snapshot = EXCLUDED.official_birth_year_snapshot,
+          verification_evidence_json = EXCLUDED.verification_evidence_json,
+          verified_at = EXCLUDED.verified_at,
+          confirmed_by_clerk_user_id = EXCLUDED.confirmed_by_clerk_user_id,
+          confirmed_at = EXCLUDED.confirmed_at,
+          active = TRUE,
+          disabled_by_clerk_user_id = NULL,
+          disabled_at = NULL,
+          version = sports_watch_iwwf_bindings.version + 1,
+          updated_at = NOW()
+      WHERE sports_watch_iwwf_bindings.version = $12
+      RETURNING
+        id, athlete_id, profile_url, official_athlete_id,
+        official_name_snapshot, official_birth_year_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      randomUUID(),
+      input.workspaceId,
+      input.verification.athlete.id,
+      official.profileUrl,
+      official.athleteId,
+      official.name,
+      official.birthYear,
+      JSON.stringify(input.verification.evidence),
+      input.verification.verifiedAt,
+      input.clerkUserId,
+      input.confirmedAt,
+      input.expectedVersion,
+    ]) as IwwfBindingRow[];
+    return rows[0] ? mapIwwfBinding(rows[0]) : null;
+  },
+
+  async disableIwwfBinding(input) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      UPDATE sports_watch_iwwf_bindings
+      SET active = FALSE,
+          disabled_by_clerk_user_id = $4,
+          disabled_at = NOW(),
+          version = version + 1,
+          updated_at = NOW()
+      WHERE workspace_id = $1
+        AND athlete_id = $2
+        AND version = $3
+        AND active
+      RETURNING
+        id, athlete_id, profile_url, official_athlete_id,
+        official_name_snapshot, official_birth_year_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      input.workspaceId,
+      input.athleteId,
+      input.expectedVersion,
+      input.clerkUserId,
+    ]) as IwwfBindingRow[];
+    return rows[0] ? mapIwwfBinding(rows[0]) : null;
   },
 };

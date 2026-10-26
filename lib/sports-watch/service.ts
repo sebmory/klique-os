@@ -11,6 +11,13 @@ import {
   type SportsWatchAthleteSnapshot,
 } from "@/lib/sports-watch/bcbulle-collector";
 import {
+  IWWF_BASE_URL,
+  IWWF_WAKESURF_SOURCE_NAME,
+  collectIwwfWakesurfCandidates,
+  verifyIwwfProfile,
+  type IwwfProfileConfig,
+} from "@/lib/sports-watch/iwwf-wakesurf-collector";
+import {
   SWISS_BADMINTON_BASE_URL,
   SWISS_BADMINTON_SOURCE_NAME,
   collectSwissBadmintonCandidates,
@@ -22,6 +29,8 @@ import {
   type SportsWatchRepository,
 } from "@/lib/sports-watch/repository";
 import type {
+  IwwfBinding,
+  IwwfIdentityVerification,
   SportsWatchAdminStatus,
   SportsWatchArticlePrefill,
   SportsWatchCandidate,
@@ -47,6 +56,11 @@ const sourceDefinitions: Record<SportsWatchSourceKey, {
     name: SWISS_BADMINTON_SOURCE_NAME,
     url: SWISS_BADMINTON_BASE_URL,
     noRecentMessage: "Aucun résultat Swiss Badminton daté des 30 derniers jours. Aucun résultat ancien n’a été remonté.",
+  },
+  "iwwf-wakesurf": {
+    name: IWWF_WAKESURF_SOURCE_NAME,
+    url: IWWF_BASE_URL,
+    noRecentMessage: "Aucun résultat IWWF daté des 30 derniers jours. Aucun résultat ancien n’a été remonté.",
   },
 };
 
@@ -75,7 +89,11 @@ const requireUuid = (value: unknown): string => {
 
 const requireSourceKey = (value: unknown): SportsWatchSourceKey => {
   const sourceKey = normalize(value);
-  if (sourceKey !== "bc-bulle" && sourceKey !== "swiss-badminton") {
+  if (
+    sourceKey !== "bc-bulle"
+    && sourceKey !== "swiss-badminton"
+    && sourceKey !== "iwwf-wakesurf"
+  ) {
     throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
   }
   return sourceKey;
@@ -121,6 +139,7 @@ type SportsWatchCollector = (
     lookbackDays: number;
     dependencies: { now: () => Date };
     swissProfile?: SwissBadmintonProfileConfig;
+    iwwfProfile?: IwwfProfileConfig;
   },
 ) => ReturnType<typeof collectBcBulleCandidates>;
 
@@ -129,6 +148,7 @@ type SportsWatchServiceDependencies = {
   getAthletes: () => Promise<Athlete[]>;
   collectors: Record<SportsWatchSourceKey, SportsWatchCollector>;
   verifySwissProfile: typeof verifySwissBadmintonProfile;
+  verifyIwwfProfile: typeof verifyIwwfProfile;
   now: () => Date;
 };
 
@@ -145,8 +165,15 @@ const defaultDependencies: SportsWatchServiceDependencies = {
         dependencies: options.dependencies,
         profile: options.swissProfile,
       }),
+    "iwwf-wakesurf": (athlete, options) =>
+      collectIwwfWakesurfCandidates(athlete, {
+        lookbackDays: options.lookbackDays,
+        dependencies: options.dependencies,
+        profile: options.iwwfProfile,
+      }),
   },
   verifySwissProfile: verifySwissBadmintonProfile,
+  verifyIwwfProfile,
   now: () => new Date(),
 };
 
@@ -212,6 +239,27 @@ export const createSportsWatchService = (
       );
     }
   };
+  const verifyIwwfBinding = async (
+    athleteId: unknown,
+    profileUrl: unknown,
+    _identity: SportsWatchAdminIdentity,
+  ): Promise<IwwfIdentityVerification> => {
+    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const url = normalize(profileUrl);
+    if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du profil IWWF officiel.");
+    try {
+      return await dependencies.verifyIwwfProfile(athlete, {
+        profileUrl: url,
+        dependencies: { now: dependencies.now },
+      });
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      throw new SportsWatchError(
+        "source",
+        error instanceof Error ? error.message : "La vérification du profil IWWF a échoué.",
+      );
+    }
+  };
   return {
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
@@ -221,7 +269,12 @@ export const createSportsWatchService = (
     return dependencies.repository.listSwissBindings(identity.workspaceId);
   },
 
+  async listIwwfBindings(identity: SportsWatchAdminIdentity): Promise<IwwfBinding[]> {
+    return dependencies.repository.listIwwfBindings(identity.workspaceId);
+  },
+
   verifySwissBinding,
+  verifyIwwfBinding,
 
   async confirmSwissBinding(
     athleteId: unknown,
@@ -295,6 +348,72 @@ export const createSportsWatchService = (
     return binding;
   },
 
+  async confirmIwwfBinding(
+    athleteId: unknown,
+    profileUrl: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<IwwfBinding> {
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const verification = await verifyIwwfBinding(athleteId, profileUrl, identity);
+    try {
+      const binding = await dependencies.repository.saveIwwfBinding({
+        workspaceId: identity.workspaceId,
+        verification,
+        expectedVersion,
+        clerkUserId: identity.clerkUserId,
+        confirmedAt: dependencies.now().toISOString(),
+      });
+      if (!binding) {
+        throw new SportsWatchError(
+          "conflict",
+          "Le rattachement a été modifié. Rechargez sa configuration avant de confirmer.",
+        );
+      }
+      return binding;
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      if (isPostgresUniqueViolation(error)) {
+        throw new SportsWatchError(
+          "conflict",
+          "Ce profil ou cet identifiant IWWF est déjà rattaché à un autre athlète actif de cet espace.",
+        );
+      }
+      throw error;
+    }
+  },
+
+  async disableIwwfBinding(
+    athleteId: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<IwwfBinding> {
+    const selectedAthleteId = normalize(athleteId);
+    if (!selectedAthleteId) {
+      throw new SportsWatchError("validation", "Le rattachement IWWF est invalide.");
+    }
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const binding = await dependencies.repository.disableIwwfBinding({
+      workspaceId: identity.workspaceId,
+      athleteId: selectedAthleteId,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié, désactivé ou n’est pas accessible dans cet espace.",
+      );
+    }
+    return binding;
+  },
+
   async run(
     sourceKeyValue: unknown,
     athleteId: unknown,
@@ -306,10 +425,19 @@ export const createSportsWatchService = (
     const swissBinding = sourceKey === "swiss-badminton"
       ? await dependencies.repository.getActiveSwissBinding(identity.workspaceId, athlete.id)
       : null;
+    const iwwfBinding = sourceKey === "iwwf-wakesurf"
+      ? await dependencies.repository.getActiveIwwfBinding(identity.workspaceId, athlete.id)
+      : null;
     if (sourceKey === "swiss-badminton" && !swissBinding) {
       throw new SportsWatchError(
         "validation",
         "Configurez et confirmez le profil Swiss Badminton de cet athlète avant de lancer la veille.",
+      );
+    }
+    if (sourceKey === "iwwf-wakesurf" && !iwwfBinding) {
+      throw new SportsWatchError(
+        "validation",
+        "Configurez et confirmez le profil IWWF de cet athlète avant de lancer la veille.",
       );
     }
     const now = dependencies.now().toISOString();
@@ -330,6 +458,7 @@ export const createSportsWatchService = (
         lookbackDays: 30,
         dependencies: { now: dependencies.now },
         swissProfile: swissBinding?.officialIdentity,
+        iwwfProfile: iwwfBinding?.officialIdentity,
       });
       const createdCount = await dependencies.repository.saveCandidates(
         identity.workspaceId,
@@ -351,7 +480,9 @@ export const createSportsWatchService = (
       });
       return {
         sourceName: source.name,
-        sourceUrl: swissBinding?.officialIdentity.profileUrl ?? source.url,
+        sourceUrl: swissBinding?.officialIdentity.profileUrl
+          ?? iwwfBinding?.officialIdentity.profileUrl
+          ?? source.url,
         message,
         scannedCount: collection.scannedCount,
         recentCount: collection.recentCount,
