@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   verifySafvBinding: vi.fn(),
   confirmSafvBinding: vi.fn(),
   disableSafvBinding: vi.fn(),
+  listBeBasketBindings: vi.fn(),
+  verifyBeBasketBinding: vi.fn(),
+  confirmBeBasketBinding: vi.fn(),
+  disableBeBasketBinding: vi.fn(),
   importUpload: vi.fn(),
   importExtract: vi.fn(),
   importConfirm: vi.fn(),
@@ -44,6 +48,10 @@ vi.mock("@/lib/sports-watch/service", () => ({
     verifySafvBinding: mocks.verifySafvBinding,
     confirmSafvBinding: mocks.confirmSafvBinding,
     disableSafvBinding: mocks.disableSafvBinding,
+    listBeBasketBindings: mocks.listBeBasketBindings,
+    verifyBeBasketBinding: mocks.verifyBeBasketBinding,
+    confirmBeBasketBinding: mocks.confirmBeBasketBinding,
+    disableBeBasketBinding: mocks.disableBeBasketBinding,
   },
 }));
 
@@ -72,6 +80,11 @@ import {
   DELETE as DISABLE_SAFV,
   PUT as CONFIRM_SAFV,
 } from "@/app/api/admin/sports-watch/safv-bindings/[athleteId]/route";
+import { POST as VERIFY_BEBASKET } from "@/app/api/admin/sports-watch/bebasket-bindings/verify/route";
+import {
+  DELETE as DISABLE_BEBASKET,
+  PUT as CONFIRM_BEBASKET,
+} from "@/app/api/admin/sports-watch/bebasket-bindings/[athleteId]/route";
 import { POST as UPLOAD_IMPORT } from "@/app/api/admin/sports-watch/imports/route";
 import { POST as EXTRACT_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/extract/route";
 import { POST as CONFIRM_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/confirm/route";
@@ -126,6 +139,18 @@ describe("disabled sports watch routes", () => {
       "http://localhost/api/admin/sports-watch/safv-bindings/athlete-1",
       { method: "DELETE" },
     ), context);
+    const verifyBeBasketResponse = await VERIFY_BEBASKET(new Request(
+      "http://localhost/api/admin/sports-watch/bebasket-bindings/verify",
+      { method: "POST" },
+    ));
+    const confirmBeBasketResponse = await CONFIRM_BEBASKET(new Request(
+      "http://localhost/api/admin/sports-watch/bebasket-bindings/athlete-1",
+      { method: "PUT" },
+    ), context);
+    const disableBeBasketResponse = await DISABLE_BEBASKET(new Request(
+      "http://localhost/api/admin/sports-watch/bebasket-bindings/athlete-1",
+      { method: "DELETE" },
+    ), context);
     const importContext = { params: Promise.resolve({ importId: "11111111-1111-4111-8111-111111111111" }) };
     const uploadImportResponse = await UPLOAD_IMPORT(new Request(
       "http://localhost/api/admin/sports-watch/imports",
@@ -154,6 +179,9 @@ describe("disabled sports watch routes", () => {
     expect(verifySafvResponse.status).toBe(404);
     expect(confirmSafvResponse.status).toBe(404);
     expect(disableSafvResponse.status).toBe(404);
+    expect(verifyBeBasketResponse.status).toBe(404);
+    expect(confirmBeBasketResponse.status).toBe(404);
+    expect(disableBeBasketResponse.status).toBe(404);
     expect(uploadImportResponse.status).toBe(404);
     expect(extractImportResponse.status).toBe(404);
     expect(confirmImportResponse.status).toBe(404);
@@ -163,6 +191,7 @@ describe("disabled sports watch routes", () => {
     expect(mocks.listSwissBindings).not.toHaveBeenCalled();
     expect(mocks.listIwwfBindings).not.toHaveBeenCalled();
     expect(mocks.listSafvBindings).not.toHaveBeenCalled();
+    expect(mocks.listBeBasketBindings).not.toHaveBeenCalled();
     expect(mocks.run).not.toHaveBeenCalled();
     expect(mocks.verifySwissBinding).not.toHaveBeenCalled();
     expect(mocks.confirmSwissBinding).not.toHaveBeenCalled();
@@ -173,6 +202,9 @@ describe("disabled sports watch routes", () => {
     expect(mocks.verifySafvBinding).not.toHaveBeenCalled();
     expect(mocks.confirmSafvBinding).not.toHaveBeenCalled();
     expect(mocks.disableSafvBinding).not.toHaveBeenCalled();
+    expect(mocks.verifyBeBasketBinding).not.toHaveBeenCalled();
+    expect(mocks.confirmBeBasketBinding).not.toHaveBeenCalled();
+    expect(mocks.disableBeBasketBinding).not.toHaveBeenCalled();
     expect(mocks.importUpload).not.toHaveBeenCalled();
     expect(mocks.importExtract).not.toHaveBeenCalled();
     expect(mocks.importConfirm).not.toHaveBeenCalled();

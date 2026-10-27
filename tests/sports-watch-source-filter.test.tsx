@@ -70,6 +70,7 @@ describe("sports watch source athlete filtering", () => {
         swissBindings: [],
         iwwfBindings: [],
         safvBindings: [],
+        beBasketBindings: [],
       }),
     })));
     container = document.createElement("div");
@@ -94,6 +95,8 @@ describe("sports watch source athlete filtering", () => {
     expect(isSportCompatibleWithWatchSource("Kempô", "kenpokan")).toBe(true);
     expect(isSportCompatibleWithWatchSource("Foot us et basket", "safv")).toBe(true);
     expect(isSportCompatibleWithWatchSource("Basketball", "safv")).toBe(false);
+    expect(isSportCompatibleWithWatchSource("Basketball", "bebasket")).toBe(true);
+    expect(isSportCompatibleWithWatchSource("Foot us et basket", "bebasket")).toBe(true);
   });
 
   it("filters options, clears an incompatible selection, shows the empty state, and leaves manual imports independent", async () => {
@@ -118,6 +121,12 @@ describe("sports watch source athlete filtering", () => {
     await setSelectValue(sourceSelect, "safv");
     expect(optionLabels(watchAthleteSelect)).toEqual([
       "Camille Multisport — Foot us et basket",
+    ]);
+
+    await setSelectValue(sourceSelect, "bebasket");
+    expect(optionLabels(watchAthleteSelect)).toEqual([
+      "Camille Multisport — Foot us et basket",
+      "Diane Basket — Basketball",
     ]);
 
     expect(optionLabels(importAthleteSelect)).toEqual([

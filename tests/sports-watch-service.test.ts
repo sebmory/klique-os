@@ -9,9 +9,11 @@ import type {
 import type { SportsWatchRepository } from "@/lib/sports-watch/repository";
 import type { Athlete } from "@/types/athlete";
 import type {
+  BeBasketBinding,
   IwwfBinding,
   SafvBinding,
   SportsWatchCandidate,
+  SportsWatchCollectionObservation,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
 
@@ -101,6 +103,31 @@ const safvVerification = () => ({
   verifiedAt: "2026-07-10T10:00:00.000Z",
 });
 
+const beBasketAthlete = {
+  key: "mila-benjak",
+  athleteId: "mila-benjak",
+  name: "Mila Benjak",
+  sport: "Basketball",
+  club: "BCF Elfic Fribourg",
+} as Athlete;
+
+const beBasketVerification = () => ({
+  athlete: {
+    id: beBasketAthlete.athleteId!,
+    name: beBasketAthlete.name,
+    sport: beBasketAthlete.sport,
+    club: beBasketAthlete.club,
+  },
+  officialIdentity: {
+    calendarUrl: "https://www.bebasket.fr/equipe/bcf-elfic-fribourg/calendrier",
+    teamSlug: "bcf-elfic-fribourg",
+    teamName: "BCF Elfic Fribourg",
+    playerName: "Mila Benjak",
+  },
+  evidence: ["BeBasket est une source tierce."],
+  verifiedAt: "2026-10-27T10:00:00.000Z",
+});
+
 const collectedCandidate = (contentHash: string, excerpt: string): CollectedSportsWatchCandidate => ({
   sourceKey: "bc-bulle",
   athlete: {
@@ -141,6 +168,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
   const bindings: Array<{ workspaceId: string; binding: SwissBadmintonBinding }> = [];
   const iwwfBindings: Array<{ workspaceId: string; binding: IwwfBinding }> = [];
   const safvBindings: Array<{ workspaceId: string; binding: SafvBinding }> = [];
+  const beBasketBindings: Array<{ workspaceId: string; binding: BeBasketBinding }> = [];
 
   return {
     async startRun() {
@@ -386,10 +414,146 @@ const createMemoryRepository = (): SportsWatchRepository => {
       };
       return existing.binding;
     },
+    async listBeBasketBindings(workspaceId) {
+      return beBasketBindings
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.binding);
+    },
+    async getActiveBeBasketBinding(workspaceId, athleteId) {
+      return beBasketBindings.find((record) =>
+        record.workspaceId === workspaceId
+        && record.binding.athleteId === athleteId
+        && record.binding.active)?.binding ?? null;
+    },
+    async saveBeBasketBinding(input) {
+      const existing = beBasketBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.verification.athlete.id);
+      if (existing && existing.binding.version !== input.expectedVersion) return null;
+      const binding: BeBasketBinding = {
+        id: existing?.binding.id ?? `40000000-0000-4000-8000-${String(beBasketBindings.length + 1).padStart(12, "0")}`,
+        athleteId: input.verification.athlete.id,
+        officialIdentity: input.verification.officialIdentity,
+        evidence: input.verification.evidence,
+        verifiedAt: input.verification.verifiedAt,
+        confirmedAt: input.confirmedAt,
+        active: true,
+        disabledAt: null,
+        version: existing ? existing.binding.version + 1 : 1,
+      };
+      if (existing) existing.binding = binding;
+      else beBasketBindings.push({ workspaceId: input.workspaceId, binding });
+      return binding;
+    },
+    async disableBeBasketBinding(input) {
+      const existing = beBasketBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.athleteId
+        && record.binding.active
+        && record.binding.version === input.expectedVersion);
+      if (!existing) return null;
+      existing.binding = {
+        ...existing.binding,
+        active: false,
+        disabledAt: "2026-10-26T10:00:00.000Z",
+        version: existing.binding.version + 1,
+      };
+      return existing.binding;
+    },
   };
 };
 
 describe("sports watch service", () => {
+  it("keeps BeBasket third-party facts unverified through Admin review and Article transfer", async () => {
+    const repository = createMemoryRepository();
+    const excerpt = [
+      "Source : BeBasket — source tierce.",
+      "Statut factuel : non vérifié ; aucune corroboration officielle.",
+      "Participation explicitement documentée pour Mila Benjak.",
+      "Statistiques explicitement présentes : MIN 2:16 · PTS 1 · LF 1/2.",
+    ].join(" ");
+    const collectBeBasket = vi.fn(async () => ({
+      candidates: [{
+        ...collectedCandidate("bebasket-hash", excerpt),
+        sourceKey: "bebasket" as const,
+        athlete: beBasketVerification().athlete,
+        sourceName: "BeBasket — source tierce",
+        sourceUrl: beBasketVerification().officialIdentity.calendarUrl,
+        articleUrl: "https://www.bebasket.fr/match/01a11769-7ce4-7bfe-b0de-89de7cc46107",
+        title: "BCF Elfic Fribourg vs Nyon Basket Feminin — Mila Benjak",
+        eventDateFrom: "2026-10-25",
+        eventDateTo: "2026-10-25",
+        logicalKey: "bebasket|match|mila-benjak",
+      }],
+      observations: [{
+        matchUrl: "https://www.bebasket.fr/match/01a11769-7ce4-7bfe-b0de-89de7cc46107",
+        title: "BCF Elfic Fribourg vs Nyon Basket Feminin",
+        eventDate: "2026-10-25",
+        status: "participation_explicit" as SportsWatchCollectionObservation["status"],
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    }));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [beBasketAthlete],
+      collectors: { bebasket: collectBeBasket },
+      verifyBeBasketBinding: vi.fn(async () => beBasketVerification()),
+      now: () => new Date("2026-10-27T10:00:00.000Z"),
+    });
+
+    const binding = await service.confirmBeBasketBinding(
+      beBasketAthlete.athleteId,
+      beBasketVerification().officialIdentity.calendarUrl,
+      beBasketVerification().officialIdentity.teamName,
+      beBasketVerification().officialIdentity.playerName,
+      0,
+      identity("workspace-a"),
+    );
+    const run = await service.run(
+      "bebasket",
+      beBasketAthlete.athleteId,
+      identity("workspace-a"),
+    );
+
+    expect(collectBeBasket).toHaveBeenCalledWith(
+      expect.objectContaining({ id: beBasketAthlete.athleteId }),
+      expect.objectContaining({ beBasketIdentity: binding.officialIdentity, lookbackDays: 30 }),
+    );
+    expect(run.message).toContain("Participation explicite : 1");
+    const validated = await service.review(
+      run.candidates[0].id,
+      "validated",
+      run.candidates[0].version,
+      identity("workspace-a"),
+    );
+    expect(validated.verificationStatus).toBe("unverified");
+
+    const prefill = await service.buildArticlePrefill(validated.id, identity("workspace-a"));
+    expect(prefill.verificationStatus).toBe("unverified");
+    expect(prefill.materials.map((material) => material.text).join(" ")).toContain("PTS 1");
+    expect(prefill.materials[0].provenance).toContain("BeBasket — source tierce");
+    expect(prefill.materials[0].provenance).toContain("Vérification factuelle : non vérifiée");
+
+    collectBeBasket.mockResolvedValueOnce({
+      candidates: [],
+      observations: [{
+        matchUrl: "https://www.bebasket.fr/match/zero-minute-fixture",
+        title: "Ravens Geneve vs BCF Elfic Fribourg",
+        eventDate: "2026-10-18",
+        status: "player_listed_without_participation",
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    });
+    const listedOnlyRun = await service.run(
+      "bebasket",
+      beBasketAthlete.athleteId,
+      identity("workspace-a"),
+    );
+    expect(listedOnlyRun.message).toContain("Joueuse listée sans participation établie : 1");
+  });
+
   it("uses an active SAFV binding and keeps collective provenance unverified for Article", async () => {
     const repository = createMemoryRepository();
     const excerpt = [

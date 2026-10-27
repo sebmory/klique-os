@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
 import type { CollectedSportsWatchCandidate } from "@/lib/sports-watch/bcbulle-collector";
 import type {
+  BeBasketBinding,
+  BeBasketBindingVerification,
   IwwfBinding,
   IwwfIdentityVerification,
   SafvBinding,
@@ -77,6 +79,21 @@ type SafvBindingRow = {
   season_id_snapshot: string;
   season_name_snapshot: string;
   club_comparison: SafvBinding["clubComparison"];
+  verification_evidence_json: string[] | string;
+  verified_at: string | Date;
+  confirmed_at: string | Date;
+  active: boolean;
+  disabled_at: string | Date | null;
+  version: number | string;
+};
+
+type BeBasketBindingRow = {
+  id: string;
+  athlete_id: string;
+  calendar_url: string;
+  team_slug: string;
+  team_name_snapshot: string;
+  player_name_snapshot: string;
   verification_evidence_json: string[] | string;
   verified_at: string | Date;
   confirmed_at: string | Date;
@@ -183,6 +200,23 @@ const mapSafvBinding = (row: SafvBindingRow): SafvBinding => ({
   version: Number(row.version),
 });
 
+const mapBeBasketBinding = (row: BeBasketBindingRow): BeBasketBinding => ({
+  id: row.id,
+  athleteId: row.athlete_id,
+  officialIdentity: {
+    calendarUrl: row.calendar_url,
+    teamSlug: row.team_slug,
+    teamName: row.team_name_snapshot,
+    playerName: row.player_name_snapshot,
+  },
+  evidence: readStringArray(row.verification_evidence_json),
+  verifiedAt: normalizeTimestamp(row.verified_at) ?? "",
+  confirmedAt: normalizeTimestamp(row.confirmed_at) ?? "",
+  active: row.active,
+  disabledAt: normalizeTimestamp(row.disabled_at),
+  version: Number(row.version),
+});
+
 const candidateColumns = `
   id, athlete_id, athlete_name_snapshot, source_name, source_url, article_url,
   title, excerpt, result_kind, publication_date,
@@ -266,6 +300,21 @@ export type SportsWatchRepository = {
     expectedVersion: number;
     clerkUserId: string;
   }): Promise<SafvBinding | null>;
+  listBeBasketBindings(workspaceId: string): Promise<BeBasketBinding[]>;
+  getActiveBeBasketBinding(workspaceId: string, athleteId: string): Promise<BeBasketBinding | null>;
+  saveBeBasketBinding(input: {
+    workspaceId: string;
+    verification: BeBasketBindingVerification;
+    expectedVersion: number;
+    clerkUserId: string;
+    confirmedAt: string;
+  }): Promise<BeBasketBinding | null>;
+  disableBeBasketBinding(input: {
+    workspaceId: string;
+    athleteId: string;
+    expectedVersion: number;
+    clerkUserId: string;
+  }): Promise<BeBasketBinding | null>;
 };
 
 export const PostgresSportsWatchRepository: SportsWatchRepository = {
@@ -809,5 +858,113 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.clerkUserId,
     ]) as SafvBindingRow[];
     return rows[0] ? mapSafvBinding(rows[0]) : null;
+  },
+
+  async listBeBasketBindings(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, calendar_url, team_slug, team_name_snapshot,
+        player_name_snapshot, verification_evidence_json, verified_at,
+        confirmed_at, active, disabled_at, version
+      FROM sports_watch_bebasket_bindings
+      WHERE workspace_id = $1
+      ORDER BY active DESC, updated_at DESC
+    `, [workspaceId]) as BeBasketBindingRow[];
+    return rows.map(mapBeBasketBinding);
+  },
+
+  async getActiveBeBasketBinding(workspaceId, athleteId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, calendar_url, team_slug, team_name_snapshot,
+        player_name_snapshot, verification_evidence_json, verified_at,
+        confirmed_at, active, disabled_at, version
+      FROM sports_watch_bebasket_bindings
+      WHERE workspace_id = $1 AND athlete_id = $2 AND active
+      LIMIT 1
+    `, [workspaceId, athleteId]) as BeBasketBindingRow[];
+    return rows[0] ? mapBeBasketBinding(rows[0]) : null;
+  },
+
+  async saveBeBasketBinding(input) {
+    const sql = createContentStorageClient();
+    const official = input.verification.officialIdentity;
+    const rows = await sql.query(`
+      INSERT INTO sports_watch_bebasket_bindings (
+        id, workspace_id, athlete_id, calendar_url, team_slug,
+        team_name_snapshot, player_name_snapshot, verification_evidence_json,
+        verified_at, confirmed_by_clerk_user_id, confirmed_at
+      )
+      SELECT
+        $1::uuid, $2, $3, $4, $5,
+        $6, $7, $8::jsonb, $9::timestamptz, $10, $11::timestamptz
+      WHERE $12 = 0
+         OR EXISTS (
+           SELECT 1
+           FROM sports_watch_bebasket_bindings
+           WHERE workspace_id = $2 AND athlete_id = $3
+         )
+      ON CONFLICT (workspace_id, athlete_id) DO UPDATE
+      SET calendar_url = EXCLUDED.calendar_url,
+          team_slug = EXCLUDED.team_slug,
+          team_name_snapshot = EXCLUDED.team_name_snapshot,
+          player_name_snapshot = EXCLUDED.player_name_snapshot,
+          verification_evidence_json = EXCLUDED.verification_evidence_json,
+          verified_at = EXCLUDED.verified_at,
+          confirmed_by_clerk_user_id = EXCLUDED.confirmed_by_clerk_user_id,
+          confirmed_at = EXCLUDED.confirmed_at,
+          active = TRUE,
+          disabled_by_clerk_user_id = NULL,
+          disabled_at = NULL,
+          version = sports_watch_bebasket_bindings.version + 1,
+          updated_at = NOW()
+      WHERE sports_watch_bebasket_bindings.version = $12
+      RETURNING
+        id, athlete_id, calendar_url, team_slug, team_name_snapshot,
+        player_name_snapshot, verification_evidence_json, verified_at,
+        confirmed_at, active, disabled_at, version
+    `, [
+      randomUUID(),
+      input.workspaceId,
+      input.verification.athlete.id,
+      official.calendarUrl,
+      official.teamSlug,
+      official.teamName,
+      official.playerName,
+      JSON.stringify(input.verification.evidence),
+      input.verification.verifiedAt,
+      input.clerkUserId,
+      input.confirmedAt,
+      input.expectedVersion,
+    ]) as BeBasketBindingRow[];
+    return rows[0] ? mapBeBasketBinding(rows[0]) : null;
+  },
+
+  async disableBeBasketBinding(input) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      UPDATE sports_watch_bebasket_bindings
+      SET active = FALSE,
+          disabled_by_clerk_user_id = $4,
+          disabled_at = NOW(),
+          version = version + 1,
+          updated_at = NOW()
+      WHERE workspace_id = $1
+        AND athlete_id = $2
+        AND version = $3
+        AND active
+      RETURNING
+        id, athlete_id, calendar_url, team_slug, team_name_snapshot,
+        player_name_snapshot, verification_evidence_json, verified_at,
+        confirmed_at, active, disabled_at, version
+    `, [
+      input.workspaceId,
+      input.athleteId,
+      input.expectedVersion,
+      input.clerkUserId,
+    ]) as BeBasketBindingRow[];
+    return rows[0] ? mapBeBasketBinding(rows[0]) : null;
   },
 };

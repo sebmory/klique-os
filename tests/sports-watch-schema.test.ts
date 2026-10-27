@@ -21,6 +21,10 @@ const manualImportsMigration = readFileSync(
   new URL("../db/migrations/20261026_sports_watch_manual_imports.sql", import.meta.url),
   "utf8",
 );
+const beBasketBindingsMigration = readFileSync(
+  new URL("../db/migrations/20261027_sports_watch_bebasket_bindings.sql", import.meta.url),
+  "utf8",
+);
 
 describe("sports watch additive schema", () => {
   it("isolates workspaces, prevents concurrent runs and keeps content versions", () => {
@@ -69,5 +73,14 @@ describe("sports watch additive schema", () => {
     expect(manualImportsMigration).toContain("candidate_id UUID NULL REFERENCES sports_watch_candidates(id)");
     expect(manualImportsMigration).toContain("UNIQUE (workspace_id, athlete_id, content_hash)");
     expect(manualImportsMigration).not.toMatch(/\bINSERT\s+INTO\b/i);
+  });
+
+  it("prepares private and versioned BeBasket bindings without applying data", () => {
+    expect(beBasketBindingsMigration).toContain("workspace_id TEXT NOT NULL");
+    expect(beBasketBindingsMigration).toContain("UNIQUE (workspace_id, athlete_id)");
+    expect(beBasketBindingsMigration).toContain("team_slug TEXT NOT NULL");
+    expect(beBasketBindingsMigration).toContain("player_name_snapshot TEXT NOT NULL");
+    expect(beBasketBindingsMigration).toContain("disabled_at TIMESTAMPTZ NULL");
+    expect(beBasketBindingsMigration).not.toMatch(/\bINSERT\s+INTO\b/i);
   });
 });

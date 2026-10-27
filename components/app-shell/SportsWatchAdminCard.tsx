@@ -10,6 +10,8 @@ import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
 import type {
+  BeBasketBinding,
+  BeBasketBindingVerification,
   IwwfBinding,
   IwwfIdentityVerification,
   SafvBinding,
@@ -99,6 +101,11 @@ const sourceOptions: Array<{
     label: "SAFV / football américain",
     url: "https://www.safv.ch/spiele-366618v4/",
   },
+  {
+    key: "bebasket",
+    label: "BeBasket — source tierce",
+    url: "https://www.bebasket.fr/",
+  },
 ];
 
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
@@ -108,6 +115,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [swissBindings, setSwissBindings] = useState<SwissBadmintonBinding[]>([]);
   const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
   const [safvBindings, setSafvBindings] = useState<SafvBinding[]>([]);
+  const [beBasketBindings, setBeBasketBindings] = useState<BeBasketBinding[]>([]);
   const [selectedAthleteId, setSelectedAthleteId] = useState("");
   const [selectedSourceKey, setSelectedSourceKey] = useState<SportsWatchCollectionSourceKey>("bc-bulle");
   const [swissProfileUrl, setSwissProfileUrl] = useState("");
@@ -124,6 +132,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [safvVerification, setSafvVerification] =
     useState<SafvTeamVerification | null>(null);
   const [safvConfigBusy, setSafvConfigBusy] = useState(false);
+  const [beBasketCalendarUrl, setBeBasketCalendarUrl] = useState("");
+  const [beBasketTeamName, setBeBasketTeamName] = useState("");
+  const [beBasketPlayerName, setBeBasketPlayerName] = useState("");
+  const [beBasketVerification, setBeBasketVerification] =
+    useState<BeBasketBindingVerification | null>(null);
+  const [beBasketConfigBusy, setBeBasketConfigBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -149,12 +163,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     binding.athleteId === selectedAthleteId);
   const selectedSafvBinding = safvBindings.find((binding) =>
     binding.athleteId === selectedAthleteId);
+  const selectedBeBasketBinding = beBasketBindings.find((binding) =>
+    binding.athleteId === selectedAthleteId);
   const selectedSourceUrl = selectedSourceKey === "swiss-badminton"
     ? selectedSwissBinding?.officialIdentity.profileUrl ?? selectedSource.url
     : selectedSourceKey === "iwwf-wakesurf"
       ? selectedIwwfBinding?.officialIdentity.profileUrl ?? selectedSource.url
       : selectedSourceKey === "safv"
         ? selectedSafvBinding?.officialTeam.scheduleUrl ?? selectedSource.url
+        : selectedSourceKey === "bebasket"
+          ? selectedBeBasketBinding?.officialIdentity.calendarUrl ?? selectedSource.url
     : selectedSource.url;
   const currentCandidates = candidates.filter((candidate) => candidate.adminStatus !== "rejected");
   const historicalCandidates = candidates.filter((candidate) => candidate.adminStatus === "rejected");
@@ -173,6 +191,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           swissBindings?: SwissBadmintonBinding[];
           iwwfBindings?: IwwfBinding[];
           safvBindings?: SafvBinding[];
+          beBasketBindings?: BeBasketBinding[];
           message?: string;
         };
         if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
@@ -181,6 +200,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           setSwissBindings(payload.swissBindings ?? []);
           setIwwfBindings(payload.iwwfBindings ?? []);
           setSafvBindings(payload.safvBindings ?? []);
+          setBeBasketBindings(payload.beBasketBindings ?? []);
         }
       })
       .catch((caught: unknown) => {
@@ -208,6 +228,17 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     setSafvVerification(null);
   }, [selectedAthleteId, selectedSafvBinding]);
 
+  useEffect(() => {
+    setBeBasketCalendarUrl(selectedBeBasketBinding?.officialIdentity.calendarUrl ?? "");
+    setBeBasketTeamName(selectedBeBasketBinding?.officialIdentity.teamName ?? "");
+    setBeBasketPlayerName(
+      selectedBeBasketBinding?.officialIdentity.playerName
+        ?? selectedAthlete?.name
+        ?? "",
+    );
+    setBeBasketVerification(null);
+  }, [selectedAthlete?.name, selectedAthleteId, selectedBeBasketBinding]);
+
   const updateSwissBinding = (binding: SwissBadmintonBinding) => {
     setSwissBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
@@ -224,6 +255,13 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const updateSafvBinding = (binding: SafvBinding) => {
     setSafvBindings((current) => {
+      const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
+      return [binding, ...remaining];
+    });
+  };
+
+  const updateBeBasketBinding = (binding: BeBasketBinding) => {
+    setBeBasketBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
@@ -492,6 +530,98 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     }
   };
 
+  const verifyBeBasketIdentity = async () => {
+    if (!selectedAthleteId || beBasketConfigBusy) return;
+    setBeBasketConfigBusy(true);
+    setBeBasketVerification(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/sports-watch/bebasket-bindings/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          athleteId: selectedAthleteId,
+          calendarUrl: beBasketCalendarUrl,
+          teamName: beBasketTeamName,
+          playerName: beBasketPlayerName,
+        }),
+      });
+      const payload = await response.json() as {
+        verification?: BeBasketBindingVerification;
+        message?: string;
+      };
+      if (!response.ok || !payload.verification) {
+        throw new Error(payload.message || "Impossible de vérifier le rattachement BeBasket.");
+      }
+      setBeBasketVerification(payload.verification);
+      setBeBasketCalendarUrl(payload.verification.officialIdentity.calendarUrl);
+      setBeBasketTeamName(payload.verification.officialIdentity.teamName);
+      setBeBasketPlayerName(payload.verification.officialIdentity.playerName);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Vérification impossible.");
+    } finally {
+      setBeBasketConfigBusy(false);
+    }
+  };
+
+  const confirmBeBasketBinding = async () => {
+    if (!selectedAthleteId || !beBasketVerification || beBasketConfigBusy) return;
+    setBeBasketConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/bebasket-bindings/${encodeURIComponent(selectedAthleteId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            calendarUrl: beBasketCalendarUrl,
+            teamName: beBasketTeamName,
+            playerName: beBasketPlayerName,
+            expectedVersion: selectedBeBasketBinding?.version ?? 0,
+          }),
+        },
+      );
+      const payload = await response.json() as { binding?: BeBasketBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de confirmer le rattachement BeBasket.");
+      }
+      updateBeBasketBinding(payload.binding);
+      setBeBasketVerification(null);
+      setMessage("Rattachement BeBasket confirmé comme source tierce.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Confirmation impossible.");
+    } finally {
+      setBeBasketConfigBusy(false);
+    }
+  };
+
+  const disableBeBasketBinding = async () => {
+    if (!selectedBeBasketBinding?.active || beBasketConfigBusy) return;
+    setBeBasketConfigBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/bebasket-bindings/${encodeURIComponent(selectedBeBasketBinding.athleteId)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedVersion: selectedBeBasketBinding.version }),
+        },
+      );
+      const payload = await response.json() as { binding?: BeBasketBinding; message?: string };
+      if (!response.ok || !payload.binding) {
+        throw new Error(payload.message || "Impossible de désactiver le rattachement BeBasket.");
+      }
+      updateBeBasketBinding(payload.binding);
+      setMessage("Rattachement BeBasket désactivé. Les résultats historiques sont conservés.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Désactivation impossible.");
+    } finally {
+      setBeBasketConfigBusy(false);
+    }
+  };
+
   const runWatch = async () => {
     if (busy || !selectedAthleteId) return;
     setBusy(true);
@@ -598,7 +728,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           {candidate.excerpt}
         </p>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.76rem" }}>
-          <a href={candidate.articleUrl} target="_blank" rel="noreferrer">Résultat officiel</a>
+          <a href={candidate.articleUrl} target="_blank" rel="noreferrer">
+            {candidate.sourceName === "BeBasket — source tierce" ? "Feuille BeBasket" : "Résultat officiel"}
+          </a>
           <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">{candidate.sourceName}</a>
           <span>Attribution : {candidate.attributionStatus === "matched" ? "concordante" : "à vérifier"}</span>
           <span>Vérification : {verificationLabels[candidate.verificationStatus]}</span>
@@ -660,6 +792,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             || (selectedSourceKey === "swiss-badminton" && !selectedSwissBinding?.active)
             || (selectedSourceKey === "iwwf-wakesurf" && !selectedIwwfBinding?.active)
             || (selectedSourceKey === "safv" && !selectedSafvBinding?.active)
+            || (selectedSourceKey === "bebasket" && !selectedBeBasketBinding?.active)
           }
           onClick={() => void runWatch()}
         >
@@ -1033,6 +1166,147 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               ) : (
                 <small>
                   Aucun rattachement actif : vérifiez puis confirmez l’équipe avant toute collecte SAFV.
+                </small>
+              )}
+            </div>
+          )}
+        </details>
+      ) : null}
+
+      {selectedSourceKey === "bebasket" ? (
+        <details
+          style={{
+            marginTop: "0.7rem",
+            minWidth: 0,
+            border: "1px solid #e5e7eb",
+            borderRadius: "8px",
+            padding: "0.65rem 0.75rem",
+            background: "#fafafa",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 750 }}>
+            Équipe et joueuse BeBasket · {selectedBeBasketBinding?.active
+              ? "rattachement actif"
+              : selectedBeBasketBinding
+                ? "rattachement désactivé"
+                : "à configurer"}
+          </summary>
+          <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.76rem" }}>
+            Source : BeBasket — source tierce. La collecte manuelle relit les matches des 30 derniers
+            jours et conserve le lien de chaque feuille. La validation éditoriale ne transforme pas
+            ces données en faits officiellement corroborés.
+          </p>
+          {!selectedAthleteId ? (
+            <p style={{ margin: 0, fontSize: "0.8rem" }}>
+              Sélectionnez d’abord un athlète CRM.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: "0.55rem", minWidth: 0 }}>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                URL du calendrier public de l’équipe BeBasket
+                <input
+                  type="url"
+                  value={beBasketCalendarUrl}
+                  disabled={beBasketConfigBusy}
+                  placeholder="https://www.bebasket.fr/equipe/…/calendrier"
+                  onChange={(event) => {
+                    setBeBasketCalendarUrl(event.target.value);
+                    setBeBasketVerification(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                Nom de l’équipe sur BeBasket
+                <input
+                  type="text"
+                  value={beBasketTeamName}
+                  disabled={beBasketConfigBusy}
+                  placeholder="BCF Elfic Fribourg"
+                  onChange={(event) => {
+                    setBeBasketTeamName(event.target.value);
+                    setBeBasketVerification(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                Nom complet de la joueuse sur la feuille
+                <input
+                  type="text"
+                  value={beBasketPlayerName}
+                  disabled={beBasketConfigBusy}
+                  onChange={(event) => {
+                    setBeBasketPlayerName(event.target.value);
+                    setBeBasketVerification(null);
+                  }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="card-link-button"
+                  disabled={
+                    beBasketConfigBusy
+                    || !beBasketCalendarUrl.trim()
+                    || !beBasketTeamName.trim()
+                    || !beBasketPlayerName.trim()
+                  }
+                  onClick={() => void verifyBeBasketIdentity()}
+                >
+                  {beBasketConfigBusy ? "Vérification…" : "Vérifier le rattachement"}
+                </button>
+                {selectedBeBasketBinding?.active ? (
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={beBasketConfigBusy}
+                    onClick={() => void disableBeBasketBinding()}
+                  >
+                    Désactiver
+                  </button>
+                ) : null}
+              </div>
+              {beBasketVerification ? (
+                <div
+                  style={{
+                    borderLeft: "3px solid #2563eb",
+                    paddingLeft: "0.65rem",
+                    fontSize: "0.78rem",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <strong>Comparaison avant confirmation</strong>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    Fiche CRM : {selectedAthlete?.name} · {selectedAthlete?.sport || "sport inconnu"}
+                    {" · "}{selectedAthlete?.club || "club inconnu"}
+                  </p>
+                  <p style={{ margin: "0.35rem 0" }}>
+                    BeBasket : {beBasketVerification.officialIdentity.teamName}
+                    {" · joueuse "}{beBasketVerification.officialIdentity.playerName}
+                  </p>
+                  <p style={{ margin: "0.35rem 0", color: "#92400e" }}>
+                    Source tierce : la présence sur une feuille et ses statistiques resteront non vérifiées.
+                  </p>
+                  <button
+                    type="button"
+                    className="card-link-button"
+                    disabled={beBasketConfigBusy}
+                    onClick={() => void confirmBeBasketBinding()}
+                  >
+                    Confirmer explicitement le rattachement
+                  </button>
+                </div>
+              ) : selectedBeBasketBinding ? (
+                <small>
+                  {selectedBeBasketBinding.officialIdentity.teamName}
+                  {" · "}{selectedBeBasketBinding.officialIdentity.playerName}
+                  {" · vérifié le "}{formatDate(selectedBeBasketBinding.verifiedAt)}
+                  {!selectedBeBasketBinding.active
+                    ? " · Une nouvelle vérification est obligatoire pour réactiver."
+                    : ""}
+                </small>
+              ) : (
+                <small>
+                  Aucun rattachement actif : vérifiez puis confirmez l’équipe et la joueuse avant toute collecte.
                 </small>
               )}
             </div>

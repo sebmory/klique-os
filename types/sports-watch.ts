@@ -10,6 +10,7 @@ export type SportsWatchSourceKey =
   | "iwwf-wakesurf"
   | "kenpokan"
   | "safv"
+  | "bebasket"
   | "manual-import";
 
 export type SportsWatchCollectionSourceKey = Exclude<SportsWatchSourceKey, "manual-import">;
@@ -115,6 +116,50 @@ export type SafvBinding = {
   version: number;
 };
 
+export type BeBasketOfficialIdentity = {
+  calendarUrl: string;
+  teamSlug: string;
+  teamName: string;
+  playerName: string;
+};
+
+export type BeBasketBindingVerification = {
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  officialIdentity: BeBasketOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+};
+
+export type BeBasketBinding = {
+  id: string;
+  athleteId: string;
+  officialIdentity: BeBasketOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+  confirmedAt: string;
+  active: boolean;
+  disabledAt: string | null;
+  version: number;
+};
+
+export type SportsWatchCollectionObservationStatus =
+  | "sheet_absent"
+  | "player_absent"
+  | "player_listed_without_participation"
+  | "participation_explicit";
+
+export type SportsWatchCollectionObservation = {
+  matchUrl: string;
+  title: string;
+  eventDate: string;
+  status: SportsWatchCollectionObservationStatus;
+};
+
 export type SportsWatchCandidate = {
   id: string;
   athleteId: string;
@@ -144,6 +189,7 @@ export type SportsWatchRunResult = {
   scannedCount: number;
   recentCount: number;
   createdCount: number;
+  observations?: SportsWatchCollectionObservation[];
   candidates: SportsWatchCandidate[];
 };
 
