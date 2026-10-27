@@ -918,7 +918,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         0,
       );
       setMessage([
-        `Actualisation terminée : ${executions.length} veille${executions.length === 1 ? "" : "s"}.`,
+        failures > 0
+          ? `Actualisation partielle : ${executions.length} veille${executions.length === 1 ? "" : "s"} traitée${executions.length === 1 ? "" : "s"}.`
+          : `Actualisation terminée : ${executions.length} veille${executions.length === 1 ? "" : "s"}.`,
         `${createdCount} nouveau${createdCount === 1 ? "" : "x"} résultat${createdCount === 1 ? "" : "s"}.`,
         failures > 0
           ? `${failures} échec${failures === 1 ? "" : "s"} local${failures === 1 ? "" : "aux"}.`
@@ -2010,7 +2012,17 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         </button>
       </div>
 
-      {message ? <p role="status" style={{ color: "#166534", fontSize: "0.84rem" }}>{message}</p> : null}
+      {message ? (
+        <p
+          role="status"
+          style={{
+            color: message.startsWith("Actualisation partielle") ? "#92400e" : "#166534",
+            fontSize: "0.84rem",
+          }}
+        >
+          {message}
+        </p>
+      ) : null}
       {error ? <p role="alert" style={{ color: "#b91c1c", fontSize: "0.84rem" }}>{error}</p> : null}
 
       <p style={{ margin: "0.65rem 0", color: "#6b7280", fontSize: "0.78rem" }}>

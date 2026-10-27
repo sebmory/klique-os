@@ -1,9 +1,13 @@
 import { getCurrentUserAccessProfile } from "@/lib/clerk-access/service";
-import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
+import type { SportsWatchCrmAthlete } from "@/lib/google-sheets";
 import {
   localAdminFixtureAthletes,
   localIntroductionFixturesEnabled,
 } from "@/lib/partner-athlete-introductions/local-fixtures";
+import {
+  SportsWatchAthleteDirectory,
+  sportsWatchAthleteDirectoryErrorMessage,
+} from "@/lib/sports-watch/athlete-directory";
 import {
   BEBASKET_BASE_URL,
   BEBASKET_SOURCE_NAME,
@@ -74,7 +78,6 @@ import type {
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
-import type { Athlete } from "@/types/athlete";
 import {
   MANUAL_EDITORIAL_MATERIAL_LIMIT,
   MANUAL_EDITORIAL_TEXT_LIMIT,
@@ -220,7 +223,7 @@ export const requireSportsWatchAdmin = async (request: Request): Promise<SportsW
 
 const resolveSelectedAthlete = (
   athleteIdValue: unknown,
-  athletes: readonly Athlete[],
+  athletes: readonly SportsWatchCrmAthlete[],
 ): SportsWatchAthleteSnapshot => {
   const requestedId = normalize(athleteIdValue);
   if (!requestedId) throw new SportsWatchError("validation", "Sélectionnez un athlète CRM.");
@@ -259,7 +262,7 @@ type SportsWatchCollector = (
 
 type SportsWatchServiceDependencies = {
   repository: SportsWatchRepository;
-  getAthletes: () => Promise<Athlete[]>;
+  getAthletes: (identity: SportsWatchAdminIdentity) => Promise<SportsWatchCrmAthlete[]>;
   collectors: Record<SportsWatchCollectionSourceKey, SportsWatchCollector>;
   verifySwissProfile: typeof verifySwissBadmintonProfile;
   verifyIwwfProfile: typeof verifyIwwfProfile;
@@ -271,9 +274,13 @@ type SportsWatchServiceDependencies = {
 
 const defaultDependencies: SportsWatchServiceDependencies = {
   repository: PostgresSportsWatchRepository,
-  getAthletes: () => localIntroductionFixturesEnabled()
+  getAthletes: (identity) => localIntroductionFixturesEnabled()
     ? Promise.resolve(localAdminFixtureAthletes())
-    : getAthletesFromGoogleSheets(),
+    : SportsWatchAthleteDirectory.resolve({
+        ...identity,
+        accessRole: "admin",
+        accessStatus: "active",
+      }),
   collectors: {
     "bc-bulle": collectBcBulleCandidates,
     "swiss-badminton": (athlete, options) =>
@@ -398,13 +405,29 @@ export const createSportsWatchService = (
       ...overrides.collectors,
     },
   };
+  const resolveAuthoritativeAthlete = async (
+    athleteId: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchAthleteSnapshot> => {
+    try {
+      return resolveSelectedAthlete(athleteId, await dependencies.getAthletes(identity));
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      console.error("[sports_watch] Impossible de résoudre le registre CRM des athlètes.", {
+        workspaceId: identity.workspaceId,
+        clerkUserId: identity.clerkUserId,
+        error,
+      });
+      throw new SportsWatchError("source", sportsWatchAthleteDirectoryErrorMessage(error));
+    }
+  };
   const verifySwissBinding = async (
     athleteId: unknown,
     profileUrl: unknown,
     playerId: unknown,
-    _identity: SportsWatchAdminIdentity,
+    identity: SportsWatchAdminIdentity,
   ): Promise<SwissBadmintonIdentityVerification> => {
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const url = normalize(profileUrl);
     if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du profil officiel.");
     try {
@@ -424,9 +447,9 @@ export const createSportsWatchService = (
   const verifyIwwfBinding = async (
     athleteId: unknown,
     profileUrl: unknown,
-    _identity: SportsWatchAdminIdentity,
+    identity: SportsWatchAdminIdentity,
   ): Promise<IwwfIdentityVerification> => {
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const url = normalize(profileUrl);
     if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du profil IWWF officiel.");
     try {
@@ -446,9 +469,9 @@ export const createSportsWatchService = (
     athleteId: unknown,
     scheduleUrl: unknown,
     teamName: unknown,
-    _identity: SportsWatchAdminIdentity,
+    identity: SportsWatchAdminIdentity,
   ): Promise<SafvTeamVerification> => {
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const url = normalize(scheduleUrl);
     const officialTeamName = normalize(teamName);
     if (!url) throw new SportsWatchError("validation", "Saisissez l’URL du calendrier SAFV.");
@@ -472,9 +495,9 @@ export const createSportsWatchService = (
     calendarUrl: unknown,
     teamName: unknown,
     playerName: unknown,
-    _identity: SportsWatchAdminIdentity,
+    identity: SportsWatchAdminIdentity,
   ): Promise<BeBasketBindingVerification> => {
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const url = normalize(calendarUrl);
     const team = normalize(teamName);
     const player = normalize(playerName);
@@ -503,10 +526,10 @@ export const createSportsWatchService = (
     teamId: unknown,
     officialPlayerId: unknown,
     officialPlayerName: unknown,
-    _identity: SportsWatchAdminIdentity,
+    identity: SportsWatchAdminIdentity,
     federationId: unknown = SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
   ): Promise<SwissBasketballBindingVerification> => {
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const federation = normalize(federationId) || SWISS_BASKETBALL_DEFAULT_FEDERATION_ID;
     const season = normalize(seasonId);
     const league = normalize(leagueId);
@@ -919,7 +942,7 @@ export const createSportsWatchService = (
   ): Promise<SportsWatchRunResult> {
     const sourceKey = requireSourceKey(sourceKeyValue);
     const source = sourceDefinitions[sourceKey];
-    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
     const swissBinding = sourceKey === "swiss-badminton"
       ? await dependencies.repository.getActiveSwissBinding(identity.workspaceId, athlete.id)
       : null;

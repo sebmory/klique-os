@@ -60,7 +60,14 @@ describe("sports watch refresh all UI", () => {
           json: async () => dashboardPayload,
         };
       }
-      postBodies.push(JSON.parse(String(init.body)));
+      const body = JSON.parse(String(init.body)) as { sourceKey?: string };
+      postBodies.push(body);
+      if (body.sourceKey === "swiss-badminton") {
+        return {
+          ok: false,
+          json: async () => ({ message: "Le registre CRM des athlètes reçoit trop de demandes. Réessayez dans une minute." }),
+        };
+      }
       return await new Promise((resolve) => {
         pendingResponses.push((result) => resolve({
           ok: true,
@@ -109,7 +116,7 @@ describe("sports watch refresh all UI", () => {
 
     expect(container.textContent).toContain("2/2 veilles traitées");
     expect(container.textContent).toContain("1 nouveau résultat");
-    expect(container.textContent).toContain("Aucun résultat récent");
-    expect(container.textContent).toContain("Actualisation terminée");
+    expect(container.textContent).toContain("Échec");
+    expect(container.textContent).toContain("Actualisation partielle");
   });
 });

@@ -1196,6 +1196,41 @@ const getSpreadsheetId = () => {
   return spreadsheetId;
 };
 
+export type SportsWatchCrmAthlete = Pick<
+  Athlete,
+  "athleteId" | "key" | "name" | "sport" | "club" | "status"
+>;
+
+export async function getSportsWatchAthletesFromGoogleSheets(): Promise<SportsWatchCrmAthlete[]> {
+  const sheets = google.sheets({ version: "v4", auth: getAuth() });
+  const spreadsheetId = getSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: athleteSheetRange,
+  });
+  const rows = response.data.values ?? [];
+  if (rows.length < 2) return [];
+  const column = athleteColumns(rows[0].map(String));
+
+  return rows.slice(1).flatMap((row) => {
+    const name = String(row[column.name] ?? "").trim();
+    const status = String(row[column.status] ?? "");
+    if (!name || status === "Refus\u00e9") return [];
+    const resolvedAthleteId = resolveAthleteIdentifier(
+      column.athleteId >= 0 ? row[column.athleteId] : "",
+      name,
+    );
+    return [{
+      athleteId: resolvedAthleteId,
+      key: resolvedAthleteId,
+      name,
+      sport: String(row[column.sport] ?? ""),
+      club: String(row[column.club] ?? ""),
+      status: status || "Actif",
+    }];
+  });
+}
+
 export async function getAthletesFromGoogleSheets(options: { weeklyResponseDays?: number; monthlyResponseDays?: number } = {}): Promise<Athlete[]> {
   const sheets = google.sheets({ version: "v4", auth: getAuth() });
   const spreadsheetId = getSpreadsheetId();
