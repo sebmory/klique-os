@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Fragment, useState } from "react";
-import { Card } from "@/src/design-system/components";
+import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import {
   getSafeHttpsUrl,
   isMeaningfulWeeklyValue,
@@ -11,6 +11,7 @@ import {
 
 type WeeklyResponsesCockpitProps = {
   items: WeeklyResponseDashboardItem[];
+  historyItems?: WeeklyResponseDashboardItem[];
   processingResponseKeys: ReadonlySet<string>;
   error: string | null;
   onMarkProcessed: (athleteId: string, responseTimestamp: string) => void;
@@ -81,11 +82,14 @@ const ProcessedCheckbox = ({
 
 export function WeeklyResponsesCockpit({
   items,
+  historyItems = [],
   processingResponseKeys,
   error,
   onMarkProcessed,
 }: WeeklyResponsesCockpitProps) {
   const [expandedResponseKeys, setExpandedResponseKeys] = useState<Set<string>>(() => new Set());
+  const [view, setView] = useState<"current" | "history">("current");
+  const visibleItems = view === "current" ? items : historyItems;
 
   const toggleDetails = (responseKey: string) => {
     setExpandedResponseKeys((current) => {
@@ -97,18 +101,24 @@ export function WeeklyResponsesCockpit({
   };
 
   return (
-    <Card className="workspace-dashboard-card dashboard-weekly-card weekly-cockpit-card">
-      <header className="dashboard-card-head weekly-cockpit-head">
-        <div>
-          <p className="weekly-cockpit-eyebrow">Suivi éditorial</p>
-          <h2>Réponses hebdomadaires</h2>
-        </div>
-        <div className="dashboard-card-head-right">
-          <span className="card-pill">{items.length} athlète{items.length === 1 ? "" : "s"}</span>
-        </div>
-      </header>
+    <TodayCollapsibleCard
+      storageKey="weekly-responses"
+      title="Réponses hebdomadaires"
+      description="Suivi éditorial"
+      attentionCount={items.length + (error ? 1 : 0)}
+      countLabel={items.length === 1 ? "athlète" : "athlètes"}
+      className="dashboard-weekly-card weekly-cockpit-card"
+    >
+      <div className="today-view-switch" aria-label="Vue des réponses hebdomadaires">
+        <button type="button" aria-pressed={view === "current"} onClick={() => setView("current")}>
+          À traiter ({items.length})
+        </button>
+        <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")}>
+          Historique ({historyItems.length})
+        </button>
+      </div>
 
-      {items.length > 0 ? (
+      {visibleItems.length > 0 ? (
         <div className="weekly-cockpit-scroll">
           <div className="weekly-cockpit-desktop">
             <table className="weekly-cockpit-table">
@@ -125,7 +135,7 @@ export function WeeklyResponsesCockpit({
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => {
+                {visibleItems.map((item) => {
                   const isExpanded = expandedResponseKeys.has(item.responseKey);
                   const isProcessing = processingResponseKeys.has(item.responseKey);
                   const detailsId = `weekly-details-desktop-${encodeURIComponent(item.responseKey)}`;
@@ -157,7 +167,9 @@ export function WeeklyResponsesCockpit({
                           </button>
                         </td>
                         <td>
-                          <ProcessedCheckbox item={item} isProcessing={isProcessing} onMarkProcessed={onMarkProcessed} />
+                          {view === "current"
+                            ? <ProcessedCheckbox item={item} isProcessing={isProcessing} onMarkProcessed={onMarkProcessed} />
+                            : <span>Traité</span>}
                         </td>
                       </tr>
                       {isExpanded ? (
@@ -175,7 +187,7 @@ export function WeeklyResponsesCockpit({
           </div>
 
           <ul className="weekly-cockpit-mobile">
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const isExpanded = expandedResponseKeys.has(item.responseKey);
               const isProcessing = processingResponseKeys.has(item.responseKey);
               const detailsId = `weekly-details-mobile-${encodeURIComponent(item.responseKey)}`;
@@ -203,7 +215,9 @@ export function WeeklyResponsesCockpit({
                     >
                       {isExpanded ? "Masquer les détails" : "Voir les détails"}
                     </button>
-                    <ProcessedCheckbox item={item} isProcessing={isProcessing} onMarkProcessed={onMarkProcessed} />
+                    {view === "current"
+                      ? <ProcessedCheckbox item={item} isProcessing={isProcessing} onMarkProcessed={onMarkProcessed} />
+                      : <span>Traité</span>}
                   </div>
                   {isExpanded ? <ResponseDetails item={item} id={detailsId} /> : null}
                 </li>
@@ -212,9 +226,13 @@ export function WeeklyResponsesCockpit({
           </ul>
         </div>
       ) : (
-        <p className="weekly-cockpit-empty">Aucune réponse hebdomadaire à traiter.</p>
+        <p className="weekly-cockpit-empty">
+          {view === "current"
+            ? "Aucune réponse hebdomadaire à traiter."
+            : "Aucune réponse hebdomadaire traitée."}
+        </p>
       )}
       {error ? <p className="weekly-cockpit-error" role="alert">{error}</p> : null}
-    </Card>
+    </TodayCollapsibleCard>
   );
 }

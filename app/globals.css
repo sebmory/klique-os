@@ -889,6 +889,86 @@ button {
     border-radius: 14px;
   }
 
+  .today-collapsible-head {
+    align-items: flex-start;
+  }
+
+  .today-collapsible-head > div:first-child {
+    min-width: 0;
+  }
+
+  .today-collapsible-head p {
+    margin: 0.25rem 0 0;
+    color: #6b7280;
+    font-size: 0.84rem;
+  }
+
+  .today-card-toggle,
+  .today-view-switch button {
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    background: #fff;
+    color: #374151;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.35rem 0.7rem;
+  }
+
+  .today-card-toggle:hover,
+  .today-view-switch button:hover,
+  .today-view-switch button[aria-pressed="true"] {
+    border-color: #111827;
+    background: #111827;
+    color: #fff;
+  }
+
+  .today-collapsible-content {
+    min-width: 0;
+  }
+
+  .today-view-switch {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    margin: 0.65rem 0;
+  }
+
+  .today-secondary-action {
+    margin-top: 0.65rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 0.6rem 0.7rem;
+    background: #fafafa;
+  }
+
+  .today-secondary-action > summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 750;
+  }
+
+  @media (max-width: 560px) {
+    .today-collapsible-head,
+    .today-collapsible-head .dashboard-card-head-right {
+      width: 100%;
+    }
+
+    .today-collapsible-head .dashboard-card-head-right {
+      justify-content: space-between;
+    }
+
+    .today-card-toggle {
+      min-height: 2.5rem;
+    }
+
+    .today-view-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
   .module-guide-start,
   .module-guide-usage {
     grid-column: 1;

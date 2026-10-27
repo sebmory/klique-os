@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card } from "@/src/design-system/components";
+import { useEffect, useState } from "react";
+import { Badge, Button } from "@/src/design-system/components";
+import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 
 type Summary = {
   id: string;
@@ -16,22 +17,6 @@ type Summary = {
   ageDays: number;
   stale: boolean;
   reported: boolean;
-};
-
-type Filters = {
-  status: string;
-  moderationStatus: string;
-  stale: boolean;
-  reported: boolean;
-  historical: boolean;
-};
-
-const initialFilters: Filters = {
-  status: "",
-  moderationStatus: "",
-  stale: false,
-  reported: false,
-  historical: false,
 };
 
 const statusLabels: Record<string, string> = {
@@ -48,80 +33,74 @@ const historicalStatusLabel = (status: string) => ({
 export function PartnerIntroductionsAdminCockpit() {
   const [enabled, setEnabled] = useState(false);
   const [items, setItems] = useState<Summary[]>([]);
-  const [counters, setCounters] = useState<Record<string, number>>({});
-  const [filters, setFilters] = useState<Filters>(initialFilters);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [view, setView] = useState<"current" | "history">("current");
   const [error, setError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const query = useMemo(() => {
-    const params = new URLSearchParams({ page: String(page), limit: "10" });
-    if (filters.status) params.set("status", filters.status);
-    if (filters.moderationStatus) params.set("moderationStatus", filters.moderationStatus);
-    if (filters.stale) params.set("stale", "true");
-    if (filters.reported) params.set("reported", "true");
-    if (filters.historical) params.set("historical", "true");
-    return params.toString();
-  }, [filters, page]);
 
   useEffect(() => {
     let active = true;
-    void fetch(`/api/admin/partner-introductions?${query}`, {
-      credentials: "include",
-      cache: "no-store",
-    }).then(async (response) => {
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Impossible de charger les mises en relation.");
+    void (async () => {
+      const loadedItems: Summary[] = [];
+      let page = 1;
+      let total = 0;
+      let workflowEnabled = false;
+      do {
+        const response = await fetch(
+          `/api/admin/partner-introductions?page=${page}&limit=100`,
+          { credentials: "include", cache: "no-store" },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Impossible de charger les mises en relation.");
+        }
+        workflowEnabled = payload.workflowEnabled === true;
+        const pageItems = Array.isArray(payload.items) ? payload.items as Summary[] : [];
+        loadedItems.push(...pageItems);
+        total = Number(payload.total ?? loadedItems.length);
+        if (pageItems.length === 0) total = loadedItems.length;
+        page += 1;
+      } while (loadedItems.length < total);
       if (active) {
         setError("");
-        setEnabled(payload.workflowEnabled === true);
-        setItems(Array.isArray(payload.items) ? payload.items : []);
-        setCounters(payload.counters ?? {});
-        setTotal(Number(payload.total ?? 0));
+        setEnabled(workflowEnabled);
+        setItems(loadedItems);
       }
-    }).catch((reason: unknown) => {
+    })().catch((reason: unknown) => {
       if (active) {
         console.error("[partner_introductions_admin] Chargement impossible.", reason);
         setItems([]);
-        setCounters({});
-        setTotal(0);
         setError("Impossible de charger les mises en relation.");
       }
     });
     return () => { active = false; };
-  }, [loadAttempt, query]);
+  }, [loadAttempt]);
 
   if (!enabled && !error) return null;
 
-  const applyCounterFilter = (key: string) => {
-    setPage(1);
-    setFilters({
-      status: ["awaiting", "accepted", "declined"].includes(key)
-        ? (key === "awaiting" ? "awaiting_athlete" : key)
-        : "",
-      moderationStatus: key === "suspended" ? "suspended" : "",
-      stale: key === "stale",
-      reported: key === "reported",
-      historical: key === "historical",
-    });
-  };
+  const currentItems = items.filter((item) =>
+    !item.historical
+    && (
+      item.status === "awaiting_athlete"
+      || item.reported
+      || item.moderationStatus === "suspended"
+    ));
+  const historicalItems = items.filter((item) =>
+    item.historical
+    || (
+      !item.reported
+      && item.moderationStatus !== "suspended"
+      && (item.status === "accepted" || item.status === "declined")
+    ));
+  const visibleItems = view === "current" ? currentItems : historicalItems;
 
   return (
-    <Card className="workspace-dashboard-card partner-introductions-cockpit">
-      <header className="dashboard-card-head introduction-cockpit-head">
-        <div>
-          <h2>Supervision des mises en relation</h2>
-          <p>Suivi uniquement : l’athlète reste seul décisionnaire.</p>
-        </div>
-        {!error ? (
-          <Button type="button" className="introduction-button is-ghost is-compact" onClick={() => {
-            setFilters(initialFilters);
-            setPage(1);
-          }}>
-            Tous
-          </Button>
-        ) : null}
-      </header>
+    <TodayCollapsibleCard
+      storageKey="partner-introductions"
+      title="Supervision des mises en relation"
+      description="Suivi uniquement : l’athlète reste seul décisionnaire."
+      attentionCount={currentItems.length + (error ? 1 : 0)}
+      className="partner-introductions-cockpit"
+    >
       {error ? (
         <div className="introduction-load-error">
           <p className="introduction-feedback is-error" role="alert">{error}</p>
@@ -135,26 +114,22 @@ export function PartnerIntroductionsAdminCockpit() {
         </div>
       ) : (
         <>
-          <div className="introduction-counters" aria-label="Filtres des mises en relation">
-            {[
-              ["awaiting", "En attente"],
-              ["accepted", "Acceptées"],
-              ["declined", "Refusées"],
-              ["stale", "Sans réponse prolongée"],
-              ["historical", "Historiques"],
-              ["reported", "Signalées"],
-              ["suspended", "Suspendues"],
-            ].map(([key, label]) => (
-              <Button key={key} type="button" className="introduction-counter" onClick={() => applyCounterFilter(key)}>
-                <span>{label}</span>
-                <strong>{counters[key] ?? 0}</strong>
-              </Button>
-            ))}
+          <div className="today-view-switch" aria-label="Vue des mises en relation">
+            <button type="button" aria-pressed={view === "current"} onClick={() => setView("current")}>
+              À traiter ({currentItems.length})
+            </button>
+            <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")}>
+              Historique ({historicalItems.length})
+            </button>
           </div>
-          {items.length === 0 ? <p className="introduction-empty">Aucune demande pour ce filtre.</p> : null}
-          {items.length > 0 ? (
+          {visibleItems.length === 0 ? (
+            <p className="introduction-empty">
+              {view === "current" ? "Aucune demande à traiter." : "Aucune demande dans l’historique."}
+            </p>
+          ) : null}
+          {visibleItems.length > 0 ? (
             <ul className="introduction-admin-list">
-              {items.map((item) => (
+              {visibleItems.map((item) => (
                 <li key={item.id}>
                   <div className="introduction-admin-participants">
                     <span>Partenaire</span>
@@ -190,19 +165,8 @@ export function PartnerIntroductionsAdminCockpit() {
               ))}
             </ul>
           ) : null}
-          {total > 10 ? (
-            <div className="introduction-pagination">
-              <Button className="introduction-button is-secondary is-compact" type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-                Précédent
-              </Button>
-              <span>Page {page} / {Math.ceil(total / 10)}</span>
-              <Button className="introduction-button is-secondary is-compact" type="button" disabled={page * 10 >= total} onClick={() => setPage((value) => value + 1)}>
-                Suivant
-              </Button>
-            </div>
-          ) : null}
         </>
       )}
-    </Card>
+    </TodayCollapsibleCard>
   );
 }

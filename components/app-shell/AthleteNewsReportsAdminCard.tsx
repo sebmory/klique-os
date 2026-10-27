@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/src/design-system/components";
+import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import type { AthleteNewsReport, AthleteNewsReportStatus } from "@/types/athlete-news-report";
 
 type AthleteSummary = { key: string; name: string };
@@ -16,14 +16,16 @@ const statusLabels: Record<AthleteNewsReportStatus, string> = {
 export function AthleteNewsReportsAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [reports, setReports] = useState<AthleteNewsReport[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [view, setView] = useState<"current" | "history">("current");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const athleteNames = useMemo(
     () => new Map(athletes.map((athlete) => [athlete.key, athlete.name])),
     [athletes],
   );
-  const newCount = reports.filter((report) => report.status === "new").length;
+  const currentReports = reports.filter((report) => report.status !== "processed");
+  const historicalReports = reports.filter((report) => report.status === "processed");
+  const visibleReports = view === "current" ? currentReports : historicalReports;
 
   useEffect(() => {
     let active = true;
@@ -82,24 +84,25 @@ export function AthleteNewsReportsAdminCard({ athletes }: { athletes: AthleteSum
   };
 
   return (
-    <Card className="workspace-dashboard-card">
-      <header className="dashboard-card-head">
-        <div>
-          <h2>Actualités Athlètes</h2>
-          <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.84rem" }}>
-            Déclarations à examiner avant tout usage éditorial.
-          </p>
-        </div>
-        <button type="button" className="card-pill" onClick={() => setExpanded((current) => !current)}>
-          {newCount} nouveau{newCount === 1 ? "" : "x"}
+    <TodayCollapsibleCard
+      storageKey="athlete-news"
+      title="Actualités Athlètes"
+      description="Déclarations à examiner avant tout usage éditorial."
+      attentionCount={currentReports.length + (error ? 1 : 0)}
+    >
+      <div className="today-view-switch" aria-label="Vue des actualités Athlètes">
+        <button type="button" aria-pressed={view === "current"} onClick={() => setView("current")}>
+          À traiter ({currentReports.length})
         </button>
-      </header>
+        <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")}>
+          Historique ({historicalReports.length})
+        </button>
+      </div>
 
       {error ? <p role="alert" style={{ color: "#b91c1c" }}>{error}</p> : null}
-      {expanded ? (
-        reports.length > 0 ? (
+      {visibleReports.length > 0 ? (
           <ul className="priority-list" style={{ marginTop: "0.75rem" }}>
-            {reports.map((report) => (
+            {visibleReports.map((report) => (
               <li key={report.id} className="priority-item" style={{ alignItems: "flex-start" }}>
                 <div className="priority-main" style={{ width: "100%" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -136,11 +139,10 @@ export function AthleteNewsReportsAdminCard({ athletes }: { athletes: AthleteSum
               </li>
             ))}
           </ul>
-        ) : <p>Aucun signalement pour le moment.</p>
-      ) : null}
+      ) : <p>{view === "current" ? "Aucun signalement à traiter." : "Aucun signalement traité."}</p>}
       <p style={{ margin: "0.65rem 0 0", color: "#6b7280", fontSize: "0.78rem" }}>
         « Traité » signifie que le signalement a été examiné, pas qu’il a été publié.
       </p>
-    </Card>
+    </TodayCollapsibleCard>
   );
 }

@@ -7,7 +7,7 @@ import {
   type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
 import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
-import { Card } from "@/src/design-system/components";
+import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
 import type {
   IwwfBinding,
@@ -104,6 +104,7 @@ const sourceOptions: Array<{
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
+  const [view, setView] = useState<"current" | "history">("current");
   const [swissBindings, setSwissBindings] = useState<SwissBadmintonBinding[]>([]);
   const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
   const [safvBindings, setSafvBindings] = useState<SafvBinding[]>([]);
@@ -155,9 +156,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       : selectedSourceKey === "safv"
         ? selectedSafvBinding?.officialTeam.scheduleUrl ?? selectedSource.url
     : selectedSource.url;
+  const currentCandidates = candidates.filter((candidate) => candidate.adminStatus !== "rejected");
+  const historicalCandidates = candidates.filter((candidate) => candidate.adminStatus === "rejected");
+  const visibleCandidates = view === "current" ? currentCandidates : historicalCandidates;
   const tournamentGroups = useMemo(
-    () => buildSportsWatchTournamentGroups(candidates),
-    [candidates],
+    () => buildSportsWatchTournamentGroups(visibleCandidates),
+    [visibleCandidates],
   );
 
   useEffect(() => {
@@ -605,19 +609,20 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   );
 
   return (
-    <Card className="workspace-dashboard-card" style={{ minWidth: 0 }}>
-      <header className="dashboard-card-head">
-        <div>
-          <h2>Veille sportive</h2>
-          <p style={{ margin: "0.25rem 0 0", color: "#6b7280", fontSize: "0.82rem" }}>
-            Source sélectionnée :{" "}
-            <a href={selectedSourceUrl} target="_blank" rel="noreferrer">{selectedSource.label}</a>
-          </p>
-        </div>
-        <span className="card-pill">{candidates.filter((candidate) => candidate.adminStatus === "pending").length} en attente</span>
-      </header>
-
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+    <TodayCollapsibleCard
+      storageKey="sports-watch"
+      title="Veille sportive"
+      description="Résultats collectés à valider ou à exploiter éditorialement."
+      attentionCount={currentCandidates.length + (error ? 1 : 0)}
+      className="today-sports-watch-card"
+    >
+      <details className="today-secondary-action">
+        <summary>Configurer une source ou importer un résultat</summary>
+        <p style={{ margin: "0.5rem 0", color: "#6b7280", fontSize: "0.82rem" }}>
+          Source sélectionnée :{" "}
+          <a href={selectedSourceUrl} target="_blank" rel="noreferrer">{selectedSource.label}</a>
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         <select
           aria-label="Source de veille"
           value={selectedSourceKey}
@@ -660,7 +665,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         >
           {busy ? "Collecte…" : "Lancer la veille"}
         </button>
-      </div>
+        </div>
       {athleteOptions.length === 0 ? (
         <p role="status" style={{ margin: "0.5rem 0 0", color: "#92400e", fontSize: "0.8rem" }}>
           Aucun athlète ne correspond au sport de cette source de veille.
@@ -1044,6 +1049,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           ]);
         }}
       />
+      </details>
+
+      <div className="today-view-switch" aria-label="Vue de la veille sportive">
+        <button type="button" aria-pressed={view === "current"} onClick={() => setView("current")}>
+          À exploiter ({currentCandidates.length})
+        </button>
+        <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")}>
+          Historique ({historicalCandidates.length})
+        </button>
+      </div>
 
       {message ? <p role="status" style={{ color: "#166534", fontSize: "0.84rem" }}>{message}</p> : null}
       {error ? <p role="alert" style={{ color: "#b91c1c", fontSize: "0.84rem" }}>{error}</p> : null}
@@ -1193,7 +1208,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             </li>
           ))}
         </ul>
-      ) : null}
-    </Card>
+      ) : (
+        <p>{view === "current"
+          ? "Aucun résultat à valider ou exploiter."
+          : "Aucun résultat rejeté dans l’historique."}</p>
+      )}
+    </TodayCollapsibleCard>
   );
 }

@@ -16,6 +16,7 @@ import { WeeklyResponsesCockpit } from "@/components/app-shell/WeeklyResponsesCo
 import { PartnerIntroductionsAdminCockpit } from "@/components/app-shell/PartnerIntroductionsAdminCockpit";
 import { AthleteNewsReportsAdminCard } from "@/components/app-shell/AthleteNewsReportsAdminCard";
 import { SportsWatchAdminCard } from "@/components/app-shell/SportsWatchAdminCard";
+import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import {
   getWeeklyResponseKey,
   parseWeeklyResponseDate,
@@ -250,6 +251,7 @@ export function WorkspaceLanding({
   const [processingMonthlyResponseKeys, setProcessingMonthlyResponseKeys] = useState<Set<string>>(() => new Set());
   const [monthlyResponseError, setMonthlyResponseError] = useState<string | null>(null);
   const [monthlyDetailOverrides, setMonthlyDetailOverrides] = useState<Record<string, boolean>>({});
+  const [monthlyView, setMonthlyView] = useState<"current" | "history">("current");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -465,9 +467,15 @@ export function WorkspaceLanding({
       );
   }, [athletes, dashboardNow]);
 
+  const allWeeklyResponses = useMemo(() => {
+    return selectWeeklyResponses(athletes, new Set(), dashboardNow);
+  }, [athletes, dashboardNow]);
   const weeklyResponses = useMemo(() => {
-    return selectWeeklyResponses(athletes, processedWeeklyResponseKeys, dashboardNow);
-  }, [athletes, dashboardNow, processedWeeklyResponseKeys]);
+    return allWeeklyResponses.filter((item) => !processedWeeklyResponseKeys.has(item.responseKey));
+  }, [allWeeklyResponses, processedWeeklyResponseKeys]);
+  const historicalWeeklyResponses = useMemo(() => {
+    return allWeeklyResponses.filter((item) => processedWeeklyResponseKeys.has(item.responseKey));
+  }, [allWeeklyResponses, processedWeeklyResponseKeys]);
 
   const markWeeklyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
     const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
@@ -499,7 +507,7 @@ export function WorkspaceLanding({
     }
   };
 
-  const monthlyResponses = useMemo(() => {
+  const allMonthlyResponses = useMemo(() => {
     const now = dashboardNow;
     const rollingWindowStart = now - 45 * 24 * 60 * 60 * 1000;
 
@@ -507,14 +515,26 @@ export function WorkspaceLanding({
       .flatMap((athlete) => {
         const response = athlete.monthlyFormResponse;
         if (!response) return [];
-        if (processedMonthlyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))) return [];
         const responseTime = parseWeeklyResponseDate(response.timestamp);
         if (responseTime === null || responseTime < rollingWindowStart || responseTime > now) return [];
         const hasPriority = isMeaningfulMonthlyValue(response.opportunityOrNeed) || isMeaningfulMonthlyValue(response.momentToCover);
         return [{ athlete, response, responseTime, hasPriority }];
       })
       .sort((a, b) => Number(b.hasPriority) - Number(a.hasPriority) || b.responseTime - a.responseTime);
-  }, [athletes, dashboardNow, processedMonthlyResponseKeys]);
+  }, [athletes, dashboardNow]);
+  const monthlyResponses = useMemo(
+    () => allMonthlyResponses.filter(({ athlete, response }) =>
+      !processedMonthlyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))),
+    [allMonthlyResponses, processedMonthlyResponseKeys],
+  );
+  const historicalMonthlyResponses = useMemo(
+    () => allMonthlyResponses.filter(({ athlete, response }) =>
+      processedMonthlyResponseKeys.has(getWeeklyResponseKey(athlete.key, response.timestamp))),
+    [allMonthlyResponses, processedMonthlyResponseKeys],
+  );
+  const visibleMonthlyResponses = monthlyView === "current"
+    ? monthlyResponses
+    : historicalMonthlyResponses;
 
   const markMonthlyResponseAsProcessed = async (athleteId: string, responseTimestamp: string) => {
     const responseKey = getWeeklyResponseKey(athleteId, responseTimestamp);
@@ -1057,6 +1077,7 @@ export function WorkspaceLanding({
         {athletesAvailable ? (
           <WeeklyResponsesCockpit
             items={weeklyResponses}
+            historyItems={historicalWeeklyResponses}
             processingResponseKeys={processingWeeklyResponseKeys}
             error={weeklyResponseError}
             onMarkProcessed={(athleteId, responseTimestamp) => {
@@ -1066,17 +1087,24 @@ export function WorkspaceLanding({
         ) : null}
 
         {athletesAvailable ? (
-          <Card className="workspace-dashboard-card card-priorities monthly-responses-card dashboard-monthly-card">
-            <header className="dashboard-card-head">
-              <h2>Réponses mensuelles</h2>
-              <div className="dashboard-card-head-right">
-                <span className="card-pill">{monthlyResponses.length} athlète{monthlyResponses.length === 1 ? "" : "s"}</span>
-              </div>
-            </header>
+          <TodayCollapsibleCard
+            storageKey="monthly-responses"
+            title="Réponses mensuelles"
+            attentionCount={monthlyResponses.length + (monthlyResponseError ? 1 : 0)}
+            className="card-priorities monthly-responses-card dashboard-monthly-card"
+          >
+            <div className="today-view-switch" aria-label="Vue des réponses mensuelles">
+              <button type="button" aria-pressed={monthlyView === "current"} onClick={() => setMonthlyView("current")}>
+                À traiter ({monthlyResponses.length})
+              </button>
+              <button type="button" aria-pressed={monthlyView === "history"} onClick={() => setMonthlyView("history")}>
+                Historique ({historicalMonthlyResponses.length})
+              </button>
+            </div>
 
-            {monthlyResponses.length > 0 ? (
+            {visibleMonthlyResponses.length > 0 ? (
               <ul className="priority-list monthly-responses-list">
-                {monthlyResponses.map(({ athlete, response, responseTime, hasPriority }) => {
+                {visibleMonthlyResponses.map(({ athlete, response, responseTime, hasPriority }) => {
                   const responseKey = getWeeklyResponseKey(athlete.key, response.timestamp);
                   const isProcessing = processingMonthlyResponseKeys.has(responseKey);
                   const information = getMonthlyInformation(response);
@@ -1087,15 +1115,17 @@ export function WorkspaceLanding({
 
                   return (
                     <li key={responseKey} className={`priority-item weekly-response-item monthly-response-item${isExpanded ? " is-expanded" : ""}`}>
-                      <input
-                        type="checkbox"
-                        className="priority-check"
-                        checked={isProcessing}
-                        disabled={isProcessing}
-                        aria-label={`Marquer la réponse mensuelle de ${athlete.name} comme traitée`}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={() => void markMonthlyResponseAsProcessed(athlete.key, response.timestamp)}
-                      />
+                      {monthlyView === "current" ? (
+                        <input
+                          type="checkbox"
+                          className="priority-check"
+                          checked={isProcessing}
+                          disabled={isProcessing}
+                          aria-label={`Marquer la réponse mensuelle de ${athlete.name} comme traitée`}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => void markMonthlyResponseAsProcessed(athlete.key, response.timestamp)}
+                        />
+                      ) : <span className="priority-badge">Traité</span>}
                       <div className="priority-main weekly-response-main">
                         <div className="monthly-response-heading">
                           <strong>
@@ -1123,10 +1153,12 @@ export function WorkspaceLanding({
                 })}
               </ul>
             ) : (
-              <p>Aucune réponse mensuelle à traiter.</p>
+              <p>{monthlyView === "current"
+                ? "Aucune réponse mensuelle à traiter."
+                : "Aucune réponse mensuelle traitée."}</p>
             )}
             {monthlyResponseError ? <p style={{ color: "#b91c1c" }}>{monthlyResponseError}</p> : null}
-          </Card>
+          </TodayCollapsibleCard>
         ) : null}
 
         {productionsAvailable ? (
