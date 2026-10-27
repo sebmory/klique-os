@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<basketplan version="2.0">
+  <leagueHoldingList>
+    <ArrayList>
+      <LeagueHoldingRSS id="11432" leagueId="984" leagueName="U 20M">
+        <games>
+          <GameRSS id="371191" date="2026-09-24" time="20:30" categoryName="Phase principale/intermédiaire">
+            <guestTeam clubId="506" id="7867" name="Corsier U20M AVB" result="77"/>
+            <homeTeam clubId="17" id="326" name="BBC Cossonay U20M   (AVB)" result="62"/>
+          </GameRSS>
+          <GameRSS id="371193" date="2026-10-09" time="20:30" categoryName="Phase principale/intermédiaire">
+            <guestTeam clubId="17" id="326" name="BBC Cossonay U20M   (AVB)" result="113"/>
+            <homeTeam clubId="26" id="1449" name="Echallens U18M   AVB" result="57"/>
+          </GameRSS>
+        </games>
+      </LeagueHoldingRSS>
+    </ArrayList>
+  </leagueHoldingList>
+</basketplan>

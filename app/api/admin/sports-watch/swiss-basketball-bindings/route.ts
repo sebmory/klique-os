@@ -21,6 +21,7 @@ export async function PUT(request: Request) {
     const identity = await requireSportsWatchAdmin(request);
     const body = await request.json() as {
       athleteId?: unknown;
+      federationId?: unknown;
       seasonId?: unknown;
       leagueId?: unknown;
       teamId?: unknown;
@@ -39,6 +40,7 @@ export async function PUT(request: Request) {
       body.identityMatchConfirmed,
       body.expectedVersion,
       identity,
+      body.federationId,
     );
     return NextResponse.json(
       { ok: true, binding },

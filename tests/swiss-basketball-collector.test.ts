@@ -19,13 +19,27 @@ const athlete = {
 };
 
 const holdingsUrl = "https://swiss.basketball/basketplan/findAllLeagueHoldings.do?lang=fr&xmlView=rss&leagueId=7&federationId=12&seasonId=31";
-const scheduleUrl = "https://swiss.basketball/basketplan/showLeagueSchedule.do?lang=fr&xmlView=rss&leagueId=7&leagueHoldingId=11329&daysBack=2500&daysFuture=2250&totalGames=200&resultType=big";
+const scheduleUrl = "https://swiss.basketball/basketplan/showLeagueSchedule.do?lang=fr&xmlView=rss&federationId=12&seasonId=31&leagueId=7&leagueHoldingId=11329&daysBack=2500&daysFuture=2250&totalGames=200&resultType=big";
 const gameUrl = "https://swiss.basketball/basketplan/showGameOverview.do?lang=fr&xmlView=rss&gameId=367576";
+const avbHoldingsUrl = "https://swiss.basketball/basketplan/findAllLeagueHoldings.do?lang=fr&xmlView=rss&leagueId=984&federationId=6&seasonId=31";
+const avbScheduleUrl = "https://swiss.basketball/basketplan/showLeagueSchedule.do?lang=fr&xmlView=rss&federationId=6&seasonId=31&leagueId=984&leagueHoldingId=11432&daysBack=2500&daysFuture=2250&totalGames=200&resultType=big";
+const avbGame371191Url = "https://swiss.basketball/basketplan/showGameOverview.do?lang=fr&xmlView=rss&gameId=371191";
+const avbGame371193Url = "https://swiss.basketball/basketplan/showGameOverview.do?lang=fr&xmlView=rss&gameId=371193";
 
 const responses = (game = fixture("swiss-basketball-game-367576.xml")) => new Map([
   [holdingsUrl, fixture("swiss-basketball-holdings.xml")],
   [scheduleUrl, fixture("swiss-basketball-schedule.xml")],
   [gameUrl, game],
+]);
+
+const avbResponses = (
+  game371191 = fixture("swiss-basketball-game-371191.xml"),
+  game371193 = fixture("swiss-basketball-game-371193.xml"),
+) => new Map([
+  [avbHoldingsUrl, fixture("swiss-basketball-avb-holdings.xml")],
+  [avbScheduleUrl, fixture("swiss-basketball-avb-schedule.xml")],
+  [avbGame371191Url, game371191],
+  [avbGame371193Url, game371193],
 ]);
 
 const fetchFrom = (entries: Map<string, string>) => vi.fn<typeof fetch>(async (input) => {
@@ -64,6 +78,86 @@ describe("Swiss Basketball collector", () => {
     });
     expect(verification.evidence.join(" ")).toContain("feuille officielle 367576");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("verifies and collects an AVB federation binding using the recorded official sheets", async () => {
+    const tylian = {
+      id: "tylian-pinton",
+      name: "Tylian Pinton",
+      sport: "Basketball",
+      club: "BBC Cossonay",
+    };
+    const verificationFetch = fetchFrom(avbResponses());
+    const verification = await verifySwissBasketballBinding(tylian, {
+      federationId: "6",
+      seasonId: "31",
+      leagueId: "984",
+      teamId: "326",
+      officialPlayerId: "83782",
+      officialPlayerName: "Pinton Tylian",
+      dependencies: {
+        fetch: verificationFetch,
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(verification.officialIdentity).toMatchObject({
+      federationId: "6",
+      seasonId: "31",
+      leagueId: "984",
+      leagueName: "U 20M",
+      teamId: "326",
+      teamName: "BBC Cossonay U20M   (AVB)",
+      clubId: "17",
+      playerId: "83782",
+      playerName: "Pinton Tylian",
+    });
+    expect(verification.evidence.join(" ")).toContain("feuille officielle 371193");
+    expect(verificationFetch).toHaveBeenCalledTimes(3);
+
+    const collectionFetch = fetchFrom(avbResponses());
+    const result = await collectSwissBasketballCandidates(tylian, {
+      identity: verification.officialIdentity,
+      dependencies: {
+        fetch: collectionFetch,
+        now: () => new Date("2026-10-20T10:00:00.000Z"),
+      },
+    });
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates.map((candidate) => candidate.excerpt)).toEqual([
+      expect.stringContaining("PTS 24"),
+      expect.stringContaining("PTS 16"),
+    ]);
+    expect(collectionFetch).toHaveBeenCalledWith(
+      avbHoldingsUrl,
+      expect.any(Object),
+    );
+    expect(collectionFetch).toHaveBeenCalledWith(
+      avbScheduleUrl,
+      expect.any(Object),
+    );
+  });
+
+  it("rejects a sheet whose federation differs from the configured federation", async () => {
+    const nationalSheet = fixture("swiss-basketball-game-371193.xml")
+      .replace('federationId="6"', 'federationId="12"');
+
+    await expect(verifySwissBasketballBinding(athlete, {
+      federationId: "6",
+      seasonId: "31",
+      leagueId: "984",
+      teamId: "326",
+      officialPlayerId: "83782",
+      officialPlayerName: "Pinton Tylian",
+      dependencies: {
+        fetch: fetchFrom(avbResponses(
+          fixture("swiss-basketball-game-371191.xml"),
+          nationalSheet,
+        )),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    })).rejects.toThrow("appartient à la fédération 12, pas à la fédération 6");
   });
 
   it("accepts an exact official identity when the sheet reverses first and last name order", async () => {

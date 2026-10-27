@@ -21,6 +21,7 @@ export async function POST(request: Request) {
     const identity = await requireSportsWatchAdmin(request);
     const body = await request.json() as {
       athleteId?: unknown;
+      federationId?: unknown;
       seasonId?: unknown;
       leagueId?: unknown;
       teamId?: unknown;
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       body.officialPlayerId,
       body.officialPlayerName,
       identity,
+      body.federationId,
     );
     return NextResponse.json(
       { ok: true, verification },

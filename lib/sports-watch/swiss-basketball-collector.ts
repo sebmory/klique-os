@@ -12,7 +12,7 @@ import type {
 export const SWISS_BASKETBALL_SOURCE_KEY = "swiss-basketball" as const;
 export const SWISS_BASKETBALL_SOURCE_NAME = "Swiss Basketball — source officielle";
 export const SWISS_BASKETBALL_BASE_URL = "https://swiss.basketball/";
-const FEDERATION_ID = "12";
+export const SWISS_BASKETBALL_DEFAULT_FEDERATION_ID = "12";
 const DEFAULT_LOOKBACK_DAYS = 30;
 const MAX_HOLDINGS = 8;
 const MAX_RECENT_MATCHES = 24;
@@ -63,6 +63,7 @@ type GamePlayer = {
 
 type GameOverview = {
   gameId: string;
+  federationId: string;
   gameNumber: string | null;
   date: string;
   homeTeam: ScheduleTeam;
@@ -160,11 +161,16 @@ const fetchXml = async (url: string, dependencies: CollectorDependencies): Promi
   }
 };
 
-const holdingUrl = (seasonId: string, leagueId: string): string =>
-  `${SWISS_BASKETBALL_BASE_URL}basketplan/findAllLeagueHoldings.do?lang=fr&xmlView=rss&leagueId=${encodeURIComponent(leagueId)}&federationId=${FEDERATION_ID}&seasonId=${encodeURIComponent(seasonId)}`;
+const holdingUrl = (federationId: string, seasonId: string, leagueId: string): string =>
+  `${SWISS_BASKETBALL_BASE_URL}basketplan/findAllLeagueHoldings.do?lang=fr&xmlView=rss&leagueId=${encodeURIComponent(leagueId)}&federationId=${encodeURIComponent(federationId)}&seasonId=${encodeURIComponent(seasonId)}`;
 
-const scheduleXmlUrl = (leagueId: string, holdingId: string): string =>
-  `${SWISS_BASKETBALL_BASE_URL}basketplan/showLeagueSchedule.do?lang=fr&xmlView=rss&leagueId=${encodeURIComponent(leagueId)}&leagueHoldingId=${encodeURIComponent(holdingId)}&daysBack=2500&daysFuture=2250&totalGames=200&resultType=big`;
+const scheduleXmlUrl = (
+  federationId: string,
+  seasonId: string,
+  leagueId: string,
+  holdingId: string,
+): string =>
+  `${SWISS_BASKETBALL_BASE_URL}basketplan/showLeagueSchedule.do?lang=fr&xmlView=rss&federationId=${encodeURIComponent(federationId)}&seasonId=${encodeURIComponent(seasonId)}&leagueId=${encodeURIComponent(leagueId)}&leagueHoldingId=${encodeURIComponent(holdingId)}&daysBack=2500&daysFuture=2250&totalGames=200&resultType=big`;
 
 const gameOverviewUrl = (gameId: string): string =>
   `${SWISS_BASKETBALL_BASE_URL}basketplan/showGameOverview.do?lang=fr&xmlView=rss&gameId=${encodeURIComponent(gameId)}`;
@@ -240,6 +246,7 @@ const parseOverview = (xml: string): GameOverview => {
   const item = attributes(match[1]);
   const required = [
     item.gameId,
+    item.federationId,
     item.gameDate,
     item.homeTeamId,
     item.homeClubId,
@@ -253,6 +260,7 @@ const parseOverview = (xml: string): GameOverview => {
   }
   return {
     gameId: item.gameId,
+    federationId: item.federationId,
     gameNumber: item.gameStr?.trim() || null,
     date: item.gameDate.slice(0, 10),
     homeTeam: {
@@ -337,17 +345,25 @@ const targetSide = (
 };
 
 const readHoldingsAndSchedules = async (
+  federationId: string,
   seasonId: string,
   leagueId: string,
   dependencies: CollectorDependencies,
 ): Promise<{ holdings: LeagueHolding[]; matches: ScheduleMatch[] }> => {
-  const holdings = parseHoldings(await fetchXml(holdingUrl(seasonId, leagueId), dependencies))
+  const holdings = parseHoldings(
+    await fetchXml(holdingUrl(federationId, seasonId, leagueId), dependencies),
+  )
     .filter((holding) => holding.leagueId === leagueId)
     .slice(0, MAX_HOLDINGS);
   if (holdings.length === 0) throw sourceError("aucune phase publique ne correspond à cette saison et cette ligue.");
   const byId = new Map<string, ScheduleMatch>();
   for (const holding of holdings) {
-    const matches = parseSchedule(await fetchXml(scheduleXmlUrl(leagueId, holding.id), dependencies));
+    const matches = parseSchedule(
+      await fetchXml(
+        scheduleXmlUrl(federationId, seasonId, leagueId, holding.id),
+        dependencies,
+      ),
+    );
     for (const match of matches) byId.set(match.id, match);
   }
   return { holdings, matches: [...byId.values()] };
@@ -432,6 +448,7 @@ const buildCandidate = (
 export const verifySwissBasketballBinding = async (
   athlete: SportsWatchAthleteSnapshot,
   options: {
+    federationId?: string;
     seasonId: string;
     leagueId: string;
     teamId: string;
@@ -445,6 +462,10 @@ export const verifySwissBasketballBinding = async (
     now: () => new Date(),
     ...options.dependencies,
   };
+  const federationId = requireNumericId(
+    options.federationId ?? SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
+    "identifiant de fédération",
+  );
   const seasonId = requireNumericId(options.seasonId, "identifiant de saison");
   const leagueId = requireNumericId(options.leagueId, "identifiant de ligue");
   const teamId = requireNumericId(options.teamId, "identifiant d’équipe");
@@ -454,7 +475,12 @@ export const verifySwissBasketballBinding = async (
   );
   const officialPlayerName = options.officialPlayerName.trim();
   if (!officialPlayerName) throw sourceError("nom officiel du joueur manquant.");
-  const { holdings, matches } = await readHoldingsAndSchedules(seasonId, leagueId, dependencies);
+  const { holdings, matches } = await readHoldingsAndSchedules(
+    federationId,
+    seasonId,
+    leagueId,
+    dependencies,
+  );
   const teamMatches = matches.filter((match) => targetSide(match, teamId) !== null);
   if (teamMatches.length === 0) throw sourceError("l’équipe n’apparaît dans aucun match de cette compétition.");
   const teamSnapshots = teamMatches.flatMap((match) => [match.homeTeam, match.awayTeam])
@@ -475,6 +501,11 @@ export const verifySwissBasketballBinding = async (
   for (const match of finished) {
     const overview = parseOverview(await fetchXml(gameOverviewUrl(match.id), dependencies));
     if (overview.gameId !== match.id) throw sourceError("la feuille relue ne correspond pas au match demandé.");
+    if (overview.federationId !== federationId) {
+      throw sourceError(
+        `la feuille ${match.id} appartient à la fédération ${overview.federationId}, pas à la fédération ${federationId}.`,
+      );
+    }
     const side = targetSide(overview, teamId);
     if (!side) throw sourceError(`l’équipe ${teamId} est ambiguë dans la feuille ${match.id}.`);
     const identityMatch = findPlayerByOfficialIdentity(
@@ -505,8 +536,8 @@ export const verifySwissBasketballBinding = async (
   return {
     athlete,
     officialIdentity: {
-      scheduleUrl: holdingUrl(seasonId, leagueId),
-      federationId: FEDERATION_ID,
+      scheduleUrl: holdingUrl(federationId, seasonId, leagueId),
+      federationId,
       seasonId,
       seasonName: resolvedSeasonName,
       leagueId,
@@ -542,7 +573,12 @@ export const collectSwissBasketballCandidates = async (
     now: () => new Date(),
     ...options.dependencies,
   };
+  const federationId = requireNumericId(
+    identity.federationId || SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
+    "identifiant de fédération",
+  );
   const { holdings, matches } = await readHoldingsAndSchedules(
+    federationId,
     identity.seasonId,
     identity.leagueId,
     dependencies,
@@ -573,6 +609,11 @@ export const collectSwissBasketballCandidates = async (
       const overview = parseOverview(await fetchXml(gameOverviewUrl(match.id), dependencies));
       if (overview.gameId !== match.id || overview.date !== match.date) {
         throw sourceError("la feuille ne correspond pas au match du calendrier.");
+      }
+      if (overview.federationId !== federationId) {
+        throw sourceError(
+          `la feuille ${match.id} appartient à la fédération ${overview.federationId}, pas à la fédération ${federationId}.`,
+        );
       }
       const side = targetSide(overview, identity.teamId);
       if (!side) throw sourceError("l’équipe rattachée est absente ou ambiguë dans la feuille.");

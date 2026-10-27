@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<basketplan version="2.0">
+  <gameOverView>
+    <GameOverView federationId="6" gameId="371191" gameStr="26-03339" gameDate="2026-09-24 20:30" guestClubId="506" guestResult="77" guestTeamId="7867" guestTeamName="Corsier U20M AVB" homeClubId="17" homeResult="62" homeTeamId="326" homeTeamName="BBC Cossonay U20M   (AVB)">
+      <guestTeamRows/>
+      <homeTeamRows>
+        <PersonGameRow isStartLineup="false" licence="796948" playerFirstName="Tylian" playerId="83782" playerLastName="Pinton" playerName="Pinton Tylian" points="16"/>
+      </homeTeamRows>
+    </GameOverView>
+  </gameOverView>
+</basketplan>

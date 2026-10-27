@@ -147,6 +147,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [beBasketVerification, setBeBasketVerification] =
     useState<BeBasketBindingVerification | null>(null);
   const [beBasketConfigBusy, setBeBasketConfigBusy] = useState(false);
+  const [swissBasketballFederationId, setSwissBasketballFederationId] = useState("12");
   const [swissBasketballSeasonId, setSwissBasketballSeasonId] = useState("");
   const [swissBasketballLeagueId, setSwissBasketballLeagueId] = useState("");
   const [swissBasketballTeamId, setSwissBasketballTeamId] = useState("");
@@ -187,7 +188,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const selectedSwissBasketballBindings = swissBasketballBindings.filter((binding) =>
     binding.athleteId === selectedAthleteId);
   const configuredSwissBasketballBinding = selectedSwissBasketballBindings.find((binding) =>
-    binding.officialIdentity.seasonId === swissBasketballSeasonId.trim()
+    binding.officialIdentity.federationId === swissBasketballFederationId.trim()
+    && binding.officialIdentity.seasonId === swissBasketballSeasonId.trim()
     && binding.officialIdentity.leagueId === swissBasketballLeagueId.trim()
     && binding.officialIdentity.teamId === swissBasketballTeamId.trim());
   const selectedSourceUrl = selectedSourceKey === "swiss-badminton"
@@ -306,6 +308,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const selectAthlete = (athleteId: string) => {
     setSelectedAthleteId(athleteId);
+    setSwissBasketballFederationId("12");
     setSwissBasketballSeasonId("");
     setSwissBasketballLeagueId("");
     setSwissBasketballTeamId("");
@@ -688,6 +691,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             athleteId: selectedAthleteId,
+            federationId: swissBasketballFederationId,
             seasonId: swissBasketballSeasonId,
             leagueId: swissBasketballLeagueId,
             teamId: swissBasketballTeamId,
@@ -704,6 +708,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         throw new Error(payload.message || "Impossible de vérifier le rattachement Swiss Basketball.");
       }
       setSwissBasketballVerification(payload.verification);
+      setSwissBasketballFederationId(payload.verification.officialIdentity.federationId);
       setSwissBasketballSeasonId(payload.verification.officialIdentity.seasonId);
       setSwissBasketballLeagueId(payload.verification.officialIdentity.leagueId);
       setSwissBasketballTeamId(payload.verification.officialIdentity.teamId);
@@ -732,6 +737,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           athleteId: selectedAthleteId,
+          federationId: swissBasketballFederationId,
           seasonId: swissBasketballSeasonId,
           leagueId: swissBasketballLeagueId,
           teamId: swissBasketballTeamId,
@@ -1355,9 +1361,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               binding.active).length} active(s)
           </summary>
           <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.76rem" }}>
-            Source officielle. Chaque rattachement associe l’athlète CRM à une saison, une ligue,
-            une équipe et un identifiant joueur vérifiés dans une feuille publique. Plusieurs équipes
-            peuvent rester actives simultanément.
+            Source officielle. Chaque rattachement associe l’athlète CRM à une fédération, une saison,
+            une ligue, une équipe et un identifiant joueur vérifiés dans une feuille publique.
+            Plusieurs équipes peuvent rester actives simultanément.
           </p>
           {!selectedAthleteId ? (
             <p style={{ margin: 0, fontSize: "0.8rem" }}>
@@ -1383,6 +1389,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                     >
                       <span>
                         <strong>{binding.officialIdentity.teamName}</strong>
+                        {" · fédération "}{binding.officialIdentity.federationId}
                         {" · "}{binding.officialIdentity.leagueName}
                         {" · "}{binding.officialIdentity.seasonName}
                         {" · "}{binding.officialIdentity.playerName}
@@ -1412,6 +1419,20 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                   gap: "0.55rem",
                 }}
               >
+                <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                  Identifiant de fédération
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={swissBasketballFederationId}
+                    disabled={swissBasketballConfigBusy}
+                    onChange={(event) => {
+                      setSwissBasketballFederationId(event.target.value);
+                      setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
+                    }}
+                  />
+                </label>
                 <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
                   Identifiant de saison
                   <input
@@ -1487,6 +1508,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                 className="card-link-button"
                 disabled={
                   swissBasketballConfigBusy
+                  || !swissBasketballFederationId.trim()
                   || !swissBasketballSeasonId.trim()
                   || !swissBasketballLeagueId.trim()
                   || !swissBasketballTeamId.trim()
@@ -1495,7 +1517,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                 }
                 onClick={() => void verifySwissBasketballIdentity()}
               >
-                {swissBasketballConfigBusy ? "Vérification…" : "Vérifier saison, ligue, équipe et joueuse"}
+                {swissBasketballConfigBusy
+                  ? "Vérification…"
+                  : "Vérifier fédération, saison, ligue, équipe et joueuse"}
               </button>
               {swissBasketballVerification ? (
                 <div
@@ -1528,6 +1552,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                       <p style={{ margin: "0.2rem 0" }}>
                         {swissBasketballVerification.officialIdentity.playerName}
                         {" · joueur "}{swissBasketballVerification.officialIdentity.playerId}
+                        {" · fédération "}{swissBasketballVerification.officialIdentity.federationId}
                         {" · "}{swissBasketballVerification.officialIdentity.teamName}
                         {" · "}{swissBasketballVerification.officialIdentity.leagueName}
                         {" · "}{swissBasketballVerification.officialIdentity.seasonName}

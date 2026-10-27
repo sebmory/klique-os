@@ -728,6 +728,48 @@ describe("sports watch service", () => {
     );
   });
 
+  it("passes and persists a configured regional federation", async () => {
+    const repository = createMemoryRepository();
+    const verifyOfficialIdentity = vi.fn(async (
+      _selected: unknown,
+      options: { federationId?: string },
+    ) => ({
+      ...swissBasketballVerification("326", "BBC Cossonay U20M   (AVB)"),
+      officialIdentity: {
+        ...swissBasketballVerification("326", "BBC Cossonay U20M   (AVB)").officialIdentity,
+        federationId: options.federationId ?? "12",
+        leagueId: "984",
+        leagueName: "U 20M",
+        playerId: "83782",
+        playerName: "Pinton Tylian",
+      },
+    }));
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [beBasketAthlete],
+      verifySwissBasketballBinding: verifyOfficialIdentity,
+    });
+
+    const binding = await service.confirmSwissBasketballBinding(
+      beBasketAthlete.athleteId,
+      "31",
+      "984",
+      "326",
+      "83782",
+      "Pinton Tylian",
+      true,
+      0,
+      identity("workspace-a"),
+      "6",
+    );
+
+    expect(verifyOfficialIdentity).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ federationId: "6" }),
+    );
+    expect(binding.officialIdentity.federationId).toBe("6");
+  });
+
   it("keeps BeBasket third-party facts unverified through Admin review and Article transfer", async () => {
     const repository = createMemoryRepository();
     const excerpt = [

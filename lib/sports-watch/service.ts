@@ -45,6 +45,7 @@ import {
 } from "@/lib/sports-watch/swiss-badminton-collector";
 import {
   SWISS_BASKETBALL_BASE_URL,
+  SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
   SWISS_BASKETBALL_SOURCE_NAME,
   collectSwissBasketballCandidates,
   verifySwissBasketballBinding,
@@ -503,8 +504,10 @@ export const createSportsWatchService = (
     officialPlayerId: unknown,
     officialPlayerName: unknown,
     _identity: SportsWatchAdminIdentity,
+    federationId: unknown = SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
   ): Promise<SwissBasketballBindingVerification> => {
     const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const federation = normalize(federationId) || SWISS_BASKETBALL_DEFAULT_FEDERATION_ID;
     const season = normalize(seasonId);
     const league = normalize(leagueId);
     const team = normalize(teamId);
@@ -518,6 +521,7 @@ export const createSportsWatchService = (
     }
     try {
       return await dependencies.verifySwissBasketballBinding(athlete, {
+        federationId: federation,
         seasonId: season,
         leagueId: league,
         teamId: team,
@@ -838,6 +842,7 @@ export const createSportsWatchService = (
     identityMatchConfirmed: unknown,
     expectedVersionValue: unknown,
     identity: SportsWatchAdminIdentity,
+    federationId: unknown = SWISS_BASKETBALL_DEFAULT_FEDERATION_ID,
   ): Promise<SwissBasketballBinding> {
     if (identityMatchConfirmed !== true) {
       throw new SportsWatchError(
@@ -857,6 +862,7 @@ export const createSportsWatchService = (
       officialPlayerId,
       officialPlayerName,
       identity,
+      federationId,
     );
     const confirmedVerification: SwissBasketballBindingVerification = {
       ...verification,
