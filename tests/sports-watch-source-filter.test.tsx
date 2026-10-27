@@ -16,6 +16,7 @@ const athletes = [
     name: "Alice Badminton",
     sport: "Badminton",
     club: "",
+    status: "Actif",
   },
   {
     key: "wakesurf",
@@ -23,6 +24,7 @@ const athletes = [
     name: "Bruno Wakesurf",
     sport: "Wakesurf",
     club: "",
+    status: "Actif",
   },
   {
     key: "multi",
@@ -30,6 +32,7 @@ const athletes = [
     name: "Camille Multisport",
     sport: "Foot us et basket",
     club: "",
+    status: "Actif",
   },
   {
     key: "basket",
@@ -37,6 +40,7 @@ const athletes = [
     name: "Diane Basket",
     sport: "Basketball",
     club: "",
+    status: "Actif",
   },
 ];
 

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   buildSportsWatchTournamentGroups,
   type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
+import {
+  buildSportsWatchRefreshTasks,
+  runSportsWatchRefreshPlan,
+  type SportsWatchRefreshExecution,
+  type SportsWatchRefreshTask,
+} from "@/lib/sports-watch/refresh";
 import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
@@ -31,6 +37,30 @@ type AthleteSummary = {
   name: string;
   sport: string;
   club: string;
+  status: string;
+};
+
+type SportsWatchDashboardPayload = {
+  candidates?: SportsWatchCandidate[];
+  swissBindings?: SwissBadmintonBinding[];
+  iwwfBindings?: IwwfBinding[];
+  safvBindings?: SafvBinding[];
+  beBasketBindings?: BeBasketBinding[];
+  swissBasketballBindings?: SwissBasketballBinding[];
+  message?: string;
+};
+
+type SportsWatchRefreshSummary = {
+  task: SportsWatchRefreshTask;
+  result?: SportsWatchRunResult;
+  error?: string;
+};
+
+const fetchSportsWatchDashboard = async (): Promise<SportsWatchDashboardPayload> => {
+  const response = await fetch("/api/admin/sports-watch", { cache: "no-store" });
+  const payload = await response.json() as SportsWatchDashboardPayload;
+  if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
+  return payload;
 };
 
 const formatDate = (value: string | null): string => {
@@ -115,6 +145,19 @@ const sourceOptions: Array<{
   },
 ];
 
+const refreshSummaryStatus = (summary: SportsWatchRefreshSummary): string => {
+  if (summary.error) return "Échec";
+  if (!summary.result) return "Échec";
+  const partial = summary.result.observations?.some((observation) =>
+    observation.status === "binding_error") ?? false;
+  const outcome = summary.result.createdCount > 0
+    ? pluralize(summary.result.createdCount, "nouveau résultat", "nouveaux résultats")
+    : summary.result.recentCount === 0
+      ? "Aucun résultat récent"
+      : "Inchangé";
+  return partial ? `Couverture partielle · ${outcome}` : outcome;
+};
+
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
@@ -159,6 +202,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     useState<SwissBasketballBindingVerification | null>(null);
   const [swissBasketballConfigBusy, setSwissBasketballConfigBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const refreshAllLockRef = useRef(false);
+  const [refreshAllBusy, setRefreshAllBusy] = useState(false);
+  const [refreshAllReady, setRefreshAllReady] = useState(false);
+  const [refreshAllProgress, setRefreshAllProgress] = useState({ completed: 0, total: 0 });
+  const [refreshAllSummaries, setRefreshAllSummaries] =
+    useState<SportsWatchRefreshSummary[]>([]);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -211,21 +260,29 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     () => buildSportsWatchTournamentGroups(visibleCandidates),
     [visibleCandidates],
   );
+  const refreshAllTasks = useMemo(
+    () => buildSportsWatchRefreshTasks({
+      athletes,
+      swissBindings,
+      iwwfBindings,
+      safvBindings,
+      beBasketBindings,
+      swissBasketballBindings,
+    }),
+    [
+      athletes,
+      beBasketBindings,
+      iwwfBindings,
+      safvBindings,
+      swissBasketballBindings,
+      swissBindings,
+    ],
+  );
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/admin/sports-watch", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json() as {
-          candidates?: SportsWatchCandidate[];
-          swissBindings?: SwissBadmintonBinding[];
-          iwwfBindings?: IwwfBinding[];
-          safvBindings?: SafvBinding[];
-          beBasketBindings?: BeBasketBinding[];
-          swissBasketballBindings?: SwissBasketballBinding[];
-          message?: string;
-        };
-        if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
+    void fetchSportsWatchDashboard()
+      .then((payload) => {
         if (active) {
           setCandidates(payload.candidates ?? []);
           setSwissBindings(payload.swissBindings ?? []);
@@ -233,6 +290,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           setSafvBindings(payload.safvBindings ?? []);
           setBeBasketBindings(payload.beBasketBindings ?? []);
           setSwissBasketballBindings(payload.swissBasketballBindings ?? []);
+          setRefreshAllReady(true);
         }
       })
       .catch((caught: unknown) => {
@@ -794,8 +852,92 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     }
   };
 
+  const runRefreshAll = async () => {
+    if (
+      busy
+      || refreshAllLockRef.current
+      || !refreshAllReady
+      || refreshAllTasks.length === 0
+    ) return;
+    refreshAllLockRef.current = true;
+    setRefreshAllBusy(true);
+    setRefreshAllProgress({ completed: 0, total: refreshAllTasks.length });
+    setRefreshAllSummaries([]);
+    setMessage(null);
+    setError(null);
+    try {
+      const executions = await runSportsWatchRefreshPlan(
+        refreshAllTasks,
+        async (task) => {
+          const response = await fetch("/api/admin/sports-watch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceKey: task.sourceKey,
+              athleteId: task.athleteId,
+            }),
+          });
+          const payload = await response.json() as {
+            result?: SportsWatchRunResult;
+            message?: string;
+          };
+          if (!response.ok || !payload.result) {
+            throw new Error(payload.message || "Impossible de lancer la veille sportive.");
+          }
+          return payload.result;
+        },
+        {
+          maxConcurrentSources: 3,
+          onSettled: (
+            execution: SportsWatchRefreshExecution<SportsWatchRunResult>,
+            completed,
+            total,
+          ) => {
+            setRefreshAllProgress({ completed, total });
+            setRefreshAllSummaries((current) => [
+              ...current,
+              {
+                task: execution.task,
+                result: execution.value,
+                error: execution.error?.message,
+              },
+            ]);
+          },
+        },
+      );
+      const payload = await fetchSportsWatchDashboard();
+      setCandidates(payload.candidates ?? []);
+      setSwissBindings(payload.swissBindings ?? []);
+      setIwwfBindings(payload.iwwfBindings ?? []);
+      setSafvBindings(payload.safvBindings ?? []);
+      setBeBasketBindings(payload.beBasketBindings ?? []);
+      setSwissBasketballBindings(payload.swissBasketballBindings ?? []);
+      const failures = executions.filter((execution) => execution.error).length;
+      const createdCount = executions.reduce(
+        (total, execution) => total + (execution.value?.createdCount ?? 0),
+        0,
+      );
+      setMessage([
+        `Actualisation terminée : ${executions.length} veille${executions.length === 1 ? "" : "s"}.`,
+        `${createdCount} nouveau${createdCount === 1 ? "" : "x"} résultat${createdCount === 1 ? "" : "s"}.`,
+        failures > 0
+          ? `${failures} échec${failures === 1 ? "" : "s"} local${failures === 1 ? "" : "aux"}.`
+          : "Aucun échec.",
+      ].join(" "));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? `Les collectes ont été exécutées, mais leur bilan n’a pas pu être rechargé : ${caught.message}`
+          : "Le bilan des collectes n’a pas pu être rechargé.",
+      );
+    } finally {
+      refreshAllLockRef.current = false;
+      setRefreshAllBusy(false);
+    }
+  };
+
   const runWatch = async () => {
-    if (busy || !selectedAthleteId) return;
+    if (busy || refreshAllBusy || !selectedAthleteId) return;
     setBusy(true);
     setMessage(null);
     setError(null);
@@ -920,6 +1062,114 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       attentionCount={currentCandidates.length + (error ? 1 : 0)}
       className="today-sports-watch-card"
     >
+      <section
+        aria-label="Actualisation de toutes les veilles"
+        style={{
+          display: "grid",
+          gap: "0.65rem",
+          marginBottom: "0.85rem",
+          padding: "0.75rem",
+          border: "1px solid #dbeafe",
+          borderRadius: "10px",
+          background: "#eff6ff",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.65rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <strong>Actualisation globale</strong>
+            <p style={{ margin: "0.2rem 0 0", color: "#475569", fontSize: "0.76rem" }}>
+              {refreshAllReady
+                ? `${refreshAllTasks.length} veille${refreshAllTasks.length === 1 ? "" : "s"} configurée${refreshAllTasks.length === 1 ? "" : "s"}.`
+                : "Chargement des rattachements actifs…"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="card-link-button"
+            disabled={
+              busy
+              || refreshAllBusy
+              || !refreshAllReady
+              || refreshAllTasks.length === 0
+            }
+            style={{ minHeight: "2.5rem", padding: "0.55rem 0.8rem" }}
+            onClick={() => void runRefreshAll()}
+          >
+            {refreshAllBusy ? "Actualisation…" : "Actualiser toutes les veilles"}
+          </button>
+        </div>
+        {refreshAllProgress.total > 0 ? (
+          <div aria-live="polite" style={{ display: "grid", gap: "0.3rem" }}>
+            <span style={{ fontSize: "0.76rem", color: "#334155" }}>
+              {refreshAllProgress.completed}/{refreshAllProgress.total} veille
+              {refreshAllProgress.total === 1 ? "" : "s"} traitée
+              {refreshAllProgress.total === 1 ? "" : "s"}
+            </span>
+            <progress
+              aria-label="Progression de l’actualisation des veilles"
+              value={refreshAllProgress.completed}
+              max={refreshAllProgress.total}
+              style={{ width: "100%" }}
+            />
+          </div>
+        ) : null}
+        {refreshAllSummaries.length > 0 ? (
+          <div
+            aria-label="Bilan des veilles actualisées"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 15rem), 1fr))",
+              gap: "0.5rem",
+            }}
+          >
+            {refreshAllSummaries.map((summary) => {
+              const source = sourceOptions.find((option) => option.key === summary.task.sourceKey);
+              return (
+                <article
+                  key={`${summary.task.sourceKey}:${summary.task.athleteId}`}
+                  style={{
+                    minWidth: 0,
+                    padding: "0.55rem 0.65rem",
+                    border: "1px solid #bfdbfe",
+                    borderRadius: "8px",
+                    background: "#fff",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <strong style={{ display: "block", fontSize: "0.78rem" }}>
+                    {summary.task.athleteName}
+                  </strong>
+                  <span style={{ display: "block", color: "#475569", fontSize: "0.72rem" }}>
+                    {source?.label ?? summary.task.sourceKey}
+                  </span>
+                  <span
+                    style={{
+                      display: "block",
+                      marginTop: "0.25rem",
+                      color: summary.error ? "#b91c1c" : "#1e3a8a",
+                      fontSize: "0.74rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {refreshSummaryStatus(summary)}
+                  </span>
+                  <span style={{ display: "block", marginTop: "0.2rem", color: "#64748b", fontSize: "0.7rem" }}>
+                    {summary.error ?? summary.result?.message}
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+      </section>
       <details className="today-secondary-action">
         <summary>Configurer une source ou importer un résultat</summary>
         <p style={{ margin: "0.5rem 0", color: "#6b7280", fontSize: "0.82rem" }}>
@@ -930,7 +1180,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         <select
           aria-label="Source de veille"
           value={selectedSourceKey}
-          disabled={busy}
+          disabled={busy || refreshAllBusy}
           onChange={(event) => {
             const sourceKey = event.target.value as SportsWatchCollectionSourceKey;
             setSelectedSourceKey(sourceKey);
@@ -948,7 +1198,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         <select
           aria-label="Athlète CRM à surveiller"
           value={selectedAthleteId}
-          disabled={busy}
+          disabled={busy || refreshAllBusy}
           onChange={(event) => selectAthlete(event.target.value)}
           style={{ minWidth: "16rem", flex: "1 1 16rem" }}
         >
@@ -960,6 +1210,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           className="card-link-button"
           disabled={
             busy
+            || refreshAllBusy
             || !selectedAthleteId
             || (selectedSourceKey === "swiss-badminton" && !selectedSwissBinding?.active)
             || (selectedSourceKey === "iwwf-wakesurf" && !selectedIwwfBinding?.active)

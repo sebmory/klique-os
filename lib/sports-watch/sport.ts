@@ -32,3 +32,17 @@ export const isSportCompatibleWithWatchSource = (
     "american football",
   ].some((label) => normalized.includes(label));
 };
+
+export const isAthleteAutomaticallyCoveredByWatchSource = (
+  sport: string,
+  club: string,
+  sourceKey: SportsWatchCollectionSourceKey,
+): boolean => {
+  if (!isSportCompatibleWithWatchSource(sport, sourceKey)) return false;
+  const normalizedClub = normalizeSportsWatchSport(club);
+  if (sourceKey === "bc-bulle") return normalizedClub.includes("bulle");
+  if (sourceKey === "kenpokan") {
+    return normalizedClub.includes("kenpokan") || normalizedClub.includes("kenpokan dojo");
+  }
+  return false;
+};
