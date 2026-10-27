@@ -304,12 +304,17 @@ const runMessage = (
   if (sourceKey === "bebasket" && observations.length > 0) {
     const count = (status: SportsWatchCollectionObservation["status"]) =>
       observations.filter((observation) => observation.status === status).length;
+    const ambiguousWarnings = observations
+      .filter((observation) => observation.status === "team_ambiguous")
+      .map((observation) => observation.warning ?? `Feuille ambiguë : ${observation.matchUrl}`);
     return [
       `${observations.length} match${observations.length === 1 ? "" : "es"} récent${observations.length === 1 ? "" : "s"} examiné${observations.length === 1 ? "" : "s"}.`,
       `Feuille absente : ${count("sheet_absent")}.`,
       `Joueuse absente : ${count("player_absent")}.`,
       `Joueuse listée sans participation établie : ${count("player_listed_without_participation")}.`,
       `Participation explicite : ${count("participation_explicit")}.`,
+      `Feuille ambiguë écartée : ${count("team_ambiguous")}.`,
+      ...ambiguousWarnings,
       createdCount === 0
         ? "Aucun nouveau candidat : les participations étaient absentes ou déjà collectées sans modification."
         : `${createdCount} nouveau${createdCount === 1 ? "" : "x"} candidat${createdCount === 1 ? "" : "s"} soumis à la revue Admin.`,

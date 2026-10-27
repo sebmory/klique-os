@@ -151,13 +151,15 @@ export type SportsWatchCollectionObservationStatus =
   | "sheet_absent"
   | "player_absent"
   | "player_listed_without_participation"
-  | "participation_explicit";
+  | "participation_explicit"
+  | "team_ambiguous";
 
 export type SportsWatchCollectionObservation = {
   matchUrl: string;
   title: string;
   eventDate: string;
   status: SportsWatchCollectionObservationStatus;
+  warning?: string;
 };
 
 export type SportsWatchCandidate = {

@@ -552,6 +552,26 @@ describe("sports watch service", () => {
       identity("workspace-a"),
     );
     expect(listedOnlyRun.message).toContain("Joueuse listée sans participation établie : 1");
+
+    const ambiguousUrl = "https://www.bebasket.fr/match/ambiguous-team-fixture";
+    collectBeBasket.mockResolvedValueOnce({
+      candidates: [],
+      observations: [{
+        matchUrl: ambiguousUrl,
+        title: "Equipe indécidable vs autre équipe",
+        eventDate: "2026-10-19",
+        status: "team_ambiguous",
+      }],
+      scannedCount: 1,
+      recentCount: 1,
+    });
+    const ambiguousRun = await service.run(
+      "bebasket",
+      beBasketAthlete.athleteId,
+      identity("workspace-a"),
+    );
+    expect(ambiguousRun.message).toContain("Feuille ambiguë écartée : 1");
+    expect(ambiguousRun.message).toContain(ambiguousUrl);
   });
 
   it("uses an active SAFV binding and keeps collective provenance unverified for Article", async () => {

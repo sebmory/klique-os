@@ -1,0 +1,164 @@
+{
+  "recordedAt": "2026-10-27T09:38:18.969Z",
+  "calendarUrl": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg/calendrier",
+  "matches": [
+    {
+      "url": "https://www.bebasket.fr/match/1f0ac011-a3ad-620c-b5ae-61f1193c5099",
+      "calendarTitle": "BCF Elfic Fribourg VS Villeneuve d'Ascq",
+      "calendarText": "08/10-19h30 EUR - EuroCup Féminine - Journée 1",
+      "event": {
+        "name": "BCF Elfic Fribourg vs Villeneuve d'Ascq (75-68)",
+        "startDate": "2025-10-08T17:30:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "Villeneuve d'Ascq", "url": "https://www.bebasket.fr/equipe/villeneuve-dascq" }
+      }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/1f0ac012-6a6d-6eaa-8363-f597bb99fb95",
+      "calendarTitle": "Beroe Stara Zagora VS BCF Elfic Fribourg",
+      "calendarText": "16/10-18h00 EUR - EuroCup Féminine - Journée 2",
+      "event": {
+        "name": "Beroe Stara Zagora vs BCF Elfic Fribourg (62-84)",
+        "startDate": "2025-10-16T16:00:00+00:00",
+        "homeTeam": { "name": "Beroe Stara Zagora", "url": "https://www.bebasket.fr/equipe/beroe-stara-zagora" },
+        "awayTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" }
+      }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/1f0ac012-d168-604c-9d67-5b05bf7663f6",
+      "calendarTitle": "BCF Elfic Fribourg VS Sleza Wroclaw féminin",
+      "calendarText": "23/10-19h30 EUR - EuroCup Féminine - Journée 3",
+      "event": {
+        "name": "BCF Elfic Fribourg vs Sleza Wroclaw féminin (74-96)",
+        "startDate": "2025-10-23T17:30:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "Sleza Wroclaw féminin", "url": "https://www.bebasket.fr/equipe/sleza-wroclaw-feminin" }
+      }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11768-f60d-7877-a28c-11157fc183aa",
+      "calendarTitle": "BCF Elfic Fribourg VS GC Zürich féminin",
+      "calendarText": "27/09-13h00 SBLW - Swiss Basketball League Women - Journée 1",
+      "event": {
+        "name": "BCF Elfic Fribourg vs GC Zürich féminin (86-60)",
+        "startDate": "2026-09-27T11:00:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "GC Zürich féminin", "url": "https://www.bebasket.fr/equipe/gc-zurich-feminine" }
+      },
+      "mila": { "venue": "home", "timePlayed": 782, "points": 0, "fieldGoalsAttempted": 3, "twoPointersAttempted": 2, "threePointersAttempted": 1, "rebounds": 1, "assists": 2 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11769-40d4-7e94-9f00-3a9a54a8f37d",
+      "calendarTitle": "Baden Basket 54 VS BCF Elfic Fribourg",
+      "calendarText": "02/10-20h30 SBLW - Swiss Basketball League Women - Journée 3",
+      "event": {
+        "name": "Baden Basket 54 vs BCF Elfic Fribourg (76-70)",
+        "startDate": "2026-10-02T18:30:00+00:00",
+        "homeTeam": { "name": "Baden Basket 54", "url": "https://www.bebasket.fr/equipe/baden-basket-54" },
+        "awayTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" }
+      },
+      "mila": { "venue": "away", "timePlayed": 439, "points": 0, "fieldGoalsAttempted": 1, "twoPointersAttempted": 1, "rebounds": 1 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11769-6469-71e8-95ec-199bc3e51099",
+      "calendarTitle": "BCF Elfic Fribourg VS BBC Troistorrents-Chablais",
+      "calendarText": "07/10-20h00 SBLW - Swiss Basketball League Women - Journée 4",
+      "event": {
+        "name": "BCF Elfic Fribourg vs BBC Troistorrents-Chablais (88-51)",
+        "startDate": "2026-10-07T18:00:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "BBC Troistorrents-Chablais", "url": "https://www.bebasket.fr/equipe/bbc-troistorrents-chablais" }
+      },
+      "mila": { "venue": "home", "timePlayed": 657, "points": 4, "twoPointersMade": 1, "twoPointersAttempted": 1, "threePointersMade": 0, "threePointersAttempted": 1, "freeThrowsMade": 2, "freeThrowsAttempted": 2, "rebounds": 2 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11769-71f9-7ecc-82fc-4b37e5b91b65",
+      "calendarTitle": "Hélios VS Basket VS BCF Elfic Fribourg",
+      "calendarText": "11/10-17h00 SBLW - Swiss Basketball League Women - Journée 5",
+      "event": {
+        "name": "Hélios VS Basket vs BCF Elfic Fribourg (85-106)",
+        "startDate": "2026-10-11T15:00:00+00:00",
+        "homeTeam": { "name": "Hélios VS Basket", "url": "https://www.bebasket.fr/equipe/helios-vs-basket" },
+        "awayTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" }
+      },
+      "mila": {
+        "venue": "away",
+        "timePlayed": 665,
+        "points": 9,
+        "fieldGoalsMade": 4,
+        "fieldGoalsAttempted": 5,
+        "twoPointersMade": 3,
+        "twoPointersAttempted": 3,
+        "threePointersMade": 1,
+        "threePointersAttempted": 2,
+        "freeThrowsMade": 0,
+        "freeThrowsAttempted": 0,
+        "fouls": 3,
+        "foulsOn": 0,
+        "reboundsOffensive": 1,
+        "reboundsDefensive": 0,
+        "rebounds": 1,
+        "steals": 1,
+        "turnovers": 0,
+        "blocks": 0,
+        "blocksAgainst": 0,
+        "assists": 2,
+        "plusMinus": 3,
+        "isStarter": false,
+        "efficiency": 12,
+        "pir": 9,
+        "pie": 4.17,
+        "usagePercentage": 20.01,
+        "possessions": 5
+      }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a116ce-1b91-73d5-827e-67a402f3f42e",
+      "calendarTitle": "BCF Elfic Fribourg VS BCC Derthona Féminin",
+      "calendarText": "15/10-19h30 EUR - EuroCup Féminine - Journée 15/10/2026",
+      "event": {
+        "name": "BCF Elfic Fribourg vs BCC Derthona Féminin (60-71)",
+        "startDate": "2026-10-15T17:30:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "BCC Derthona Féminin", "url": "https://www.bebasket.fr/equipe/bcc-derthona-feminin" }
+      },
+      "mila": { "venue": "home", "timePlayed": 0, "points": 0 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11769-7418-7317-ab35-6e0df943246e",
+      "calendarTitle": "Ravens Geneve VS BCF Elfic Fribourg",
+      "calendarText": "18/10-16h00 SBLW - Swiss Basketball League Women - Journée 6",
+      "event": {
+        "name": "Ravens Geneve vs BCF Elfic Fribourg (87-94)",
+        "startDate": "2026-10-18T14:00:00+00:00",
+        "homeTeam": { "name": "Ravens Geneve", "url": "https://www.bebasket.fr/equipe/ravens-geneve" },
+        "awayTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" }
+      },
+      "mila": { "venue": "away", "timePlayed": 0, "points": 0 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a116ce-44a5-790f-942d-e8aacfd74b8f",
+      "calendarTitle": "Landerneau VS BCF Elfic Fribourg",
+      "calendarText": "22/10-19h30 EUR - EuroCup Féminine - Journée 22/10/2026",
+      "event": {
+        "name": "Landerneau vs BCF Elfic Fribourg (88-63)",
+        "startDate": "2026-10-22T17:30:00+00:00",
+        "homeTeam": { "name": "Landerneau", "url": "https://www.bebasket.fr/equipe/landerneau" },
+        "awayTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" }
+      },
+      "mila": { "venue": "away", "timePlayed": 95, "points": 0, "fieldGoalsAttempted": 1, "threePointersAttempted": 1 }
+    },
+    {
+      "url": "https://www.bebasket.fr/match/01a11769-7ce4-7bfe-b0de-89de7cc46107",
+      "calendarTitle": "BCF Elfic Fribourg VS Nyon Basket Feminin",
+      "calendarText": "25/10-16h00 SBLW - Swiss Basketball League Women - Journée 7",
+      "event": {
+        "name": "BCF Elfic Fribourg vs Nyon Basket Feminin (71-64)",
+        "startDate": "2026-10-25T15:00:00+00:00",
+        "homeTeam": { "name": "BCF Elfic Fribourg", "url": "https://www.bebasket.fr/equipe/bcf-elfic-fribourg" },
+        "awayTeam": { "name": "Nyon Basket Feminin", "url": "https://www.bebasket.fr/equipe/nyon-basket-feminin" }
+      },
+      "mila": { "venue": "home", "timePlayed": 136, "points": 1, "fieldGoalsAttempted": 1, "twoPointersAttempted": 1, "freeThrowsMade": 1, "freeThrowsAttempted": 2, "rebounds": 2 }
+    }
+  ]
+}

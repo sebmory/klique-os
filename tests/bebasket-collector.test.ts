@@ -27,6 +27,58 @@ const identity = {
   playerName: "Mila Benjak",
 };
 
+type RecordedMatch = {
+  url: string;
+  calendarTitle: string;
+  calendarText: string;
+  event: {
+    name: string;
+    startDate: string;
+    homeTeam: { name: string; url: string };
+    awayTeam: { name: string; url: string };
+  };
+  mila?: Record<string, unknown>;
+};
+
+type RecordedLot = {
+  calendarUrl: string;
+  matches: RecordedMatch[];
+};
+
+const recordedLot = JSON.parse(
+  fixture("bebasket-bcf-elfic-2026-10-27.json"),
+) as RecordedLot;
+
+const recordedCalendarHtml = (matches: RecordedMatch[]): string => [
+  "<!doctype html><html><body>",
+  ...matches.map((match) =>
+    `<a href="${new URL(match.url).pathname}" title="${match.calendarTitle}">${match.calendarText}</a>`),
+  "</body></html>",
+].join("");
+
+const recordedMatchHtml = (
+  match: RecordedMatch,
+  event: RecordedMatch["event"] = match.event,
+): string => {
+  const player = match.mila
+    ? {
+        id: "recorded-mila-benjak",
+        player: { firstname: "Mila", lastname: "Benjak", slug: "mila-benjak" },
+        playerNumber: "14",
+        ...match.mila,
+      }
+    : null;
+  const flight = [
+    `76:T,${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SportsEvent",
+      ...event,
+    })}`,
+    `77:${JSON.stringify(player ? [player] : [])}`,
+  ].join("\n");
+  return `<!doctype html><html><body><script>self.__next_f.push(${JSON.stringify([1, flight])})</script></body></html>`;
+};
+
 describe("BeBasket sports watch collector", () => {
   it("verifies a configurable CRM/team/player binding without a hard-coded player", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -139,5 +191,85 @@ describe("BeBasket sports watch collector", () => {
       expect.objectContaining({ status: "player_listed_without_participation" }),
     ]);
     expect(result.candidates).toEqual([]);
+  });
+
+  it("collects the recorded 30-day lot once per URL and resolves Hélios VS Basket by stable team slug", async () => {
+    const responses = new Map<string, string>([
+      [recordedLot.calendarUrl, recordedCalendarHtml(recordedLot.matches)],
+      ...recordedLot.matches.map((match) => [match.url, recordedMatchHtml(match)] as const),
+    ]);
+    const reads = new Map<string, number>();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      reads.set(url, (reads.get(url) ?? 0) + 1);
+      const body = responses.get(url);
+      return body
+        ? new Response(body, { status: 200, headers: { "Content-Type": "text/html" } })
+        : new Response("Not found", { status: 404 });
+    });
+
+    const result = await collectBeBasketCandidates(athlete, {
+      identity,
+      dependencies: {
+        fetch: fetchMock,
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(result.scannedCount).toBe(11);
+    expect(result.recentCount).toBe(8);
+    expect(result.candidates).toHaveLength(6);
+    expect(result.observations.filter((item) =>
+      item.status === "player_listed_without_participation")).toHaveLength(2);
+    expect(result.observations).not.toContainEqual(
+      expect.objectContaining({ status: "team_ambiguous" }),
+    );
+    const helios = result.candidates.find((candidate) =>
+      candidate.articleUrl.endsWith("01a11769-71f9-7ecc-82fc-4b37e5b91b65"));
+    expect(helios?.excerpt).toContain("MIN 11:05");
+    expect(helios?.excerpt).toContain("PTS 9");
+    expect(helios?.excerpt).toContain("2PTS 3/3");
+    expect(helios?.excerpt).toContain("3PTS 1/2");
+    expect(helios?.excerpt).toContain("Source : BeBasket — source tierce");
+    expect([...reads.entries()]).toEqual(
+      expect.arrayContaining([...responses.keys()].map((url) => [url, 1])),
+    );
+    expect(reads.size).toBe(responses.size);
+  });
+
+  it("skips only an ambiguous sheet and exposes its URL in an explicit warning", async () => {
+    const match = recordedLot.matches.find((item) =>
+      item.url.endsWith("01a11769-71f9-7ecc-82fc-4b37e5b91b65"));
+    expect(match).toBeDefined();
+    if (!match) throw new Error("Recorded Hélios fixture is missing.");
+    const ambiguousEvent = {
+      ...match.event,
+      awayTeam: {
+        name: match.event.awayTeam.name,
+        url: "https://www.bebasket.fr/equipe/autre-equipe",
+      },
+    };
+    const responses = new Map([
+      [calendarUrl, recordedCalendarHtml([match])],
+      [match.url, recordedMatchHtml(match, ambiguousEvent)],
+    ]);
+
+    const result = await collectBeBasketCandidates(athlete, {
+      identity,
+      dependencies: {
+        fetch: vi.fn<typeof fetch>(async (input) =>
+          new Response(responses.get(String(input)), { status: 200 })),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(result.candidates).toEqual([]);
+    expect(result.observations).toEqual([
+      expect.objectContaining({
+        matchUrl: match.url,
+        status: "team_ambiguous",
+        warning: expect.stringContaining(match.url),
+      }),
+    ]);
   });
 });

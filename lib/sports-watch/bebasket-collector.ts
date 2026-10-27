@@ -39,6 +39,14 @@ type SportsEvent = {
   name: string;
   description: string | null;
   startDate: string;
+  homeTeam: EventTeamIdentity | null;
+  awayTeam: EventTeamIdentity | null;
+};
+
+type EventTeamIdentity = {
+  name: string;
+  slug: string | null;
+  url: string | null;
 };
 
 type PlayerStatistics = {
@@ -322,6 +330,8 @@ const parseEvent = (chunks: string[]): SportsEvent | null => {
           name: value.name,
           description: typeof value.description === "string" ? value.description : null,
           startDate: value.startDate,
+          homeTeam: readEventTeamIdentity(value.homeTeam),
+          awayTeam: readEventTeamIdentity(value.awayTeam),
         };
       }
     } catch {
@@ -329,6 +339,29 @@ const parseEvent = (chunks: string[]): SportsEvent | null => {
     }
   }
   return null;
+};
+
+const readEventTeamIdentity = (value: unknown): EventTeamIdentity | null => {
+  if (!isRecord(value) || typeof value.name !== "string") return null;
+  const rawUrl = typeof value.url === "string"
+    ? value.url
+    : typeof value["@id"] === "string"
+      ? value["@id"]
+      : null;
+  if (!rawUrl) return { name: value.name, slug: null, url: null };
+  try {
+    const url = new URL(rawUrl);
+    const match = url.protocol === "https:" && url.hostname === SOURCE_HOSTNAME
+      ? url.pathname.match(/^\/equipe\/([a-z0-9-]+)\/?$/)
+      : null;
+    return {
+      name: value.name,
+      slug: match?.[1] ?? null,
+      url: match ? `https://${SOURCE_HOSTNAME}/equipe/${match[1]}` : null,
+    };
+  } catch {
+    return { name: value.name, slug: null, url: null };
+  }
 };
 
 const parsePlayerStatistics = (chunks: string[]): PlayerStatistics[] => {
@@ -461,14 +494,48 @@ const findPlayer = (
   return matches.length === 1 ? matches[0] : null;
 };
 
-const targetVenue = (eventName: string, teamName: string): "home" | "away" | null => {
-  const scoreSuffixRemoved = eventName.replace(/\s+\(\d+\s*-\s*\d+\)\s*$/, "").trim();
-  const teams = scoreSuffixRemoved.split(/\s+vs\.?\s+/i);
-  if (teams.length !== 2) return null;
-  const requested = normalize(teamName);
-  if (normalize(teams[0]) === requested) return "home";
-  if (normalize(teams[1]) === requested) return "away";
+const targetVenue = (
+  event: SportsEvent,
+  identity: BeBasketOfficialIdentity,
+): "home" | "away" | null => {
+  const stableMatches = [
+    event.homeTeam?.slug === identity.teamSlug ? "home" as const : null,
+    event.awayTeam?.slug === identity.teamSlug ? "away" as const : null,
+  ].filter((venue): venue is "home" | "away" => venue !== null);
+  if (stableMatches.length === 1) return stableMatches[0];
+  if (stableMatches.length > 1) return null;
+
+  const structuredSlugs = [event.homeTeam?.slug, event.awayTeam?.slug].filter(Boolean);
+  if (structuredSlugs.length > 0) return null;
+
+  const requested = normalize(identity.teamName);
+  const nameMatches = [
+    normalize(event.homeTeam?.name) === requested ? "home" as const : null,
+    normalize(event.awayTeam?.name) === requested ? "away" as const : null,
+  ].filter((venue): venue is "home" | "away" => venue !== null);
+  if (nameMatches.length === 1) return nameMatches[0];
+  if (nameMatches.length > 1) return null;
+
+  const scoreSuffixRemoved = normalize(
+    event.name.replace(/\s+\(\d+\s*-\s*\d+\)\s*$/, ""),
+  );
+  if (scoreSuffixRemoved.startsWith(`${requested} vs `)) return "home";
+  if (scoreSuffixRemoved.endsWith(` vs ${requested}`)) return "away";
   return null;
+};
+
+const ambiguousTeamWarning = (
+  matchUrl: string,
+  event: SportsEvent,
+  identity: BeBasketOfficialIdentity,
+): string => {
+  const describe = (team: EventTeamIdentity | null) =>
+    team ? `${team.name} (${team.slug ?? "identifiant absent"})` : "équipe absente";
+  return [
+    `Feuille BeBasket écartée : équipe rattachée ${identity.teamName} (${identity.teamSlug}) indécidable.`,
+    `Équipes structurées : domicile ${describe(event.homeTeam)}, extérieur ${describe(event.awayTeam)}.`,
+    `URL : ${matchUrl}`,
+  ].join(" ");
 };
 
 const hasExplicitParticipation = (statistics: PlayerStatistics): boolean =>
@@ -615,9 +682,16 @@ export const collectBeBasketCandidates = async (
       });
       continue;
     }
-    const venue = targetVenue(parsed.event.name, identity.teamName);
+    const venue = targetVenue(parsed.event, identity);
     if (!venue) {
-      throw sourceError("l’équipe rattachée ne peut pas être située sans ambiguïté dans un match.");
+      observations.push({
+        matchUrl: match.url,
+        title: parsed.event.name,
+        eventDate,
+        status: "team_ambiguous",
+        warning: ambiguousTeamWarning(match.url, parsed.event, identity),
+      });
+      continue;
     }
     const teamStatistics = parsed.playerStatistics.filter((item) => item.venue === venue);
     if (teamStatistics.length === 0) {
