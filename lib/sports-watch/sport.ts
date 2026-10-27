@@ -21,7 +21,7 @@ export const isSportCompatibleWithWatchSource = (
   if (sourceKey === "kenpokan") {
     return normalized.includes("kempo");
   }
-  if (sourceKey === "bebasket") {
+  if (sourceKey === "bebasket" || sourceKey === "swiss-basketball") {
     return normalized.includes("basket");
   }
   return [

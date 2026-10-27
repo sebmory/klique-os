@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<basketplan version="2.0">
+  <leagueHoldingList>
+    <ArrayList>
+      <LeagueHoldingRSS from="2026-09-05" id="11329" leagueId="7" leagueName="NLB Women" name="Preliminary phase" to="2027-06-30">
+        <matchdays>
+          <matchday from="2026-09-18" id="11708" name="Preparation" to="2026-09-20">
+            <games>
+              <GameRSS categoryName="Phase préliminaire" date="2026-09-20" id="367500" matchDayName="Preparation" time="13:00">
+                <guestTeam clubId="199" id="1269" name="Elfic Fribourg Génération" result="61"/>
+                <homeTeam clubId="69" id="4112" name="BC Winterthur" result="70"/>
+              </GameRSS>
+            </games>
+          </matchday>
+          <matchday from="2026-10-23" id="11713" name="Day 5" to="2026-10-25">
+            <games>
+              <GameRSS categoryName="Phase préliminaire" date="2026-10-25" id="367576" matchDayName="Day 5" time="13:00">
+                <guestTeam clubId="111" id="515" name="BC Arlesheim" result="51" resultQ1="14" resultQ2="11" resultQ3="12" resultQ4="14"/>
+                <homeTeam clubId="199" id="1269" name="Elfic Fribourg Génération" result="63" resultQ1="19" resultQ2="13" resultQ3="18" resultQ4="13"/>
+              </GameRSS>
+            </games>
+          </matchday>
+          <matchday from="2026-10-30" id="11714" name="Day 6" to="2026-11-01">
+            <games>
+              <GameRSS categoryName="Phase préliminaire" date="2026-11-01" id="367581" matchDayName="Day 6" time="14:00">
+                <guestTeam clubId="7" id="398" name="Riva Basket"/>
+                <homeTeam clubId="199" id="1269" name="Elfic Fribourg Génération"/>
+              </GameRSS>
+            </games>
+          </matchday>
+        </matchdays>
+      </LeagueHoldingRSS>
+    </ArrayList>
+  </leagueHoldingList>
+</basketplan>

@@ -14,6 +14,7 @@ import type {
   SafvBinding,
   SportsWatchCandidate,
   SportsWatchCollectionObservation,
+  SwissBasketballBinding,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
 
@@ -128,6 +129,30 @@ const beBasketVerification = () => ({
   verifiedAt: "2026-10-27T10:00:00.000Z",
 });
 
+const swissBasketballVerification = (teamId: string, teamName: string) => ({
+  athlete: {
+    id: beBasketAthlete.athleteId!,
+    name: beBasketAthlete.name,
+    sport: beBasketAthlete.sport,
+    club: beBasketAthlete.club,
+  },
+  officialIdentity: {
+    scheduleUrl: `https://swiss.basketball/basketplan/findAllLeagueHoldings.do?lang=fr&xmlView=rss&leagueId=7&federationId=12&seasonId=31`,
+    federationId: "12",
+    seasonId: "31",
+    seasonName: "2026-2027",
+    leagueId: "7",
+    leagueName: "NLB Women",
+    teamId,
+    teamName,
+    clubId: "199",
+    playerId: "71375",
+    playerName: "Mila Benjak",
+  },
+  evidence: [`Équipe officielle ${teamName}.`],
+  verifiedAt: "2026-10-27T10:00:00.000Z",
+});
+
 const collectedCandidate = (contentHash: string, excerpt: string): CollectedSportsWatchCandidate => ({
   sourceKey: "bc-bulle",
   athlete: {
@@ -169,6 +194,10 @@ const createMemoryRepository = (): SportsWatchRepository => {
   const iwwfBindings: Array<{ workspaceId: string; binding: IwwfBinding }> = [];
   const safvBindings: Array<{ workspaceId: string; binding: SafvBinding }> = [];
   const beBasketBindings: Array<{ workspaceId: string; binding: BeBasketBinding }> = [];
+  const swissBasketballBindings: Array<{
+    workspaceId: string;
+    binding: SwissBasketballBinding;
+  }> = [];
 
   return {
     async startRun() {
@@ -460,10 +489,166 @@ const createMemoryRepository = (): SportsWatchRepository => {
       };
       return existing.binding;
     },
+    async listSwissBasketballBindings(workspaceId) {
+      return swissBasketballBindings
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.binding);
+    },
+    async getActiveSwissBasketballBindings(workspaceId, athleteId) {
+      return swissBasketballBindings
+        .filter((record) =>
+          record.workspaceId === workspaceId
+          && record.binding.athleteId === athleteId
+          && record.binding.active)
+        .map((record) => record.binding);
+    },
+    async saveSwissBasketballBinding(input) {
+      const official = input.verification.officialIdentity;
+      const existing = swissBasketballBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.athleteId === input.verification.athlete.id
+        && record.binding.officialIdentity.seasonId === official.seasonId
+        && record.binding.officialIdentity.leagueId === official.leagueId
+        && record.binding.officialIdentity.teamId === official.teamId);
+      if (existing && existing.binding.version !== input.expectedVersion) return null;
+      const binding: SwissBasketballBinding = {
+        id: existing?.binding.id
+          ?? `50000000-0000-4000-8000-${String(swissBasketballBindings.length + 1).padStart(12, "0")}`,
+        athleteId: input.verification.athlete.id,
+        officialIdentity: official,
+        evidence: input.verification.evidence,
+        verifiedAt: input.verification.verifiedAt,
+        confirmedAt: input.confirmedAt,
+        active: true,
+        disabledAt: null,
+        version: existing ? existing.binding.version + 1 : 1,
+      };
+      if (existing) existing.binding = binding;
+      else swissBasketballBindings.push({ workspaceId: input.workspaceId, binding });
+      return binding;
+    },
+    async disableSwissBasketballBinding(input) {
+      const existing = swissBasketballBindings.find((record) =>
+        record.workspaceId === input.workspaceId
+        && record.binding.id === input.bindingId
+        && record.binding.active
+        && record.binding.version === input.expectedVersion);
+      if (!existing) return null;
+      existing.binding = {
+        ...existing.binding,
+        active: false,
+        disabledAt: "2026-10-27T10:00:00.000Z",
+        version: existing.binding.version + 1,
+      };
+      return existing.binding;
+    },
   };
 };
 
 describe("sports watch service", () => {
+  it("collects multiple Swiss Basketball teams, deduplicates common matches and reports partial coverage", async () => {
+    const repository = createMemoryRepository();
+    const candidate: CollectedSportsWatchCandidate = {
+      ...collectedCandidate("swiss-basketball-hash", [
+        "Source : Swiss Basketball — source officielle.",
+        "Compétition : NLB Women · 2026-2027.",
+        "Équipe : Elfic Fribourg Génération.",
+        "Match : Elfic Fribourg Génération 63–51 BC Arlesheim.",
+        "Présence nominative : Benjak Mila.",
+        "Titularisation : non.",
+        "Statistiques individuelles explicitement présentes : PTS 16.",
+      ].join(" ")),
+      sourceKey: "swiss-basketball",
+      athlete: {
+        id: beBasketAthlete.athleteId!,
+        name: beBasketAthlete.name,
+        sport: beBasketAthlete.sport,
+        club: beBasketAthlete.club,
+      },
+      sourceName: "Swiss Basketball — source officielle",
+      sourceUrl: swissBasketballVerification("1269", "Elfic Fribourg Génération")
+        .officialIdentity.scheduleUrl,
+      articleUrl: "https://swiss.basketball/basketplan/showGameOverview.do?lang=fr&xmlView=rss&gameId=367576",
+      title: "Elfic Fribourg Génération 63–51 BC Arlesheim — Benjak Mila",
+      eventDateFrom: "2026-10-25",
+      eventDateTo: "2026-10-25",
+      logicalKey: "swiss-basketball|31|7|1269|367576|71375",
+    };
+    const collectSwissBasketball = vi.fn(async (
+      _selectedAthlete,
+      options: { swissBasketballIdentity?: { teamId: string; teamName: string } },
+    ) => {
+      if (options.swissBasketballIdentity?.teamId === "8888") {
+        throw new Error("feuille indisponible");
+      }
+      return {
+        candidates: [candidate],
+        observations: [{
+          matchUrl: candidate.articleUrl,
+          title: candidate.title,
+          eventDate: "2026-10-25",
+          status: "participation_explicit" as const,
+        }],
+        scannedCount: 14,
+        recentCount: 1,
+      };
+    });
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [beBasketAthlete],
+      collectors: { "swiss-basketball": collectSwissBasketball },
+      verifySwissBasketballBinding: vi.fn(async (_selected, options) =>
+        swissBasketballVerification(
+          options.teamId,
+          options.teamId === "1269"
+            ? "Elfic Fribourg Génération"
+            : options.teamId === "7777"
+              ? "Équipe secondaire"
+              : "Équipe indisponible",
+        )),
+      now: () => new Date("2026-10-27T10:00:00.000Z"),
+    });
+
+    for (const teamId of ["1269", "7777", "8888"]) {
+      await service.confirmSwissBasketballBinding(
+        beBasketAthlete.athleteId,
+        "31",
+        "7",
+        teamId,
+        0,
+        identity("workspace-a"),
+      );
+    }
+    const run = await service.run(
+      "swiss-basketball",
+      beBasketAthlete.athleteId,
+      identity("workspace-a"),
+    );
+
+    expect(collectSwissBasketball).toHaveBeenCalledTimes(3);
+    expect(run.createdCount).toBe(1);
+    expect(run.message).toContain("Couverture partielle : 1 rattachement en échec");
+    expect(run.message).toContain("Équipe indisponible · NLB Women");
+    const swissCandidates = run.candidates.filter((item) =>
+      item.sourceName === "Swiss Basketball — source officielle");
+    expect(swissCandidates).toHaveLength(1);
+    const validated = await service.review(
+      swissCandidates[0].id,
+      "validated",
+      swissCandidates[0].version,
+      identity("workspace-a"),
+    );
+    const prefill = await service.buildArticlePrefill(
+      validated.id,
+      identity("workspace-a"),
+    );
+    expect(prefill.materials.map((material) => material.text).join(" ")).toContain("PTS 16");
+    expect(prefill.materials[0].provenance).toContain(
+      "Swiss Basketball — source officielle",
+    );
+    expect(await service.listBeBasketBindings(identity("workspace-a"))).toEqual([]);
+  });
+
   it("keeps BeBasket third-party facts unverified through Admin review and Article transfer", async () => {
     const repository = createMemoryRepository();
     const excerpt = [

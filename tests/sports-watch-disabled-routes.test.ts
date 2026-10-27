@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   verifyBeBasketBinding: vi.fn(),
   confirmBeBasketBinding: vi.fn(),
   disableBeBasketBinding: vi.fn(),
+  listSwissBasketballBindings: vi.fn(),
+  verifySwissBasketballBinding: vi.fn(),
+  confirmSwissBasketballBinding: vi.fn(),
+  disableSwissBasketballBinding: vi.fn(),
   importUpload: vi.fn(),
   importExtract: vi.fn(),
   importConfirm: vi.fn(),
@@ -52,6 +56,10 @@ vi.mock("@/lib/sports-watch/service", () => ({
     verifyBeBasketBinding: mocks.verifyBeBasketBinding,
     confirmBeBasketBinding: mocks.confirmBeBasketBinding,
     disableBeBasketBinding: mocks.disableBeBasketBinding,
+    listSwissBasketballBindings: mocks.listSwissBasketballBindings,
+    verifySwissBasketballBinding: mocks.verifySwissBasketballBinding,
+    confirmSwissBasketballBinding: mocks.confirmSwissBasketballBinding,
+    disableSwissBasketballBinding: mocks.disableSwissBasketballBinding,
   },
 }));
 
@@ -85,6 +93,9 @@ import {
   DELETE as DISABLE_BEBASKET,
   PUT as CONFIRM_BEBASKET,
 } from "@/app/api/admin/sports-watch/bebasket-bindings/[athleteId]/route";
+import { POST as VERIFY_SWISS_BASKETBALL } from "@/app/api/admin/sports-watch/swiss-basketball-bindings/verify/route";
+import { PUT as CONFIRM_SWISS_BASKETBALL } from "@/app/api/admin/sports-watch/swiss-basketball-bindings/route";
+import { DELETE as DISABLE_SWISS_BASKETBALL } from "@/app/api/admin/sports-watch/swiss-basketball-bindings/[bindingId]/route";
 import { POST as UPLOAD_IMPORT } from "@/app/api/admin/sports-watch/imports/route";
 import { POST as EXTRACT_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/extract/route";
 import { POST as CONFIRM_IMPORT } from "@/app/api/admin/sports-watch/imports/[importId]/confirm/route";
@@ -151,6 +162,21 @@ describe("disabled sports watch routes", () => {
       "http://localhost/api/admin/sports-watch/bebasket-bindings/athlete-1",
       { method: "DELETE" },
     ), context);
+    const verifySwissBasketballResponse = await VERIFY_SWISS_BASKETBALL(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-basketball-bindings/verify",
+      { method: "POST" },
+    ));
+    const confirmSwissBasketballResponse = await CONFIRM_SWISS_BASKETBALL(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-basketball-bindings",
+      { method: "PUT" },
+    ));
+    const bindingContext = {
+      params: Promise.resolve({ bindingId: "11111111-1111-4111-8111-111111111111" }),
+    };
+    const disableSwissBasketballResponse = await DISABLE_SWISS_BASKETBALL(new Request(
+      "http://localhost/api/admin/sports-watch/swiss-basketball-bindings/11111111-1111-4111-8111-111111111111",
+      { method: "DELETE" },
+    ), bindingContext);
     const importContext = { params: Promise.resolve({ importId: "11111111-1111-4111-8111-111111111111" }) };
     const uploadImportResponse = await UPLOAD_IMPORT(new Request(
       "http://localhost/api/admin/sports-watch/imports",
@@ -182,6 +208,9 @@ describe("disabled sports watch routes", () => {
     expect(verifyBeBasketResponse.status).toBe(404);
     expect(confirmBeBasketResponse.status).toBe(404);
     expect(disableBeBasketResponse.status).toBe(404);
+    expect(verifySwissBasketballResponse.status).toBe(404);
+    expect(confirmSwissBasketballResponse.status).toBe(404);
+    expect(disableSwissBasketballResponse.status).toBe(404);
     expect(uploadImportResponse.status).toBe(404);
     expect(extractImportResponse.status).toBe(404);
     expect(confirmImportResponse.status).toBe(404);

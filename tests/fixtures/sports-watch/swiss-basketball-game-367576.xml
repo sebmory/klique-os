@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<basketplan version="2.0">
+  <gameOverView>
+    <GameOverView
+      gameDate="2026-10-25 13:00"
+      gameId="367576"
+      gameStr="26-01153"
+      guestClubId="111"
+      guestResult="51"
+      guestTeamId="515"
+      guestTeamName="BC Arlesheim"
+      homeClubId="199"
+      homeResult="63"
+      homeTeamId="1269"
+      homeTeamName="Elfic Fribourg Génération"
+    />
+  </gameOverView>
+  <homeTeamRows>
+    <ArrayList>
+      <PersonGameRow isStartLineup="false" licence="784663" playerFirstName="Mila" playerId="71375" playerLastName="Benjak" playerName="Benjak Mila" playerNrThisGame="14" points="16"/>
+      <PersonGameRow isStartLineup="true" playerFirstName="Nadine" playerId="70001" playerLastName="Furrer" playerName="Furrer Nadine" playerNrThisGame="11" points="22"/>
+    </ArrayList>
+  </homeTeamRows>
+  <guestTeamRows>
+    <ArrayList>
+      <PersonGameRow isStartLineup="true" playerFirstName="Grace" playerId="80001" playerLastName="Dillier" playerName="Dillier Grace" playerNrThisGame="2" points="7"/>
+    </ArrayList>
+  </guestTeamRows>
+</basketplan>

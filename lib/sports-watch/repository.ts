@@ -10,6 +10,8 @@ import type {
   SafvTeamVerification,
   SportsWatchAdminStatus,
   SportsWatchCandidate,
+  SwissBasketballBinding,
+  SwissBasketballBindingVerification,
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
@@ -94,6 +96,28 @@ type BeBasketBindingRow = {
   team_slug: string;
   team_name_snapshot: string;
   player_name_snapshot: string;
+  verification_evidence_json: string[] | string;
+  verified_at: string | Date;
+  confirmed_at: string | Date;
+  active: boolean;
+  disabled_at: string | Date | null;
+  version: number | string;
+};
+
+type SwissBasketballBindingRow = {
+  id: string;
+  athlete_id: string;
+  schedule_url: string;
+  federation_id: string;
+  season_id: string;
+  season_name_snapshot: string;
+  league_id: string;
+  league_name_snapshot: string;
+  official_team_id: string;
+  official_team_name_snapshot: string;
+  official_club_id: string;
+  official_player_id: string;
+  official_player_name_snapshot: string;
   verification_evidence_json: string[] | string;
   verified_at: string | Date;
   confirmed_at: string | Date;
@@ -217,6 +241,32 @@ const mapBeBasketBinding = (row: BeBasketBindingRow): BeBasketBinding => ({
   version: Number(row.version),
 });
 
+const mapSwissBasketballBinding = (
+  row: SwissBasketballBindingRow,
+): SwissBasketballBinding => ({
+  id: row.id,
+  athleteId: row.athlete_id,
+  officialIdentity: {
+    scheduleUrl: row.schedule_url,
+    federationId: row.federation_id,
+    seasonId: row.season_id,
+    seasonName: row.season_name_snapshot,
+    leagueId: row.league_id,
+    leagueName: row.league_name_snapshot,
+    teamId: row.official_team_id,
+    teamName: row.official_team_name_snapshot,
+    clubId: row.official_club_id,
+    playerId: row.official_player_id,
+    playerName: row.official_player_name_snapshot,
+  },
+  evidence: readStringArray(row.verification_evidence_json),
+  verifiedAt: normalizeTimestamp(row.verified_at) ?? "",
+  confirmedAt: normalizeTimestamp(row.confirmed_at) ?? "",
+  active: row.active,
+  disabledAt: normalizeTimestamp(row.disabled_at),
+  version: Number(row.version),
+});
+
 const candidateColumns = `
   id, athlete_id, athlete_name_snapshot, source_name, source_url, article_url,
   title, excerpt, result_kind, publication_date,
@@ -315,6 +365,24 @@ export type SportsWatchRepository = {
     expectedVersion: number;
     clerkUserId: string;
   }): Promise<BeBasketBinding | null>;
+  listSwissBasketballBindings(workspaceId: string): Promise<SwissBasketballBinding[]>;
+  getActiveSwissBasketballBindings(
+    workspaceId: string,
+    athleteId: string,
+  ): Promise<SwissBasketballBinding[]>;
+  saveSwissBasketballBinding(input: {
+    workspaceId: string;
+    verification: SwissBasketballBindingVerification;
+    expectedVersion: number;
+    clerkUserId: string;
+    confirmedAt: string;
+  }): Promise<SwissBasketballBinding | null>;
+  disableSwissBasketballBinding(input: {
+    workspaceId: string;
+    bindingId: string;
+    expectedVersion: number;
+    clerkUserId: string;
+  }): Promise<SwissBasketballBinding | null>;
 };
 
 export const PostgresSportsWatchRepository: SportsWatchRepository = {
@@ -966,5 +1034,149 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.clerkUserId,
     ]) as BeBasketBindingRow[];
     return rows[0] ? mapBeBasketBinding(rows[0]) : null;
+  },
+
+  async listSwissBasketballBindings(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, schedule_url, federation_id, season_id,
+        season_name_snapshot, league_id, league_name_snapshot,
+        official_team_id, official_team_name_snapshot, official_club_id,
+        official_player_id, official_player_name_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_swiss_basketball_bindings
+      WHERE workspace_id = $1
+      ORDER BY active DESC, athlete_id, league_name_snapshot, official_team_name_snapshot
+    `, [workspaceId]) as SwissBasketballBindingRow[];
+    return rows.map(mapSwissBasketballBinding);
+  },
+
+  async getActiveSwissBasketballBindings(workspaceId, athleteId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        id, athlete_id, schedule_url, federation_id, season_id,
+        season_name_snapshot, league_id, league_name_snapshot,
+        official_team_id, official_team_name_snapshot, official_club_id,
+        official_player_id, official_player_name_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+      FROM sports_watch_swiss_basketball_bindings
+      WHERE workspace_id = $1 AND athlete_id = $2 AND active
+      ORDER BY league_name_snapshot, official_team_name_snapshot
+    `, [workspaceId, athleteId]) as SwissBasketballBindingRow[];
+    return rows.map(mapSwissBasketballBinding);
+  },
+
+  async saveSwissBasketballBinding(input) {
+    const sql = createContentStorageClient();
+    const official = input.verification.officialIdentity;
+    const rows = await sql.query(`
+      INSERT INTO sports_watch_swiss_basketball_bindings (
+        id, workspace_id, athlete_id, schedule_url, federation_id,
+        season_id, season_name_snapshot, league_id, league_name_snapshot,
+        official_team_id, official_team_name_snapshot, official_club_id,
+        official_player_id, official_player_name_snapshot,
+        verification_evidence_json, verified_at,
+        confirmed_by_clerk_user_id, confirmed_at
+      )
+      SELECT
+        $1::uuid, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12,
+        $13, $14,
+        $15::jsonb, $16::timestamptz,
+        $17, $18::timestamptz
+      WHERE $19 = 0
+         OR EXISTS (
+           SELECT 1
+           FROM sports_watch_swiss_basketball_bindings
+           WHERE workspace_id = $2
+             AND athlete_id = $3
+             AND season_id = $6
+             AND league_id = $8
+             AND official_team_id = $10
+         )
+      ON CONFLICT (
+        workspace_id, athlete_id, season_id, league_id, official_team_id
+      ) DO UPDATE
+      SET schedule_url = EXCLUDED.schedule_url,
+          federation_id = EXCLUDED.federation_id,
+          season_name_snapshot = EXCLUDED.season_name_snapshot,
+          league_name_snapshot = EXCLUDED.league_name_snapshot,
+          official_team_name_snapshot = EXCLUDED.official_team_name_snapshot,
+          official_club_id = EXCLUDED.official_club_id,
+          official_player_id = EXCLUDED.official_player_id,
+          official_player_name_snapshot = EXCLUDED.official_player_name_snapshot,
+          verification_evidence_json = EXCLUDED.verification_evidence_json,
+          verified_at = EXCLUDED.verified_at,
+          confirmed_by_clerk_user_id = EXCLUDED.confirmed_by_clerk_user_id,
+          confirmed_at = EXCLUDED.confirmed_at,
+          active = TRUE,
+          disabled_by_clerk_user_id = NULL,
+          disabled_at = NULL,
+          version = sports_watch_swiss_basketball_bindings.version + 1,
+          updated_at = NOW()
+      WHERE sports_watch_swiss_basketball_bindings.version = $19
+      RETURNING
+        id, athlete_id, schedule_url, federation_id, season_id,
+        season_name_snapshot, league_id, league_name_snapshot,
+        official_team_id, official_team_name_snapshot, official_club_id,
+        official_player_id, official_player_name_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      randomUUID(),
+      input.workspaceId,
+      input.verification.athlete.id,
+      official.scheduleUrl,
+      official.federationId,
+      official.seasonId,
+      official.seasonName,
+      official.leagueId,
+      official.leagueName,
+      official.teamId,
+      official.teamName,
+      official.clubId,
+      official.playerId,
+      official.playerName,
+      JSON.stringify(input.verification.evidence),
+      input.verification.verifiedAt,
+      input.clerkUserId,
+      input.confirmedAt,
+      input.expectedVersion,
+    ]) as SwissBasketballBindingRow[];
+    return rows[0] ? mapSwissBasketballBinding(rows[0]) : null;
+  },
+
+  async disableSwissBasketballBinding(input) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      UPDATE sports_watch_swiss_basketball_bindings
+      SET active = FALSE,
+          disabled_by_clerk_user_id = $4,
+          disabled_at = NOW(),
+          version = version + 1,
+          updated_at = NOW()
+      WHERE workspace_id = $1
+        AND id = $2::uuid
+        AND version = $3
+        AND active
+      RETURNING
+        id, athlete_id, schedule_url, federation_id, season_id,
+        season_name_snapshot, league_id, league_name_snapshot,
+        official_team_id, official_team_name_snapshot, official_club_id,
+        official_player_id, official_player_name_snapshot,
+        verification_evidence_json, verified_at, confirmed_at,
+        active, disabled_at, version
+    `, [
+      input.workspaceId,
+      input.bindingId,
+      input.expectedVersion,
+      input.clerkUserId,
+    ]) as SwissBasketballBindingRow[];
+    return rows[0] ? mapSwissBasketballBinding(rows[0]) : null;
   },
 };

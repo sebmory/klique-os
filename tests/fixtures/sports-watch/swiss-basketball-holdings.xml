@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<basketplan version="2.0">
+  <leagueHoldingList>
+    <ArrayList>
+      <LeagueHoldingRSS
+        from="2026-09-05"
+        id="11329"
+        leagueId="7"
+        leagueName="NLB Women"
+        name="Preliminary phase"
+        to="2027-06-30"
+      />
+    </ArrayList>
+  </leagueHoldingList>
+</basketplan>

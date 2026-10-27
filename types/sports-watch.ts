@@ -11,6 +11,7 @@ export type SportsWatchSourceKey =
   | "kenpokan"
   | "safv"
   | "bebasket"
+  | "swiss-basketball"
   | "manual-import";
 
 export type SportsWatchCollectionSourceKey = Exclude<SportsWatchSourceKey, "manual-import">;
@@ -147,12 +148,51 @@ export type BeBasketBinding = {
   version: number;
 };
 
+export type SwissBasketballOfficialIdentity = {
+  scheduleUrl: string;
+  federationId: string;
+  seasonId: string;
+  seasonName: string;
+  leagueId: string;
+  leagueName: string;
+  teamId: string;
+  teamName: string;
+  clubId: string;
+  playerId: string;
+  playerName: string;
+};
+
+export type SwissBasketballBindingVerification = {
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  officialIdentity: SwissBasketballOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+};
+
+export type SwissBasketballBinding = {
+  id: string;
+  athleteId: string;
+  officialIdentity: SwissBasketballOfficialIdentity;
+  evidence: string[];
+  verifiedAt: string;
+  confirmedAt: string;
+  active: boolean;
+  disabledAt: string | null;
+  version: number;
+};
+
 export type SportsWatchCollectionObservationStatus =
   | "sheet_absent"
   | "player_absent"
   | "player_listed_without_participation"
   | "participation_explicit"
-  | "team_ambiguous";
+  | "team_ambiguous"
+  | "binding_error";
 
 export type SportsWatchCollectionObservation = {
   matchUrl: string;

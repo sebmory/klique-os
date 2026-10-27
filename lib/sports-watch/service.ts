@@ -44,6 +44,12 @@ import {
   type SwissBadmintonProfileConfig,
 } from "@/lib/sports-watch/swiss-badminton-collector";
 import {
+  SWISS_BASKETBALL_BASE_URL,
+  SWISS_BASKETBALL_SOURCE_NAME,
+  collectSwissBasketballCandidates,
+  verifySwissBasketballBinding,
+} from "@/lib/sports-watch/swiss-basketball-collector";
+import {
   PostgresSportsWatchRepository,
   type SportsWatchRepository,
 } from "@/lib/sports-watch/repository";
@@ -61,6 +67,9 @@ import type {
   SportsWatchCollectionObservation,
   SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
+  SwissBasketballBinding,
+  SwissBasketballBindingVerification,
+  SwissBasketballOfficialIdentity,
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
@@ -149,6 +158,11 @@ const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
     url: BEBASKET_BASE_URL,
     noRecentMessage: "Aucun match BeBasket daté des 30 derniers jours n’a été découvert depuis ce calendrier.",
   },
+  "swiss-basketball": {
+    name: SWISS_BASKETBALL_SOURCE_NAME,
+    url: SWISS_BASKETBALL_BASE_URL,
+    noRecentMessage: "Aucun match Swiss Basketball terminé dans les 30 derniers jours pour les rattachements actifs.",
+  },
 };
 
 export type SportsWatchAdminIdentity = {
@@ -183,6 +197,7 @@ const requireSourceKey = (value: unknown): SportsWatchCollectionSourceKey => {
     && sourceKey !== "kenpokan"
     && sourceKey !== "safv"
     && sourceKey !== "bebasket"
+    && sourceKey !== "swiss-basketball"
   ) {
     throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
   }
@@ -232,6 +247,7 @@ type SportsWatchCollector = (
     iwwfProfile?: IwwfProfileConfig;
     safvTeam?: SafvTeamConfig;
     beBasketIdentity?: BeBasketOfficialIdentity;
+    swissBasketballIdentity?: SwissBasketballOfficialIdentity;
   },
 ) => Promise<{
   candidates: CollectedSportsWatchCandidate[];
@@ -248,6 +264,7 @@ type SportsWatchServiceDependencies = {
   verifyIwwfProfile: typeof verifyIwwfProfile;
   verifySafvTeam: typeof verifySafvTeam;
   verifyBeBasketBinding: typeof verifyBeBasketBinding;
+  verifySwissBasketballBinding: typeof verifySwissBasketballBinding;
   now: () => Date;
 };
 
@@ -283,11 +300,18 @@ const defaultDependencies: SportsWatchServiceDependencies = {
         dependencies: options.dependencies,
         identity: options.beBasketIdentity,
       }),
+    "swiss-basketball": (athlete, options) =>
+      collectSwissBasketballCandidates(athlete, {
+        lookbackDays: options.lookbackDays,
+        dependencies: options.dependencies,
+        identity: options.swissBasketballIdentity,
+      }),
   },
   verifySwissProfile: verifySwissBadmintonProfile,
   verifyIwwfProfile,
   verifySafvTeam,
   verifyBeBasketBinding,
+  verifySwissBasketballBinding,
   now: () => new Date(),
 };
 
@@ -298,7 +322,7 @@ const runMessage = (
   candidateCount: number,
   observations: SportsWatchCollectionObservation[] = [],
 ): string => {
-  if (recentCount === 0) {
+  if (recentCount === 0 && sourceKey !== "swiss-basketball") {
     return sourceDefinitions[sourceKey].noRecentMessage;
   }
   if (sourceKey === "bebasket" && observations.length > 0) {
@@ -317,6 +341,29 @@ const runMessage = (
       ...ambiguousWarnings,
       createdCount === 0
         ? "Aucun nouveau candidat : les participations étaient absentes ou déjà collectées sans modification."
+        : `${createdCount} nouveau${createdCount === 1 ? "" : "x"} candidat${createdCount === 1 ? "" : "s"} soumis à la revue Admin.`,
+    ].join(" ");
+  }
+  if (sourceKey === "swiss-basketball") {
+    const partialFailures = observations
+      .filter((observation) => observation.status === "binding_error")
+      .map((observation) => observation.warning ?? observation.matchUrl);
+    const participationCount = observations.filter((observation) =>
+      observation.status === "participation_explicit").length;
+    const listedCount = observations.filter((observation) =>
+      observation.status === "player_listed_without_participation").length;
+    const absentCount = observations.filter((observation) =>
+      observation.status === "player_absent").length;
+    return [
+      `${recentCount} match${recentCount === 1 ? "" : "es"} terminé${recentCount === 1 ? "" : "s"} examiné${recentCount === 1 ? "" : "s"}.`,
+      `Participation établie : ${participationCount}.`,
+      `Présence sans participation établie : ${listedCount}.`,
+      `Joueuse absente de la feuille : ${absentCount}.`,
+      partialFailures.length > 0
+        ? `Couverture partielle : ${partialFailures.length} rattachement${partialFailures.length === 1 ? "" : "s"} en échec. ${partialFailures.join(" ")}`
+        : "Tous les rattachements actifs ont été lus.",
+      createdCount === 0
+        ? "Aucun nouveau candidat."
         : `${createdCount} nouveau${createdCount === 1 ? "" : "x"} candidat${createdCount === 1 ? "" : "s"} soumis à la revue Admin.`,
     ].join(" ");
   }
@@ -448,6 +495,38 @@ export const createSportsWatchService = (
       );
     }
   };
+  const verifyConfiguredSwissBasketballBinding = async (
+    athleteId: unknown,
+    seasonId: unknown,
+    leagueId: unknown,
+    teamId: unknown,
+    _identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBasketballBindingVerification> => {
+    const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
+    const season = normalize(seasonId);
+    const league = normalize(leagueId);
+    const team = normalize(teamId);
+    if (!season || !league || !team) {
+      throw new SportsWatchError(
+        "validation",
+        "Saisissez les identifiants officiels de saison, ligue et équipe.",
+      );
+    }
+    try {
+      return await dependencies.verifySwissBasketballBinding(athlete, {
+        seasonId: season,
+        leagueId: league,
+        teamId: team,
+        dependencies: { now: dependencies.now },
+      });
+    } catch (error) {
+      if (error instanceof SportsWatchError) throw error;
+      throw new SportsWatchError(
+        "source",
+        error instanceof Error ? error.message : "La vérification Swiss Basketball a échoué.",
+      );
+    }
+  };
   return {
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
@@ -469,10 +548,17 @@ export const createSportsWatchService = (
     return dependencies.repository.listBeBasketBindings(identity.workspaceId);
   },
 
+  async listSwissBasketballBindings(
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBasketballBinding[]> {
+    return dependencies.repository.listSwissBasketballBindings(identity.workspaceId);
+  },
+
   verifySwissBinding,
   verifyIwwfBinding,
   verifySafvBinding,
   verifyBeBasketBinding: verifyConfiguredBeBasketBinding,
+  verifySwissBasketballBinding: verifyConfiguredSwissBasketballBinding,
 
   async confirmSwissBinding(
     athleteId: unknown,
@@ -736,6 +822,66 @@ export const createSportsWatchService = (
     return binding;
   },
 
+  async confirmSwissBasketballBinding(
+    athleteId: unknown,
+    seasonId: unknown,
+    leagueId: unknown,
+    teamId: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBasketballBinding> {
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const verification = await verifyConfiguredSwissBasketballBinding(
+      athleteId,
+      seasonId,
+      leagueId,
+      teamId,
+      identity,
+    );
+    const binding = await dependencies.repository.saveSwissBasketballBinding({
+      workspaceId: identity.workspaceId,
+      verification,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+      confirmedAt: dependencies.now().toISOString(),
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié. Rechargez sa configuration avant de confirmer.",
+      );
+    }
+    return binding;
+  },
+
+  async disableSwissBasketballBinding(
+    bindingIdValue: unknown,
+    expectedVersionValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SwissBasketballBinding> {
+    const bindingId = requireUuid(bindingIdValue);
+    const expectedVersion = Number(expectedVersionValue);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new SportsWatchError("validation", "La version du rattachement est invalide.");
+    }
+    const binding = await dependencies.repository.disableSwissBasketballBinding({
+      workspaceId: identity.workspaceId,
+      bindingId,
+      expectedVersion,
+      clerkUserId: identity.clerkUserId,
+    });
+    if (!binding) {
+      throw new SportsWatchError(
+        "conflict",
+        "Le rattachement a été modifié, désactivé ou n’est pas accessible dans cet espace.",
+      );
+    }
+    return binding;
+  },
+
   async run(
     sourceKeyValue: unknown,
     athleteId: unknown,
@@ -756,6 +902,12 @@ export const createSportsWatchService = (
     const beBasketBinding = sourceKey === "bebasket"
       ? await dependencies.repository.getActiveBeBasketBinding(identity.workspaceId, athlete.id)
       : null;
+    const swissBasketballBindings = sourceKey === "swiss-basketball"
+      ? await dependencies.repository.getActiveSwissBasketballBindings(
+        identity.workspaceId,
+        athlete.id,
+      )
+      : [];
     if (sourceKey === "swiss-badminton" && !swissBinding) {
       throw new SportsWatchError(
         "validation",
@@ -780,6 +932,18 @@ export const createSportsWatchService = (
         "Configurez et confirmez l’équipe et la joueuse BeBasket avant de lancer la veille.",
       );
     }
+    if (sourceKey === "swiss-basketball" && swissBasketballBindings.length === 0) {
+      throw new SportsWatchError(
+        "validation",
+        "Configurez et confirmez au moins une équipe Swiss Basketball avant de lancer la veille.",
+      );
+    }
+    if (swissBasketballBindings.length > 8) {
+      throw new SportsWatchError(
+        "validation",
+        "La collecte Swiss Basketball est limitée à 8 rattachements actifs par athlète.",
+      );
+    }
     const now = dependencies.now().toISOString();
     const runId = await dependencies.repository.startRun({
       workspaceId: identity.workspaceId,
@@ -794,14 +958,60 @@ export const createSportsWatchService = (
     }
 
     try {
-      const collection = await dependencies.collectors[sourceKey](athlete, {
-        lookbackDays: 30,
-        dependencies: { now: dependencies.now },
-        swissProfile: swissBinding?.officialIdentity,
-        iwwfProfile: iwwfBinding?.officialIdentity,
-        safvTeam: safvBinding?.officialTeam,
-        beBasketIdentity: beBasketBinding?.officialIdentity,
-      });
+      const collection = sourceKey === "swiss-basketball"
+        ? await (async () => {
+            const candidates: CollectedSportsWatchCandidate[] = [];
+            const observations: SportsWatchCollectionObservation[] = [];
+            let scannedCount = 0;
+            let recentCount = 0;
+            let successfulBindings = 0;
+            for (const binding of swissBasketballBindings) {
+              try {
+                const result = await dependencies.collectors["swiss-basketball"](athlete, {
+                  lookbackDays: 30,
+                  dependencies: { now: dependencies.now },
+                  swissBasketballIdentity: binding.officialIdentity,
+                });
+                successfulBindings += 1;
+                scannedCount += result.scannedCount;
+                recentCount += result.recentCount;
+                candidates.push(...result.candidates);
+                observations.push(...(result.observations ?? []));
+              } catch (error) {
+                observations.push({
+                  matchUrl: binding.officialIdentity.scheduleUrl,
+                  title: `${binding.officialIdentity.teamName} · ${binding.officialIdentity.leagueName}`,
+                  eventDate: dependencies.now().toISOString().slice(0, 10),
+                  status: "binding_error",
+                  warning: `${binding.officialIdentity.teamName} · ${binding.officialIdentity.leagueName} : ${error instanceof Error ? error.message : "collecte indisponible"}.`,
+                });
+              }
+            }
+            if (successfulBindings === 0) {
+              throw new SportsWatchError(
+                "source",
+                observations.map((observation) => observation.warning).filter(Boolean).join(" "),
+              );
+            }
+            const uniqueCandidates = [...new Map(candidates.map((candidate) => [
+              `${candidate.logicalKey}|${candidate.contentHash}`,
+              candidate,
+            ])).values()];
+            return {
+              candidates: uniqueCandidates,
+              observations,
+              scannedCount,
+              recentCount,
+            };
+          })()
+        : await dependencies.collectors[sourceKey](athlete, {
+            lookbackDays: 30,
+            dependencies: { now: dependencies.now },
+            swissProfile: swissBinding?.officialIdentity,
+            iwwfProfile: iwwfBinding?.officialIdentity,
+            safvTeam: safvBinding?.officialTeam,
+            beBasketIdentity: beBasketBinding?.officialIdentity,
+          });
       const createdCount = await dependencies.repository.saveCandidates(
         identity.workspaceId,
         collection.candidates,
@@ -827,6 +1037,7 @@ export const createSportsWatchService = (
           ?? iwwfBinding?.officialIdentity.profileUrl
           ?? safvBinding?.officialTeam.scheduleUrl
           ?? beBasketBinding?.officialIdentity.calendarUrl
+          ?? swissBasketballBindings[0]?.officialIdentity.scheduleUrl
           ?? source.url,
         message,
         scannedCount: collection.scannedCount,
