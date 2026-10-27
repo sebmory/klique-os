@@ -500,16 +500,20 @@ export const createSportsWatchService = (
     seasonId: unknown,
     leagueId: unknown,
     teamId: unknown,
+    officialPlayerId: unknown,
+    officialPlayerName: unknown,
     _identity: SportsWatchAdminIdentity,
   ): Promise<SwissBasketballBindingVerification> => {
     const athlete = resolveSelectedAthlete(athleteId, await dependencies.getAthletes());
     const season = normalize(seasonId);
     const league = normalize(leagueId);
     const team = normalize(teamId);
-    if (!season || !league || !team) {
+    const playerId = normalize(officialPlayerId);
+    const playerName = normalize(officialPlayerName);
+    if (!season || !league || !team || !playerId || !playerName) {
       throw new SportsWatchError(
         "validation",
-        "Saisissez les identifiants officiels de saison, ligue et équipe.",
+        "Saisissez les identifiants officiels de saison, ligue, équipe et joueur, ainsi que le nom officiel.",
       );
     }
     try {
@@ -517,6 +521,8 @@ export const createSportsWatchService = (
         seasonId: season,
         leagueId: league,
         teamId: team,
+        officialPlayerId: playerId,
+        officialPlayerName: playerName,
         dependencies: { now: dependencies.now },
       });
     } catch (error) {
@@ -827,9 +833,18 @@ export const createSportsWatchService = (
     seasonId: unknown,
     leagueId: unknown,
     teamId: unknown,
+    officialPlayerId: unknown,
+    officialPlayerName: unknown,
+    identityMatchConfirmed: unknown,
     expectedVersionValue: unknown,
     identity: SportsWatchAdminIdentity,
   ): Promise<SwissBasketballBinding> {
+    if (identityMatchConfirmed !== true) {
+      throw new SportsWatchError(
+        "validation",
+        "Confirmez explicitement que l’identité CRM et l’identité officielle désignent la même personne.",
+      );
+    }
     const expectedVersion = Number(expectedVersionValue);
     if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
       throw new SportsWatchError("validation", "La version du rattachement est invalide.");
@@ -839,11 +854,20 @@ export const createSportsWatchService = (
       seasonId,
       leagueId,
       teamId,
+      officialPlayerId,
+      officialPlayerName,
       identity,
     );
+    const confirmedVerification: SwissBasketballBindingVerification = {
+      ...verification,
+      evidence: [
+        ...verification.evidence,
+        `Correspondance explicitement confirmée par l’Admin : identité CRM ${verification.athlete.name} ↔ identité officielle ${verification.officialIdentity.playerName}, joueur ${verification.officialIdentity.playerId}.`,
+      ],
+    };
     const binding = await dependencies.repository.saveSwissBasketballBinding({
       workspaceId: identity.workspaceId,
-      verification,
+      verification: confirmedVerification,
       expectedVersion,
       clerkUserId: identity.clerkUserId,
       confirmedAt: dependencies.now().toISOString(),

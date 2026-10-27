@@ -24,6 +24,9 @@ export async function PUT(request: Request) {
       seasonId?: unknown;
       leagueId?: unknown;
       teamId?: unknown;
+      officialPlayerId?: unknown;
+      officialPlayerName?: unknown;
+      identityMatchConfirmed?: unknown;
       expectedVersion?: unknown;
     };
     const binding = await SportsWatchService.confirmSwissBasketballBinding(
@@ -31,6 +34,9 @@ export async function PUT(request: Request) {
       body.seasonId,
       body.leagueId,
       body.teamId,
+      body.officialPlayerId,
+      body.officialPlayerName,
+      body.identityMatchConfirmed,
       body.expectedVersion,
       identity,
     );

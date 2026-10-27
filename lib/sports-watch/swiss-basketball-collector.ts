@@ -279,14 +279,50 @@ const seasonName = (holdings: LeagueHolding[]): string => {
   return `${years.sort()[0]}-${years.sort().at(-1)}`;
 };
 
-const findUniquePlayerByName = (players: GamePlayer[], athleteName: string): GamePlayer | null => {
-  const requested = normalize(athleteName);
+const officialNameMatchesPlayer = (player: GamePlayer, officialPlayerName: string): boolean => {
+  const requested = normalize(officialPlayerName);
+  return [
+    player.playerName,
+    `${player.firstName} ${player.lastName}`,
+    `${player.lastName} ${player.firstName}`,
+  ].some((candidate) => normalize(candidate) === requested);
+};
+
+const findUniquePlayerByName = (
+  players: GamePlayer[],
+  officialPlayerName: string,
+): GamePlayer | null => {
   const matches = players.filter((player) =>
-    normalize(`${player.firstName} ${player.lastName}`) === requested
-    || normalize(player.playerName) === requested);
+    officialNameMatchesPlayer(player, officialPlayerName));
   const ids = new Set(matches.map((player) => player.playerId));
-  if (ids.size > 1) throw sourceError("plusieurs identifiants joueur correspondent au nom CRM.");
+  if (ids.size > 1) throw sourceError("plusieurs identifiants joueur correspondent au nom officiel.");
   return matches[0] ?? null;
+};
+
+const findPlayerByOfficialIdentity = (
+  players: GamePlayer[],
+  officialPlayerId: string,
+  officialPlayerName: string,
+): {
+  player: GamePlayer | null;
+  idFoundWithDifferentName: boolean;
+  nameFoundWithDifferentId: boolean;
+} => {
+  const exactMatches = players.filter((player) =>
+    player.playerId === officialPlayerId
+    && officialNameMatchesPlayer(player, officialPlayerName));
+  if (exactMatches.length > 1) {
+    throw sourceError("plusieurs lignes correspondent au même identifiant et au même nom officiels.");
+  }
+  return {
+    player: exactMatches[0] ?? null,
+    idFoundWithDifferentName: players.some((player) =>
+      player.playerId === officialPlayerId
+      && !officialNameMatchesPlayer(player, officialPlayerName)),
+    nameFoundWithDifferentId: players.some((player) =>
+      player.playerId !== officialPlayerId
+      && officialNameMatchesPlayer(player, officialPlayerName)),
+  };
 };
 
 const targetSide = (
@@ -399,6 +435,8 @@ export const verifySwissBasketballBinding = async (
     seasonId: string;
     leagueId: string;
     teamId: string;
+    officialPlayerId: string;
+    officialPlayerName: string;
     dependencies?: Partial<CollectorDependencies>;
   },
 ): Promise<SwissBasketballBindingVerification> => {
@@ -410,6 +448,12 @@ export const verifySwissBasketballBinding = async (
   const seasonId = requireNumericId(options.seasonId, "identifiant de saison");
   const leagueId = requireNumericId(options.leagueId, "identifiant de ligue");
   const teamId = requireNumericId(options.teamId, "identifiant d’équipe");
+  const officialPlayerId = requireNumericId(
+    options.officialPlayerId,
+    "identifiant joueur officiel",
+  );
+  const officialPlayerName = options.officialPlayerName.trim();
+  if (!officialPlayerName) throw sourceError("nom officiel du joueur manquant.");
   const { holdings, matches } = await readHoldingsAndSchedules(seasonId, leagueId, dependencies);
   const teamMatches = matches.filter((match) => targetSide(match, teamId) !== null);
   if (teamMatches.length === 0) throw sourceError("l’équipe n’apparaît dans aucun match de cette compétition.");
@@ -426,22 +470,33 @@ export const verifySwissBasketballBinding = async (
     .slice(0, MAX_VERIFICATION_MATCHES);
   let verifiedPlayer: GamePlayer | null = null;
   let verificationGameId: string | null = null;
+  let idFoundWithDifferentName = false;
+  let nameFoundWithDifferentId = false;
   for (const match of finished) {
     const overview = parseOverview(await fetchXml(gameOverviewUrl(match.id), dependencies));
     if (overview.gameId !== match.id) throw sourceError("la feuille relue ne correspond pas au match demandé.");
     const side = targetSide(overview, teamId);
     if (!side) throw sourceError(`l’équipe ${teamId} est ambiguë dans la feuille ${match.id}.`);
-    const player = findUniquePlayerByName(
+    const identityMatch = findPlayerByOfficialIdentity(
       side === "home" ? overview.homePlayers : overview.awayPlayers,
-      athlete.name,
+      officialPlayerId,
+      officialPlayerName,
     );
-    if (!player) continue;
-    verifiedPlayer = player;
+    idFoundWithDifferentName ||= identityMatch.idFoundWithDifferentName;
+    nameFoundWithDifferentId ||= identityMatch.nameFoundWithDifferentId;
+    if (!identityMatch.player) continue;
+    verifiedPlayer = identityMatch.player;
     verificationGameId = match.id;
     break;
   }
   if (!verifiedPlayer || !verificationGameId) {
-    throw sourceError("le nom complet CRM n’apparaît sans ambiguïté dans aucune composition récente de cette équipe.");
+    if (idFoundWithDifferentName) {
+      throw sourceError("l’identifiant joueur officiel apparaît avec un autre nom dans les compositions récentes.");
+    }
+    if (nameFoundWithDifferentId) {
+      throw sourceError("le nom officiel apparaît avec un autre identifiant joueur dans les compositions récentes.");
+    }
+    throw sourceError("le nom et l’identifiant officiels ne figurent ensemble dans aucune composition récente de cette équipe.");
   }
   const team = teamSnapshots[0];
   const leagueNames = new Set(holdings.map((holding) => holding.leagueName));
@@ -460,12 +515,12 @@ export const verifySwissBasketballBinding = async (
       teamName: team.name,
       clubId: team.clubId,
       playerId: verifiedPlayer.playerId,
-      playerName: athlete.name,
+      playerName: verifiedPlayer.playerName,
     },
     evidence: [
       `${holdings.length} phase${holdings.length === 1 ? "" : "s"} publique${holdings.length === 1 ? "" : "s"} découverte${holdings.length === 1 ? "" : "s"} pour ${holdings[0].leagueName}.`,
       `Équipe officielle ${team.name} : identifiant ${teamId}, club ${team.clubId}.`,
-      `Le nom CRM ${athlete.name} correspond au joueur ${verifiedPlayer.playerId} dans la feuille officielle ${verificationGameId}.`,
+      `L’identité officielle ${verifiedPlayer.playerName} et l’identifiant joueur ${verifiedPlayer.playerId} figurent ensemble dans la feuille officielle ${verificationGameId}.`,
       "La confirmation Admin n’attribue aucune participation au-delà des données explicitement publiées.",
     ],
     verifiedAt: dependencies.now().toISOString(),

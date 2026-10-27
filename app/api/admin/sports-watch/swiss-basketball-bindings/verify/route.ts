@@ -24,12 +24,16 @@ export async function POST(request: Request) {
       seasonId?: unknown;
       leagueId?: unknown;
       teamId?: unknown;
+      officialPlayerId?: unknown;
+      officialPlayerName?: unknown;
     };
     const verification = await SportsWatchService.verifySwissBasketballBinding(
       body.athleteId,
       body.seasonId,
       body.leagueId,
       body.teamId,
+      body.officialPlayerId,
+      body.officialPlayerName,
       identity,
     );
     return NextResponse.json(

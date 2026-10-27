@@ -150,6 +150,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [swissBasketballSeasonId, setSwissBasketballSeasonId] = useState("");
   const [swissBasketballLeagueId, setSwissBasketballLeagueId] = useState("");
   const [swissBasketballTeamId, setSwissBasketballTeamId] = useState("");
+  const [swissBasketballOfficialPlayerId, setSwissBasketballOfficialPlayerId] = useState("");
+  const [swissBasketballOfficialPlayerName, setSwissBasketballOfficialPlayerName] = useState("");
+  const [swissBasketballIdentityMatchConfirmed, setSwissBasketballIdentityMatchConfirmed] =
+    useState(false);
   const [swissBasketballVerification, setSwissBasketballVerification] =
     useState<SwissBasketballBindingVerification | null>(null);
   const [swissBasketballConfigBusy, setSwissBasketballConfigBusy] = useState(false);
@@ -305,6 +309,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     setSwissBasketballSeasonId("");
     setSwissBasketballLeagueId("");
     setSwissBasketballTeamId("");
+    setSwissBasketballOfficialPlayerId("");
+    setSwissBasketballOfficialPlayerName("");
+    setSwissBasketballIdentityMatchConfirmed(false);
     setSwissBasketballVerification(null);
   };
 
@@ -664,7 +671,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   };
 
   const verifySwissBasketballIdentity = async () => {
-    if (!selectedAthleteId || swissBasketballConfigBusy) return;
+    if (
+      !selectedAthleteId
+      || !swissBasketballOfficialPlayerId.trim()
+      || !swissBasketballOfficialPlayerName.trim()
+      || swissBasketballConfigBusy
+    ) return;
     setSwissBasketballConfigBusy(true);
     setSwissBasketballVerification(null);
     setError(null);
@@ -679,6 +691,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             seasonId: swissBasketballSeasonId,
             leagueId: swissBasketballLeagueId,
             teamId: swissBasketballTeamId,
+            officialPlayerId: swissBasketballOfficialPlayerId,
+            officialPlayerName: swissBasketballOfficialPlayerName,
           }),
         },
       );
@@ -693,6 +707,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       setSwissBasketballSeasonId(payload.verification.officialIdentity.seasonId);
       setSwissBasketballLeagueId(payload.verification.officialIdentity.leagueId);
       setSwissBasketballTeamId(payload.verification.officialIdentity.teamId);
+      setSwissBasketballOfficialPlayerId(payload.verification.officialIdentity.playerId);
+      setSwissBasketballOfficialPlayerName(payload.verification.officialIdentity.playerName);
+      setSwissBasketballIdentityMatchConfirmed(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Vérification impossible.");
     } finally {
@@ -701,7 +718,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   };
 
   const confirmSwissBasketballBinding = async () => {
-    if (!selectedAthleteId || !swissBasketballVerification || swissBasketballConfigBusy) return;
+    if (
+      !selectedAthleteId
+      || !swissBasketballVerification
+      || !swissBasketballIdentityMatchConfirmed
+      || swissBasketballConfigBusy
+    ) return;
     setSwissBasketballConfigBusy(true);
     setError(null);
     try {
@@ -713,6 +735,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           seasonId: swissBasketballSeasonId,
           leagueId: swissBasketballLeagueId,
           teamId: swissBasketballTeamId,
+          officialPlayerId: swissBasketballOfficialPlayerId,
+          officialPlayerName: swissBasketballOfficialPlayerName,
+          identityMatchConfirmed: swissBasketballIdentityMatchConfirmed,
           expectedVersion: configuredSwissBasketballBinding?.version ?? 0,
         }),
       });
@@ -725,6 +750,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       }
       updateSwissBasketballBinding(payload.binding);
       setSwissBasketballVerification(null);
+      setSwissBasketballIdentityMatchConfirmed(false);
       setMessage("Rattachement Swiss Basketball officiel confirmé.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Confirmation impossible.");
@@ -1359,6 +1385,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                         <strong>{binding.officialIdentity.teamName}</strong>
                         {" · "}{binding.officialIdentity.leagueName}
                         {" · "}{binding.officialIdentity.seasonName}
+                        {" · "}{binding.officialIdentity.playerName}
                         {" · joueur "}{binding.officialIdentity.playerId}
                         {!binding.active ? " · désactivé" : ""}
                       </span>
@@ -1395,6 +1422,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                     onChange={(event) => {
                       setSwissBasketballSeasonId(event.target.value);
                       setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
                     }}
                   />
                 </label>
@@ -1408,6 +1436,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                     onChange={(event) => {
                       setSwissBasketballLeagueId(event.target.value);
                       setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
                     }}
                   />
                 </label>
@@ -1421,6 +1450,34 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                     onChange={(event) => {
                       setSwissBasketballTeamId(event.target.value);
                       setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
+                    }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                  Identifiant joueur officiel
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={swissBasketballOfficialPlayerId}
+                    disabled={swissBasketballConfigBusy}
+                    onChange={(event) => {
+                      setSwissBasketballOfficialPlayerId(event.target.value);
+                      setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
+                    }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "0.25rem", fontSize: "0.78rem" }}>
+                  Nom officiel complet
+                  <input
+                    type="text"
+                    value={swissBasketballOfficialPlayerName}
+                    disabled={swissBasketballConfigBusy}
+                    onChange={(event) => {
+                      setSwissBasketballOfficialPlayerName(event.target.value);
+                      setSwissBasketballVerification(null);
+                      setSwissBasketballIdentityMatchConfirmed(false);
                     }}
                   />
                 </label>
@@ -1433,6 +1490,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                   || !swissBasketballSeasonId.trim()
                   || !swissBasketballLeagueId.trim()
                   || !swissBasketballTeamId.trim()
+                  || !swissBasketballOfficialPlayerId.trim()
+                  || !swissBasketballOfficialPlayerName.trim()
                 }
                 onClick={() => void verifySwissBasketballIdentity()}
               >
@@ -1448,23 +1507,61 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                   }}
                 >
                   <strong>Comparaison avant confirmation</strong>
-                  <p style={{ margin: "0.35rem 0" }}>
-                    Fiche CRM : {selectedAthlete?.name} · {selectedAthlete?.sport || "sport inconnu"}
-                    {" · "}{selectedAthlete?.club || "club inconnu"}
-                  </p>
-                  <p style={{ margin: "0.35rem 0" }}>
-                    Source officielle : {swissBasketballVerification.officialIdentity.teamName}
-                    {" · "}{swissBasketballVerification.officialIdentity.leagueName}
-                    {" · "}{swissBasketballVerification.officialIdentity.seasonName}
-                    {" · joueur "}{swissBasketballVerification.officialIdentity.playerId}
-                  </p>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "0.55rem",
+                      margin: "0.45rem 0",
+                    }}
+                  >
+                    <div>
+                      <strong>Identité CRM</strong>
+                      <p style={{ margin: "0.2rem 0" }}>
+                        {swissBasketballVerification.athlete.name}
+                        {" · "}{swissBasketballVerification.athlete.sport || "sport inconnu"}
+                        {" · "}{swissBasketballVerification.athlete.club || "club inconnu"}
+                      </p>
+                    </div>
+                    <div>
+                      <strong>Identité officielle</strong>
+                      <p style={{ margin: "0.2rem 0" }}>
+                        {swissBasketballVerification.officialIdentity.playerName}
+                        {" · joueur "}{swissBasketballVerification.officialIdentity.playerId}
+                        {" · "}{swissBasketballVerification.officialIdentity.teamName}
+                        {" · "}{swissBasketballVerification.officialIdentity.leagueName}
+                        {" · "}{swissBasketballVerification.officialIdentity.seasonName}
+                      </p>
+                    </div>
+                  </div>
                   <p style={{ margin: "0.35rem 0" }}>
                     La présence, la titularisation et chaque statistique resteront des faits séparés.
                   </p>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "0.45rem",
+                      margin: "0.55rem 0",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={swissBasketballIdentityMatchConfirmed}
+                      disabled={swissBasketballConfigBusy}
+                      onChange={(event) =>
+                        setSwissBasketballIdentityMatchConfirmed(event.target.checked)}
+                    />
+                    Je confirme explicitement que l’identité CRM et l’identité officielle
+                    désignent la même personne.
+                  </label>
                   <button
                     type="button"
                     className="card-link-button"
-                    disabled={swissBasketballConfigBusy}
+                    disabled={
+                      swissBasketballConfigBusy
+                      || !swissBasketballIdentityMatchConfirmed
+                    }
                     onClick={() => void confirmSwissBasketballBinding()}
                   >
                     Confirmer et ajouter ce rattachement

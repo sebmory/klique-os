@@ -42,6 +42,8 @@ describe("Swiss Basketball collector", () => {
       seasonId: "31",
       leagueId: "7",
       teamId: "1269",
+      officialPlayerId: "71375",
+      officialPlayerName: "Mila Benjak",
       dependencies: {
         fetch: fetchMock,
         now: () => new Date("2026-10-27T10:00:00.000Z"),
@@ -58,10 +60,102 @@ describe("Swiss Basketball collector", () => {
       teamName: "Elfic Fribourg Génération",
       clubId: "199",
       playerId: "71375",
-      playerName: "Mila Benjak",
+      playerName: "Benjak Mila",
     });
     expect(verification.evidence.join(" ")).toContain("feuille officielle 367576");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("accepts an exact official identity when the sheet reverses first and last name order", async () => {
+    const verification = await verifySwissBasketballBinding(athlete, {
+      seasonId: "31",
+      leagueId: "7",
+      teamId: "1269",
+      officialPlayerId: "71375",
+      officialPlayerName: "Benjak Mila",
+      dependencies: {
+        fetch: fetchFrom(responses()),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(verification.officialIdentity).toMatchObject({
+      playerId: "71375",
+      playerName: "Benjak Mila",
+    });
+  });
+
+  it("verifies a distinct official name and ID without approximating the CRM name", async () => {
+    const officialGame = fixture("swiss-basketball-game-367576.xml")
+      .replace('playerFirstName="Mila"', 'playerFirstName="Liban"')
+      .replace('playerId="71375"', 'playerId="76411"')
+      .replace('playerLastName="Benjak"', 'playerLastName="Cadbullahi Maxamed"')
+      .replace('playerName="Benjak Mila"', 'playerName="Cadbullahi Maxamed Liban"');
+    const verification = await verifySwissBasketballBinding({
+      ...athlete,
+      id: "liban-maxamed",
+      name: "Liban Maxamed",
+      club: "Sion Basket",
+    }, {
+      seasonId: "31",
+      leagueId: "7",
+      teamId: "1269",
+      officialPlayerId: "76411",
+      officialPlayerName: "Cadbullahi Maxamed Liban",
+      dependencies: {
+        fetch: fetchFrom(responses(officialGame)),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(verification.athlete.name).toBe("Liban Maxamed");
+    expect(verification.officialIdentity).toMatchObject({
+      playerId: "76411",
+      playerName: "Cadbullahi Maxamed Liban",
+    });
+    expect(verification.evidence.join(" ")).toContain(
+      "Cadbullahi Maxamed Liban et l’identifiant joueur 76411 figurent ensemble",
+    );
+  });
+
+  it("rejects a correct official name paired with the wrong player ID", async () => {
+    const wrongIdResponses = responses();
+    wrongIdResponses.set(
+      scheduleUrl,
+      fixture("swiss-basketball-schedule.xml")
+        .replace('name="BC Winterthur" result="70"', 'name="BC Winterthur"')
+        .replace('name="Elfic Fribourg Génération" result="61"', 'name="Elfic Fribourg Génération"'),
+    );
+    await expect(verifySwissBasketballBinding(athlete, {
+      seasonId: "31",
+      leagueId: "7",
+      teamId: "1269",
+      officialPlayerId: "99999",
+      officialPlayerName: "Mila Benjak",
+      dependencies: {
+        fetch: fetchFrom(wrongIdResponses),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    })).rejects.toThrow("nom officiel apparaît avec un autre identifiant joueur");
+  });
+
+  it("rejects duplicate official identity rows as ambiguous", async () => {
+    const game = fixture("swiss-basketball-game-367576.xml");
+    const playerRow = game.match(/<PersonGameRow\b[^>]*playerId="71375"[^>]*\/>/)?.[0];
+    expect(playerRow).toBeTruthy();
+    const ambiguousGame = game.replace(playerRow!, `${playerRow}${playerRow}`);
+
+    await expect(verifySwissBasketballBinding(athlete, {
+      seasonId: "31",
+      leagueId: "7",
+      teamId: "1269",
+      officialPlayerId: "71375",
+      officialPlayerName: "Mila Benjak",
+      dependencies: {
+        fetch: fetchFrom(responses(ambiguousGame)),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    })).rejects.toThrow("plusieurs lignes correspondent");
   });
 
   it("keeps score, roster presence, starter status and explicit points separate", async () => {
@@ -69,6 +163,8 @@ describe("Swiss Basketball collector", () => {
       seasonId: "31",
       leagueId: "7",
       teamId: "1269",
+      officialPlayerId: "71375",
+      officialPlayerName: "Mila Benjak",
       dependencies: {
         fetch: fetchFrom(responses()),
         now: () => new Date("2026-10-27T10:00:00.000Z"),

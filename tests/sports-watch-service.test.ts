@@ -615,6 +615,9 @@ describe("sports watch service", () => {
         "31",
         "7",
         teamId,
+        "71375",
+        "Mila Benjak",
+        true,
         0,
         identity("workspace-a"),
       );
@@ -647,6 +650,82 @@ describe("sports watch service", () => {
       "Swiss Basketball — source officielle",
     );
     expect(await service.listBeBasketBindings(identity("workspace-a"))).toEqual([]);
+  });
+
+  it("requires explicit Admin confirmation before saving an official identity match", async () => {
+    const verifyOfficialIdentity = vi.fn(async () =>
+      swissBasketballVerification("1269", "Elfic Fribourg Génération"));
+    const service = createSportsWatchService({
+      repository: createMemoryRepository(),
+      getAthletes: async () => [beBasketAthlete],
+      verifySwissBasketballBinding: verifyOfficialIdentity,
+    });
+
+    await expect(service.confirmSwissBasketballBinding(
+      beBasketAthlete.athleteId,
+      "31",
+      "7",
+      "1269",
+      "71375",
+      "Mila Benjak",
+      false,
+      0,
+      identity("workspace-a"),
+    )).rejects.toThrow("Confirmez explicitement");
+    expect(verifyOfficialIdentity).not.toHaveBeenCalled();
+    expect(await service.listSwissBasketballBindings(identity("workspace-a"))).toEqual([]);
+  });
+
+  it("persists a confirmed CRM-to-official identity difference as binding evidence", async () => {
+    const repository = createMemoryRepository();
+    const libanAthlete: Athlete = {
+      ...beBasketAthlete,
+      key: "liban-maxamed",
+      athleteId: "liban-maxamed",
+      name: "Liban Maxamed",
+      club: "Sion Basket",
+    };
+    const verification = {
+      ...swissBasketballVerification("1713", "Sion Basket"),
+      athlete: {
+        id: "liban-maxamed",
+        name: "Liban Maxamed",
+        sport: "Basketball",
+        club: "Sion Basket",
+      },
+      officialIdentity: {
+        ...swissBasketballVerification("1713", "Sion Basket").officialIdentity,
+        leagueId: "3",
+        leagueName: "NL1 Men",
+        playerId: "76411",
+        playerName: "Cadbullahi Maxamed Liban",
+      },
+    };
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [libanAthlete],
+      verifySwissBasketballBinding: vi.fn(async () => verification),
+    });
+
+    const binding = await service.confirmSwissBasketballBinding(
+      "liban-maxamed",
+      "31",
+      "3",
+      "1713",
+      "76411",
+      "Cadbullahi Maxamed Liban",
+      true,
+      0,
+      identity("workspace-a"),
+    );
+
+    expect(binding.officialIdentity).toMatchObject({
+      playerId: "76411",
+      playerName: "Cadbullahi Maxamed Liban",
+    });
+    expect(binding.evidence.join(" ")).toContain(
+      "identité CRM Liban Maxamed ↔ identité officielle Cadbullahi Maxamed Liban, joueur 76411",
+    );
   });
 
   it("keeps BeBasket third-party facts unverified through Admin review and Article transfer", async () => {
