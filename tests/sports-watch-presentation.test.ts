@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSportsWatchAthleteGroups,
+  buildSportsWatchCandidateViews,
   buildSportsWatchTournamentGroups,
   sportsWatchPresentationTestUtils,
 } from "@/lib/sports-watch/presentation";
@@ -145,6 +147,56 @@ describe("sports watch tournament presentation", () => {
     };
 
     expect(buildSportsWatchTournamentGroups([first, second])).toHaveLength(2);
+  });
+
+  it("groups by stable athlete ID and counts only latest pending and validated versions", () => {
+    const original = candidate(
+      "original",
+      "Résultat A",
+      "Détail A.",
+      1,
+      "2026-10-24",
+      { adminStatus: "exploited" },
+    );
+    const successor = candidate(
+      "successor",
+      "Résultat A",
+      "Détail A modifié.",
+      1,
+      "2026-10-25",
+      { supersedesCandidateId: original.id },
+    );
+    const validated = candidate(
+      "validated",
+      "Résultat B",
+      "Détail B.",
+      2,
+      "2026-10-23",
+      { adminStatus: "validated" },
+    );
+    const namesake = candidate(
+      "namesake",
+      "Résultat C",
+      "Détail C.",
+      3,
+      "2026-10-26",
+      { athleteId: "other-athlete", athleteName: "Antoine Majeux" },
+    );
+    const candidates = [original, successor, validated, namesake];
+    const views = buildSportsWatchCandidateViews(candidates);
+    const currentGroups = buildSportsWatchAthleteGroups(views.current, candidates);
+
+    expect(currentGroups).toHaveLength(2);
+    expect(currentGroups.map((group) => group.athleteId)).toEqual([
+      "other-athlete",
+      "antoine-majeux",
+    ]);
+    expect(currentGroups.find((group) => group.athleteId === "antoine-majeux")).toMatchObject({
+      pendingCount: 1,
+      exploitableCount: 1,
+    });
+    expect(views.history.map((item) => item.id)).toContain("original");
+    expect(views.current.map((item) => item.id)).not.toContain("original");
   });
 
   it("keeps every version actionable but excludes superseded versions from summaries", () => {

@@ -283,7 +283,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
       return records.find((record) =>
         record.workspaceId === workspaceId
         && record.candidate.id === candidateId
-        && record.candidate.adminStatus === "validated")?.candidate ?? null;
+        && ["validated", "exploited"].includes(record.candidate.adminStatus))?.candidate ?? null;
     },
     async listSwissBindings(workspaceId) {
       return bindings
@@ -1156,7 +1156,7 @@ describe("sports watch service", () => {
     }));
   });
 
-  it("deduplicates an identical result and creates a pending successor for a modified result", async () => {
+  it("keeps an exploited identical result archived and creates a pending successor for a modified result", async () => {
     const repository = createMemoryRepository();
     let current = collectedCandidate("hash-v1", "Antoine Majeux termine à la 2ème place.");
     const service = createSportsWatchService({
@@ -1171,22 +1171,89 @@ describe("sports watch service", () => {
     const first = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(first.createdCount).toBe(1);
     const firstCandidate = first.candidates[0];
-    await service.review(firstCandidate.id, "validated", firstCandidate.version, identity("workspace-a"));
+    const validated = await service.review(
+      firstCandidate.id,
+      "validated",
+      firstCandidate.version,
+      identity("workspace-a"),
+    );
+    await service.review(
+      validated.id,
+      "exploited",
+      validated.version,
+      identity("workspace-a"),
+    );
 
     const duplicate = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(duplicate.createdCount).toBe(0);
+    expect(duplicate.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: firstCandidate.id, adminStatus: "exploited" }),
+    ]));
 
     current = collectedCandidate("hash-v2", "Antoine Majeux termine à la 1ère place.");
     const modified = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
     expect(modified.createdCount).toBe(1);
     expect(modified.candidates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: firstCandidate.id, adminStatus: "validated" }),
+      expect.objectContaining({ id: firstCandidate.id, adminStatus: "exploited" }),
       expect.objectContaining({
         excerpt: "Antoine Majeux termine à la 1ère place.",
         adminStatus: "pending",
         supersedesCandidateId: firstCandidate.id,
       }),
     ]));
+  });
+
+  it("restores an exploited result without changing factual validation and refuses another workspace", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete],
+      collectors: {
+        "bc-bulle": async () => ({
+          candidates: [collectedCandidate("hash-v1", "Résultat fixture.")],
+          scannedCount: 1,
+          recentCount: 1,
+        }),
+      },
+      now: () => new Date("2026-10-26T10:00:00.000Z"),
+    });
+    const run = await service.run("bc-bulle", athlete.athleteId, identity("workspace-a"));
+    const validated = await service.review(
+      run.candidates[0].id,
+      "validated",
+      run.candidates[0].version,
+      identity("workspace-a"),
+    );
+    const exploited = await service.review(
+      validated.id,
+      "exploited",
+      validated.version,
+      identity("workspace-a"),
+    );
+
+    expect(exploited).toMatchObject({
+      adminStatus: "exploited",
+      verificationStatus: "unverified",
+    });
+    await expect(service.buildArticlePrefill(exploited.id, identity("workspace-a")))
+      .resolves.toMatchObject({ candidateId: exploited.id });
+    await expect(service.review(
+      exploited.id,
+      "validated",
+      exploited.version,
+      identity("workspace-b"),
+    )).rejects.toMatchObject({ code: "not_found" });
+
+    const restored = await service.review(
+      exploited.id,
+      "validated",
+      exploited.version,
+      identity("workspace-a"),
+    );
+    expect(restored).toMatchObject({
+      adminStatus: "validated",
+      verificationStatus: "unverified",
+    });
   });
 
   it("reconstructs a faithful Article material only for a validated candidate in the same workspace", async () => {

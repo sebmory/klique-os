@@ -155,8 +155,12 @@ describe("Today collapsible cards", () => {
     expect(container.textContent).not.toContain("Acceptée mais signalée");
   });
 
-  it("keeps validated sports results available to exploit and archives only rejected results", async () => {
-    const candidate = (id: string, title: string, adminStatus: "pending" | "validated" | "rejected") => ({
+  it("groups sports results by athlete and archives exploited and rejected results", async () => {
+    const candidate = (
+      id: string,
+      title: string,
+      adminStatus: "pending" | "validated" | "exploited" | "rejected",
+    ) => ({
       id,
       athleteId: "mila-benjak",
       athleteName: "Mila Benjak",
@@ -180,10 +184,12 @@ describe("Today collapsible cards", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
       json: async () => ({
+        workspaceId: "workspace-fixture",
         candidates: [
           candidate("11111111-1111-4111-8111-111111111111", "Résultat en attente", "pending"),
           candidate("22222222-2222-4222-8222-222222222222", "Résultat validé à exploiter", "validated"),
           candidate("33333333-3333-4333-8333-333333333333", "Résultat rejeté", "rejected"),
+          candidate("44444444-4444-4444-8444-444444444444", "Résultat exploité", "exploited"),
         ],
         swissBindings: [],
         iwwfBindings: [],
@@ -198,8 +204,27 @@ describe("Today collapsible cards", () => {
     expect(container.textContent).toContain("Résultat en attente");
     expect(container.textContent).toContain("Résultat validé à exploiter");
     expect(container.textContent).not.toContain("Résultat rejeté");
+    expect(container.textContent).not.toContain("Résultat exploité");
+    expect(container.textContent).toContain("À vérifier : 1");
+    expect(container.textContent).toContain("À exploiter : 1");
+    const athleteCard = Array.from(container.querySelectorAll("details"))
+      .find((item) => item.querySelector(":scope > summary")?.textContent?.includes("Mila Benjak"));
+    expect(athleteCard?.open).toBe(false);
+    await act(async () => {
+      if (athleteCard) {
+        athleteCard.open = true;
+        athleteCard.dispatchEvent(new Event("toggle", { bubbles: false }));
+      }
+      await flush();
+    });
+    expect(window.localStorage.getItem(
+      "klique.today.sports-watch.athletes.open.v1:workspace-fixture",
+    )).toBe("[\"mila-benjak\"]");
+
     await clickButton(container, "Historique");
     expect(container.textContent).toContain("Résultat rejeté");
+    expect(container.textContent).toContain("Résultat exploité");
+    expect(container.textContent).toContain("Remettre à exploiter");
     expect(container.textContent).not.toContain("Résultat validé à exploiter");
   });
 });

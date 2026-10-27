@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  buildSportsWatchTournamentGroups,
+  buildSportsWatchAthleteGroups,
+  buildSportsWatchCandidateViews,
   type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
 import {
@@ -41,6 +42,7 @@ type AthleteSummary = {
 };
 
 type SportsWatchDashboardPayload = {
+  workspaceId?: string;
   candidates?: SportsWatchCandidate[];
   swissBindings?: SwissBadmintonBinding[];
   iwwfBindings?: IwwfBinding[];
@@ -73,6 +75,7 @@ const formatDate = (value: string | null): string => {
 const adminStatusLabels = {
   pending: "En attente",
   validated: "Validé",
+  exploited: "Exploité",
   rejected: "Rejeté",
 } as const;
 
@@ -90,6 +93,33 @@ const disciplineLabels = {
 
 const pluralize = (count: number, singular: string, plural = `${singular}s`): string =>
   `${count} ${count === 1 ? singular : plural}`;
+
+const athleteCardsStorageKey = (workspaceId: string): string =>
+  `klique.today.sports-watch.athletes.open.v1:${workspaceId}`;
+
+const readOpenAthleteIds = (workspaceId: string): Set<string> => {
+  if (!workspaceId || typeof window === "undefined") return new Set();
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(athleteCardsStorageKey(workspaceId)) ?? "[]");
+    return new Set(Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const writeOpenAthleteIds = (workspaceId: string, athleteIds: Set<string>): void => {
+  if (!workspaceId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      athleteCardsStorageKey(workspaceId),
+      JSON.stringify(Array.from(athleteIds)),
+    );
+  } catch {
+    // La préférence locale ne doit pas bloquer la veille.
+  }
+};
 
 const disciplineSummary = (group: SportsWatchDisciplineGroup): string => {
   const parts = [
@@ -208,6 +238,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [refreshAllProgress, setRefreshAllProgress] = useState({ completed: 0, total: 0 });
   const [refreshAllSummaries, setRefreshAllSummaries] =
     useState<SportsWatchRefreshSummary[]>([]);
+  const [refreshAllDetailsOpen, setRefreshAllDetailsOpen] = useState(false);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [openAthleteIds, setOpenAthleteIds] = useState<Set<string>>(new Set());
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -253,13 +286,28 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             ? selectedSwissBasketballBindings.find((binding) => binding.active)
               ?.officialIdentity.scheduleUrl ?? selectedSource.url
     : selectedSource.url;
-  const currentCandidates = candidates.filter((candidate) => candidate.adminStatus !== "rejected");
-  const historicalCandidates = candidates.filter((candidate) => candidate.adminStatus === "rejected");
+  const candidateViews = useMemo(() => buildSportsWatchCandidateViews(candidates), [candidates]);
+  const currentCandidates = candidateViews.current;
+  const historicalCandidates = candidateViews.history;
   const visibleCandidates = view === "current" ? currentCandidates : historicalCandidates;
-  const tournamentGroups = useMemo(
-    () => buildSportsWatchTournamentGroups(visibleCandidates),
-    [visibleCandidates],
+  const athleteGroups = useMemo(
+    () => buildSportsWatchAthleteGroups(visibleCandidates, candidates),
+    [candidates, visibleCandidates],
   );
+  const crmAthleteNames = useMemo(() => new Map(
+    athletes.map((athlete) => [
+      athlete.athleteId?.trim() || athlete.key.trim(),
+      athlete.name,
+    ]),
+  ), [athletes]);
+  const refreshAllFailureCount = refreshAllSummaries.filter((summary) => summary.error).length;
+  const refreshAllCreatedCount = refreshAllSummaries.reduce(
+    (total, summary) => total + (summary.result?.createdCount ?? 0),
+    0,
+  );
+  const refreshAllComplete = !refreshAllBusy
+    && refreshAllProgress.total > 0
+    && refreshAllProgress.completed === refreshAllProgress.total;
   const refreshAllTasks = useMemo(
     () => buildSportsWatchRefreshTasks({
       athletes,
@@ -284,6 +332,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     void fetchSportsWatchDashboard()
       .then((payload) => {
         if (active) {
+          const resolvedWorkspaceId = payload.workspaceId ?? "";
+          setWorkspaceId(resolvedWorkspaceId);
+          setOpenAthleteIds(readOpenAthleteIds(resolvedWorkspaceId));
           setCandidates(payload.candidates ?? []);
           setSwissBindings(payload.swissBindings ?? []);
           setIwwfBindings(payload.iwwfBindings ?? []);
@@ -863,6 +914,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     setRefreshAllBusy(true);
     setRefreshAllProgress({ completed: 0, total: refreshAllTasks.length });
     setRefreshAllSummaries([]);
+    setRefreshAllDetailsOpen(false);
     setMessage(null);
     setError(null);
     try {
@@ -962,7 +1014,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     }
   };
 
-  const review = async (candidate: SportsWatchCandidate, status: "validated" | "rejected") => {
+  const review = async (
+    candidate: SportsWatchCandidate,
+    status: "validated" | "exploited" | "rejected",
+  ) => {
     if (busyCandidateId) return;
     setBusyCandidateId(candidate.id);
     setError(null);
@@ -996,31 +1051,68 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     router.push(`/contents/create?${query.toString()}`);
   };
 
-  const renderCandidateActions = (candidate: SportsWatchCandidate) => (
-    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.65rem" }}>
-      <button
-        type="button"
-        className="card-link-button"
-        disabled={
-          busyCandidateId === candidate.id
-          || candidate.attributionStatus === "ambiguous"
-        }
-        onClick={() => void review(candidate, "validated")}
-      >
-        Valider
-      </button>
-      <button
-        type="button"
-        className="card-link-button"
-        disabled={busyCandidateId === candidate.id}
-        onClick={() => void review(candidate, "rejected")}
-      >
-        Rejeter
-      </button>
-      {candidate.adminStatus === "validated" ? (
+  const setAthleteCardOpen = (athleteId: string, open: boolean) => {
+    setOpenAthleteIds((current) => {
+      const next = new Set(current);
+      if (open) next.add(athleteId);
+      else next.delete(athleteId);
+      writeOpenAthleteIds(workspaceId, next);
+      return next;
+    });
+  };
+
+  const renderCandidateActions = (candidate: SportsWatchCandidate) => {
+    const superseded = candidateViews.supersededIds.has(candidate.id);
+    return (
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.65rem" }}>
+        {candidate.adminStatus === "pending" && !superseded ? (
+          <>
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={
+                busyCandidateId === candidate.id
+                || candidate.attributionStatus === "ambiguous"
+              }
+              onClick={() => void review(candidate, "validated")}
+            >
+              Valider
+            </button>
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => void review(candidate, "rejected")}
+            >
+              Rejeter
+            </button>
+          </>
+        ) : null}
+        {candidate.adminStatus === "validated" && !superseded ? (
+          <button
+            type="button"
+            className="card-link-button"
+            disabled={busyCandidateId === candidate.id}
+            onClick={() => void review(candidate, "exploited")}
+          >
+            Marquer comme exploité
+          </button>
+        ) : null}
+        {candidate.adminStatus === "exploited" && !superseded ? (
+          <button
+            type="button"
+            className="card-link-button"
+            disabled={busyCandidateId === candidate.id}
+            onClick={() => void review(candidate, "validated")}
+          >
+            Remettre à exploiter
+          </button>
+        ) : null}
+        {candidate.adminStatus === "validated" || candidate.adminStatus === "exploited" ? (
         <button
           type="button"
           className="card-link-button"
+          disabled={busyCandidateId === candidate.id}
           onClick={() => prepareArticle(candidate)}
         >
           Préparer un article
@@ -1031,8 +1123,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           Validation bloquée : attribution à confirmer.
         </small>
       ) : null}
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderSourceDetails = (candidate: SportsWatchCandidate) => (
     <details style={{ marginTop: "0.55rem", minWidth: 0 }}>
@@ -1123,52 +1216,78 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             />
           </div>
         ) : null}
-        {refreshAllSummaries.length > 0 ? (
-          <div
-            aria-label="Bilan des veilles actualisées"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 15rem), 1fr))",
-              gap: "0.5rem",
-            }}
-          >
-            {refreshAllSummaries.map((summary) => {
-              const source = sourceOptions.find((option) => option.key === summary.task.sourceKey);
-              return (
-                <article
-                  key={`${summary.task.sourceKey}:${summary.task.athleteId}`}
-                  style={{
-                    minWidth: 0,
-                    padding: "0.55rem 0.65rem",
-                    border: "1px solid #bfdbfe",
-                    borderRadius: "8px",
-                    background: "#fff",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  <strong style={{ display: "block", fontSize: "0.78rem" }}>
-                    {summary.task.athleteName}
-                  </strong>
-                  <span style={{ display: "block", color: "#475569", fontSize: "0.72rem" }}>
-                    {source?.label ?? summary.task.sourceKey}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      marginTop: "0.25rem",
-                      color: summary.error ? "#b91c1c" : "#1e3a8a",
-                      fontSize: "0.74rem",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {refreshSummaryStatus(summary)}
-                  </span>
-                  <span style={{ display: "block", marginTop: "0.2rem", color: "#64748b", fontSize: "0.7rem" }}>
-                    {summary.error ?? summary.result?.message}
-                  </span>
-                </article>
-              );
-            })}
+        {refreshAllComplete ? (
+          <div style={{ display: "grid", gap: "0.5rem" }}>
+            <p role="status" style={{ margin: 0, color: "#1e3a8a", fontSize: "0.78rem" }}>
+              {pluralize(refreshAllCreatedCount, "nouveau résultat", "nouveaux résultats")}
+              {" · "}{refreshAllFailureCount === 0
+                ? "aucun échec"
+                : pluralize(refreshAllFailureCount, "échec")}
+            </p>
+            {refreshAllFailureCount > 0 ? (
+              <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.76rem", fontWeight: 700 }}>
+                Actualisation partielle : certaines veilles ont échoué. Le détail reste disponible ci-dessous.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="card-link-button"
+              aria-expanded={refreshAllDetailsOpen}
+              aria-controls="sports-watch-refresh-details"
+              onClick={() => setRefreshAllDetailsOpen((open) => !open)}
+            >
+              Voir le détail des {refreshAllSummaries.length} veille
+              {refreshAllSummaries.length === 1 ? "" : "s"}
+            </button>
+            {refreshAllDetailsOpen ? (
+              <div
+                id="sports-watch-refresh-details"
+                aria-label="Bilan des veilles actualisées"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 15rem), 1fr))",
+                  gap: "0.5rem",
+                }}
+              >
+                {refreshAllSummaries.map((summary) => {
+                  const source = sourceOptions.find((option) => option.key === summary.task.sourceKey);
+                  return (
+                    <article
+                      key={`${summary.task.sourceKey}:${summary.task.athleteId}`}
+                      style={{
+                        minWidth: 0,
+                        padding: "0.55rem 0.65rem",
+                        border: "1px solid #bfdbfe",
+                        borderRadius: "8px",
+                        background: "#fff",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      <strong style={{ display: "block", fontSize: "0.78rem" }}>
+                        {summary.task.athleteName}
+                      </strong>
+                      <span style={{ display: "block", color: "#475569", fontSize: "0.72rem" }}>
+                        {source?.label ?? summary.task.sourceKey}
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: "0.25rem",
+                          color: summary.error ? "#b91c1c" : "#1e3a8a",
+                          fontSize: "0.74rem",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {refreshSummaryStatus(summary)}
+                      </span>
+                      <span style={{ display: "block", marginTop: "0.2rem", color: "#64748b", fontSize: "0.7rem" }}>
+                        {summary.error ?? summary.result?.message}
+                      </span>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>
@@ -2029,9 +2148,45 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         Valider autorise l’usage éditorial. Cela ne marque pas automatiquement l’information comme vérifiée factuellement.
       </p>
 
-      {tournamentGroups.length > 0 ? (
-        <ul className="priority-list" style={{ marginTop: "0.75rem" }}>
-          {tournamentGroups.map((group) => (
+      {athleteGroups.length > 0 ? (
+        <div style={{ display: "grid", gap: "0.75rem", marginTop: "0.75rem" }}>
+          {athleteGroups.map((athleteGroup) => (
+            <details
+              key={athleteGroup.athleteId}
+              open={openAthleteIds.has(athleteGroup.athleteId)}
+              onToggle={(event) =>
+                setAthleteCardOpen(athleteGroup.athleteId, event.currentTarget.open)}
+              style={{
+                border: "1px solid #dbe3ee",
+                borderRadius: "10px",
+                background: "#fff",
+                overflow: "hidden",
+              }}
+            >
+              <summary
+                style={{
+                  cursor: "pointer",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: "0.65rem",
+                  flexWrap: "wrap",
+                  padding: "0.8rem",
+                  fontWeight: 750,
+                }}
+              >
+                <span>{crmAthleteNames.get(athleteGroup.athleteId) ?? athleteGroup.athleteName}</span>
+                <span style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                  <span className="priority-badge">
+                    À vérifier : {athleteGroup.pendingCount}
+                  </span>
+                  <span className="priority-badge">
+                    À exploiter : {athleteGroup.exploitableCount}
+                  </span>
+                </span>
+              </summary>
+              <ul className="priority-list" style={{ margin: "0", padding: "0 0.75rem 0.75rem" }}>
+                {athleteGroup.tournaments.map((group) => (
             <li
               key={group.key}
               className="priority-item"
@@ -2040,8 +2195,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               <div className="priority-main" style={{ width: "100%", minWidth: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
                   <div style={{ minWidth: 0 }}>
-                    <strong>{group.athleteName}</strong>
-                    <h3 style={{ margin: "0.15rem 0 0", fontSize: "1rem", overflowWrap: "anywhere" }}>
+                    <h3 style={{ margin: 0, fontSize: "1rem", overflowWrap: "anywhere" }}>
                       {group.competitionName}
                     </h3>
                   </div>
@@ -2136,7 +2290,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                       }}
                     >
                       <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 750 }}>
-                        Extraits non structurés · {pluralize(group.unstructuredCount, "candidat")}
+                        Détails du résultat
                       </summary>
                       <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.72rem" }}>
                         Ces extraits sont affichés tels quels et ne sont pas inclus dans le résumé des matches.
@@ -2168,12 +2322,15 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                 </div>
               </div>
             </li>
+                ))}
+              </ul>
+            </details>
           ))}
-        </ul>
+        </div>
       ) : (
         <p>{view === "current"
           ? "Aucun résultat à valider ou exploiter."
-          : "Aucun résultat rejeté dans l’historique."}</p>
+          : "Aucun résultat exploité, rejeté ou remplacé dans l’historique."}</p>
       )}
     </TodayCollapsibleCard>
   );

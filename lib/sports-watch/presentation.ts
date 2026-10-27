@@ -45,6 +45,22 @@ export type SportsWatchTournamentGroup = {
   }>;
 };
 
+export type SportsWatchAthleteGroup = {
+  athleteId: string;
+  athleteName: string;
+  pendingCount: number;
+  exploitableCount: number;
+  latestDate: string;
+  tournaments: SportsWatchTournamentGroup[];
+};
+
+export type SportsWatchCandidateViews = {
+  current: SportsWatchCandidate[];
+  history: SportsWatchCandidate[];
+  latest: SportsWatchCandidate[];
+  supersededIds: Set<string>;
+};
+
 const disciplineOrder: SportsWatchDiscipline[] = ["simple", "double", "mixte"];
 
 const strictMatchHeader = /^(.*?) — ([A-Z0-9]+) \((simple|double|mixte)\) — (.+?)\. (.+)$/;
@@ -173,9 +189,10 @@ const maxDate = (values: Array<string | null>): string | null => {
 
 export const buildSportsWatchTournamentGroups = (
   candidates: SportsWatchCandidate[],
+  allCandidates: SportsWatchCandidate[] = candidates,
 ): SportsWatchTournamentGroup[] => {
   const supersededIds = new Set(
-    candidates
+    allCandidates
       .map((candidate) => candidate.supersedesCandidateId)
       .filter((id): id is string => Boolean(id)),
   );
@@ -250,6 +267,69 @@ export const buildSportsWatchTournamentGroups = (
       (right.eventDateTo ?? "").localeCompare(left.eventDateTo ?? "")
       || left.athleteName.localeCompare(right.athleteName, "fr")
       || left.competitionName.localeCompare(right.competitionName, "fr"));
+};
+
+export const buildSportsWatchCandidateViews = (
+  candidates: SportsWatchCandidate[],
+): SportsWatchCandidateViews => {
+  const supersededIds = new Set(
+    candidates
+      .map((candidate) => candidate.supersedesCandidateId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const latest = candidates.filter((candidate) => !supersededIds.has(candidate.id));
+  return {
+    latest,
+    supersededIds,
+    current: latest.filter((candidate) =>
+      candidate.adminStatus === "pending" || candidate.adminStatus === "validated"),
+    history: candidates.filter((candidate) =>
+      supersededIds.has(candidate.id)
+      || candidate.adminStatus === "exploited"
+      || candidate.adminStatus === "rejected"),
+  };
+};
+
+const candidateSortDate = (candidate: SportsWatchCandidate): string =>
+  candidate.eventDateFrom ?? candidate.publicationDate ?? candidate.collectedAt;
+
+export const buildSportsWatchAthleteGroups = (
+  visibleCandidates: SportsWatchCandidate[],
+  allCandidates: SportsWatchCandidate[],
+): SportsWatchAthleteGroup[] => {
+  const views = buildSportsWatchCandidateViews(allCandidates);
+  const counts = new Map<string, { pending: number; exploitable: number }>();
+  for (const candidate of views.latest) {
+    const current = counts.get(candidate.athleteId) ?? { pending: 0, exploitable: 0 };
+    if (candidate.adminStatus === "pending") current.pending += 1;
+    if (candidate.adminStatus === "validated") current.exploitable += 1;
+    counts.set(candidate.athleteId, current);
+  }
+
+  const grouped = new Map<string, SportsWatchCandidate[]>();
+  for (const candidate of visibleCandidates) {
+    const current = grouped.get(candidate.athleteId) ?? [];
+    current.push(candidate);
+    grouped.set(candidate.athleteId, current);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([athleteId, athleteCandidates]): SportsWatchAthleteGroup => {
+      const sorted = [...athleteCandidates].sort((left, right) =>
+        candidateSortDate(right).localeCompare(candidateSortDate(left)));
+      const athleteCounts = counts.get(athleteId) ?? { pending: 0, exploitable: 0 };
+      return {
+        athleteId,
+        athleteName: sorted[0].athleteName,
+        pendingCount: athleteCounts.pending,
+        exploitableCount: athleteCounts.exploitable,
+        latestDate: candidateSortDate(sorted[0]),
+        tournaments: buildSportsWatchTournamentGroups(sorted, allCandidates),
+      };
+    })
+    .sort((left, right) =>
+      right.latestDate.localeCompare(left.latestDate)
+      || left.athleteName.localeCompare(right.athleteName, "fr"));
 };
 
 export const sportsWatchPresentationTestUtils = {

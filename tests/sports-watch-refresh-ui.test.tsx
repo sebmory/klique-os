@@ -116,7 +116,16 @@ describe("sports watch refresh all UI", () => {
 
     expect(container.textContent).toContain("2/2 veilles traitées");
     expect(container.textContent).toContain("1 nouveau résultat");
-    expect(container.textContent).toContain("Échec");
     expect(container.textContent).toContain("Actualisation partielle");
+    expect(container.textContent).toContain("Voir le détail des 2 veilles");
+    expect(container.textContent).not.toContain("Alice BadmintonSwiss Badminton");
+
+    const detailsButton = Array.from(container.querySelectorAll("button"))
+      .find((item) => item.textContent?.includes("Voir le détail des 2 veilles"));
+    await act(async () => {
+      detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+    });
+    expect(container.textContent).toContain("Échec");
   });
 });

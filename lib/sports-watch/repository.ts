@@ -565,7 +565,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       FROM sports_watch_candidates
       WHERE workspace_id = $1
         AND id = $2::uuid
-        AND admin_status = 'validated'
+        AND admin_status IN ('validated', 'exploited')
       LIMIT 1
     `, [workspaceId, candidateId]) as CandidateRow[];
     return rows[0] ? mapCandidate(rows[0]) : null;

@@ -1116,26 +1116,42 @@ export const createSportsWatchService = (
     const candidateId = requireUuid(candidateIdValue);
     const status = normalize(statusValue) as SportsWatchAdminStatus;
     const version = Number(versionValue);
-    if (!["validated", "rejected"].includes(status) || !Number.isInteger(version) || version < 1) {
+    if (
+      !["validated", "exploited", "rejected"].includes(status)
+      || !Number.isInteger(version)
+      || version < 1
+    ) {
       throw new SportsWatchError("validation", "Décision ou version invalide.");
     }
-    if (status === "validated") {
-      const current = await dependencies.repository.getCandidate(
-        identity.workspaceId,
-        candidateId,
+    const current = await dependencies.repository.getCandidate(
+      identity.workspaceId,
+      candidateId,
+    );
+    if (!current) {
+      throw new SportsWatchError(
+        "not_found",
+        "Candidat introuvable dans cet espace.",
       );
-      if (!current) {
-        throw new SportsWatchError(
-          "not_found",
-          "Candidat introuvable dans cet espace.",
-        );
-      }
+    }
+    if (status === "validated") {
       if (current.attributionStatus === "ambiguous") {
         throw new SportsWatchError(
           "validation",
           "L’attribution de ce candidat est ambiguë. La validation éditoriale est bloquée.",
         );
       }
+    }
+    if (status === "exploited" && current.adminStatus !== "validated") {
+      throw new SportsWatchError(
+        "validation",
+        "Seul un résultat validé éditorialement peut être marqué comme exploité.",
+      );
+    }
+    if (
+      status === "validated"
+      && !["pending", "rejected", "exploited"].includes(current.adminStatus)
+    ) {
+      throw new SportsWatchError("validation", "Cette transition éditoriale n’est pas autorisée.");
     }
     const candidate = await dependencies.repository.reviewCandidate({
       workspaceId: identity.workspaceId,
