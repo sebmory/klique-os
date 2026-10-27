@@ -337,6 +337,10 @@ Il propose la source éditoriale BC Bulle, des profils officiels Swiss
 Badminton / Tournamentsoftware et des profils IWWF configurés par workspace
 et athlète CRM, ainsi que le flux officiel Kenpokan Dojo avec sélection
 explicite de l'athlète CRM au lancement et les calendriers collectifs SAFV.
+Le sélecteur limite les fiches proposées au sport de la source : badminton
+pour BC Bulle et Swiss Badminton, wakesurf pour IWWF, kempo pour Kenpokan et
+football américain pour SAFV. La normalisation conserve les profils
+multisports, sans utiliser le club ni exiger un rattachement déjà configuré.
 Chaque rattachement doit être vérifié puis confirmé explicitement par un Admin.
 La confirmation, la modification et la réactivation relisent la source côté
 serveur ; les preuves du navigateur ne sont jamais acceptées comme autorité.
@@ -400,6 +404,21 @@ obligatoire avant la création idempotente d'un candidat `pending` et
 participation individuelle n'est pas vérifiée. Le transfert Article transmet
 la provenance de la route privée sans rendre le fichier public ni élargir ses
 autorisations.
+
+Les statistiques individuelles restent visibles avec leur libellé, leur valeur
+et la preuve exacte relevée dans le document. Elles ne sont attribuées
+automatiquement que si cette preuve contient le nom complet de l'athlète
+sélectionné ; sinon elles restent des propositions à confirmer avec l'identité
+manquante. Une cellule absente reste nulle et n'est jamais transformée en zéro.
+Un total isolé n'est jamais traité comme score final. Les dates du
+document et du match exigent chacune une preuve distincte et une lecture
+calendaire non ambiguë ; une date ambiguë reste `null` avec un avertissement.
+
+Le transfert Article regroupe les statistiques et leurs preuves sans répéter
+la même ligne pour chaque valeur. Si une matière dépasse 680 caractères, elle
+est répartie sans troncature entre plusieurs notes qui conservent toutes la
+provenance et la date. Le transfert est refusé explicitement s'il ne peut pas
+respecter la limite globale de matières, extraits d'entretien compris.
 
 Ce parcours exige la migration additive
 `20261026_sports_watch_manual_imports.sql`. Elle ne contient aucune donnée et

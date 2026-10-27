@@ -151,13 +151,21 @@ export type SportsWatchArticlePrefill = {
   candidateId: string;
   athleteId: string;
   verificationStatus: SportsWatchVerificationStatus;
-  material: ManualEditorialMaterial;
+  materials: ManualEditorialMaterial[];
+};
+
+export type SportsWatchIndividualStatistic = {
+  label: string;
+  value: string;
+  evidence: string | null;
 };
 
 export type SportsWatchImportExtraction = {
   sourceName: string | null;
   documentDate: string | null;
+  documentDateEvidence: string | null;
   matchDate: string | null;
+  matchDateEvidence: string | null;
   competition: string | null;
   participantA: string | null;
   participantB: string | null;
@@ -165,7 +173,7 @@ export type SportsWatchImportExtraction = {
   resultKind: SportsWatchResultKind | null;
   individualParticipationExplicit: boolean;
   individualEvidence: string | null;
-  individualStatistics: string[];
+  individualStatistics: SportsWatchIndividualStatistic[];
   warnings: string[];
 };
 
@@ -199,5 +207,5 @@ export type SportsWatchImportConfirmation = {
   resultKind: SportsWatchResultKind;
   individualParticipationExplicit: boolean;
   individualEvidence: string | null;
-  individualStatistics: string[];
+  individualStatistics: SportsWatchIndividualStatistic[];
 };

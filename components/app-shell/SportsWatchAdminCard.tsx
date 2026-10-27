@@ -6,6 +6,7 @@ import {
   buildSportsWatchTournamentGroups,
   type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
+import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { Card } from "@/src/design-system/components";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
 import type {
@@ -128,13 +129,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [error, setError] = useState<string | null>(null);
   const athleteOptions = useMemo(
     () => athletes
+      .filter((athlete) => isSportCompatibleWithWatchSource(athlete.sport, selectedSourceKey))
       .map((athlete) => ({
         id: athlete.athleteId?.trim() || athlete.key.trim(),
         label: `${athlete.name}${athlete.sport ? ` — ${athlete.sport}` : ""}${athlete.club ? ` · ${athlete.club}` : ""}`,
       }))
       .filter((athlete) => athlete.id && athlete.label.trim())
       .sort((left, right) => left.label.localeCompare(right.label, "fr")),
-    [athletes],
+    [athletes, selectedSourceKey],
   );
   const selectedSource = sourceOptions.find((source) => source.key === selectedSourceKey)
     ?? sourceOptions[0];
@@ -620,7 +622,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           aria-label="Source de veille"
           value={selectedSourceKey}
           disabled={busy}
-          onChange={(event) => setSelectedSourceKey(event.target.value as SportsWatchCollectionSourceKey)}
+          onChange={(event) => {
+            const sourceKey = event.target.value as SportsWatchCollectionSourceKey;
+            setSelectedSourceKey(sourceKey);
+            if (
+              selectedAthlete
+              && !isSportCompatibleWithWatchSource(selectedAthlete.sport, sourceKey)
+            ) {
+              setSelectedAthleteId("");
+            }
+          }}
           style={{ minWidth: "16rem", flex: "1 1 16rem" }}
         >
           {sourceOptions.map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
@@ -650,6 +661,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           {busy ? "Collecte…" : "Lancer la veille"}
         </button>
       </div>
+      {athleteOptions.length === 0 ? (
+        <p role="status" style={{ margin: "0.5rem 0 0", color: "#92400e", fontSize: "0.8rem" }}>
+          Aucun athlète ne correspond au sport de cette source de veille.
+        </p>
+      ) : null}
 
       {selectedSourceKey === "swiss-badminton" ? (
         <details

@@ -456,7 +456,8 @@ describe("sports watch service", () => {
     );
     const prefill = await service.buildArticlePrefill(validated.id, identity("workspace-a"));
     expect(prefill.verificationStatus).toBe("unverified");
-    expect(prefill.material.text).toBe(excerpt);
+    expect(prefill.materials).toHaveLength(1);
+    expect(prefill.materials[0].text).toBe(excerpt);
 
     const disabled = await service.disableSafvBinding(
       safvAthlete.athleteId,
@@ -596,11 +597,11 @@ describe("sports watch service", () => {
     expect(prefill).toMatchObject({
       athleteId: "giuliano-muret",
       verificationStatus: "unverified",
-      material: {
+      materials: [expect.objectContaining({
         text: "Tour : Final. Score explicite : 36,67.",
-      },
+      })],
     });
-    expect(prefill.material.provenance).toContain(
+    expect(prefill.materials[0].provenance).toContain(
       "https://ems.iwwf.sport/Competitions/Details/official",
     );
 
@@ -725,14 +726,14 @@ describe("sports watch service", () => {
       candidateId: candidate.id,
       athleteId: "antoine-majeux",
       verificationStatus: "unverified",
-      material: {
+      materials: [expect.objectContaining({
         kind: "note",
         text: "Antoine Majeux termine à la 2ème place.",
         sourceDate: "2026-10-18",
-      },
+      })],
     });
-    expect(prefill.material.provenance).toContain("https://bcbulle.ch/resultats-seen-turnier/");
-    expect(prefill.material.provenance).toContain("Vérification factuelle : non vérifiée");
+    expect(prefill.materials[0].provenance).toContain("https://bcbulle.ch/resultats-seen-turnier/");
+    expect(prefill.materials[0].provenance).toContain("Vérification factuelle : non vérifiée");
 
     await expect(service.buildArticlePrefill(candidate.id, identity("workspace-b")))
       .rejects.toMatchObject({ code: "not_found" });

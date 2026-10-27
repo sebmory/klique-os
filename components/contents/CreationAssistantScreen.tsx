@@ -506,6 +506,10 @@ export function CreationAssistantScreen({
   const initialStepCount = initialSteps.length;
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
   const [draft, setDraft] = useState<CreationAssistantDraft>(() => createInitialAssistantDraft(context));
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
   const isPublicationFlow = draft.objective.objective === "publication";
   const isArticleFlow = draft.objective.objective === "article";
   const steps = useMemo(
@@ -864,7 +868,8 @@ export function CreationAssistantScreen({
       return;
     }
     sportsWatchPrefillAppliedRef.current = true;
-    const materialId = `sports-watch-${initialSportsWatchCandidateId}`;
+    const legacyMaterialId = `sports-watch-${initialSportsWatchCandidateId}`;
+    const materialIdPrefix = `${legacyMaterialId}-`;
     void fetch(`/api/admin/sports-watch/${encodeURIComponent(initialSportsWatchCandidateId)}`, {
       cache: "no-store",
     })
@@ -876,17 +881,33 @@ export function CreationAssistantScreen({
         if (!response.ok || !payload.prefill) {
           throw new Error(payload.message || "Impossible de charger le candidat de veille.");
         }
+        const existingMaterials = draftRef.current.parameters.manualEditorialMaterials ?? [];
+        const existingInterviewExcerpts =
+          draftRef.current.parameters.manualInterviewSource?.excerpts.length ?? 0;
+        if (
+          existingMaterials.length
+          + existingInterviewExcerpts
+          + payload.prefill.materials.length
+          > MANUAL_EDITORIAL_MATERIAL_LIMIT
+        ) {
+          throw new Error(
+            `Le transfert exige ${payload.prefill.materials.length} matières, mais le formulaire ne dispose pas d’assez de places sur ${MANUAL_EDITORIAL_MATERIAL_LIMIT}.`,
+          );
+        }
         setSportsWatchPrefill(payload.prefill);
         setDraft((current) => {
           const materials = current.parameters.manualEditorialMaterials ?? [];
-          if (materials.some((material) => material.id === materialId)) return current;
+          if (materials.some((material) =>
+            material.id === legacyMaterialId || material.id.startsWith(materialIdPrefix))) {
+            return current;
+          }
           return {
             ...current,
             parameters: {
               ...current.parameters,
               useContextIntelligence: true,
               contextEnableManual: true,
-              manualEditorialMaterials: [...materials, payload.prefill!.material],
+              manualEditorialMaterials: [...materials, ...payload.prefill!.materials],
             },
           };
         });
@@ -5270,8 +5291,12 @@ export function CreationAssistantScreen({
             Validation éditoriale acquise. Vérification factuelle :{" "}
             {sportsWatchPrefill.verificationStatus === "verified" ? "vérifiée" : "non vérifiée"}.
           </p>
-          <p>{sportsWatchPrefill.material.text}</p>
-          <p className="creation-muted">{sportsWatchPrefill.material.provenance}</p>
+          {sportsWatchPrefill.materials.map((material) => (
+            <div key={material.id}>
+              <p>{material.text}</p>
+              <p className="creation-muted">{material.provenance}</p>
+            </div>
+          ))}
           <p className="creation-muted">Aucune recherche ni génération n’a été lancée.</p>
         </section>
       ) : null}

@@ -6,7 +6,9 @@ import {
 } from "@/types/article-creation-draft";
 import {
   MANUAL_EDITORIAL_MATERIAL_LIMIT,
+  MANUAL_EDITORIAL_TEXT_LIMIT,
   MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT,
+  type ManualEditorialMaterial,
 } from "@/types/context-intelligence";
 
 export class ArticleCreationDraftValidationError extends Error {
@@ -98,6 +100,39 @@ const validateInterviewSource = (value: unknown): void => {
   }
 };
 
+export const validateManualEditorialMaterials = (
+  value: unknown,
+): ManualEditorialMaterial[] => {
+  if (!Array.isArray(value) || value.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+    throw new ArticleCreationDraftValidationError("Matiere journalistique du brouillon invalide.");
+  }
+  return value.map((materialValue) => {
+    const material = requireObject(
+      materialValue,
+      "Matiere journalistique du brouillon invalide.",
+    );
+    const kind = material.kind;
+    if (kind !== "note" && kind !== "verbatim_quote") {
+      throw new ArticleCreationDraftValidationError("Type de matiere journalistique invalide.");
+    }
+    const validated: ManualEditorialMaterial = {
+      id: requireString(material.id, "Identifiant de matiere invalide.", 160),
+      kind,
+      text: requireString(
+        material.text,
+        "Texte de matiere journalistique invalide.",
+        MANUAL_EDITORIAL_TEXT_LIMIT,
+      ),
+      provenance: requireString(material.provenance, "Provenance de matiere invalide.", 1000),
+      sourceDate: requireString(material.sourceDate, "Date de matiere invalide.", 40),
+    };
+    if (kind === "verbatim_quote") {
+      validated.speaker = requireString(material.speaker, "Auteur de citation invalide.", 160);
+    }
+    return validated;
+  });
+};
+
 export const validateArticleCreationDraftPayload = (value: unknown): ArticleCreationDraftPayload => {
   let serialized: string;
   try {
@@ -126,12 +161,7 @@ export const validateArticleCreationDraftPayload = (value: unknown): ArticleCrea
     throw new ArticleCreationDraftValidationError("Seuls les brouillons Article sont acceptes.");
   }
   const parameters = requireObject(draft.parameters, "Parametres du brouillon invalides.");
-  if (
-    !Array.isArray(parameters.manualEditorialMaterials)
-    || parameters.manualEditorialMaterials.length > MANUAL_EDITORIAL_MATERIAL_LIMIT
-  ) {
-    throw new ArticleCreationDraftValidationError("Matiere journalistique du brouillon invalide.");
-  }
+  validateManualEditorialMaterials(parameters.manualEditorialMaterials);
   validateInterviewSource(parameters.manualInterviewSource);
 
   const contextState = requireObject(payload.contextState, "Contexte collecte du brouillon invalide.");

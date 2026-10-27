@@ -26,15 +26,21 @@ const athlete = {
 const extraction: SportsWatchImportExtraction = {
   sourceName: "Feuille officielle",
   documentDate: "2026-10-25",
+  documentDateEvidence: "Document publié le 25/10/2026",
   matchDate: "2026-10-24",
+  matchDateEvidence: "Match du 24/10/2026",
   competition: "Championnat test",
   participantA: "FC Test",
   participantB: "FC Exemple",
   score: "2-1",
   resultKind: "collective_result",
   individualParticipationExplicit: false,
-  individualEvidence: null,
-  individualStatistics: [],
+  individualEvidence: "N° 12 — Min 02:42 ; PTS 1",
+  individualStatistics: [{
+    label: "Minutes",
+    value: "02:42",
+    evidence: "N° 12 — Min 02:42 ; PTS 1",
+  }],
   warnings: ["Participation individuelle non visible."],
 };
 
@@ -171,6 +177,16 @@ describe("sports watch import service", () => {
       identity("workspace-a"),
     )).rejects.toThrow("preuve explicite");
 
+    await expect(service.confirm(
+      extracted.id,
+      extracted.version,
+      {
+        ...extraction,
+        score: "71",
+      },
+      identity("workspace-a"),
+    )).rejects.toThrow("deux scores opposés");
+
     const first = await service.confirm(
       extracted.id,
       extracted.version,
@@ -184,6 +200,15 @@ describe("sports watch import service", () => {
     });
     expect(first.candidate.excerpt).toContain(
       "Résultat collectif — participation individuelle non vérifiée.",
+    );
+    expect(first.candidate.excerpt).toContain(
+      "Propositions statistiques non attribuées : Minutes : 02:42.",
+    );
+    expect(first.candidate.excerpt).toContain(
+      "Preuves des statistiques dans le document : N° 12 — Min 02:42 ; PTS 1.",
+    );
+    expect(first.candidate.attributionEvidence).toContain(
+      "Les statistiques visibles sont conservées comme propositions non attribuées à confirmer.",
     );
 
     const second = await service.confirm(

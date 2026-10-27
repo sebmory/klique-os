@@ -15,6 +15,7 @@ import {
   type SportsWatchImportRecord,
 } from "@/lib/sports-watch/import-repository";
 import { PostgresSportsWatchRepository } from "@/lib/sports-watch/repository";
+import { normalizeSportsWatchSport } from "@/lib/sports-watch/sport";
 import {
   SportsWatchError,
   type SportsWatchAdminIdentity,
@@ -24,6 +25,7 @@ import type {
   SportsWatchCandidate,
   SportsWatchImport,
   SportsWatchImportConfirmation,
+  SportsWatchIndividualStatistic,
 } from "@/types/sports-watch";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -63,15 +65,8 @@ const requireUuid = (value: unknown, label: string): string => {
   return id;
 };
 
-const normalizeSport = (value: string): string => value
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, " ")
-  .trim();
-
 const isSupportedSport = (sport: string): boolean => {
-  const normalized = normalizeSport(sport);
+  const normalized = normalizeSportsWatchSport(sport);
   return normalized.includes("basket")
     || normalized.includes("tennis")
     || (
@@ -127,6 +122,40 @@ const optionalDate = (value: unknown, label: string): string | null => {
   return text;
 };
 
+const optionalFinalScore = (value: unknown): string | null => {
+  const score = optionalText(value, 120);
+  if (!score) return null;
+  if (!/\d+\s*(?:[-–—:]\s*|\bà\b)\d+/i.test(score)) {
+    throw new SportsWatchError(
+      "validation",
+      "Le score final exige deux scores opposés explicitement visibles ; un total isolé n’est pas accepté.",
+    );
+  }
+  return score;
+};
+
+const validateStatistics = (value: unknown): SportsWatchIndividualStatistic[] =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (typeof item === "string") {
+          const statisticValue = normalize(item).slice(0, 300);
+          return statisticValue
+            ? [{ label: "Statistique", value: statisticValue, evidence: null }]
+            : [];
+        }
+        if (typeof item !== "object" || item === null) return [];
+        const statistic = item as Record<string, unknown>;
+        const label = normalize(statistic.label).slice(0, 120);
+        const statisticValue = normalize(statistic.value).slice(0, 120);
+        if (!label || !statisticValue) return [];
+        return [{
+          label,
+          value: statisticValue,
+          evidence: optionalText(statistic.evidence, 600),
+        }];
+      }).slice(0, 30)
+    : [];
+
 const validateConfirmation = (value: unknown): SportsWatchImportConfirmation => {
   if (typeof value !== "object" || value === null) {
     throw new SportsWatchError("validation", "Les informations confirmées sont invalides.");
@@ -140,12 +169,7 @@ const validateConfirmation = (value: unknown): SportsWatchImportConfirmation => 
   }
   const individualParticipationExplicit = input.individualParticipationExplicit === true;
   const individualEvidence = optionalText(input.individualEvidence, 600);
-  const individualStatistics = Array.isArray(input.individualStatistics)
-    ? input.individualStatistics
-      .map((item) => normalize(item).slice(0, 300))
-      .filter(Boolean)
-      .slice(0, 30)
-    : [];
+  const individualStatistics = validateStatistics(input.individualStatistics);
   if (
     (resultKind === "individual_result" || resultKind === "participation")
     && (!individualParticipationExplicit || !individualEvidence)
@@ -157,11 +181,11 @@ const validateConfirmation = (value: unknown): SportsWatchImportConfirmation => 
   }
   if (
     resultKind === "collective_result"
-    && (individualParticipationExplicit || individualStatistics.length > 0)
+    && individualParticipationExplicit
   ) {
     throw new SportsWatchError(
       "validation",
-      "Un résultat collectif ne peut pas contenir d’attribution ou de statistiques individuelles.",
+      "Un résultat collectif ne peut pas attribuer automatiquement une participation individuelle.",
     );
   }
   return {
@@ -171,7 +195,7 @@ const validateConfirmation = (value: unknown): SportsWatchImportConfirmation => 
     competition: optionalText(input.competition, 160),
     participantA: optionalText(input.participantA, 200),
     participantB: optionalText(input.participantB, 200),
-    score: optionalText(input.score, 120),
+    score: optionalFinalScore(input.score),
     resultKind: resultKind as SportsWatchImportConfirmation["resultKind"],
     individualParticipationExplicit,
     individualEvidence,
@@ -179,7 +203,7 @@ const validateConfirmation = (value: unknown): SportsWatchImportConfirmation => 
   };
 };
 
-const buildCandidateContent = (
+export const buildSportsWatchImportCandidateContent = (
   imported: SportsWatchImportRecord,
   confirmation: SportsWatchImportConfirmation,
 ) => {
@@ -205,7 +229,25 @@ const buildCandidateContent = (
     confirmation.individualEvidence
       ? `Preuve de participation individuelle : ${confirmation.individualEvidence}.`
       : null,
-    ...confirmation.individualStatistics.map((statistic) => `Statistique explicite : ${statistic}.`),
+    confirmation.individualStatistics.length > 0
+      ? `${confirmation.individualParticipationExplicit
+          ? "Statistiques individuelles confirmées"
+          : "Propositions statistiques non attribuées"} : ${
+          confirmation.individualStatistics
+            .map((statistic) => `${statistic.label} : ${statistic.value}`)
+            .join(" ; ")
+        }.`
+      : null,
+    (() => {
+      const evidence = Array.from(new Set(
+        confirmation.individualStatistics
+          .map((statistic) => statistic.evidence)
+          .filter((item): item is string => Boolean(item)),
+      ));
+      return evidence.length > 0
+        ? `Preuves des statistiques dans le document : ${evidence.join(" ; ")}.`
+        : null;
+    })(),
   ].filter((line): line is string => Boolean(line));
   const sourceUrl = `/api/admin/sports-watch/imports/${imported.id}/file`;
   const payloadHash = createHash("sha256")
@@ -226,6 +268,9 @@ const buildCandidateContent = (
       ? [
           "Document privé importé et confirmé par un Admin.",
           "Résultat collectif uniquement ; aucune participation individuelle n’est attribuée.",
+          ...(confirmation.individualStatistics.length > 0
+            ? ["Les statistiques visibles sont conservées comme propositions non attribuées à confirmer."]
+            : []),
         ]
       : [
           "Document privé importé et confirmé par un Admin.",
@@ -338,7 +383,7 @@ export const createSportsWatchImportService = (
         throw new SportsWatchError("conflict", "L’extraction a été modifiée ou n’est pas prête à confirmer.");
       }
       const confirmation = validateConfirmation(confirmationValue);
-      const candidateContent = buildCandidateContent(imported, confirmation);
+      const candidateContent = buildSportsWatchImportCandidateContent(imported, confirmation);
       const candidate = await dependencies.repository.confirm({
         workspaceId: identity.workspaceId,
         importId: imported.id,

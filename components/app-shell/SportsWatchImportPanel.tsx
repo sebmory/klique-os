@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { normalizeSportsWatchSport } from "@/lib/sports-watch/sport";
 import type {
   SportsWatchCandidate,
   SportsWatchImport,
@@ -34,13 +35,8 @@ const emptyConfirmation: EditableConfirmation = {
   individualStatistics: [],
 };
 
-const normalizeSport = (value: string): string => value
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase();
-
 const supportedAthlete = (athlete: AthleteSummary): boolean => {
-  const sport = normalizeSport(athlete.sport);
+  const sport = normalizeSportsWatchSport(athlete.sport);
   return sport.includes("basket")
     || sport.includes("tennis")
     || (sport.includes("football") && !sport.includes("americain") && !sport.includes("foot us"));
@@ -49,6 +45,14 @@ const supportedAthlete = (athlete: AthleteSummary): boolean => {
 const toConfirmation = (imported: SportsWatchImport): EditableConfirmation => {
   const extraction = imported.extraction;
   if (!extraction) return emptyConfirmation;
+  const individualStatistics = (
+    extraction.individualStatistics as Array<
+      SportsWatchImportConfirmation["individualStatistics"][number] | string
+    >
+  ).flatMap((statistic) =>
+    typeof statistic === "string"
+      ? [{ label: "Statistique", value: statistic, evidence: extraction.individualEvidence }]
+      : [statistic]);
   return {
     sourceName: extraction.sourceName ?? "",
     documentDate: extraction.documentDate,
@@ -60,7 +64,7 @@ const toConfirmation = (imported: SportsWatchImport): EditableConfirmation => {
     resultKind: extraction.resultKind ?? "",
     individualParticipationExplicit: extraction.individualParticipationExplicit,
     individualEvidence: extraction.individualEvidence,
-    individualStatistics: extraction.individualStatistics,
+    individualStatistics,
   };
 };
 
@@ -104,6 +108,21 @@ export function SportsWatchImportPanel({
     setConfirmation((current) => ({
       ...current,
       [field]: field === "sourceName" ? value : nullable(value),
+    }));
+    setHumanConfirmed(false);
+  };
+
+  const updateStatistic = (
+    index: number,
+    field: "label" | "value" | "evidence",
+    value: string,
+  ) => {
+    setConfirmation((current) => ({
+      ...current,
+      individualStatistics: current.individualStatistics.map((statistic, statisticIndex) =>
+        statisticIndex === index
+          ? { ...statistic, [field]: field === "evidence" ? nullable(value) : value }
+          : statistic),
     }));
     setHumanConfirmed(false);
   };
@@ -332,7 +351,7 @@ export function SportsWatchImportPanel({
               ["competition", "Compétition"],
               ["participantA", "Équipe ou joueur A"],
               ["participantB", "Équipe ou joueur B"],
-              ["score", "Score tel qu’affiché"],
+              ["score", "Score final de rencontre · deux valeurs explicites"],
             ] as const).map(([field, label]) => (
               <label key={field} style={{ display: "grid", gap: "0.2rem", fontSize: "0.78rem" }}>
                 {label}
@@ -351,8 +370,6 @@ export function SportsWatchImportPanel({
                     ...(resultKind === "collective_result"
                       ? {
                           individualParticipationExplicit: false,
-                          individualEvidence: null,
-                          individualStatistics: [],
                         }
                       : {}),
                   }));
@@ -365,7 +382,7 @@ export function SportsWatchImportPanel({
                 <option value="individual_result">Résultat individuel</option>
               </select>
             </label>
-            {confirmation.resultKind !== "collective_result" ? (
+            {confirmation.resultKind !== "collective_result" || confirmation.individualStatistics.length > 0 ? (
               <>
                 <label style={{ display: "flex", gap: "0.45rem", alignItems: "flex-start", fontSize: "0.78rem" }}>
                   <input
@@ -389,20 +406,56 @@ export function SportsWatchImportPanel({
                     onChange={(event) => updateText("individualEvidence", event.target.value)}
                   />
                 </label>
-                <label style={{ display: "grid", gap: "0.2rem", fontSize: "0.78rem" }}>
-                  Statistiques individuelles explicites · une par ligne
-                  <textarea
-                    rows={4}
-                    value={confirmation.individualStatistics.join("\n")}
-                    onChange={(event) => {
-                      setConfirmation((current) => ({
-                        ...current,
-                        individualStatistics: event.target.value.split(/\r?\n/).filter(Boolean),
-                      }));
-                      setHumanConfirmed(false);
-                    }}
-                  />
-                </label>
+                {confirmation.individualStatistics.length > 0 ? (
+                  <div style={{ display: "grid", gap: "0.45rem" }}>
+                    <strong style={{ fontSize: "0.78rem" }}>
+                      {confirmation.individualParticipationExplicit
+                        ? "Statistiques individuelles attribuées par concordance nominative"
+                        : "Propositions statistiques à confirmer"}
+                    </strong>
+                    {!confirmation.individualParticipationExplicit ? (
+                      <p style={{ margin: 0, fontSize: "0.75rem", color: "#92400e" }}>
+                        Élément manquant : le nom complet de l’athlète sélectionné doit apparaître dans la preuve.
+                        Ces valeurs restent visibles mais ne lui sont pas attribuées automatiquement.
+                      </p>
+                    ) : null}
+                    {confirmation.individualStatistics.map((statistic, index) => (
+                      <fieldset
+                        key={`${statistic.label}-${index}`}
+                        style={{ display: "grid", gap: "0.35rem", border: "1px solid #d1d5db", borderRadius: "6px" }}
+                      >
+                        <legend style={{ fontSize: "0.75rem", fontWeight: 700 }}>
+                          Statistique {index + 1}
+                        </legend>
+                        <label style={{ display: "grid", gap: "0.2rem", fontSize: "0.75rem" }}>
+                          Libellé
+                          <input
+                            aria-label={`Libellé statistique ${index + 1}`}
+                            value={statistic.label}
+                            onChange={(event) => updateStatistic(index, "label", event.target.value)}
+                          />
+                        </label>
+                        <label style={{ display: "grid", gap: "0.2rem", fontSize: "0.75rem" }}>
+                          Valeur
+                          <input
+                            aria-label={`Valeur statistique ${index + 1}`}
+                            value={statistic.value}
+                            onChange={(event) => updateStatistic(index, "value", event.target.value)}
+                          />
+                        </label>
+                        <label style={{ display: "grid", gap: "0.2rem", fontSize: "0.75rem" }}>
+                          Preuve exacte dans le document
+                          <textarea
+                            aria-label={`Preuve statistique ${index + 1}`}
+                            rows={2}
+                            value={textValue(statistic.evidence)}
+                            onChange={(event) => updateStatistic(index, "evidence", event.target.value)}
+                          />
+                        </label>
+                      </fieldset>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : (
               <p style={{ margin: 0, fontSize: "0.78rem", color: "#6b7280" }}>

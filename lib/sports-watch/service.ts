@@ -54,8 +54,55 @@ import type {
   SwissBadmintonIdentityVerification,
 } from "@/types/sports-watch";
 import type { Athlete } from "@/types/athlete";
+import {
+  MANUAL_EDITORIAL_MATERIAL_LIMIT,
+  MANUAL_EDITORIAL_TEXT_LIMIT,
+  type ManualEditorialMaterial,
+} from "@/types/context-intelligence";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const splitEditorialText = (value: string): string[] => {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (word.length > MANUAL_EDITORIAL_TEXT_LIMIT) {
+      throw new SportsWatchError(
+        "validation",
+        "Le contenu transféré contient un élément indivisible trop long pour le formulaire Article.",
+      );
+    }
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= MANUAL_EDITORIAL_TEXT_LIMIT) {
+      current = next;
+    } else {
+      chunks.push(current);
+      current = word;
+    }
+  }
+  if (current) chunks.push(current);
+  if (chunks.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+    throw new SportsWatchError(
+      "validation",
+      `Le contenu transféré dépasse la limite de ${MANUAL_EDITORIAL_MATERIAL_LIMIT} matières Article.`,
+    );
+  }
+  return chunks;
+};
+
+export const buildSportsWatchArticleMaterials = (
+  candidate: SportsWatchCandidate,
+  provenance: string,
+  sourceDate: string,
+): ManualEditorialMaterial[] =>
+  splitEditorialText(candidate.excerpt).map((text, index) => ({
+    id: `sports-watch-${candidate.id}-${index + 1}`,
+    kind: "note",
+    text,
+    provenance,
+    sourceDate,
+  }));
 const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
   name: string;
   url: string;
@@ -702,17 +749,14 @@ export const createSportsWatchService = (
       `Collecte : ${dateLabel(candidate.collectedAt)}`,
       `Vérification factuelle : ${verificationLabel}`,
     ].join(" · ");
+    const sourceDate = candidate.eventDateFrom
+      ?? candidate.publicationDate?.slice(0, 10)
+      ?? candidate.collectedAt.slice(0, 10);
     return {
       candidateId: candidate.id,
       athleteId: candidate.athleteId,
       verificationStatus: candidate.verificationStatus,
-      material: {
-        id: `sports-watch-${candidate.id}`,
-        kind: "note",
-        text: candidate.excerpt,
-        provenance,
-        sourceDate: candidate.eventDateFrom ?? candidate.publicationDate?.slice(0, 10) ?? candidate.collectedAt.slice(0, 10),
-      },
+      materials: buildSportsWatchArticleMaterials(candidate, provenance, sourceDate),
     };
   },
   };
