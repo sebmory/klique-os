@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { isSportsWatchEnabled } from "@/lib/sports-watch/activation";
+import {
+  isScheduledSportsWatchRefreshEnabled,
+  isSportsWatchEnabled,
+} from "@/lib/sports-watch/activation";
+import { PostgresSportsWatchRefreshRepository } from "@/lib/sports-watch/refresh-repository";
 import {
   SportsWatchService,
   requireSportsWatchAdmin,
@@ -26,6 +30,7 @@ export async function GET(request: Request) {
       safvBindings,
       beBasketBindings,
       swissBasketballBindings,
+      latestRefresh,
     ] = await Promise.all([
       SportsWatchService.list(identity),
       SportsWatchService.listSwissBindings(identity),
@@ -33,6 +38,9 @@ export async function GET(request: Request) {
       SportsWatchService.listSafvBindings(identity),
       SportsWatchService.listBeBasketBindings(identity),
       SportsWatchService.listSwissBasketballBindings(identity),
+      isScheduledSportsWatchRefreshEnabled()
+        ? PostgresSportsWatchRefreshRepository.getLatestBatch(identity.workspaceId)
+        : Promise.resolve(null),
     ]);
     return NextResponse.json(
       {
@@ -44,6 +52,7 @@ export async function GET(request: Request) {
         safvBindings,
         beBasketBindings,
         swissBasketballBindings,
+        latestRefresh,
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

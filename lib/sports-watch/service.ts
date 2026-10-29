@@ -939,10 +939,18 @@ export const createSportsWatchService = (
     sourceKeyValue: unknown,
     athleteId: unknown,
     identity: SportsWatchAdminIdentity,
+    options: {
+      preparedAthlete?: SportsWatchAthleteSnapshot;
+      refreshBatchId?: string;
+    } = {},
   ): Promise<SportsWatchRunResult> {
     const sourceKey = requireSourceKey(sourceKeyValue);
     const source = sourceDefinitions[sourceKey];
-    const athlete = await resolveAuthoritativeAthlete(athleteId, identity);
+    const athlete = options.preparedAthlete
+      ?? await resolveAuthoritativeAthlete(athleteId, identity);
+    if (normalize(athleteId) !== athlete.id) {
+      throw new SportsWatchError("validation", "L’athlète préparé ne correspond pas à la tâche.");
+    }
     const swissBinding = sourceKey === "swiss-badminton"
       ? await dependencies.repository.getActiveSwissBinding(identity.workspaceId, athlete.id)
       : null;
@@ -1005,6 +1013,7 @@ export const createSportsWatchService = (
       athleteName: athlete.name,
       clerkUserId: identity.clerkUserId,
       now,
+      refreshBatchId: options.refreshBatchId,
     });
     if (!runId) {
       throw new SportsWatchError("conflict", `Une collecte ${source.name} est déjà en cours pour cet espace.`);

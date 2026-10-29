@@ -4,6 +4,46 @@
     {
       "path": "/api/internal/partner-introduction-outbox",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=schedule",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=01",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=02",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=03",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=04",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=05",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=06",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=07",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=work&slot=08",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/sports-watch-refresh?mode=finalize",
+      "schedule": "0 4 * * *"
     }
   ]
 }

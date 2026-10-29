@@ -25,6 +25,7 @@ import type {
   SafvTeamVerification,
   SportsWatchCandidate,
   SportsWatchCollectionSourceKey,
+  SportsWatchRefreshBatchSummary,
   SportsWatchRunResult,
   SwissBasketballBinding,
   SwissBasketballBindingVerification,
@@ -49,6 +50,7 @@ type SportsWatchDashboardPayload = {
   safvBindings?: SafvBinding[];
   beBasketBindings?: BeBasketBinding[];
   swissBasketballBindings?: SwissBasketballBinding[];
+  latestRefresh?: SportsWatchRefreshBatchSummary | null;
   message?: string;
 };
 
@@ -188,6 +190,13 @@ const refreshSummaryStatus = (summary: SportsWatchRefreshSummary): string => {
   return partial ? `Couverture partielle · ${outcome}` : outcome;
 };
 
+const scheduledStatusLabel = {
+  running: "En cours",
+  completed: "Complète",
+  partial: "Partielle",
+  failed: "Échec",
+} as const;
+
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
@@ -239,6 +248,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [refreshAllSummaries, setRefreshAllSummaries] =
     useState<SportsWatchRefreshSummary[]>([]);
   const [refreshAllDetailsOpen, setRefreshAllDetailsOpen] = useState(false);
+  const [latestRefresh, setLatestRefresh] = useState<SportsWatchRefreshBatchSummary | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
   const [openAthleteIds, setOpenAthleteIds] = useState<Set<string>>(new Set());
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
@@ -341,6 +351,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           setSafvBindings(payload.safvBindings ?? []);
           setBeBasketBindings(payload.beBasketBindings ?? []);
           setSwissBasketballBindings(payload.swissBasketballBindings ?? []);
+          setLatestRefresh(payload.latestRefresh ?? null);
           setRefreshAllReady(true);
         }
       })
@@ -964,6 +975,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       setSafvBindings(payload.safvBindings ?? []);
       setBeBasketBindings(payload.beBasketBindings ?? []);
       setSwissBasketballBindings(payload.swissBasketballBindings ?? []);
+      setLatestRefresh(payload.latestRefresh ?? null);
       const failures = executions.filter((execution) => execution.error).length;
       const createdCount = executions.reduce(
         (total, execution) => total + (execution.value?.createdCount ?? 0),
@@ -1169,6 +1181,54 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           background: "#eff6ff",
         }}
       >
+        {latestRefresh ? (
+          <details
+            style={{
+              padding: "0.6rem",
+              border: "1px solid #bfdbfe",
+              borderRadius: "8px",
+              background: "#fff",
+            }}
+          >
+            <summary style={{ cursor: "pointer", fontSize: "0.78rem", fontWeight: 700 }}>
+              Dernière exécution automatique · {scheduledStatusLabel[latestRefresh.status]}
+              {" · "}{formatDate(latestRefresh.completedAt ?? latestRefresh.startedAt)}
+            </summary>
+            <div style={{ display: "grid", gap: "0.45rem", marginTop: "0.55rem" }}>
+              <p style={{ margin: 0, color: "#475569", fontSize: "0.76rem" }}>
+                {latestRefresh.completedCount}/{latestRefresh.taskCount} veille
+                {latestRefresh.taskCount === 1 ? "" : "s"} terminée
+                {latestRefresh.taskCount === 1 ? "" : "s"}
+                {" · "}{pluralize(latestRefresh.createdCount, "nouveau résultat", "nouveaux résultats")}
+                {" · "}{pluralize(latestRefresh.failedCount, "échec")}
+              </p>
+              {latestRefresh.message ? (
+                <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.76rem" }}>
+                  {latestRefresh.message}
+                </p>
+              ) : null}
+              {latestRefresh.tasks.map((task) => (
+                <div
+                  key={`${latestRefresh.id}:${task.sourceKey}:${task.athleteId}`}
+                  style={{ padding: "0.45rem", border: "1px solid #e2e8f0", borderRadius: "7px" }}
+                >
+                  <strong style={{ fontSize: "0.76rem" }}>{task.athleteName}</strong>
+                  <p style={{ margin: "0.15rem 0 0", color: "#475569", fontSize: "0.73rem" }}>
+                    {sourceOptions.find((source) => source.key === task.sourceKey)?.label ?? task.sourceKey}
+                    {" · "}{task.status === "completed"
+                      ? task.createdCount > 0
+                        ? pluralize(task.createdCount, "nouveau résultat", "nouveaux résultats")
+                        : "Inchangé"
+                      : task.status === "failed"
+                        ? "Échec"
+                        : "En attente"}
+                    {task.message ? ` · ${task.message}` : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
         <div
           style={{
             display: "flex",

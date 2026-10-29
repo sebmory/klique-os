@@ -351,6 +351,30 @@ Le connecteur IWWF découvre les compétitions depuis le profil confirmé. Il
 sépare les tours explicitement nommés, notamment qualifications et finale, et
 ne conserve un score ou un classement que lorsqu'il apparaît dans la source.
 La fenêtre de récence reste fondée sur la date d'événement.
+
+### Actualisation quotidienne
+
+`KLIQUE_SPORTS_WATCH_SCHEDULED_ENABLED=true` active l'orchestration quotidienne
+après application manuelle de la migration
+`20261028_sports_watch_scheduled_refresh.sql`. Elle reste désactivée pour toute
+autre valeur. Le cron Vercel authentifié par `CRON_SECRET` prépare un lot à
+00:00 UTC. Deux vagues de quatre workers sont demandées à 01:00 et 02:00 UTC,
+puis le lot est clôturé à 04:00 UTC. En Suisse, la fenêtre nominale correspond
+à 02:00–05:00 en hiver et 03:00–06:00 en été. Sur Hobby, chaque heure indique
+une fenêtre de déclenchement de 60 minutes et non une heure garantie.
+
+La préparation lit une seule fois le registre CRM par workspace, ne retient
+que les athlètes actifs et les rattachements actifs, puis persiste les tâches.
+Chaque fonction worker peut durer au maximum 300 secondes, limite disponible
+sur tous les plans Vercel. Elle réserve un budget utile de 240 secondes,
+exécute jusqu'à trois sources en parallèle, sérialise une même source et ne
+prend plus de tâche dans les 45 dernières secondes. Elle attend toutes les
+tâches prises avant de répondre ; les tâches non prises restent persistées
+pour la vague suivante. Les workers réutilisent les instantanés et les
+collecteurs existants, sans IA, validation, notification ni publication. Les
+verrous Postgres de workspace et de source empêchent le chevauchement avec les
+lancements Admin manuels. Le bilan complet, partiel ou en échec reste
+consultable dans `/today`.
 Le connecteur Kenpokan réutilise le collecteur RSS borné de BC Bulle. Il exige
 la présence du nom complet et la concordance du sport, du club CRM et du
 contexte du dojo. Une attribution ambiguë reste consultable et rejetable, mais

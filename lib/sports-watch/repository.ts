@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createContentStorageClient } from "@/lib/content-storage/db";
+import { isScheduledSportsWatchRefreshEnabled } from "@/lib/sports-watch/activation";
 import type { CollectedSportsWatchCandidate } from "@/lib/sports-watch/bcbulle-collector";
 import type {
   BeBasketBinding,
@@ -284,6 +285,7 @@ export type SportsWatchRepository = {
     athleteName: string;
     clerkUserId: string;
     now: string;
+    refreshBatchId?: string;
   }): Promise<string | null>;
   completeRun(input: {
     workspaceId: string;
@@ -389,8 +391,47 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
   async startRun(input) {
     const sql = createContentStorageClient();
     const runId = randomUUID();
+    if (!isScheduledSportsWatchRefreshEnabled()) {
+      const rows = await sql.query(`
+        WITH expired AS (
+          UPDATE sports_watch_runs
+          SET status = 'failed',
+              message = 'Collecte expirée avant sa finalisation.',
+              completed_at = NOW()
+          WHERE workspace_id = $1
+            AND source_key = $2
+            AND status = 'running'
+            AND expires_at <= $6::timestamptz
+        ),
+        inserted AS (
+          INSERT INTO sports_watch_runs (
+            id, workspace_id, source_key, athlete_id, athlete_name_snapshot,
+            started_by_clerk_user_id, started_at, expires_at
+          ) VALUES (
+            $3::uuid, $1, $2, $4, $5, $7, $6::timestamptz,
+            $6::timestamptz + INTERVAL '2 minutes'
+          )
+          ON CONFLICT (workspace_id, source_key) WHERE status = 'running'
+          DO NOTHING
+          RETURNING id
+        )
+        SELECT id FROM inserted
+      `, [
+        input.workspaceId,
+        input.sourceKey,
+        runId,
+        input.athleteId,
+        input.athleteName,
+        input.now,
+        input.clerkUserId,
+      ]) as Array<{ id: string }>;
+      return rows[0]?.id ?? null;
+    }
     const rows = await sql.query(`
-      WITH expired AS (
+      WITH workspace_lock AS (
+        SELECT pg_advisory_xact_lock(hashtext($1))
+      ),
+      expired AS (
         UPDATE sports_watch_runs
         SET status = 'failed',
             message = 'Collecte expirée avant sa finalisation.',
@@ -404,8 +445,28 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         INSERT INTO sports_watch_runs (
           id, workspace_id, source_key, athlete_id, athlete_name_snapshot,
           started_by_clerk_user_id, started_at, expires_at
-        ) VALUES (
-          $3::uuid, $1, $2, $4, $5, $7, $6::timestamptz, $6::timestamptz + INTERVAL '2 minutes'
+        )
+        SELECT
+          $3::uuid, $1, $2, $4, $5, $7, $6::timestamptz,
+          $6::timestamptz + INTERVAL '2 minutes'
+        FROM workspace_lock
+        WHERE (
+          $8::uuid IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM sports_watch_refresh_batches
+            WHERE id = $8::uuid
+              AND workspace_id = $1
+              AND status = 'running'
+          )
+        ) OR (
+          $8::uuid IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM sports_watch_refresh_batches
+            WHERE workspace_id = $1
+              AND status = 'running'
+          )
         )
         ON CONFLICT (workspace_id, source_key) WHERE status = 'running'
         DO NOTHING
@@ -420,6 +481,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.athleteName,
       input.now,
       input.clerkUserId,
+      input.refreshBatchId ?? null,
     ]) as Array<{ id: string }>;
     return rows[0]?.id ?? null;
   },

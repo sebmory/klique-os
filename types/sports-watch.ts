@@ -235,6 +235,32 @@ export type SportsWatchRunResult = {
   candidates: SportsWatchCandidate[];
 };
 
+export type SportsWatchRefreshBatchStatus = "running" | "completed" | "partial" | "failed";
+
+export type SportsWatchRefreshTaskSummary = {
+  sourceKey: SportsWatchCollectionSourceKey;
+  athleteId: string;
+  athleteName: string;
+  status: "pending" | "running" | "completed" | "failed";
+  createdCount: number;
+  message: string | null;
+};
+
+export type SportsWatchRefreshBatchSummary = {
+  id: string;
+  trigger: "scheduled";
+  status: SportsWatchRefreshBatchStatus;
+  scheduledFor: string;
+  startedAt: string;
+  completedAt: string | null;
+  message: string | null;
+  taskCount: number;
+  completedCount: number;
+  failedCount: number;
+  createdCount: number;
+  tasks: SportsWatchRefreshTaskSummary[];
+};
+
 export type SportsWatchArticlePrefill = {
   candidateId: string;
   athleteId: string;
