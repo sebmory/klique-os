@@ -367,10 +367,13 @@ La préparation lit une seule fois le registre CRM par workspace, ne retient
 que les athlètes actifs et les rattachements actifs, puis persiste les tâches.
 Chaque fonction worker peut durer au maximum 300 secondes, limite disponible
 sur tous les plans Vercel. Elle réserve un budget utile de 240 secondes,
-exécute jusqu'à trois sources en parallèle, sérialise une même source et ne
-prend plus de tâche dans les 45 dernières secondes. Elle attend toutes les
-tâches prises avant de répondre ; les tâches non prises restent persistées
-pour la vague suivante. Les workers réutilisent les instantanés et les
+exécute au maximum trois sources en parallèle sur l'ensemble des workers,
+sérialise une même source et ne prend plus de tâche dans les 45 dernières
+secondes. Chaque claim possède un jeton de lease : une tentative expirée ne
+peut pas écraser la reprise qui lui succède, et la finalisation conserve toute
+tâche dont la lease est encore valide. Chaque worker attend toutes les tâches
+prises avant de répondre ; les tâches non prises restent persistées pour la
+vague suivante. Les workers réutilisent les instantanés et les
 collecteurs existants, sans IA, validation, notification ni publication. Les
 verrous Postgres de workspace et de source empêchent le chevauchement avec les
 lancements Admin manuels. Le bilan complet, partiel ou en échec reste

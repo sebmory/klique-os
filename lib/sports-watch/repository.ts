@@ -427,11 +427,10 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       ]) as Array<{ id: string }>;
       return rows[0]?.id ?? null;
     }
-    const rows = await sql.query(`
-      WITH workspace_lock AS (
-        SELECT pg_advisory_xact_lock(hashtext($1))
-      ),
-      expired AS (
+    const transactionResults = await sql.transaction([
+      sql.query("SELECT pg_advisory_xact_lock(hashtext($1))", [input.workspaceId]),
+      sql.query(`
+      WITH expired AS (
         UPDATE sports_watch_runs
         SET status = 'failed',
             message = 'Collecte expirée avant sa finalisation.',
@@ -449,7 +448,6 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         SELECT
           $3::uuid, $1, $2, $4, $5, $7, $6::timestamptz,
           $6::timestamptz + INTERVAL '2 minutes'
-        FROM workspace_lock
         WHERE (
           $8::uuid IS NOT NULL
           AND EXISTS (
@@ -482,7 +480,9 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       input.now,
       input.clerkUserId,
       input.refreshBatchId ?? null,
-    ]) as Array<{ id: string }>;
+    ]),
+    ]);
+    const rows = transactionResults[1] as Array<{ id: string }>;
     return rows[0]?.id ?? null;
   },
 

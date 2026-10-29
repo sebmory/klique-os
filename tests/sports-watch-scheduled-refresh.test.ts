@@ -58,6 +58,7 @@ const createMemoryRepository = () => {
           batchId: id,
           workspaceId: input.workspaceId,
           sourceKey: task.sourceKey,
+          leaseToken: `20000000-0000-4000-8000-${String(sequence * 100 + index).padStart(12, "0")}`,
           athlete: task.athlete,
           status: "pending",
           createdCount: 0,

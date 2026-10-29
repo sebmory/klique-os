@@ -12,10 +12,14 @@ export type SportsWatchRefreshTaskRecord = {
   batchId: string;
   workspaceId: string;
   sourceKey: SportsWatchCollectionSourceKey;
+  leaseToken: string;
   athlete: SportsWatchAthleteSnapshot;
 };
 
-export type SportsWatchRefreshTaskInput = Omit<SportsWatchRefreshTaskRecord, "id" | "batchId" | "workspaceId">;
+export type SportsWatchRefreshTaskInput = Omit<
+  SportsWatchRefreshTaskRecord,
+  "id" | "batchId" | "workspaceId" | "leaseToken"
+>;
 
 export type SportsWatchRefreshRepository = {
   listEligibleWorkspaceIds(): Promise<string[]>;
@@ -42,6 +46,7 @@ type TaskRow = {
   batch_id: string;
   workspace_id: string;
   source_key: SportsWatchCollectionSourceKey;
+  lease_token: string;
   athlete_id: string;
   athlete_name_snapshot: string;
   athlete_sport_snapshot: string;
@@ -82,6 +87,7 @@ const mapTask = (row: TaskRow): SportsWatchRefreshTaskRecord => ({
   batchId: row.batch_id,
   workspaceId: row.workspace_id,
   sourceKey: row.source_key,
+  leaseToken: row.lease_token,
   athlete: {
     id: row.athlete_id,
     name: row.athlete_name_snapshot,
@@ -140,17 +146,16 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
     const batchId = randomUUID();
     const taskPayload = input.tasks.map((task) => ({
       id: randomUUID(),
-      sourceKey: task.sourceKey,
-      athleteId: task.athlete.id,
-      athleteName: task.athlete.name,
-      athleteSport: task.athlete.sport,
-      athleteClub: task.athlete.club,
+      source_key: task.sourceKey,
+      athlete_id: task.athlete.id,
+      athlete_name: task.athlete.name,
+      athlete_sport: task.athlete.sport,
+      athlete_club: task.athlete.club,
     }));
-    const rows = await sql.query(`
-      WITH workspace_lock AS (
-        SELECT pg_advisory_xact_lock(hashtext($1))
-      ),
-      inserted_batch AS (
+    const transactionResults = await sql.transaction([
+      sql.query("SELECT pg_advisory_xact_lock(hashtext($1))", [input.workspaceId]),
+      sql.query(`
+      WITH inserted_batch AS (
         INSERT INTO sports_watch_refresh_batches (
           id, workspace_id, trigger, scheduled_for, task_count, status, completed_at
         )
@@ -162,7 +167,6 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
           jsonb_array_length($4::jsonb),
           CASE WHEN jsonb_array_length($4::jsonb) = 0 THEN 'completed' ELSE 'running' END,
           CASE WHEN jsonb_array_length($4::jsonb) = 0 THEN NOW() ELSE NULL END
-        FROM workspace_lock
         WHERE NOT EXISTS (
           SELECT 1
           FROM sports_watch_runs
@@ -209,16 +213,17 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
       batchId,
       input.scheduledFor,
       JSON.stringify(taskPayload),
-    ]) as Array<{ id: string }>;
+    ]),
+    ]);
+    const rows = transactionResults[1] as Array<{ id: string }>;
     return rows[0]?.id ?? null;
   },
 
   async createFailedScheduledBatch(input) {
     const sql = createContentStorageClient();
-    const rows = await sql.query(`
-      WITH workspace_lock AS (
-        SELECT pg_advisory_xact_lock(hashtext($1))
-      )
+    const transactionResults = await sql.transaction([
+      sql.query("SELECT pg_advisory_xact_lock(hashtext($1))", [input.workspaceId]),
+      sql.query(`
       INSERT INTO sports_watch_refresh_batches (
         id, workspace_id, trigger, status, scheduled_for,
         failed_count, message, completed_at
@@ -226,10 +231,11 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
       SELECT
         $2::uuid, $1, 'scheduled', 'failed', $3::date,
         1, $4, NOW()
-      FROM workspace_lock
       ON CONFLICT (workspace_id, trigger, scheduled_for) DO NOTHING
       RETURNING id
-    `, [input.workspaceId, randomUUID(), input.scheduledFor, input.message]) as Array<{ id: string }>;
+    `, [input.workspaceId, randomUUID(), input.scheduledFor, input.message]),
+    ]);
+    const rows = transactionResults[1] as Array<{ id: string }>;
     return rows[0]?.id ?? null;
   },
 
@@ -239,6 +245,7 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
       UPDATE sports_watch_refresh_tasks
       SET status = CASE WHEN attempt_count >= 2 THEN 'failed' ELSE 'pending' END,
           lease_expires_at = NULL,
+          lease_token = NULL,
           message = CASE
             WHEN attempt_count >= 2
               THEN 'La collecte a dépassé sa durée deux fois et a été arrêtée.'
@@ -253,8 +260,13 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
 
   async claimNextTask(now) {
     const sql = createContentStorageClient();
+    const leaseToken = randomUUID();
     try {
-      const rows = await sql.query(`
+      const transactionResults = await sql.transaction([
+        sql.query(
+          "SELECT pg_advisory_xact_lock(hashtext('sports-watch-scheduled-refresh-global'))",
+        ),
+        sql.query(`
         WITH candidate AS (
           SELECT task.id
           FROM sports_watch_refresh_tasks task
@@ -262,6 +274,12 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
           WHERE task.status = 'pending'
             AND task.attempt_count < 2
             AND batch.status = 'running'
+            AND (
+              SELECT COUNT(*)
+              FROM sports_watch_refresh_tasks active_task
+              WHERE active_task.status = 'running'
+                AND active_task.lease_expires_at > $1::timestamptz
+            ) < 3
             AND NOT EXISTS (
               SELECT 1
               FROM sports_watch_runs run
@@ -284,15 +302,18 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
         SET status = 'running',
             attempt_count = attempt_count + 1,
             lease_expires_at = $1::timestamptz + INTERVAL '2 minutes',
+            lease_token = $2::uuid,
             started_at = COALESCE(started_at, $1::timestamptz),
             message = NULL
         FROM candidate
         WHERE task.id = candidate.id
         RETURNING
-          task.id, task.batch_id, task.workspace_id, task.source_key,
+          task.id, task.batch_id, task.workspace_id, task.source_key, task.lease_token,
           task.athlete_id, task.athlete_name_snapshot,
           task.athlete_sport_snapshot, task.athlete_club_snapshot
-      `, [now]) as TaskRow[];
+      `, [now, leaseToken]),
+      ]);
+      const rows = transactionResults[1] as TaskRow[];
       return rows[0] ? mapTask(rows[0]) : null;
     } catch (error) {
       if (
@@ -309,44 +330,57 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
 
   async completeTask(task, result) {
     const sql = createContentStorageClient();
-    await sql.query(`
+    const rows = await sql.query(`
       UPDATE sports_watch_refresh_tasks
       SET status = 'completed',
           lease_expires_at = NULL,
-          scanned_count = $4,
-          recent_count = $5,
-          created_count = $6,
-          message = $7,
+          lease_token = NULL,
+          scanned_count = $5,
+          recent_count = $6,
+          created_count = $7,
+          message = $8,
           completed_at = NOW()
       WHERE id = $1::uuid
         AND batch_id = $2::uuid
         AND workspace_id = $3
+        AND lease_token = $4::uuid
         AND status = 'running'
+      RETURNING id
     `, [
       task.id,
       task.batchId,
       task.workspaceId,
+      task.leaseToken,
       result.scannedCount,
       result.recentCount,
       result.createdCount,
       result.message,
-    ]);
+    ]) as Array<{ id: string }>;
+    if (!rows[0]) {
+      throw new Error("La lease de cette tâche d’actualisation n’est plus valide.");
+    }
     await sql.query(refreshBatchFromTasksSql);
   },
 
   async failTask(task, message) {
     const sql = createContentStorageClient();
-    await sql.query(`
+    const rows = await sql.query(`
       UPDATE sports_watch_refresh_tasks
       SET status = 'failed',
           lease_expires_at = NULL,
-          message = $4,
+          lease_token = NULL,
+          message = $5,
           completed_at = NOW()
       WHERE id = $1::uuid
         AND batch_id = $2::uuid
         AND workspace_id = $3
+        AND lease_token = $4::uuid
         AND status = 'running'
-    `, [task.id, task.batchId, task.workspaceId, message]);
+      RETURNING id
+    `, [task.id, task.batchId, task.workspaceId, task.leaseToken, message]) as Array<{ id: string }>;
+    if (!rows[0]) {
+      throw new Error("La lease de cette tâche d’actualisation n’est plus valide.");
+    }
     await sql.query(refreshBatchFromTasksSql);
   },
 
@@ -356,13 +390,17 @@ export const PostgresSportsWatchRefreshRepository: SportsWatchRefreshRepository 
       UPDATE sports_watch_refresh_tasks task
       SET status = 'failed',
           lease_expires_at = NULL,
+          lease_token = NULL,
           message = 'Aucun créneau d’exécution restant pour cette actualisation quotidienne.',
           completed_at = NOW()
       FROM sports_watch_refresh_batches batch
       WHERE task.batch_id = batch.id
         AND batch.status = 'running'
         AND batch.scheduled_for <= $1::date
-        AND task.status IN ('pending', 'running')
+        AND (
+          task.status = 'pending'
+          OR (task.status = 'running' AND task.lease_expires_at <= NOW())
+        )
       RETURNING task.batch_id
     `, [scheduledFor]) as Array<{ batch_id: string }>;
     await sql.query(refreshBatchFromTasksSql);

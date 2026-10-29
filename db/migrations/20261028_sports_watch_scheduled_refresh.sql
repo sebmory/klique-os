@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS sports_watch_refresh_tasks (
   status TEXT NOT NULL DEFAULT 'pending',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   lease_expires_at TIMESTAMPTZ NULL,
+  lease_token UUID NULL,
   scanned_count INTEGER NOT NULL DEFAULT 0,
   recent_count INTEGER NOT NULL DEFAULT 0,
   created_count INTEGER NOT NULL DEFAULT 0,
@@ -67,6 +68,9 @@ CREATE TABLE IF NOT EXISTS sports_watch_refresh_tasks (
   ),
   CONSTRAINT sports_watch_refresh_tasks_unique UNIQUE (batch_id, source_key, athlete_id)
 );
+
+ALTER TABLE sports_watch_refresh_tasks
+  ADD COLUMN IF NOT EXISTS lease_token UUID NULL;
 
 CREATE INDEX IF NOT EXISTS sports_watch_refresh_tasks_claim_idx
   ON sports_watch_refresh_tasks (status, created_at, id);
