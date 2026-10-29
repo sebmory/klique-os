@@ -263,9 +263,25 @@ export type SportsWatchRefreshBatchSummary = {
 
 export type SportsWatchArticlePrefill = {
   candidateId: string;
-  athleteId: string;
+  candidateIds: string[];
+  athleteId: string | null;
+  athleteIds: string[];
   verificationStatus: SportsWatchVerificationStatus;
   materials: ManualEditorialMaterial[];
+  potentialDuplicates: SportsWatchPotentialDuplicate[];
+};
+
+export type SportsWatchPotentialDuplicate = {
+  id: string;
+  reason: string;
+  candidates: Array<{
+    id: string;
+    athleteName: string;
+    sourceName: string;
+    articleUrl: string;
+    title: string;
+    eventDateFrom: string | null;
+  }>;
 };
 
 export type SportsWatchIndividualStatistic = {

@@ -307,6 +307,7 @@ export type SportsWatchRepository = {
     clerkUserId: string;
   }): Promise<SportsWatchCandidate | null>;
   getValidatedCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
+  getArticleCandidates(workspaceId: string, candidateIds: string[]): Promise<SportsWatchCandidate[]>;
   listSwissBindings(workspaceId: string): Promise<SwissBadmintonBinding[]>;
   getActiveSwissBinding(workspaceId: string, athleteId: string): Promise<SwissBadmintonBinding | null>;
   saveSwissBinding(input: {
@@ -631,6 +632,26 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       LIMIT 1
     `, [workspaceId, candidateId]) as CandidateRow[];
     return rows[0] ? mapCandidate(rows[0]) : null;
+  },
+
+  async getArticleCandidates(workspaceId, candidateIds) {
+    if (candidateIds.length === 0) return [];
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates candidate
+      WHERE candidate.workspace_id = $1
+        AND candidate.id = ANY($2::uuid[])
+        AND candidate.admin_status = 'validated'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates replacement
+          WHERE replacement.workspace_id = candidate.workspace_id
+            AND replacement.supersedes_candidate_id = candidate.id
+        )
+      ORDER BY array_position($2::uuid[], candidate.id)
+    `, [workspaceId, candidateIds]) as CandidateRow[];
+    return rows.map(mapCandidate);
   },
 
   async listSwissBindings(workspaceId) {

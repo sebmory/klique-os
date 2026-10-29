@@ -92,6 +92,8 @@ type CreationAssistantScreenProps = {
   initialArticleDraftId?: string;
   initialAthleteNewsReportId?: string;
   initialSportsWatchCandidateId?: string;
+  initialSportsWatchCandidateIds?: string[];
+  initialSportsWatchDistinctConfirmed?: boolean;
 };
 
 type CreationGenerateState = {
@@ -485,6 +487,8 @@ export function CreationAssistantScreen({
   initialArticleDraftId,
   initialAthleteNewsReportId,
   initialSportsWatchCandidateId,
+  initialSportsWatchCandidateIds = [],
+  initialSportsWatchDistinctConfirmed = false,
 }: CreationAssistantScreenProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -561,6 +565,7 @@ export function CreationAssistantScreen({
   const [athleteNewsPrefillError, setAthleteNewsPrefillError] = useState<string | null>(null);
   const [sportsWatchPrefill, setSportsWatchPrefill] = useState<SportsWatchArticlePrefill | null>(null);
   const [sportsWatchPrefillError, setSportsWatchPrefillError] = useState<string | null>(null);
+  const sportsWatchCandidateIdsKey = initialSportsWatchCandidateIds.join(",");
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
   const [mediaCreditRole, setMediaCreditRole] = useState<"unknown" | "media" | "other">("unknown");
@@ -859,8 +864,13 @@ export function CreationAssistantScreen({
   ]);
 
   useEffect(() => {
+    const selectedCandidateIds = sportsWatchCandidateIdsKey
+      ? sportsWatchCandidateIdsKey.split(",")
+      : initialSportsWatchCandidateId
+        ? [initialSportsWatchCandidateId]
+        : [];
     if (
-      !initialSportsWatchCandidateId
+      selectedCandidateIds.length === 0
       || !isArticleFlow
       || !articleDraftPersistence.initialized
       || sportsWatchPrefillAppliedRef.current
@@ -868,11 +878,22 @@ export function CreationAssistantScreen({
       return;
     }
     sportsWatchPrefillAppliedRef.current = true;
-    const legacyMaterialId = `sports-watch-${initialSportsWatchCandidateId}`;
-    const materialIdPrefix = `${legacyMaterialId}-`;
-    void fetch(`/api/admin/sports-watch/${encodeURIComponent(initialSportsWatchCandidateId)}`, {
-      cache: "no-store",
-    })
+    const selectedPrefixes = selectedCandidateIds.map((candidateId) =>
+      `sports-watch-${candidateId}-`);
+    const isSelectionTransfer = Boolean(sportsWatchCandidateIdsKey);
+    const selectionSuffix = initialSportsWatchDistinctConfirmed ? "?confirmDistinct=true" : "";
+    void fetch(
+      isSelectionTransfer
+        ? `/api/admin/sports-watch/article-prefill${selectionSuffix}`
+        : `/api/admin/sports-watch/${encodeURIComponent(selectedCandidateIds[0])}`,
+      isSelectionTransfer
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ candidateIds: selectedCandidateIds }),
+          }
+        : { cache: "no-store" },
+    )
       .then(async (response) => {
         const payload = await response.json() as {
           prefill?: SportsWatchArticlePrefill;
@@ -884,21 +905,27 @@ export function CreationAssistantScreen({
         const existingMaterials = draftRef.current.parameters.manualEditorialMaterials ?? [];
         const existingInterviewExcerpts =
           draftRef.current.parameters.manualInterviewSource?.excerpts.length ?? 0;
+        const newMaterials = payload.prefill.materials.filter((material) =>
+          !existingMaterials.some((existing) =>
+            existing.id === material.id
+            || selectedPrefixes.some((prefix) =>
+              existing.id === prefix.slice(0, -1) || existing.id.startsWith(prefix))));
         if (
           existingMaterials.length
           + existingInterviewExcerpts
-          + payload.prefill.materials.length
+          + newMaterials.length
           > MANUAL_EDITORIAL_MATERIAL_LIMIT
         ) {
           throw new Error(
-            `Le transfert exige ${payload.prefill.materials.length} matières, mais le formulaire ne dispose pas d’assez de places sur ${MANUAL_EDITORIAL_MATERIAL_LIMIT}.`,
+            `Le transfert exige ${newMaterials.length} matières supplémentaires, mais le formulaire ne dispose pas d’assez de places sur ${MANUAL_EDITORIAL_MATERIAL_LIMIT}. Réduisez la sélection avant de réessayer.`,
           );
         }
         setSportsWatchPrefill(payload.prefill);
         setDraft((current) => {
           const materials = current.parameters.manualEditorialMaterials ?? [];
-          if (materials.some((material) =>
-            material.id === legacyMaterialId || material.id.startsWith(materialIdPrefix))) {
+          const materialsToAdd = payload.prefill!.materials.filter((material) =>
+            !materials.some((existing) => existing.id === material.id));
+          if (materialsToAdd.length === 0) {
             return current;
           }
           return {
@@ -907,7 +934,7 @@ export function CreationAssistantScreen({
               ...current.parameters,
               useContextIntelligence: true,
               contextEnableManual: true,
-              manualEditorialMaterials: [...materials, ...payload.prefill!.materials],
+              manualEditorialMaterials: [...materials, ...materialsToAdd],
             },
           };
         });
@@ -920,7 +947,9 @@ export function CreationAssistantScreen({
   }, [
     articleDraftPersistence.initialized,
     initialSportsWatchCandidateId,
+    initialSportsWatchDistinctConfirmed,
     isArticleFlow,
+    sportsWatchCandidateIdsKey,
   ]);
 
   useEffect(() => {

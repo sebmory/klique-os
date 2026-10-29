@@ -24,6 +24,7 @@ import type {
   SafvBinding,
   SafvTeamVerification,
   SportsWatchCandidate,
+  SportsWatchArticlePrefill,
   SportsWatchCollectionSourceKey,
   SportsWatchRefreshBatchSummary,
   SportsWatchRunResult,
@@ -252,6 +253,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [workspaceId, setWorkspaceId] = useState("");
   const [openAthleteIds, setOpenAthleteIds] = useState<Set<string>>(new Set());
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [articleTransferBusy, setArticleTransferBusy] = useState(false);
+  const [potentialDuplicates, setPotentialDuplicates] =
+    useState<SportsWatchArticlePrefill["potentialDuplicates"]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const athleteOptions = useMemo(
@@ -304,6 +309,19 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     () => buildSportsWatchAthleteGroups(visibleCandidates, candidates),
     [candidates, visibleCandidates],
   );
+  useEffect(() => {
+    setSelectedCandidateIds((current) => {
+      const eligibleIds = new Set(
+        candidates
+          .filter((candidate) =>
+            candidate.adminStatus === "validated"
+            && !candidateViews.supersededIds.has(candidate.id))
+          .map((candidate) => candidate.id),
+      );
+      const next = new Set([...current].filter((candidateId) => eligibleIds.has(candidateId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [candidateViews.supersededIds, candidates]);
   const crmAthleteNames = useMemo(() => new Map(
     athletes.map((athlete) => [
       athlete.athleteId?.trim() || athlete.key.trim(),
@@ -1063,6 +1081,67 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     router.push(`/contents/create?${query.toString()}`);
   };
 
+  const toggleArticleSelection = (candidateId: string, selected: boolean) => {
+    setSelectedCandidateIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(candidateId);
+      else next.delete(candidateId);
+      return next;
+    });
+    setPotentialDuplicates([]);
+    setError(null);
+  };
+
+  const prepareSelectedArticle = async (confirmDistinct = false) => {
+    const candidateIds = [...selectedCandidateIds];
+    if (candidateIds.length === 0 || articleTransferBusy) return;
+    setArticleTransferBusy(true);
+    setPotentialDuplicates([]);
+    setError(null);
+    try {
+      const suffix = confirmDistinct ? "?confirmDistinct=true" : "";
+      const response = await fetch(`/api/admin/sports-watch/article-prefill${suffix}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateIds }),
+      });
+      const payload = await response.json() as {
+        prefill?: SportsWatchArticlePrefill;
+        message?: string;
+      };
+      if (response.status === 409 && payload.prefill?.potentialDuplicates.length) {
+        setPotentialDuplicates(payload.prefill.potentialDuplicates);
+        return;
+      }
+      if (!response.ok || !payload.prefill) {
+        throw new Error(payload.message || "Impossible de préparer la sélection.");
+      }
+      const selectedCandidates = candidateIds.flatMap((candidateId) => {
+        const candidate = candidates.find((item) => item.id === candidateId);
+        return candidate ? [candidate] : [];
+      });
+      const athleteIds = [...new Set(selectedCandidates.map((candidate) => candidate.athleteId))];
+      const singleAthlete = athleteIds.length === 1
+        ? selectedCandidates.find((candidate) => candidate.athleteId === athleteIds[0]) ?? null
+        : null;
+      const query = new URLSearchParams({
+        objective: "article",
+        subject: singleAthlete
+          ? singleAthlete.athleteName
+          : `Bilan de ${athleteIds.length} athlètes`,
+        contextType: singleAthlete ? "athlete" : "other",
+        sportsWatchCandidateIds: candidateIds.join(","),
+      });
+      if (singleAthlete) query.set("subjectId", singleAthlete.athleteId);
+      if (confirmDistinct) query.set("sportsWatchDistinctConfirmed", "true");
+      router.push(`/contents/create?${query.toString()}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Impossible de préparer la sélection.");
+    } finally {
+      setArticleTransferBusy(false);
+    }
+  };
+
   const setAthleteCardOpen = (athleteId: string, open: boolean) => {
     setOpenAthleteIds((current) => {
       const next = new Set(current);
@@ -1077,6 +1156,25 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     const superseded = candidateViews.supersededIds.has(candidate.id);
     return (
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.65rem" }}>
+        {candidate.adminStatus === "validated" && !superseded ? (
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              fontSize: "0.78rem",
+              fontWeight: 700,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={selectedCandidateIds.has(candidate.id)}
+              disabled={articleTransferBusy}
+              onChange={(event) => toggleArticleSelection(candidate.id, event.target.checked)}
+            />
+            Sélectionner
+          </label>
+        ) : null}
         {candidate.adminStatus === "pending" && !superseded ? (
           <>
             <button
@@ -2190,6 +2288,102 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           Historique ({historicalCandidates.length})
         </button>
       </div>
+
+      {selectedCandidateIds.size > 0 ? (
+        <section
+          className="sports-watch-article-selection-bar"
+          aria-label="Préparation d’un article avec les résultats sélectionnés"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.65rem",
+            flexWrap: "wrap",
+            margin: "0.7rem 0",
+            padding: "0.6rem 0.7rem",
+            border: "1px solid #bfdbfe",
+            borderRadius: "9px",
+            background: "#eff6ff",
+          }}
+        >
+          <strong style={{ fontSize: "0.82rem" }}>
+            {pluralize(selectedCandidateIds.size, "résultat sélectionné", "résultats sélectionnés")}
+          </strong>
+          <div
+            className="sports-watch-article-selection-actions"
+            style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}
+          >
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={articleTransferBusy}
+              onClick={() => {
+                setSelectedCandidateIds(new Set());
+                setPotentialDuplicates([]);
+              }}
+            >
+              Tout désélectionner
+            </button>
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={articleTransferBusy}
+              onClick={() => void prepareSelectedArticle()}
+            >
+              {articleTransferBusy ? "Vérification…" : "Préparer un article"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {potentialDuplicates.length > 0 ? (
+        <section
+          role="alert"
+          style={{
+            display: "grid",
+            gap: "0.55rem",
+            margin: "0.7rem 0",
+            padding: "0.7rem",
+            border: "1px solid #f59e0b",
+            borderRadius: "9px",
+            background: "#fffbeb",
+          }}
+        >
+          <strong>Doublons potentiels à vérifier</strong>
+          <p style={{ margin: 0, fontSize: "0.8rem" }}>
+            Désélectionnez le résultat à écarter, ou confirmez que les résultats décrivent des événements distincts.
+            Aucune statistique contradictoire ne sera fusionnée.
+          </p>
+          {potentialDuplicates.map((duplicate) => (
+            <div key={duplicate.id} style={{ fontSize: "0.78rem" }}>
+              <span>{duplicate.reason}</span>
+              <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+                {duplicate.candidates.map((candidate) => (
+                  <li key={candidate.id}>
+                    <strong>{candidate.sourceName}</strong> · {candidate.title}
+                    {" · "}
+                    <button
+                      type="button"
+                      className="card-link-button"
+                      onClick={() => toggleArticleSelection(candidate.id, false)}
+                    >
+                      Retirer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="card-link-button"
+            disabled={articleTransferBusy}
+            onClick={() => void prepareSelectedArticle(true)}
+          >
+            Confirmer des événements distincts
+          </button>
+        </section>
+      ) : null}
 
       {message ? (
         <p

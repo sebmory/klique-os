@@ -967,6 +967,17 @@ button {
       display: grid;
       grid-template-columns: 1fr 1fr;
     }
+
+    .sports-watch-article-selection-bar {
+      align-items: stretch !important;
+      flex-direction: column;
+    }
+
+    .sports-watch-article-selection-actions {
+      display: grid !important;
+      grid-template-columns: 1fr;
+      width: min(100%, 20rem);
+    }
   }
 
   .module-guide-start,

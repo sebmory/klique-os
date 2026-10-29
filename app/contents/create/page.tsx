@@ -12,6 +12,8 @@ type CreateContentPageProps = {
     draftId?: string;
     athleteNewsReportId?: string;
     sportsWatchCandidateId?: string;
+    sportsWatchCandidateIds?: string;
+    sportsWatchDistinctConfirmed?: string;
   }>;
 };
 
@@ -26,6 +28,11 @@ export default async function CreateContentPage({ searchParams }: CreateContentP
       initialArticleDraftId={params.draftId}
       initialAthleteNewsReportId={params.athleteNewsReportId}
       initialSportsWatchCandidateId={params.sportsWatchCandidateId}
+      initialSportsWatchCandidateIds={params.sportsWatchCandidateIds
+        ?.split(",")
+        .map((candidateId) => candidateId.trim())
+        .filter(Boolean)}
+      initialSportsWatchDistinctConfirmed={params.sportsWatchDistinctConfirmed === "true"}
     />
   );
 }

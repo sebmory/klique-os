@@ -285,6 +285,22 @@ const createMemoryRepository = (): SportsWatchRepository => {
         && record.candidate.id === candidateId
         && ["validated", "exploited"].includes(record.candidate.adminStatus))?.candidate ?? null;
     },
+    async getArticleCandidates(workspaceId, candidateIds) {
+      const supersededIds = new Set(
+        records
+          .filter((record) => record.workspaceId === workspaceId)
+          .map((record) => record.candidate.supersedesCandidateId)
+          .filter((candidateId): candidateId is string => Boolean(candidateId)),
+      );
+      return candidateIds.flatMap((candidateId) => {
+        const candidate = records.find((record) =>
+          record.workspaceId === workspaceId
+          && record.candidate.id === candidateId
+          && record.candidate.adminStatus === "validated"
+          && !supersededIds.has(record.candidate.id))?.candidate;
+        return candidate ? [candidate] : [];
+      });
+    },
     async listSwissBindings(workspaceId) {
       return bindings
         .filter((record) => record.workspaceId === workspaceId)
@@ -1294,6 +1310,211 @@ describe("sports watch service", () => {
 
     await expect(service.buildArticlePrefill(candidate.id, identity("workspace-b")))
       .rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("prepares several faithful results without assigning multiple athletes to one person", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    const secondAthlete = {
+      ...athlete,
+      id: "second-athlete",
+      name: "Deuxième Athlète",
+    };
+    await repository.saveCandidates("workspace-a", [
+      {
+        ...collectedCandidate(
+          "simple",
+          "Open — MS (simple) — Finale. Ordre officiel : Antoine Majeux puis Rival. Vainqueur explicite : Antoine Majeux. Scores dans l’ordre officiel : 21-18. Score du point de vue d’Antoine Majeux : 21-18.",
+        ),
+        logicalKey: "simple",
+        title: "Open — MS",
+      },
+      {
+        ...collectedCandidate(
+          "double",
+          "Open — MD (double) — Finale. Équipe 1 officielle : Antoine Majeux et Partenaire. Équipe 2 officielle : Rival A et Rival B. Équipe d’Antoine Majeux : Antoine Majeux et Partenaire. Partenaire d’Antoine Majeux : Partenaire. Adversaires : Rival A et Rival B. Équipe gagnante explicite : Antoine Majeux et Partenaire. Scores dans l’ordre officiel des équipes : 21-19. Scores du point de vue de l’équipe d’Antoine Majeux : 21-19.",
+        ),
+        logicalKey: "double",
+        title: "Open — MD",
+      },
+      {
+        ...collectedCandidate(
+          "mixed",
+          "Open — XD (mixte) — Finale. Équipe 1 officielle : Antoine Majeux et Partenaire. Équipe 2 officielle : Rival A et Rival B. Équipe d’Antoine Majeux : Antoine Majeux et Partenaire. Partenaire d’Antoine Majeux : Partenaire. Adversaires : Rival A et Rival B. Équipe gagnante explicite : Rival A et Rival B. Scores dans l’ordre officiel des équipes : 18-21. Scores du point de vue de l’équipe d’Antoine Majeux : 18-21.",
+        ),
+        logicalKey: "mixed",
+        title: "Open — XD",
+      },
+      {
+        ...collectedCandidate(
+          "second-athlete",
+          "Compétition : Meeting. Équipe : Club B. Statistiques explicitement présentes : 12 points.",
+        ),
+        athlete: secondAthlete,
+        logicalKey: "second-athlete",
+        title: "Meeting — Deuxième Athlète",
+      },
+    ]);
+    const pending = await repository.listCandidates("workspace-a");
+    const validated = [];
+    for (const candidate of pending) {
+      validated.push(await service.review(
+        candidate.id,
+        "validated",
+        candidate.version,
+        identity("workspace-a"),
+      ));
+    }
+
+    const prefill = await service.buildArticlePrefillFromSelection(
+      validated.map((candidate) => candidate.id),
+      identity("workspace-a"),
+    );
+
+    expect(prefill.athleteId).toBeNull();
+    expect(prefill.athleteIds).toEqual(expect.arrayContaining([
+      "antoine-majeux",
+      "second-athlete",
+    ]));
+    expect(prefill.materials.every((material) => material.text.length <= 680)).toBe(true);
+    const transferredText = prefill.materials.map((material) => material.text).join(" ");
+    expect(transferredText).toContain("Open — MS (simple)");
+    expect(transferredText).toContain("Open — MD (double)");
+    expect(transferredText).toContain("Open — XD (mixte)");
+    expect(transferredText).toContain("Athlète : Antoine Majeux.");
+    expect(transferredText).toContain("Athlète : Deuxième Athlète.");
+    expect(transferredText).toContain("Équipe : Club B.");
+    expect(transferredText).toContain("12 points");
+    expect((await repository.listCandidates("workspace-a")).every((candidate) =>
+      candidate.adminStatus === "validated")).toBe(true);
+  });
+
+  it("reports cross-source duplicates without merging their statistics", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [
+      {
+        ...collectedCandidate(
+          "third-party",
+          "Source : BeBasket. Match : Lions 80–70 Bears. Statistiques explicitement présentes : PTS 12.",
+        ),
+        logicalKey: "third-party",
+        sourceName: "BeBasket — source tierce",
+        articleUrl: "https://bebasket.example/match/42",
+        title: "Lions 80–70 Bears — Antoine Majeux",
+      },
+      {
+        ...collectedCandidate(
+          "official",
+          "Source : Swiss Basketball. Match : Lions 80–70 Bears. Statistiques individuelles explicitement présentes : PTS 14.",
+        ),
+        logicalKey: "official",
+        sourceName: "Swiss Basketball — source officielle",
+        articleUrl: "https://swissbasketball.example/game/9001",
+        title: "Lions 80–70 Bears — Antoine Majeux",
+      },
+    ]);
+    const pending = await repository.listCandidates("workspace-a");
+    const validated = [];
+    for (const candidate of pending) {
+      validated.push(await service.review(
+        candidate.id,
+        "validated",
+        candidate.version,
+        identity("workspace-a"),
+      ));
+    }
+
+    const prefill = await service.buildArticlePrefillFromSelection(
+      validated.map((candidate) => candidate.id),
+      identity("workspace-a"),
+    );
+
+    expect(prefill.potentialDuplicates).toHaveLength(1);
+    expect(prefill.potentialDuplicates[0].candidates.map((candidate) =>
+      candidate.sourceName)).toEqual(expect.arrayContaining([
+      "BeBasket — source tierce",
+      "Swiss Basketball — source officielle",
+    ]));
+    const transferredText = prefill.materials.map((material) => material.text).join(" ");
+    expect(transferredText).toContain("PTS 12");
+    expect(transferredText).toContain("PTS 14");
+  });
+
+  it("rejects capacity overflow, another workspace, replaced and newly ineligible candidates", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate("eligible", "Résultat encore éligible."),
+      logicalKey: "eligible",
+    }, {
+      ...collectedCandidate("replaced-v1", "Ancienne version."),
+      logicalKey: "replaced",
+    }]);
+    await repository.saveCandidates("workspace-b", [{
+      ...collectedCandidate("other-workspace", "Résultat isolé."),
+      logicalKey: "other-workspace",
+    }]);
+    const initial = await repository.listCandidates("workspace-a");
+    const eligible = await service.review(
+      initial.find((candidate) => candidate.title === "Résultats : Seen-Turnier"
+        && candidate.excerpt === "Résultat encore éligible.")!.id,
+      "validated",
+      initial.find((candidate) => candidate.excerpt === "Résultat encore éligible.")!.version,
+      identity("workspace-a"),
+    );
+    const replaced = await service.review(
+      initial.find((candidate) => candidate.excerpt === "Ancienne version.")!.id,
+      "validated",
+      initial.find((candidate) => candidate.excerpt === "Ancienne version.")!.version,
+      identity("workspace-a"),
+    );
+    const other = (await repository.listCandidates("workspace-b"))[0];
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate("replaced-v2", "Nouvelle version."),
+      logicalKey: "replaced",
+    }]);
+
+    await expect(service.buildArticlePrefillFromSelection(
+      [eligible.id, other.id],
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "conflict" });
+    await expect(service.buildArticlePrefillFromSelection(
+      [replaced.id],
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "conflict" });
+
+    const exploited = await service.review(
+      eligible.id,
+      "exploited",
+      eligible.version,
+      identity("workspace-a"),
+    );
+    await expect(service.buildArticlePrefillFromSelection(
+      [exploited.id],
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "conflict" });
+
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate(
+        "too-large",
+        Array.from({ length: 13 }, (_, index) =>
+          `${index}-${"information ".repeat(62)}`).join(" "),
+      ),
+      logicalKey: "too-large",
+    }]);
+    const oversized = (await repository.listCandidates("workspace-a"))
+      .find((candidate) => candidate.excerpt.startsWith("0-information"))!;
+    const validatedOversized = await service.review(
+      oversized.id,
+      "validated",
+      oversized.version,
+      identity("workspace-a"),
+    );
+    await expect(service.buildArticlePrefillFromSelection(
+      [validatedOversized.id],
+      identity("workspace-a"),
+    )).rejects.toThrow(/limite de 12 matières Article|au-delà de la limite de 12/);
   });
 
   it("keeps distinct verified profiles isolated by athlete and workspace", async () => {

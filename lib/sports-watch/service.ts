@@ -77,6 +77,7 @@ import type {
   SwissBasketballOfficialIdentity,
   SwissBadmintonBinding,
   SwissBadmintonIdentityVerification,
+  SportsWatchPotentialDuplicate,
 } from "@/types/sports-watch";
 import {
   MANUAL_EDITORIAL_MATERIAL_LIMIT,
@@ -118,14 +119,121 @@ export const buildSportsWatchArticleMaterials = (
   candidate: SportsWatchCandidate,
   provenance: string,
   sourceDate: string,
+  text = candidate.excerpt,
 ): ManualEditorialMaterial[] =>
-  splitEditorialText(candidate.excerpt).map((text, index) => ({
+  splitEditorialText(text).map((chunk, index) => ({
     id: `sports-watch-${candidate.id}-${index + 1}`,
     kind: "note",
-    text,
+    text: chunk,
     provenance,
     sourceDate,
   }));
+
+const normalizeMatchEvidence = (value: string): string =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("fr")
+    .replace(/[–—]/g, "-")
+    .replace(/[^a-z0-9-]+/g, " ")
+    .trim();
+
+const explicitMatchEvidence = (candidate: SportsWatchCandidate): {
+  score: string | null;
+  tokens: Set<string>;
+} | null => {
+  const match = candidate.excerpt.match(/\bMatch\s*:\s*([^.]*)\./i)?.[1];
+  const participants = candidate.excerpt.match(
+    /\bParticipants dans l’ordre du document\s*:\s*([^.]*)\./i,
+  )?.[1];
+  const importedScore = candidate.excerpt.match(/\bScore tel qu’affiché\s*:\s*([^.]*)\./i)?.[1];
+  const evidence = match ?? (participants && importedScore
+    ? `${participants} ${importedScore}`
+    : null);
+  if (!evidence) return null;
+  const normalized = normalizeMatchEvidence(evidence);
+  const score = normalized.match(/\b\d+\s*-\s*\d+\b/)?.[0].replace(/\s+/g, "") ?? null;
+  if (!score) return null;
+  const athleteTokens = new Set(normalizeMatchEvidence(candidate.athleteName).split(" "));
+  const ignored = new Set(["match", "contre", "versus", "avec", "dans", "ordre", "document"]);
+  const tokens = new Set(
+    normalized
+      .replace(/\b\d+\s*-\s*\d+\b/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length >= 3 && !athleteTokens.has(token) && !ignored.has(token)),
+  );
+  return { score, tokens };
+};
+
+const potentialDuplicateReason = (
+  left: SportsWatchCandidate,
+  right: SportsWatchCandidate,
+): string | null => {
+  if (left.athleteId !== right.athleteId || left.sourceName === right.sourceName) return null;
+  const leftUrl = left.articleUrl.trim().replace(/\/+$/, "").toLocaleLowerCase("fr");
+  const rightUrl = right.articleUrl.trim().replace(/\/+$/, "").toLocaleLowerCase("fr");
+  if (leftUrl && leftUrl === rightUrl) {
+    return "Même URL de résultat fournie par plusieurs sources.";
+  }
+  if (!left.eventDateFrom || left.eventDateFrom !== right.eventDateFrom) return null;
+  const leftEvidence = explicitMatchEvidence(left);
+  const rightEvidence = explicitMatchEvidence(right);
+  if (!leftEvidence || !rightEvidence || leftEvidence.score !== rightEvidence.score) return null;
+  const sharedTokens = [...leftEvidence.tokens].filter((token) => rightEvidence.tokens.has(token));
+  return sharedTokens.length >= 2
+    ? "Même athlète, même date, même score explicite et participants ou équipes concordants."
+    : null;
+};
+
+const findPotentialDuplicates = (
+  candidates: SportsWatchCandidate[],
+): SportsWatchPotentialDuplicate[] => {
+  const duplicates: SportsWatchPotentialDuplicate[] = [];
+  for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < candidates.length; rightIndex += 1) {
+      const left = candidates[leftIndex];
+      const right = candidates[rightIndex];
+      const reason = potentialDuplicateReason(left, right);
+      if (!reason) continue;
+      const pair = [left, right].sort((a, b) => a.id.localeCompare(b.id));
+      duplicates.push({
+        id: pair.map((candidate) => candidate.id).join(":"),
+        reason,
+        candidates: pair.map((candidate) => ({
+          id: candidate.id,
+          athleteName: candidate.athleteName,
+          sourceName: candidate.sourceName,
+          articleUrl: candidate.articleUrl,
+          title: candidate.title,
+          eventDateFrom: candidate.eventDateFrom,
+        })),
+      });
+    }
+  }
+  return duplicates;
+};
+
+const buildCandidateProvenance = (candidate: SportsWatchCandidate): string => {
+  const verificationLabel = candidate.verificationStatus === "verified"
+    ? "vérifiée"
+    : candidate.verificationStatus === "disputed"
+      ? "contestée"
+      : "non vérifiée";
+  return [
+    `${candidate.sourceName} — ${candidate.articleUrl}`,
+    `Publication : ${dateLabel(candidate.publicationDate)}`,
+    `Événement : ${dateLabel(candidate.eventDateFrom)}${candidate.eventDateTo && candidate.eventDateTo !== candidate.eventDateFrom ? ` au ${dateLabel(candidate.eventDateTo)}` : ""}`,
+    `Collecte : ${dateLabel(candidate.collectedAt)}`,
+    `Vérification factuelle : ${verificationLabel}`,
+  ].join(" · ");
+};
+
+const articleResultKindLabel: Record<SportsWatchCandidate["resultKind"], string> = {
+  collective_result: "résultat collectif, sans participation individuelle déduite",
+  individual_result: "participation individuelle établie",
+  news_excerpt: "extrait éditorial attribué, sans performance individuelle déduite",
+  participation: "présence ou participation selon les éléments explicites de la source",
+};
 const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
   name: string;
   url: string;
@@ -1187,26 +1295,95 @@ export const createSportsWatchService = (
     if (!candidate) {
       throw new SportsWatchError("not_found", "Candidat validé introuvable dans cet espace.");
     }
-    const verificationLabel = candidate.verificationStatus === "verified"
-      ? "vérifiée"
-      : candidate.verificationStatus === "disputed"
-        ? "contestée"
-        : "non vérifiée";
-    const provenance = [
-      `${candidate.sourceName} — ${candidate.articleUrl}`,
-      `Publication : ${dateLabel(candidate.publicationDate)}`,
-      `Événement : ${dateLabel(candidate.eventDateFrom)}${candidate.eventDateTo && candidate.eventDateTo !== candidate.eventDateFrom ? ` au ${dateLabel(candidate.eventDateTo)}` : ""}`,
-      `Collecte : ${dateLabel(candidate.collectedAt)}`,
-      `Vérification factuelle : ${verificationLabel}`,
-    ].join(" · ");
     const sourceDate = candidate.eventDateFrom
       ?? candidate.publicationDate?.slice(0, 10)
       ?? candidate.collectedAt.slice(0, 10);
     return {
       candidateId: candidate.id,
+      candidateIds: [candidate.id],
       athleteId: candidate.athleteId,
+      athleteIds: [candidate.athleteId],
       verificationStatus: candidate.verificationStatus,
-      materials: buildSportsWatchArticleMaterials(candidate, provenance, sourceDate),
+      materials: buildSportsWatchArticleMaterials(
+        candidate,
+        buildCandidateProvenance(candidate),
+        sourceDate,
+      ),
+      potentialDuplicates: [],
+    };
+  },
+
+  async buildArticlePrefillFromSelection(
+    candidateIdsValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchArticlePrefill> {
+    if (!Array.isArray(candidateIdsValue) || candidateIdsValue.length === 0) {
+      throw new SportsWatchError("validation", "Sélectionnez au moins un résultat validé.");
+    }
+    if (candidateIdsValue.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+      throw new SportsWatchError(
+        "validation",
+        `La sélection dépasse la capacité maximale de ${MANUAL_EDITORIAL_MATERIAL_LIMIT} matières Article.`,
+      );
+    }
+    const candidateIds = candidateIdsValue.map(requireUuid);
+    if (new Set(candidateIds).size !== candidateIds.length) {
+      throw new SportsWatchError("validation", "La sélection contient un résultat en double.");
+    }
+    const candidates = await dependencies.repository.getArticleCandidates(
+      identity.workspaceId,
+      candidateIds,
+    );
+    if (
+      candidates.length !== candidateIds.length
+      || candidates.some((candidate, index) => candidate.id !== candidateIds[index])
+    ) {
+      throw new SportsWatchError(
+        "conflict",
+        "Un résultat appartient à un autre espace, a été remplacé ou n’est plus éligible. Actualisez la veille et réduisez la sélection.",
+      );
+    }
+    const multipleCandidates = candidates.length > 1;
+    const materials = candidates.flatMap((candidate) => {
+      const sourceDate = candidate.eventDateFrom
+        ?? candidate.publicationDate?.slice(0, 10)
+        ?? candidate.collectedAt.slice(0, 10);
+      const text = multipleCandidates
+        ? [
+            `Athlète : ${candidate.athleteName}.`,
+            `Statut factuel : ${articleResultKindLabel[candidate.resultKind]}.`,
+            `Résultat : ${candidate.title}.`,
+            candidate.excerpt,
+          ].join(" ")
+        : candidate.excerpt;
+      return buildSportsWatchArticleMaterials(
+        candidate,
+        buildCandidateProvenance(candidate),
+        sourceDate,
+        text,
+      );
+    });
+    if (materials.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+      throw new SportsWatchError(
+        "validation",
+        `La sélection exige ${materials.length} matières, au-delà de la limite de ${MANUAL_EDITORIAL_MATERIAL_LIMIT}. Réduisez la sélection avant le transfert.`,
+      );
+    }
+    const athleteIds = [...new Set(candidates.map((candidate) => candidate.athleteId))];
+    const verificationStatus = candidates.some((candidate) =>
+      candidate.verificationStatus === "disputed")
+      ? "disputed"
+      : candidates.every((candidate) => candidate.verificationStatus === "verified")
+        ? "verified"
+        : "unverified";
+    return {
+      candidateId: candidates[0].id,
+      candidateIds,
+      athleteId: athleteIds.length === 1 ? athleteIds[0] : null,
+      athleteIds,
+      verificationStatus,
+      materials,
+      potentialDuplicates: findPotentialDuplicates(candidates),
     };
   },
   };
