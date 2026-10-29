@@ -40,6 +40,21 @@ describe("scheduled sports watch refresh route", () => {
     expect(mocks.work).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["an absent configured secret", "", "Bearer supplied-secret"],
+    ["an incorrect supplied secret", "cron-secret", "Bearer incorrect-secret"],
+  ])("rejects %s", async (_label, configuredSecret, authorization) => {
+    vi.stubEnv("CRON_SECRET", configuredSecret);
+    const response = await GET(new Request(
+      "http://localhost/api/internal/sports-watch-refresh?mode=work",
+      { headers: { authorization } },
+    ));
+
+    expect(response.status).toBe(401);
+    expect(mocks.schedule).not.toHaveBeenCalled();
+    expect(mocks.work).not.toHaveBeenCalled();
+  });
+
   it("has no effect until explicit activation", async () => {
     vi.stubEnv("CRON_SECRET", "cron-secret");
     mocks.scheduledEnabled.mockReturnValue(false);

@@ -23,6 +23,12 @@ export const isPublicMembershipPlansApi = (pathname: string, method: string): bo
 export const isPublicKliqueStatsApi = (pathname: string, method: string): boolean =>
   pathname === "/api/public/klique-stats" && method === "GET";
 
+export const isScheduledSportsWatchRefreshCron = (
+  pathname: string,
+  method: string,
+): boolean =>
+  pathname === "/api/internal/sports-watch-refresh" && method === "GET";
+
 export const isPublicHomePage = (pathname: string): boolean => pathname === "/";
 
 export const isProspectMembershipOrderApi = (pathname: string, method: string): boolean =>
@@ -262,6 +268,7 @@ export const handleKliqueProxyRequest = async (
     || isPublicPassPage(pathname)
     || isPublicKliqueStatsApi(pathname, request.method)
     || isPublicMembershipPlansApi(pathname, request.method)
+    || isScheduledSportsWatchRefreshCron(pathname, request.method)
   ) {
     return NextResponse.next();
   }

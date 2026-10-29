@@ -74,7 +74,8 @@ const activeCreativeRow = {
   creative_profile_status: "active",
 };
 
-const request = (pathname: string) => new NextRequest(`http://localhost${pathname}`, {
+const request = (pathname: string, method = "GET") => new NextRequest(`http://localhost${pathname}`, {
+  method,
   headers: { "x-workspace-id": "workspace-client" },
 });
 
@@ -110,6 +111,28 @@ describe("proxy local-first access", () => {
       }
       return [];
     });
+  });
+
+  it("allows only GET on the exact scheduled Sports Watch Cron path past Clerk", async () => {
+    const cronAuth = makeAuth(null);
+    const getResponse = await handleKliqueProxyRequest(
+      cronAuth,
+      request("/api/internal/sports-watch-refresh?mode=work"),
+    );
+
+    expectAllowed(getResponse);
+    expect(protect).not.toHaveBeenCalled();
+
+    await handleKliqueProxyRequest(
+      cronAuth,
+      request("/api/internal/sports-watch-refresh?mode=work", "POST"),
+    );
+    await handleKliqueProxyRequest(
+      cronAuth,
+      request("/api/internal/sports-watch-refresh-other?mode=work"),
+    );
+
+    expect(protect).toHaveBeenCalledTimes(2);
   });
 
   it.each(["/today", "/crm/demandes"])(
