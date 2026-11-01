@@ -110,7 +110,25 @@ const roundTranslations: Record<string, string> = {
 
 const translateRound = (value: string): string => roundTranslations[value] ?? value;
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const normalizeIdentityLabel = (value: string): string => value
+  .trim()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLocaleLowerCase("fr")
+  .replace(/\s+/g, " ");
+
+const sameIdentityLabel = (left: string, right: string): boolean =>
+  normalizeIdentityLabel(left) === normalizeIdentityLabel(right);
+
+const splitTeam = (value: string): string[] =>
+  value.split(" et ").map((member) => member.trim()).filter(Boolean);
+
+const sameTeam = (left: string, right: string): boolean => {
+  const leftMembers = splitTeam(left).map(normalizeIdentityLabel).sort();
+  const rightMembers = splitTeam(right).map(normalizeIdentityLabel).sort();
+  return leftMembers.length === rightMembers.length
+    && leftMembers.every((member, index) => member === rightMembers[index]);
+};
 
 const readOutcome = (
   athleteWon: boolean,
@@ -143,6 +161,7 @@ const parseStructuredCandidate = (
   candidate: SportsWatchCandidate,
   countedInSummary: boolean,
 ): SportsWatchPresentedMatch | null => {
+  if (candidate.sourceName !== "Swiss Badminton / Tournamentsoftware") return null;
   const header = candidate.excerpt.match(structuredMatchHeader);
   if (!header) return null;
   const [, competitionName, eventCode, disciplineValue, roundValue, body] = header;
@@ -152,15 +171,21 @@ const parseStructuredCandidate = (
   const round = roundValue ? translateRound(roundValue) : null;
 
   if (discipline === "simple") {
-    const pattern = new RegExp(
-      `^Ordre officiel : (.+?) puis (.+?)\\. Vainqueur explicite : (.+?)\\. Scores dans l’ordre officiel : (.+?)\\. Score du point de vue d’${escapeRegExp(candidate.athleteName)} : (.+?)\\.(?: Classement final explicitement indiqué : .+?\\.)?$`,
-    );
+    const pattern =
+      /^Ordre officiel : (.+?) puis (.+?)\. Vainqueur explicite : (.+?)\. Scores dans l’ordre officiel : (.+?)\. Score du point de vue d’(.+?) : (.+?)\.(?: Classement final explicitement indiqué : .+?\.)?$/;
     const match = body.match(pattern);
     if (!match) return null;
-    const [, firstPlayer, secondPlayer, winner, , athleteScore] = match;
-    if (candidate.athleteName !== firstPlayer && candidate.athleteName !== secondPlayer) return null;
-    const opponent = candidate.athleteName === firstPlayer ? secondPlayer : firstPlayer;
-    const athleteWon = winner === candidate.athleteName;
+    const [, firstPlayer, secondPlayer, winner, , excerptAthleteName, athleteScore] = match;
+    if (!sameIdentityLabel(excerptAthleteName, candidate.athleteName)) return null;
+    const athleteIsFirst = sameIdentityLabel(candidate.athleteName, firstPlayer);
+    const athleteIsSecond = sameIdentityLabel(candidate.athleteName, secondPlayer);
+    if (athleteIsFirst === athleteIsSecond) return null;
+    if (
+      !sameIdentityLabel(winner, firstPlayer)
+      && !sameIdentityLabel(winner, secondPlayer)
+    ) return null;
+    const opponent = athleteIsFirst ? secondPlayer : firstPlayer;
+    const athleteWon = sameIdentityLabel(winner, candidate.athleteName);
     const result = readOutcome(athleteWon, athleteScore);
     return {
       candidate,
@@ -177,14 +202,46 @@ const parseStructuredCandidate = (
     };
   }
 
-  const pattern = new RegExp(
-    `^Équipe 1 officielle : (.+?)\\. Équipe 2 officielle : (.+?)\\. Équipe d’${escapeRegExp(candidate.athleteName)} : (.+?)\\. Partenaire d’${escapeRegExp(candidate.athleteName)} : (.+?)\\. Adversaires : (.+?)\\. Équipe gagnante explicite : (.+?)\\. Scores dans l’ordre officiel des équipes : (.+?)\\. Scores du point de vue de l’équipe d’${escapeRegExp(candidate.athleteName)} : (.+?)\\.(?: Classement final explicitement indiqué : .+?\\.)?$`,
-  );
+  const pattern =
+    /^Équipe 1 officielle : (.+?)\. Équipe 2 officielle : (.+?)\. Équipe d’(.+?) : (.+?)\. Partenaire d’(.+?) : (.+?)\. Adversaires : (.+?)\. Équipe gagnante explicite : (.+?)\. Scores dans l’ordre officiel des équipes : (.+?)\. Scores du point de vue de l’équipe d’(.+?) : (.+?)\.(?: Classement final explicitement indiqué : .+?\.)?$/;
   const match = body.match(pattern);
   if (!match) return null;
-  const [, , , athleteTeam, partner, opponents, winningTeam, , athleteScore] = match;
-  if (!athleteTeam.split(" et ").includes(candidate.athleteName)) return null;
-  const athleteWon = winningTeam === athleteTeam;
+  const [
+    ,
+    firstTeam,
+    secondTeam,
+    teamAthleteName,
+    athleteTeam,
+    partnerAthleteName,
+    partner,
+    opponents,
+    winningTeam,
+    ,
+    scoreAthleteName,
+    athleteScore,
+  ] = match;
+  if (
+    !sameIdentityLabel(teamAthleteName, candidate.athleteName)
+    || !sameIdentityLabel(partnerAthleteName, candidate.athleteName)
+    || !sameIdentityLabel(scoreAthleteName, candidate.athleteName)
+  ) return null;
+  const athleteTeamMembers = splitTeam(athleteTeam);
+  if (athleteTeamMembers.length !== 2) return null;
+  const athleteMembers = athleteTeamMembers.filter((member) =>
+    sameIdentityLabel(member, candidate.athleteName));
+  if (athleteMembers.length !== 1) return null;
+  const expectedPartner = athleteTeamMembers.find((member) =>
+    !sameIdentityLabel(member, candidate.athleteName));
+  if (!expectedPartner || !sameIdentityLabel(expectedPartner, partner)) return null;
+  const athleteIsFirstTeam = sameTeam(athleteTeam, firstTeam);
+  const athleteIsSecondTeam = sameTeam(athleteTeam, secondTeam);
+  if (athleteIsFirstTeam === athleteIsSecondTeam) return null;
+  const opponentTeam = athleteIsFirstTeam ? secondTeam : firstTeam;
+  if (splitTeam(opponentTeam).length !== 2 || !sameTeam(opponents, opponentTeam)) return null;
+  const winnerIsFirstTeam = sameTeam(winningTeam, firstTeam);
+  const winnerIsSecondTeam = sameTeam(winningTeam, secondTeam);
+  if (winnerIsFirstTeam === winnerIsSecondTeam) return null;
+  const athleteWon = sameTeam(winningTeam, athleteTeam);
   const result = readOutcome(athleteWon, athleteScore);
   return {
     candidate,
@@ -375,6 +432,7 @@ export const buildSportsWatchAthleteGroups = (
 
 export const sportsWatchPresentationTestUtils = {
   disciplineFromEventCode,
+  normalizeIdentityLabel,
   parseStructuredCandidate,
   readCandidateTitle,
   translateRound,

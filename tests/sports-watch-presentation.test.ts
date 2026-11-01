@@ -58,7 +58,7 @@ const teamExcerpt = (
 
 const twelveMatches = (): SportsWatchCandidate[] => {
   const rows: SportsWatchCandidate[] = [];
-  const simpleWinners = ["Antoine Majeux", "Pranav Khot", "Benjamin Cupillard", "Antoine Majeux"];
+  const simpleWinners = ["Antoine Majeux", "Adversaire 2", "Adversaire 3", "Antoine Majeux"];
   ["Ronde van 16", "Kwartfinale", "5e/8e plaats", "7e/8e plaats"].forEach((round, index) => {
     rows.push(candidate(
       `simple-${index}`,
@@ -72,7 +72,7 @@ const twelveMatches = (): SportsWatchCandidate[] => {
     "Antoine Majeux et Max Pasquier",
     "Antoine Majeux et Max Pasquier",
     "Antoine Majeux et Max Pasquier",
-    "Jonathan Muller et Antoine Tran",
+    "Adversaire 4A et Adversaire 4B",
   ];
   ["Ronde van 16", "Kwartfinale", "Halve finale", "Finale"].forEach((round, index) => {
     rows.push(candidate(
@@ -93,8 +93,8 @@ const twelveMatches = (): SportsWatchCandidate[] => {
   });
   const mixedWinners = [
     "Antoine Majeux et Anja Stehlin",
-    "Alan Sterchi et Katarzyna Wojtowicz",
-    "Rémi Bloch et Colombine Verzat",
+    "Adversaire 2A et Adversaire 2B",
+    "Adversaire 3A et Adversaire 3B",
     "Antoine Majeux et Anja Stehlin",
   ];
   ["Ronde van 16", "Kwartfinale", "5e/8e plaats", "7e/8e plaats"].forEach((round, index) => {

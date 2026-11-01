@@ -138,6 +138,24 @@ describe("sports watch editorial presentation", () => {
     );
   });
 
+  it("uses a neutral label for an unparsed manual import", () => {
+    const presentation = buildSportsWatchEditorialPresentation(candidate({
+      sourceName: "Document privé",
+      sourceUrl: "/api/admin/sports-watch/imports/11111111-1111-4111-8111-111111111111/file",
+      articleUrl: "/api/admin/sports-watch/imports/11111111-1111-4111-8111-111111111111/file",
+      title: "Elfic–Nyon · Mila Benjak",
+      excerpt: "Participation individuelle explicitement indiquée dans le document importé.",
+      resultKind: "participation",
+    }));
+
+    expect(presentation).toMatchObject({
+      headline: "Résultat importé",
+      supportingLine: "Elfic–Nyon · Mila Benjak",
+      participationNote: null,
+      outcome: "neutral",
+    });
+  });
+
   it("keeps a non-structured candidate factual and unclassified", () => {
     const presentation = buildSportsWatchEditorialPresentation(candidate({
       title: "Résultat officiel à examiner",

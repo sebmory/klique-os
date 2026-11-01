@@ -193,6 +193,20 @@ export const buildSportsWatchEditorialPresentation = (
 ): SportsWatchEditorialPresentation => {
   const basketball = presentSwissBasketball(candidate) ?? presentBeBasket(candidate);
   if (basketball) return basketball;
+  if (
+    candidate.sourceUrl.startsWith("/api/admin/sports-watch/imports/")
+    && candidate.sourceUrl.endsWith("/file")
+  ) {
+    return {
+      headline: "Résultat importé",
+      supportingLine: candidate.title,
+      collectiveLine: null,
+      contextLabel: null,
+      secondaryStats: [],
+      participationNote: null,
+      outcome: "neutral",
+    };
+  }
   if (candidate.resultKind === "collective_result") {
     return {
       headline: "Résultat collectif",

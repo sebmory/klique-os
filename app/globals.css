@@ -8462,15 +8462,15 @@ button {
 
 .sports-results-editorial {
   display: grid;
-  gap: 14px;
-  padding: 0 14px 14px;
+  gap: 10px;
+  padding: 0 12px 12px;
 }
 
 .sports-editorial-list,
 .sports-discipline-list,
 .sports-match-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .sports-editorial-result,
@@ -8483,13 +8483,25 @@ button {
 }
 
 .sports-editorial-result {
-  padding: 16px;
+  padding: 14px 16px;
 }
 
 .sports-editorial-result.is-victory { border-left: 3px solid #598160; }
 .sports-editorial-result.is-defeat { border-left: 3px solid #9b6259; }
 
-.sports-editorial-heading,
+.sports-editorial-layout {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(240px, 1.35fr) minmax(210px, auto);
+  align-items: start;
+  gap: 12px 20px;
+}
+
+.sports-editorial-heading {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
 .sports-tournament-header,
 .sports-discipline > header {
   display: flex;
@@ -8498,24 +8510,29 @@ button {
   gap: 14px;
 }
 
-.sports-editorial-heading > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
 .sports-editorial-heading strong {
   color: #201c18;
-  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
   font-weight: 760;
   letter-spacing: -0.035em;
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
 
-.sports-editorial-heading > div > span {
+.sports-editorial-heading > span {
   color: #6d6259;
   font-size: 0.84rem;
+}
+
+.sports-editorial-context {
+  min-width: 0;
+}
+
+.sports-editorial-controls {
+  display: grid;
+  justify-items: end;
+  min-width: 0;
+  gap: 6px;
 }
 
 .sports-result-status {
@@ -8530,7 +8547,7 @@ button {
 .sports-result-status.is-rejected { color: #8b4b45; }
 
 .sports-collective-result {
-  margin: 12px 0 0;
+  margin: 0;
   color: #2d2925;
   font-size: 1rem;
   font-weight: 720;
@@ -8550,7 +8567,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
-  margin: 14px 0 0;
+  margin: 8px 0 0;
 }
 
 .sports-result-stats > div { display: grid; gap: 1px; }
@@ -8558,13 +8575,13 @@ button {
 .sports-result-stats dd { margin: 0; color: #2d2925; font-size: 0.9rem; font-weight: 740; }
 
 .sports-result-caution {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   color: #755c43;
   font-size: 0.74rem;
   line-height: 1.4;
 }
 
-.sports-tournament { padding: 16px; }
+.sports-tournament { padding: 14px 16px; }
 
 .sports-tournament-header h3,
 .sports-discipline h4 {
@@ -8575,14 +8592,14 @@ button {
 
 .sports-tournament-header h3 { font-size: 1.05rem; }
 .sports-tournament-header > span { color: #7a7068; font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
-.sports-tournament-note { max-width: 62ch; margin-bottom: 14px; }
+.sports-tournament-note { max-width: 72ch; margin-bottom: 10px; }
 
 .sports-discipline {
-  padding-top: 12px;
+  padding-top: 9px;
   border-top: 1px solid #ece8e3;
 }
 
-.sports-discipline > header { margin-bottom: 8px; }
+.sports-discipline > header { margin-bottom: 4px; }
 .sports-discipline h4 { font-size: 0.94rem; }
 .sports-discipline > header > span { color: #6d6259; font-size: 0.74rem; }
 
@@ -8594,7 +8611,7 @@ button {
   grid-template-columns: minmax(6rem, auto) minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
+  min-height: 38px;
   cursor: pointer;
   color: #4f4943;
   font-size: 0.8rem;
@@ -8613,7 +8630,7 @@ button {
 .sports-disclosure-label { color: #9a4f1d; font-size: 0.72rem; font-weight: 700; }
 .sports-match[open] .sports-disclosure-label::after { content: " ouvert"; }
 
-.sports-match-body { padding: 4px 0 14px 26px; }
+.sports-match-body { padding: 4px 0 10px 26px; }
 
 .sports-match-context {
   display: flex;
@@ -8635,18 +8652,116 @@ button {
 
 .sports-match-body > p strong { color: #7a7068; font-weight: 650; }
 
-.sports-editorial-result .card-link-button,
-.sports-match-body .card-link-button {
-  min-height: 40px;
-  margin-top: 8px;
-  padding: 8px 2px;
+.sports-candidate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.sports-candidate-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  color: #5f554d;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.sports-candidate-actions .sports-action {
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid #ddd5cc;
+  border-radius: 6px;
+  background: #fff;
+  color: #6d5140;
+  font-size: 0.74rem;
+  line-height: 1.1;
+}
+
+.sports-candidate-actions .sports-action:hover {
+  border-color: #b7aa9d;
+  background: #faf7f4;
+}
+
+.sports-candidate-actions .sports-action.is-primary {
+  border-color: #a84d14;
+  background: #a84d14;
+  color: #fff;
+}
+
+.sports-candidate-actions .sports-action.is-primary:hover {
+  border-color: #853b0e;
+  background: #853b0e;
+  color: #fff;
+}
+
+.sports-source-details {
+  min-width: 0;
+  margin: 0;
+}
+
+.sports-source-details > summary {
+  min-height: 30px;
+  padding: 6px 0;
+  cursor: pointer;
+  color: #786e66;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.sports-source-details > summary::after {
+  content: "+";
+  margin-left: 6px;
+  color: #a84d14;
+}
+
+.sports-source-details[open] > summary::after {
+  content: "-";
+}
+
+.sports-source-details > summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #d96f27;
+  outline-offset: 2px;
+}
+
+.sports-match-body .sports-candidate-actions {
+  justify-content: flex-start;
+  margin-top: 7px;
 }
 
 @media (max-width: 560px) {
   .sports-results-editorial { padding: 0 10px 10px; }
   .sports-editorial-result,
-  .sports-tournament { padding: 14px; }
-  .sports-editorial-heading,
+  .sports-tournament { padding: 12px; }
+  .sports-editorial-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .sports-editorial-controls {
+    justify-items: stretch;
+    gap: 4px;
+  }
+  .sports-editorial-controls .sports-result-status {
+    grid-row: 1;
+  }
+  .sports-candidate-actions {
+    justify-content: flex-start;
+  }
+  .sports-candidate-actions .sports-action,
+  .sports-candidate-select {
+    min-height: 42px;
+  }
+  .sports-source-details > summary {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+  }
   .sports-tournament-header,
   .sports-discipline > header { gap: 8px; }
   .sports-match > summary {

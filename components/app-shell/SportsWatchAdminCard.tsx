@@ -1191,17 +1191,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const renderCandidateActions = (candidate: SportsWatchCandidate) => {
     const superseded = candidateViews.supersededIds.has(candidate.id);
     return (
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.65rem" }}>
+      <div className="sports-candidate-actions">
         {candidate.adminStatus === "validated" && !superseded ? (
-          <label
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "0.35rem",
-              fontSize: "0.78rem",
-              fontWeight: 700,
-            }}
-          >
+          <label className="sports-candidate-select">
             <input
               type="checkbox"
               checked={selectedCandidateIds.has(candidate.id)}
@@ -1215,7 +1207,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           <>
             <button
               type="button"
-              className="card-link-button"
+              className="card-link-button sports-action is-primary"
               disabled={
                 busyCandidateId === candidate.id
                 || candidate.attributionStatus === "ambiguous"
@@ -1226,7 +1218,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             </button>
             <button
               type="button"
-              className="card-link-button"
+              className="card-link-button sports-action"
               disabled={busyCandidateId === candidate.id}
               onClick={() => void review(candidate, "rejected")}
             >
@@ -1237,7 +1229,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         {candidate.adminStatus === "validated" && !superseded ? (
           <button
             type="button"
-            className="card-link-button"
+            className="card-link-button sports-action"
             disabled={busyCandidateId === candidate.id}
             onClick={() => void review(candidate, "exploited")}
           >
@@ -1247,7 +1239,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         {candidate.adminStatus === "exploited" && !superseded ? (
           <button
             type="button"
-            className="card-link-button"
+            className="card-link-button sports-action"
             disabled={busyCandidateId === candidate.id}
             onClick={() => void review(candidate, "validated")}
           >
@@ -1257,7 +1249,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         {candidate.adminStatus === "validated" || candidate.adminStatus === "exploited" ? (
         <button
           type="button"
-          className="card-link-button"
+          className="card-link-button sports-action is-primary"
           disabled={busyCandidateId === candidate.id}
           onClick={() => prepareArticle(candidate)}
         >
@@ -1274,8 +1266,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   };
 
   const renderSourceDetails = (candidate: SportsWatchCandidate) => (
-    <details style={{ marginTop: "0.55rem", minWidth: 0 }}>
-      <summary style={{ cursor: "pointer", color: "#6b7280", fontSize: "0.78rem", fontWeight: 700 }}>
+    <details className="sports-source-details">
+      <summary>
         Source et détails
       </summary>
       <div style={{ marginTop: "0.45rem", minWidth: 0, overflowWrap: "anywhere" }}>
@@ -2491,6 +2483,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           {athleteGroups.map((athleteGroup) => (
             <details
               key={athleteGroup.athleteId}
+              data-sports-athlete-id={athleteGroup.athleteId}
               open={openAthleteIds.has(athleteGroup.athleteId)}
               onToggle={(event) =>
                 setAthleteCardOpen(athleteGroup.athleteId, event.currentTarget.open)}

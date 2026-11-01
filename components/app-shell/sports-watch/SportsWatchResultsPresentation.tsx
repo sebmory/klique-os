@@ -156,40 +156,47 @@ const EditorialCandidate = ({
 }) => {
   const presentation = buildSportsWatchEditorialPresentation(candidate);
   return (
-    <article className={`sports-editorial-result is-${presentation.outcome}`}>
-      <div className="sports-editorial-heading">
-        <div>
+    <article
+      className={`sports-editorial-result is-${presentation.outcome}`}
+      data-sports-candidate-id={candidate.id}
+    >
+      <div className="sports-editorial-layout">
+        <div className="sports-editorial-heading">
           <strong>{presentation.headline}</strong>
           {presentation.supportingLine ? <span>{presentation.supportingLine}</span> : null}
         </div>
-        <CandidateStatus candidate={candidate} />
+        <div className="sports-editorial-context">
+          {presentation.collectiveLine ? (
+            <p className="sports-collective-result">{presentation.collectiveLine}</p>
+          ) : null}
+          <p className="sports-result-context">
+            {[presentation.contextLabel, formatDate(candidate.eventDateFrom)]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {presentation.secondaryStats.length > 0 ? (
+            <dl className="sports-result-stats">
+              {presentation.secondaryStats.map((statistic) => (
+                <div key={statistic.label}>
+                  <dt>{statistic.label}</dt>
+                  <dd>{statistic.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+          {presentation.participationNote ? (
+            <p className="sports-result-caution">{presentation.participationNote}</p>
+          ) : null}
+          {!countedInSummary ? (
+            <p className="sports-result-caution">Version antérieure, non comptée dans le bilan.</p>
+          ) : null}
+        </div>
+        <div className="sports-editorial-controls">
+          <CandidateStatus candidate={candidate} />
+          {renderActions(candidate)}
+          {renderSourceDetails(candidate)}
+        </div>
       </div>
-      {presentation.collectiveLine ? (
-        <p className="sports-collective-result">{presentation.collectiveLine}</p>
-      ) : null}
-      <p className="sports-result-context">
-        {[presentation.contextLabel, formatDate(candidate.eventDateFrom)]
-          .filter(Boolean)
-          .join(" · ")}
-      </p>
-      {presentation.secondaryStats.length > 0 ? (
-        <dl className="sports-result-stats">
-          {presentation.secondaryStats.map((statistic) => (
-            <div key={statistic.label}>
-              <dt>{statistic.label}</dt>
-              <dd>{statistic.value}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {presentation.participationNote ? (
-        <p className="sports-result-caution">{presentation.participationNote}</p>
-      ) : null}
-      {!countedInSummary ? (
-        <p className="sports-result-caution">Version antérieure, non comptée dans le bilan.</p>
-      ) : null}
-      {renderActions(candidate)}
-      {renderSourceDetails(candidate)}
     </article>
   );
 };
