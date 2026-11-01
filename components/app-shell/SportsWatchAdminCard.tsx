@@ -2606,10 +2606,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
                               <strong style={{ fontSize: "0.84rem" }}>
-                                {formatDate(match.candidate.eventDateFrom)} · {match.round}
+                                {formatDate(match.candidate.eventDateFrom)}
+                                {match.round ? ` · ${match.round}` : ""}
                               </strong>
                               <span className="priority-badge">{match.outcomeLabel}</span>
                             </div>
+                            <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem" }}>
+                              <strong>Épreuve :</strong> {match.eventCode}
+                            </p>
                             {match.partner ? (
                               <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem" }}>
                                 <strong>Partenaire :</strong> {match.partner}

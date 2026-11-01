@@ -9,7 +9,7 @@ export type SportsWatchPresentedMatch = {
   discipline: SportsWatchDiscipline;
   competitionName: string;
   eventCode: string;
-  round: string;
+  round: string | null;
   partner: string | null;
   opponents: string;
   outcome: SportsWatchOutcome;
@@ -63,7 +63,41 @@ export type SportsWatchCandidateViews = {
 
 const disciplineOrder: SportsWatchDiscipline[] = ["simple", "double", "mixte"];
 
-const strictMatchHeader = /^(.*?) — ([A-Z0-9]+) \((simple|double|mixte)\) — (.+?)\. (.+)$/;
+const structuredMatchHeader =
+  /^(.+) — (.+?) \((simple|double|mixte)\)(?: — (.+?))?\. (.+)$/;
+
+const disciplineFromEventCode = (eventCode: string): SportsWatchDiscipline | null => {
+  if (
+    /^(?:SM|SD|HE|DE|MS|WS|SH|SF)\d*$/i.test(eventCode)
+    || /^Simple (?:Hommes|Dames) \d+$/.test(eventCode)
+  ) {
+    return "simple";
+  }
+  if (
+    /^(?:DX|MX|XD)\d*$/i.test(eventCode)
+    || /^(?:Double Mixte|Mixte) \d+$/.test(eventCode)
+  ) {
+    return "mixte";
+  }
+  if (
+    /^(?:DM|DD|HD|MD|WD|DH|DF)\d*$/i.test(eventCode)
+    || /^Double (?:Hommes|Dames) \d+$/.test(eventCode)
+  ) {
+    return "double";
+  }
+  return null;
+};
+
+const readCandidateTitle = (
+  title: string,
+): { competitionName: string; eventCode: string; discipline: SportsWatchDiscipline } | null => {
+  const separatorIndex = title.lastIndexOf(" — ");
+  if (separatorIndex <= 0) return null;
+  const competitionName = title.slice(0, separatorIndex).trim();
+  const eventCode = title.slice(separatorIndex + 3).trim();
+  const discipline = disciplineFromEventCode(eventCode);
+  return competitionName && discipline ? { competitionName, eventCode, discipline } : null;
+};
 
 const roundTranslations: Record<string, string> = {
   "Ronde van 16": "Huitième de finale",
@@ -109,11 +143,13 @@ const parseStructuredCandidate = (
   candidate: SportsWatchCandidate,
   countedInSummary: boolean,
 ): SportsWatchPresentedMatch | null => {
-  const header = candidate.excerpt.match(strictMatchHeader);
+  const header = candidate.excerpt.match(structuredMatchHeader);
   if (!header) return null;
-  const [, competitionName, eventCode, disciplineValue, round, body] = header;
+  const [, competitionName, eventCode, disciplineValue, roundValue, body] = header;
   const discipline = disciplineValue as SportsWatchDiscipline;
+  if (disciplineFromEventCode(eventCode) !== discipline) return null;
   if (candidate.title !== `${competitionName} — ${eventCode}`) return null;
+  const round = roundValue ? translateRound(roundValue) : null;
 
   if (discipline === "simple") {
     const pattern = new RegExp(
@@ -132,7 +168,7 @@ const parseStructuredCandidate = (
       discipline,
       competitionName,
       eventCode,
-      round: translateRound(round),
+      round,
       partner: null,
       opponents: opponent,
       outcome: result.outcome,
@@ -156,7 +192,7 @@ const parseStructuredCandidate = (
     discipline,
     competitionName,
     eventCode,
-    round: translateRound(round),
+    round,
     partner,
     opponents,
     outcome: result.outcome,
@@ -217,6 +253,9 @@ export const buildSportsWatchTournamentGroups = (
       );
       const firstStructured = structured[0];
       const firstCandidate = value.candidates[0];
+      const firstRecognizedTitle = value.candidates
+        .map((candidate) => readCandidateTitle(candidate.title))
+        .find((title) => title !== null);
       const disciplines = disciplineOrder
         .map((discipline): SportsWatchDisciplineGroup | null => {
           const matches = structured
@@ -252,7 +291,9 @@ export const buildSportsWatchTournamentGroups = (
       return {
         key,
         athleteName: firstCandidate.athleteName,
-        competitionName: firstStructured?.competitionName ?? firstCandidate.title,
+        competitionName: firstStructured?.competitionName
+          ?? firstRecognizedTitle?.competitionName
+          ?? firstCandidate.title,
         sourceName: firstCandidate.sourceName,
         sourceUrl: firstCandidate.sourceUrl,
         eventDateFrom: minDate(relevantDates),
@@ -333,6 +374,8 @@ export const buildSportsWatchAthleteGroups = (
 };
 
 export const sportsWatchPresentationTestUtils = {
+  disciplineFromEventCode,
   parseStructuredCandidate,
+  readCandidateTitle,
   translateRound,
 };

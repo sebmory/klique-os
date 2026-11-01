@@ -47,14 +47,14 @@ const simpleExcerpt = (
 ) => `Neuch'Cup 2026 — SM1 (simple) — ${round}. Ordre officiel : Antoine Majeux puis ${opponent}. Vainqueur explicite : ${winner}. Scores dans l’ordre officiel : ${score}. Score du point de vue d’Antoine Majeux : ${score}.`;
 
 const teamExcerpt = (
-  eventCode: "DM2" | "DX1",
+  eventCode: string,
   discipline: "double" | "mixte",
-  round: string,
+  round: string | null,
   partner: string,
   opponents: string,
   winningTeam: string,
   score: string,
-) => `Neuch'Cup 2026 — ${eventCode} (${discipline}) — ${round}. Équipe 1 officielle : Antoine Majeux et ${partner}. Équipe 2 officielle : ${opponents}. Équipe d’Antoine Majeux : Antoine Majeux et ${partner}. Partenaire d’Antoine Majeux : ${partner}. Adversaires : ${opponents}. Équipe gagnante explicite : ${winningTeam}. Scores dans l’ordre officiel des équipes : ${score}. Scores du point de vue de l’équipe d’Antoine Majeux : ${score}.`;
+) => `Neuch'Cup 2026 — ${eventCode} (${discipline})${round ? ` — ${round}` : ""}. Équipe 1 officielle : Antoine Majeux et ${partner}. Équipe 2 officielle : ${opponents}. Équipe d’Antoine Majeux : Antoine Majeux et ${partner}. Partenaire d’Antoine Majeux : ${partner}. Adversaires : ${opponents}. Équipe gagnante explicite : ${winningTeam}. Scores dans l’ordre officiel des équipes : ${score}. Scores du point de vue de l’équipe d’Antoine Majeux : ${score}.`;
 
 const twelveMatches = (): SportsWatchCandidate[] => {
   const rows: SportsWatchCandidate[] = [];
@@ -117,6 +117,68 @@ const twelveMatches = (): SportsWatchCandidate[] => {
   return rows;
 };
 
+const fribourgMatches = (): SportsWatchCandidate[] => {
+  const competitionName =
+    "Championnats fribourgeois / Freiburger Badminton Meisterschaften";
+  const doubleOpponents = [
+    "Simon Enkerli et Roman Trepp",
+    "Alexandre Gilliéron et Cyril Hohl",
+    "Benjamin Cupillard et Rémy Perroset",
+  ];
+  const doubles = doubleOpponents.map((opponents, index) => candidate(
+    `fribourg-double-${index}`,
+    `${competitionName} — Double Hommes 1`,
+    teamExcerpt(
+      "Double Hommes 1",
+      "double",
+      `Ronde ${index + 1}`,
+      "Maël Fellay",
+      opponents,
+      opponents,
+      index === 0 ? "7-15, 4-15" : index === 1 ? "9-15, 11-15" : "7-15, 8-15",
+    ).replace("Neuch'Cup 2026", competitionName),
+    11,
+    "2026-10-31",
+  ));
+  const mixed = [
+    {
+      opponents: "Maude Brosy et Claude Meuwly",
+      winner: "Antoine Majeux et Joy Théraulaz",
+      score: "15-12, 15-9",
+    },
+    {
+      opponents: "Anaïs Noser et Olivier Amantini",
+      winner: "Antoine Majeux et Joy Théraulaz",
+      score: "15-13, 15-12",
+    },
+    {
+      opponents: "Audrey Perroset et Maxime Morel",
+      winner: "Audrey Perroset et Maxime Morel",
+      score: "15-9, 13-15, 12-15",
+    },
+    {
+      opponents: "Nathalie Magne et Frédéric Magne",
+      winner: "Nathalie Magne et Frédéric Magne",
+      score: "15-11, 9-15, 12-15",
+    },
+  ].map((match, index) => candidate(
+    `fribourg-mixte-${index}`,
+    `${competitionName} — Mixte 2`,
+    teamExcerpt(
+      "Mixte 2",
+      "mixte",
+      null,
+      "Joy Théraulaz",
+      match.opponents,
+      match.winner,
+      match.score,
+    ).replace("Neuch'Cup 2026", competitionName),
+    20,
+    "2026-10-31",
+  ));
+  return [...doubles, ...mixed];
+};
+
 describe("sports watch tournament presentation", () => {
   it("groups 12 matches by athlete and tournament edition with faithful summaries", () => {
     const groups = buildSportsWatchTournamentGroups(twelveMatches());
@@ -136,6 +198,70 @@ describe("sports watch tournament presentation", () => {
       expect.objectContaining({ discipline: "mixte", collectedCount: 4, victories: 2, defeats: 2 }),
     ]);
     expect(groups[0].disciplines.flatMap((group) => group.matches)).toHaveLength(12);
+  });
+
+  it("groups the seven persisted Fribourg matches by competition and official discipline", () => {
+    const groups = buildSportsWatchTournamentGroups(fribourgMatches());
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      competitionName: "Championnats fribourgeois / Freiburger Badminton Meisterschaften",
+      eventDateFrom: "2026-10-31",
+      eventDateTo: "2026-10-31",
+      matchCount: 7,
+      unstructuredCount: 0,
+    });
+    expect(groups[0].disciplines).toEqual([
+      expect.objectContaining({
+        discipline: "double",
+        collectedCount: 3,
+        victories: 0,
+        defeats: 3,
+      }),
+      expect.objectContaining({
+        discipline: "mixte",
+        collectedCount: 4,
+        victories: 2,
+        defeats: 2,
+      }),
+    ]);
+    const doubles = groups[0].disciplines.find((group) => group.discipline === "double")!;
+    const mixed = groups[0].disciplines.find((group) => group.discipline === "mixte")!;
+    expect(doubles.matches.every((match) =>
+      match.eventCode === "Double Hommes 1"
+      && match.partner === "Maël Fellay"
+      && match.round?.startsWith("Ronde"))).toBe(true);
+    expect(mixed.matches.every((match) =>
+      match.eventCode === "Mixte 2"
+      && match.partner === "Joy Théraulaz"
+      && match.round === null)).toBe(true);
+  });
+
+  it("keeps an explicitly titled but inconsistent Swiss candidate unclassified", () => {
+    const incompatible = candidate(
+      "incompatible-swiss",
+      "Championnats fribourgeois — Mixte 2",
+      teamExcerpt(
+        "Mixte 2",
+        "double",
+        null,
+        "Partenaire",
+        "Adversaire A et Adversaire B",
+        "Antoine Majeux et Partenaire",
+        "15-10, 15-12",
+      ).replace("Neuch'Cup 2026", "Championnats fribourgeois"),
+      20,
+      "2026-10-31",
+    );
+    const group = buildSportsWatchTournamentGroups([incompatible])[0];
+
+    expect(group).toMatchObject({
+      competitionName: "Championnats fribourgeois",
+      matchCount: 0,
+      unstructuredCount: 1,
+      disciplines: [],
+    });
+    expect(group.unstructuredCandidates[0].candidate.id).toBe("incompatible-swiss");
   });
 
   it("does not merge two tournament editions sharing the same name", () => {
