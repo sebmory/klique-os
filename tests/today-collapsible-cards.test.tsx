@@ -194,6 +194,27 @@ describe("Today collapsible cards", () => {
         swissBindings: [],
         iwwfBindings: [],
         safvBindings: [],
+        latestRefresh: {
+          id: "55555555-5555-4555-8555-555555555555",
+          trigger: "scheduled",
+          status: "partial",
+          scheduledFor: "2026-11-01",
+          startedAt: "2026-11-01T02:00:00.000Z",
+          completedAt: "2026-11-01T02:05:00.000Z",
+          message: null,
+          taskCount: 16,
+          completedCount: 16,
+          failedCount: 0,
+          createdCount: 1,
+          tasks: [{
+            sourceKey: "swiss-badminton",
+            athleteId: "antoine-majeux",
+            athleteName: "Antoine Majeux",
+            status: "completed",
+            createdCount: 1,
+            message: "Couverture partielle : 1 rencontre inexploitable écartée. URL : https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=11",
+          }],
+        },
       }),
     })));
     await act(async () => {
@@ -207,6 +228,9 @@ describe("Today collapsible cards", () => {
     expect(container.textContent).not.toContain("Résultat exploité");
     expect(container.textContent).toContain("À vérifier : 1");
     expect(container.textContent).toContain("À exploiter : 1");
+    expect(container.textContent).toContain("Dernière exécution automatique · Partielle");
+    expect(container.textContent).toContain("16/16 veilles terminées");
+    expect(container.textContent).toContain("Couverture partielle");
     const athleteCard = Array.from(container.querySelectorAll("details"))
       .find((item) => item.querySelector(":scope > summary")?.textContent?.includes("Mila Benjak"));
     expect(athleteCard?.open).toBe(false);

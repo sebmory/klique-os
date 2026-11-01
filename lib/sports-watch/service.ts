@@ -438,6 +438,19 @@ const runMessage = (
   candidateCount: number,
   observations: SportsWatchCollectionObservation[] = [],
 ): string => {
+  const partialFailures = observations
+    .filter((observation) => observation.status === "binding_error")
+    .map((observation) => observation.warning ?? observation.matchUrl);
+  if (sourceKey === "swiss-badminton" && partialFailures.length > 0) {
+    return [
+      `Couverture partielle : ${partialFailures.length} rencontre${partialFailures.length === 1 ? "" : "s"} inexploitable${partialFailures.length === 1 ? "" : "s"} écartée${partialFailures.length === 1 ? "" : "s"}.`,
+      ...partialFailures,
+      `${recentCount} match${recentCount === 1 ? "" : "es"} récent${recentCount === 1 ? "" : "s"} exploitable${recentCount === 1 ? "" : "s"} examiné${recentCount === 1 ? "" : "s"}.`,
+      createdCount === 0
+        ? "Aucun nouveau candidat."
+        : `${createdCount} nouveau${createdCount === 1 ? "" : "x"} candidat${createdCount === 1 ? "" : "s"} soumis à la revue Admin.`,
+    ].join(" ");
+  }
   if (recentCount === 0 && sourceKey !== "swiss-basketball") {
     return sourceDefinitions[sourceKey].noRecentMessage;
   }
@@ -461,9 +474,6 @@ const runMessage = (
     ].join(" ");
   }
   if (sourceKey === "swiss-basketball") {
-    const partialFailures = observations
-      .filter((observation) => observation.status === "binding_error")
-      .map((observation) => observation.warning ?? observation.matchUrl);
     const participationCount = observations.filter((observation) =>
       observation.status === "participation_explicit").length;
     const listedCount = observations.filter((observation) =>

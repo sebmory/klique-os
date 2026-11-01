@@ -28,6 +28,10 @@ const realProfileOwnerFixture = readFileSync(
   new URL("./fixtures/swiss-badminton-profile-owner.html", import.meta.url),
   "utf8",
 );
+const doubleHommesFixture = readFileSync(
+  new URL("./fixtures/swiss-badminton-double-hommes-1.html", import.meta.url),
+  "utf8",
+);
 
 type FixtureMember = { name: string; id: string };
 
@@ -224,6 +228,29 @@ describe("Swiss Badminton sports watch collector", () => {
     expect(result.candidates[0].excerpt).not.toContain("Vainqueur explicite : Antoine Majeux.");
   });
 
+  it("reads the real Double Hommes 1 label without weakening identity checks", async () => {
+    const result = await collect(doubleHommesFixture, "2026-11-01T10:00:00.000Z");
+
+    expect(result).toMatchObject({
+      scannedCount: 1,
+      recentCount: 1,
+    });
+    expect(result.observations).toBeUndefined();
+    expect(result.candidates[0]).toMatchObject({
+      articleUrl: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=4F95D606-A2F3-43CC-9A22-DB82450789D0&draw=11",
+      title: "Championnats fribourgeois / Freiburger Badminton Meisterschaften — Double Hommes 1",
+      eventDateFrom: "2026-10-31",
+      resultKind: "collective_result",
+    });
+    expect(result.candidates[0].excerpt).toContain("Double Hommes 1 (double) — Ronde 1.");
+    expect(result.candidates[0].excerpt).toContain("Partenaire d’Antoine Majeux : Maël FELLAY.");
+    expect(result.candidates[0].excerpt).toContain("Adversaires : Simon ENKERLI et Roman TREPP.");
+    expect(result.candidates[0].excerpt).toContain("Scores du point de vue de l’équipe d’Antoine Majeux : 7-15, 4-15.");
+    expect(result.candidates[0].attributionEvidence).toContain(
+      "Équipe et position confirmées dans le match par l’identifiant membre 206063.",
+    );
+  });
+
   it("keeps both teams and the explicit winning team for mixed doubles", async () => {
     const mixed = matchHtml({
       date: "24.10.2026",
@@ -283,8 +310,18 @@ describe("Swiss Badminton sports watch collector", () => {
 
   it("reports incomplete or ambiguous team identities", async () => {
     const incomplete = matchHtml({ includeH2h: false });
-    await expect(collect(profileHtml(tournamentHtml(eventHtml("DM2", 9, incomplete)))))
-      .rejects.toThrow("HTML incomplet");
+    const partial = await collect(profileHtml(tournamentHtml(eventHtml("DM2", 9, incomplete))));
+    expect(partial).toMatchObject({
+      candidates: [],
+      scannedCount: 1,
+      recentCount: 0,
+      observations: [expect.objectContaining({
+        status: "binding_error",
+        matchUrl: `https://sb.tournamentsoftware.com/sport/draw.aspx?id=${tournamentId}&draw=9`,
+        warning: expect.stringContaining("HTML incomplet"),
+      })],
+    });
+    expect(partial.observations?.[0].warning).toContain("URL : https://sb.tournamentsoftware.com/");
 
     const duplicateOfficialId = matchHtml({
       teams: [
@@ -292,8 +329,12 @@ describe("Swiss Badminton sports watch collector", () => {
         [{ name: "Antoine Majeux", id: SWISS_BADMINTON_PLAYER_ID }],
       ],
     });
-    await expect(collect(profileHtml(tournamentHtml(eventHtml("SM1", 1, duplicateOfficialId)))))
-      .rejects.toThrow("ambigu");
+    const ambiguous = await collect(
+      profileHtml(tournamentHtml(eventHtml("SM1", 1, duplicateOfficialId))),
+    );
+    expect(ambiguous.observations?.[0].warning).toContain(
+      "les identifiants officiels des équipes sont ambigus",
+    );
   });
 
   it("reports an HTTP refusal instead of returning no result", async () => {

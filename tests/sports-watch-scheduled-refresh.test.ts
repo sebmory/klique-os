@@ -33,8 +33,10 @@ const createMemoryRepository = () => {
   const refresh = (batch: (typeof batches extends Map<string, infer T> ? T : never)) => {
     const completed = batch.tasks.filter((task) => task.status === "completed").length;
     const failed = batch.tasks.filter((task) => task.status === "failed").length;
+    const partial = batch.tasks.some((task) =>
+      task.status === "completed" && task.message?.startsWith("Couverture partielle :"));
     if (completed + failed !== batch.tasks.length) batch.status = "running";
-    else if (failed === 0) batch.status = "completed";
+    else if (failed === 0 && !partial) batch.status = "completed";
     else if (completed === 0) batch.status = "failed";
     else batch.status = "partial";
   };
@@ -223,6 +225,53 @@ describe("scheduled sports watch refresh", () => {
       ]));
     }
     expect(executeTask).toHaveBeenCalledTimes(4);
+  });
+
+  it("marks a fully processed batch partial when a task reports incomplete coverage", async () => {
+    const { repository, batches } = createMemoryRepository();
+    await repository.createScheduledBatch({
+      workspaceId: "workspace-a",
+      scheduledFor: "2026-11-01",
+      tasks: [{
+        sourceKey: "swiss-badminton",
+        athlete: {
+          id: "antoine-majeux",
+          name: "Antoine Majeux",
+          sport: "Badminton",
+          club: "BC Bulle",
+        },
+      }],
+    });
+    const refresh = createScheduledSportsWatchRefresh({
+      repository,
+      now: () => new Date("2026-11-01T02:00:00.000Z"),
+      executeTask: async () => ({
+        sourceName: "Swiss Badminton / Tournamentsoftware",
+        sourceUrl: "https://sb.tournamentsoftware.com/player-profile/official",
+        message: "Couverture partielle : 1 rencontre inexploitable écartée. URL : https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=11",
+        scannedCount: 2,
+        recentCount: 1,
+        createdCount: 1,
+        observations: [{
+          matchUrl: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=11",
+          title: "Fixture ambiguë",
+          eventDate: "2026-10-31",
+          status: "binding_error",
+        }],
+        candidates: [],
+      }),
+    });
+
+    const result = await refresh.work();
+    const batch = [...batches.values()][0];
+
+    expect(result).toMatchObject({ completedCount: 1, failedCount: 0 });
+    expect(batch.status).toBe("partial");
+    expect(batch.tasks[0]).toMatchObject({
+      status: "completed",
+      createdCount: 1,
+      message: expect.stringContaining("Couverture partielle"),
+    });
   });
 
   it("processes a representative 16-task batch in parallel by source", async () => {

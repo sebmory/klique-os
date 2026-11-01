@@ -6,6 +6,7 @@ import {
   type SportsWatchAthleteSnapshot,
 } from "@/lib/sports-watch/bcbulle-collector";
 import type {
+  SportsWatchCollectionObservation,
   SwissBadmintonIdentityVerification,
   SwissBadmintonOfficialIdentity,
 } from "@/types/sports-watch";
@@ -56,6 +57,7 @@ export type SwissBadmintonCollectionResult = {
   candidates: CollectedSportsWatchCandidate[];
   scannedCount: number;
   recentCount: number;
+  observations?: SportsWatchCollectionObservation[];
 };
 
 const normalize = (value: unknown): string => String(value ?? "")
@@ -343,11 +345,22 @@ const readDiscipline = (
   teams: [string[], string[]],
 ): ParsedMatch["discipline"] | null => {
   if (teams.every((team) => team.length === 1)) {
-    return /^(?:SM|SD|HE|DE|MS|WS|SH|SF)\d*$/i.test(eventCode) ? "simple" : null;
+    return /^(?:SM|SD|HE|DE|MS|WS|SH|SF)\d*$/i.test(eventCode)
+      || /^simple (?:hommes|dames) \d+$/.test(normalize(eventCode))
+      ? "simple"
+      : null;
   }
   if (!teams.every((team) => team.length === 2)) return null;
-  if (/^(?:DX|MX|XD)\d*$/i.test(eventCode)) return "mixte";
-  return /^(?:DM|DD|HD|MD|WD|DH|DF)\d*$/i.test(eventCode) ? "double" : null;
+  if (
+    /^(?:DX|MX|XD)\d*$/i.test(eventCode)
+    || /^double mixte \d+$/.test(normalize(eventCode))
+  ) {
+    return "mixte";
+  }
+  return /^(?:DM|DD|HD|MD|WD|DH|DF)\d*$/i.test(eventCode)
+    || /^double (?:hommes|dames) \d+$/.test(normalize(eventCode))
+    ? "double"
+    : null;
 };
 
 const readH2hTeams = (
@@ -479,7 +492,11 @@ const parseMatch = (
 const parseProfile = (
   html: string,
   profile: SwissBadmintonProfileConfig,
-): ParsedMatch[] => {
+): {
+  matches: ParsedMatch[];
+  observations: SportsWatchCollectionObservation[];
+  scannedCount: number;
+} => {
   const plain = toPlainText(html);
   const currentIdentity = readOfficialIdentity(html, profile.profileUrl, profile.playerId);
   if (
@@ -499,6 +516,8 @@ const parseProfile = (
     MAX_TOURNAMENTS,
   );
   const matches: ParsedMatch[] = [];
+  const observations: SportsWatchCollectionObservation[] = [];
+  let scannedCount = 0;
   for (const tournamentBlock of tournamentBlocks) {
     const headingEnd = tournamentBlock.html.indexOf("</h4>");
     const heading = headingEnd >= 0 ? tournamentBlock.html.slice(0, headingEnd + 5) : "";
@@ -521,10 +540,11 @@ const parseProfile = (
     for (const eventBlock of eventBlocks) {
       const eventHeadingEnd = eventBlock.html.indexOf("</h4>");
       const eventHeading = eventHeadingEnd >= 0 ? eventBlock.html.slice(0, eventHeadingEnd + 5) : "";
-      const eventCodeMatch = toPlainText(eventHeading).match(/Konkurrenz:\s*(\S+)/i);
+      const eventCodeMatch = toPlainText(eventHeading).match(/Konkurrenz:\s*(.+)$/i);
       if (!eventCodeMatch) {
         throw sourceError("une épreuve ne possède pas d’identité exploitable.");
       }
+      const eventCode = eventCodeMatch[1].trim();
       const drawHref = eventBlock.html.match(
         /href=(?:"([^"]*\/sport\/draw\.aspx\?[^"]+)"|'([^']*\/sport\/draw\.aspx\?[^']+)')/i,
       );
@@ -540,22 +560,45 @@ const parseProfile = (
         throw sourceError(`une épreuve attribuée à ${profile.name} ne contient aucun match exploitable.`);
       }
       for (const matchBlock of matchBlocks) {
-        const parsed = parseMatch(
-          matchBlock.html,
-          {
-            tournamentId,
-            tournamentTitle,
-            eventCode: eventCodeMatch[1],
-            drawUrl,
-            explicitRanking: readExplicitRanking(eventBlock.html),
-          },
-          profile,
-        );
-        if (parsed) matches.push(parsed);
+        if (!normalize(toPlainText(matchBlock.html)).includes(normalize(profile.name))) continue;
+        scannedCount += 1;
+        try {
+          const parsed = parseMatch(
+            matchBlock.html,
+            {
+              tournamentId,
+              tournamentTitle,
+              eventCode,
+              drawUrl,
+              explicitRanking: readExplicitRanking(eventBlock.html),
+            },
+            profile,
+          );
+          if (parsed) matches.push(parsed);
+        } catch (error) {
+          if (!(error instanceof SportsWatchSourceError)) throw error;
+          const matchDate = readDottedDate(matchBlock.html) ?? "";
+          const header = matchBlock.html.match(
+            /<div\b[^>]*class=(?:"match__header"|'match__header')[^>]*>([\s\S]*?)<\/div>/i,
+          );
+          const stage = header ? toPlainText(header[1]).replace(/\b\d+\s*m\b/i, "").trim() : "";
+          const title = [tournamentTitle, eventCode, stage].filter(Boolean).join(" — ");
+          observations.push({
+            matchUrl: drawUrl,
+            title,
+            eventDate: matchDate,
+            status: "binding_error",
+            warning: `${error.message} Rencontre : ${title}. URL : ${drawUrl}`,
+          });
+        }
       }
     }
   }
-  return matches.slice(0, MAX_MATCHES);
+  return {
+    matches: matches.slice(0, MAX_MATCHES),
+    observations: observations.slice(0, MAX_MATCHES),
+    scannedCount,
+  };
 };
 
 const buildCandidate = (
@@ -776,8 +819,8 @@ export const collectSwissBadmintonCandidates = async (
   const profileHtml = localFixtureEnabled()
     ? buildLocalFixtureProfile(profile)
     : await fetchBoundedProfile(profile.profileUrl, dependencies);
-  const parsedMatches = parseProfile(profileHtml, profile);
-  const recentCandidates = parsedMatches
+  const parsedProfile = parseProfile(profileHtml, profile);
+  const recentCandidates = parsedProfile.matches
     .filter((match) => {
       const timestamp = new Date(`${match.matchDate}T23:59:59.999Z`).getTime();
       return timestamp >= cutoff && timestamp <= collectedAtDate.getTime();
@@ -792,10 +835,16 @@ export const collectSwissBadmintonCandidates = async (
     if (!existing) candidatesByMatch.set(candidate.logicalKey, candidate);
   }
   const candidates = Array.from(candidatesByMatch.values());
+  const observations = parsedProfile.observations.filter((observation) => {
+    if (!observation.eventDate) return true;
+    const timestamp = new Date(`${observation.eventDate}T23:59:59.999Z`).getTime();
+    return timestamp >= cutoff && timestamp <= collectedAtDate.getTime();
+  });
   return {
     candidates,
-    scannedCount: parsedMatches.length,
+    scannedCount: parsedProfile.scannedCount,
     recentCount: candidates.length,
+    ...(observations.length > 0 ? { observations } : {}),
   };
 };
 

@@ -1172,6 +1172,54 @@ describe("sports watch service", () => {
     }));
   });
 
+  it("reports Swiss Badminton partial coverage while preserving exploitable results", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({
+      repository,
+      getAthletes: async () => [athlete],
+      collectors: {
+        "swiss-badminton": async () => ({
+          candidates: [{
+            ...collectedCandidate("swiss-partial", "Résultat Swiss exploitable."),
+            sourceKey: "swiss-badminton",
+          }],
+          scannedCount: 2,
+          recentCount: 1,
+          observations: [{
+            matchUrl: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=11",
+            title: "Épreuve ambiguë",
+            eventDate: "2026-10-31",
+            status: "binding_error",
+            warning: "Discipline indécidable. URL : https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=11",
+          }],
+        }),
+      },
+      verifySwissProfile: vi.fn(async () => swissVerification()),
+      now: () => new Date("2026-11-01T10:00:00.000Z"),
+    });
+    await service.confirmSwissBinding(
+      athlete.athleteId,
+      swissVerification().officialIdentity.profileUrl,
+      "",
+      0,
+      identity("workspace-a"),
+    );
+
+    const result = await service.run(
+      "swiss-badminton",
+      athlete.athleteId,
+      identity("workspace-a"),
+    );
+
+    expect(result.createdCount).toBe(1);
+    expect(result.message).toContain("Couverture partielle : 1 rencontre inexploitable écartée.");
+    expect(result.message).toContain("draw=11");
+    expect(result.message).toContain("1 match récent exploitable examiné.");
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ excerpt: "Résultat Swiss exploitable." }),
+    ]);
+  });
+
   it("keeps an exploited identical result archived and creates a pending successor for a modified result", async () => {
     const repository = createMemoryRepository();
     let current = collectedCandidate("hash-v1", "Antoine Majeux termine à la 2ème place.");

@@ -104,7 +104,7 @@ const refreshBatchFromTasksSql = `
       created_count = stats.created_count,
       status = CASE
         WHEN stats.pending_count + stats.running_count > 0 THEN 'running'
-        WHEN stats.failed_count = 0 THEN 'completed'
+        WHEN stats.failed_count = 0 AND stats.partial_count = 0 THEN 'completed'
         WHEN stats.completed_count = 0 THEN 'failed'
         ELSE 'partial'
       END,
@@ -120,6 +120,9 @@ const refreshBatchFromTasksSql = `
       COUNT(*) FILTER (WHERE status = 'running')::integer AS running_count,
       COUNT(*) FILTER (WHERE status = 'completed')::integer AS completed_count,
       COUNT(*) FILTER (WHERE status = 'failed')::integer AS failed_count,
+      COUNT(*) FILTER (
+        WHERE status = 'completed' AND message LIKE 'Couverture partielle :%'
+      )::integer AS partial_count,
       COALESCE(SUM(created_count), 0)::integer AS created_count
     FROM sports_watch_refresh_tasks
     GROUP BY batch_id
