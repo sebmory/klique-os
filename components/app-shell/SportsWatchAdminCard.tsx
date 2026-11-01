@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   buildSportsWatchAthleteGroups,
   buildSportsWatchCandidateViews,
-  type SportsWatchDisciplineGroup,
 } from "@/lib/sports-watch/presentation";
 import {
   buildSportsWatchRefreshTasks,
@@ -16,6 +15,7 @@ import {
 import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
+import { SportsWatchResultsPresentation } from "@/components/app-shell/sports-watch/SportsWatchResultsPresentation";
 import type {
   BeBasketBinding,
   BeBasketBindingVerification,
@@ -88,12 +88,6 @@ const verificationLabels = {
   disputed: "Contesté",
 } as const;
 
-const disciplineLabels = {
-  simple: "Simple",
-  double: "Double",
-  mixte: "Mixte",
-} as const;
-
 const pluralize = (count: number, singular: string, plural = `${singular}s`): string =>
   `${count} ${count === 1 ? singular : plural}`;
 
@@ -122,18 +116,6 @@ const writeOpenAthleteIds = (workspaceId: string, athleteIds: Set<string>): void
   } catch {
     // La préférence locale ne doit pas bloquer la veille.
   }
-};
-
-const disciplineSummary = (group: SportsWatchDisciplineGroup): string => {
-  const parts = [
-    pluralize(group.collectedCount, "match collecté", "matches collectés"),
-    pluralize(group.victories, "victoire"),
-    pluralize(group.defeats, "défaite"),
-  ];
-  if (group.forfeits > 0) parts.push(pluralize(group.forfeits, "forfait"));
-  if (group.retirements > 0) parts.push(pluralize(group.retirements, "abandon"));
-  if (group.unknown > 0) parts.push(pluralize(group.unknown, "résultat non standard"));
-  return parts.join(" · ");
 };
 
 const sourceOptions: Array<{
@@ -1294,7 +1276,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const renderSourceDetails = (candidate: SportsWatchCandidate) => (
     <details style={{ marginTop: "0.55rem", minWidth: 0 }}>
       <summary style={{ cursor: "pointer", color: "#6b7280", fontSize: "0.78rem", fontWeight: 700 }}>
-        Détails et source
+        Source et détails
       </summary>
       <div style={{ marginTop: "0.45rem", minWidth: 0, overflowWrap: "anywhere" }}>
         <p style={{ margin: "0 0 0.45rem", whiteSpace: "pre-wrap", fontSize: "0.82rem" }}>
@@ -2541,149 +2523,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                   </span>
                 </span>
               </summary>
-              <ul className="priority-list" style={{ margin: "0", padding: "0 0.75rem 0.75rem" }}>
-                {athleteGroup.tournaments.map((group) => (
-            <li
-              key={group.key}
-              className="priority-item"
-              style={{ alignItems: "flex-start", gridTemplateColumns: "minmax(0, 1fr)" }}
-            >
-              <div className="priority-main" style={{ width: "100%", minWidth: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <h3 style={{ margin: 0, fontSize: "1rem", overflowWrap: "anywhere" }}>
-                      {group.competitionName}
-                    </h3>
-                  </div>
-                  <span className="priority-badge">
-                    {group.matchCount > 0
-                      ? pluralize(group.matchCount, "match", "matches")
-                      : pluralize(group.unstructuredCount, "résultat")}
-                  </span>
-                </div>
-                <small>
-                  {formatDate(group.eventDateFrom)}
-                  {group.eventDateTo && group.eventDateTo !== group.eventDateFrom
-                    ? ` au ${formatDate(group.eventDateTo)}`
-                    : ""}
-                  {" · "}<a href={group.sourceUrl} target="_blank" rel="noreferrer">{group.sourceName}</a>
-                </small>
-                <div style={{ display: "grid", gap: "0.55rem", marginTop: "0.75rem" }}>
-                  {group.disciplines.map((discipline) => (
-                    <details
-                      key={discipline.discipline}
-                      style={{
-                        minWidth: 0,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                        padding: "0.65rem 0.75rem",
-                        background: "#fafafa",
-                      }}
-                    >
-                      <summary
-                        style={{
-                          cursor: "pointer",
-                          overflowWrap: "anywhere",
-                          fontSize: "0.84rem",
-                          fontWeight: 750,
-                        }}
-                      >
-                        {disciplineLabels[discipline.discipline]} · {disciplineSummary(discipline)}
-                      </summary>
-                      <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.72rem" }}>
-                        Résumé des matches collectés ; il ne couvre pas nécessairement tout le tournoi.
-                      </p>
-                      <div style={{ display: "grid", gap: "0.65rem" }}>
-                        {discipline.matches.map((match) => (
-                          <article
-                            key={match.candidate.id}
-                            style={{
-                              minWidth: 0,
-                              borderTop: "1px solid #e5e7eb",
-                              paddingTop: "0.65rem",
-                              overflowWrap: "anywhere",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-                              <strong style={{ fontSize: "0.84rem" }}>
-                                {formatDate(match.candidate.eventDateFrom)}
-                                {match.round ? ` · ${match.round}` : ""}
-                              </strong>
-                              <span className="priority-badge">{match.outcomeLabel}</span>
-                            </div>
-                            <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem" }}>
-                              <strong>Épreuve :</strong> {match.eventCode}
-                            </p>
-                            {match.partner ? (
-                              <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem" }}>
-                                <strong>Partenaire :</strong> {match.partner}
-                              </p>
-                            ) : null}
-                            <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem" }}>
-                              <strong>Adversaire{match.opponents.includes(" et ") ? "s" : ""} :</strong> {match.opponents}
-                            </p>
-                            <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem" }}>
-                              <strong>Score :</strong> {match.athleteScore}
-                            </p>
-                            {!match.countedInSummary ? (
-                              <p style={{ margin: "0.35rem 0 0", color: "#92400e", fontSize: "0.74rem" }}>
-                                Version antérieure — non comptée dans le résumé.
-                              </p>
-                            ) : null}
-                            <div style={{ marginTop: "0.35rem", fontSize: "0.74rem" }}>
-                              Statut Admin : {adminStatusLabels[match.candidate.adminStatus]}
-                            </div>
-                            {renderSourceDetails(match.candidate)}
-                            {renderCandidateActions(match.candidate)}
-                          </article>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                  {group.unstructuredCandidates.length > 0 ? (
-                    <details
-                      style={{
-                        minWidth: 0,
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                        padding: "0.65rem 0.75rem",
-                      }}
-                    >
-                      <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 750 }}>
-                        Détails du résultat
-                      </summary>
-                      <p style={{ margin: "0.45rem 0", color: "#6b7280", fontSize: "0.72rem" }}>
-                        Ces extraits sont affichés tels quels et ne sont pas inclus dans le résumé des matches.
-                      </p>
-                      {group.unstructuredCandidates.map(({ candidate, countedInSummary }) => (
-                        <article
-                          key={candidate.id}
-                          style={{ borderTop: "1px solid #e5e7eb", paddingTop: "0.65rem", overflowWrap: "anywhere" }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-                            <strong>{candidate.title}</strong>
-                            <span className="priority-badge">{adminStatusLabels[candidate.adminStatus]}</span>
-                          </div>
-                          <small>Événement : {formatDate(candidate.eventDateFrom)}</small>
-                          <p style={{ margin: "0.45rem 0", whiteSpace: "pre-wrap", fontSize: "0.82rem" }}>
-                            {candidate.excerpt}
-                          </p>
-                          {!countedInSummary ? (
-                            <p style={{ color: "#92400e", fontSize: "0.74rem" }}>
-                              Version antérieure — non comptée.
-                            </p>
-                          ) : null}
-                          {renderSourceDetails(candidate)}
-                          {renderCandidateActions(candidate)}
-                        </article>
-                      ))}
-                    </details>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-                ))}
-              </ul>
+              <SportsWatchResultsPresentation
+                athleteGroup={athleteGroup}
+                formatDate={formatDate}
+                renderActions={renderCandidateActions}
+                renderSourceDetails={renderSourceDetails}
+              />
             </details>
           ))}
         </div>

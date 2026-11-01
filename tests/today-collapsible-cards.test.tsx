@@ -224,8 +224,8 @@ describe("Today collapsible cards", () => {
   });
 
   it.each([
-    ["mobile", 375],
-    ["desktop", 1280],
+    ["mobile", 390],
+    ["desktop", 1440],
   ])("renders the seven Fribourg matches responsively on %s", async (_label, width) => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -259,22 +259,16 @@ describe("Today collapsible cards", () => {
     expect(groupTitles).not.toContain(
       "Championnats fribourgeois / Freiburger Badminton Meisterschaften — Mixte 2",
     );
-    expect(container.textContent).toContain(
-      "Double · 3 matches collectés · 0 victoires · 3 défaites",
-    );
-    expect(container.textContent).toContain(
-      "Mixte · 4 matches collectés · 2 victoires · 2 défaites",
-    );
-    expect(container.textContent).toContain("Épreuve : Double Hommes 1");
-    expect(container.textContent).toContain("Épreuve : Mixte 2");
-    expect(container.textContent).toContain("Partenaire : Joy Théraulaz");
-    expect(container.textContent).toContain("Score : 15-11, 9-15, 12-15");
-    const mixedArticles = Array.from(container.querySelectorAll("article"))
-      .filter((article) => Array.from(article.querySelectorAll(":scope > p"))
-        .some((paragraph) => paragraph.textContent === "Épreuve : Mixte 2"));
-    expect(mixedArticles).toHaveLength(4);
-    expect(mixedArticles.every((article) =>
-      !article.querySelector("strong")?.textContent?.includes("Ronde"))).toBe(true);
+    expect(container.textContent).toContain("3 matchs collectés · 0 victoires · 3 défaites");
+    expect(container.textContent).toContain("4 matchs collectés · 2 victoires · 2 défaites");
+    expect(container.textContent).toContain("Double Hommes 1");
+    expect(container.textContent).toContain("Mixte 2");
+    expect(container.textContent).toContain("avec Joy Théraulaz");
+    expect(container.textContent).toContain("15-11, 9-15, 12-15");
+    const mixedMatches = Array.from(container.querySelectorAll(".sports-match"))
+      .filter((match) => match.textContent?.includes("Mixte 2"));
+    expect(mixedMatches).toHaveLength(4);
+    expect(mixedMatches.every((match) => !match.textContent?.includes("Ronde"))).toBe(true);
     expect(container.querySelectorAll('a[href*="draw=11"]')).toHaveLength(3);
     expect(container.querySelectorAll('a[href*="draw=20"]')).toHaveLength(4);
     expect(container.querySelectorAll("button").length).toBeGreaterThan(0);
