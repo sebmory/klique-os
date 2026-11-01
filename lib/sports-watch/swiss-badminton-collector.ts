@@ -40,7 +40,7 @@ type ParsedMatch = {
   tournamentTitle: string;
   eventCode: string;
   drawUrl: string;
-  stage: string;
+  stage: string | null;
   matchDate: string;
   discipline: "simple" | "double" | "mixte";
   orderedTeams: [
@@ -354,6 +354,7 @@ const readDiscipline = (
   if (
     /^(?:DX|MX|XD)\d*$/i.test(eventCode)
     || /^double mixte \d+$/.test(normalize(eventCode))
+    || /^mixte \d+$/.test(normalize(eventCode))
   ) {
     return "mixte";
   }
@@ -444,8 +445,10 @@ const parseMatch = (
   const header = matchHtml.match(
     /<div\b[^>]*class=(?:"match__header"|'match__header')[^>]*>([\s\S]*?)<\/div>/i,
   );
-  const stage = header ? toPlainText(header[1]).replace(/\b\d+\s*m\b/i, "").trim() : "";
-  if (!rows || !orderedPlayerIds || !displayedScores || !matchDate || !stage) {
+  const stage = header
+    ? toPlainText(header[1]).replace(/\b\d+\s*m\b/i, "").trim() || null
+    : null;
+  if (!rows || !orderedPlayerIds || !displayedScores || !matchDate) {
     throw sourceError(`un match attribué à ${profile.name} possède un HTML incomplet.`);
   }
   if (
@@ -618,9 +621,11 @@ const buildCandidate = (
   const winnerTeam = match.orderedTeams[match.winnerTeamIndex];
   const teamLabel = (team: ParsedMatch["orderedTeams"][number]): string =>
     team.players.join(" et ");
-  const excerptParts = [
-    `${match.tournamentTitle} — ${match.eventCode} (${match.discipline}) — ${match.stage}.`,
-  ];
+  const excerptParts = [[
+    match.tournamentTitle,
+    `${match.eventCode} (${match.discipline})`,
+    match.stage,
+  ].filter(Boolean).join(" — ").concat(".")];
   if (match.discipline === "simple") {
     excerptParts.push(
       `Ordre officiel : ${teamLabel(match.orderedTeams[0])} puis ${teamLabel(match.orderedTeams[1])}.`,
@@ -653,7 +658,7 @@ const buildCandidate = (
     match.tournamentId,
     match.eventCode,
     match.matchDate,
-    match.stage,
+    match.stage ?? "",
     ...match.orderedTeams.flatMap((team) => team.playerIds),
   ].join("|"));
   const excerpt = excerptParts.join(" ");

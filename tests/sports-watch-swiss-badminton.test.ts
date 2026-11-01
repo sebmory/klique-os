@@ -32,6 +32,10 @@ const doubleHommesFixture = readFileSync(
   new URL("./fixtures/swiss-badminton-double-hommes-1.html", import.meta.url),
   "utf8",
 );
+const mixte2Fixture = readFileSync(
+  new URL("./fixtures/swiss-badminton-mixte-2.html", import.meta.url),
+  "utf8",
+);
 
 type FixtureMember = { name: string; id: string };
 
@@ -279,6 +283,61 @@ describe("Swiss Badminton sports watch collector", () => {
       "Équipe gagnante explicite : Alan Sterchi et Katarzyna Wojtowicz.",
     );
     expect(result.candidates[0].excerpt).not.toContain("Classement final");
+  });
+
+  it("reads all four completed Mixte 2 matches when the profile omits the round label", async () => {
+    const result = await collect(mixte2Fixture, "2026-11-01T10:00:00.000Z");
+
+    expect(result).toMatchObject({ scannedCount: 4, recentCount: 4 });
+    expect(result.observations).toBeUndefined();
+    expect(result.candidates).toHaveLength(4);
+    expect(result.candidates.every((candidate) =>
+      candidate.articleUrl === "https://sb.tournamentsoftware.com/sport/draw.aspx?id=4F95D606-A2F3-43CC-9A22-DB82450789D0&draw=20"
+      && candidate.title.endsWith("— Mixte 2")
+      && candidate.resultKind === "collective_result"
+      && candidate.eventDateFrom === "2026-10-31"
+      && candidate.excerpt.includes("Mixte 2 (mixte).")
+      && !candidate.excerpt.includes("23m")
+      && !candidate.excerpt.includes("40m")
+      && !candidate.excerpt.includes("41m")
+      && !candidate.excerpt.includes("34m"))).toBe(true);
+    expect(result.candidates.map((candidate) => candidate.excerpt)).toEqual([
+      expect.stringContaining("Partenaire d’Antoine Majeux : Joy THÉRAULAZ."),
+      expect.stringContaining("Adversaires : Anaïs NOSER et Olivier AMANTINI."),
+      expect.stringContaining("Équipe gagnante explicite : Audrey PERROSET et Maxime MOREL."),
+      expect.stringContaining("Scores du point de vue de l’équipe d’Antoine Majeux : 15-11, 9-15, 12-15."),
+    ]);
+    expect(result.candidates[0].excerpt).toContain(
+      "Adversaires : Maude BROSY et Claude MEUWLY.",
+    );
+    expect(result.candidates[1].excerpt).toContain(
+      "Scores du point de vue de l’équipe d’Antoine Majeux : 15-13, 15-12.",
+    );
+    expect(result.candidates[2].excerpt).toContain(
+      "Scores du point de vue de l’équipe d’Antoine Majeux : 15-9, 13-15, 12-15.",
+    );
+    expect(result.candidates.every((candidate) =>
+      candidate.attributionEvidence.includes(
+        "Équipe et position confirmées dans le match par l’identifiant membre 206063.",
+      ))).toBe(true);
+  });
+
+  it("does not turn a future incomplete match into a result or a current warning", async () => {
+    const futureIncomplete = matchHtml({
+      date: "02.11.2026",
+      stage: "",
+      scores: [],
+    });
+    const result = await collect(
+      profileHtml(tournamentHtml(eventHtml("Mixte 2", 20, futureIncomplete))),
+      "2026-11-01T10:00:00.000Z",
+    );
+
+    expect(result).toEqual({
+      candidates: [],
+      scannedCount: 1,
+      recentCount: 0,
+    });
   });
 
   it("uses the match date for the 30-day window", async () => {

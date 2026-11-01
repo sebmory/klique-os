@@ -191,6 +191,48 @@ const refreshSummaryStatus = (summary: SportsWatchRefreshSummary): string => {
   return partial ? `Couverture partielle · ${outcome}` : outcome;
 };
 
+type SportsWatchWarningGroup = {
+  reason: string;
+  url: string;
+  count: number;
+  details: string[];
+};
+
+const warningReason = (warning: string | undefined): string => {
+  const value = warning?.trim() || "Rencontre inexploitable.";
+  return value
+    .split(/\s+Rencontre\s*:/i, 1)[0]
+    .replace(/\s+URL\s*:.*$/i, "")
+    .trim();
+};
+
+const groupedWarnings = (summary: SportsWatchRefreshSummary): SportsWatchWarningGroup[] => {
+  const groups = new Map<string, SportsWatchWarningGroup>();
+  for (const observation of summary.result?.observations ?? []) {
+    if (observation.status !== "binding_error") continue;
+    const reason = warningReason(observation.warning);
+    const url = observation.matchUrl;
+    const key = `${reason}|${url}`;
+    const detail = [
+      observation.title.trim(),
+      observation.eventDate ? formatDate(observation.eventDate) : "",
+    ].filter(Boolean).join(" · ");
+    const existing = groups.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (detail && !existing.details.includes(detail)) existing.details.push(detail);
+    } else {
+      groups.set(key, {
+        reason,
+        url,
+        count: 1,
+        details: detail ? [detail] : [],
+      });
+    }
+  }
+  return [...groups.values()];
+};
+
 const scheduledStatusLabel = {
   running: "En cours",
   completed: "Complète",
@@ -329,6 +371,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     ]),
   ), [athletes]);
   const refreshAllFailureCount = refreshAllSummaries.filter((summary) => summary.error).length;
+  const refreshAllExcludedCount = refreshAllSummaries.reduce(
+    (total, summary) => total + (summary.result?.observations?.filter((observation) =>
+      observation.status === "binding_error").length ?? 0),
+    0,
+  );
+  const refreshAllPartial = refreshAllFailureCount > 0 || refreshAllExcludedCount > 0;
   const refreshAllCreatedCount = refreshAllSummaries.reduce(
     (total, summary) => total + (summary.result?.createdCount ?? 0),
     0,
@@ -995,15 +1043,21 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       setSwissBasketballBindings(payload.swissBasketballBindings ?? []);
       setLatestRefresh(payload.latestRefresh ?? null);
       const failures = executions.filter((execution) => execution.error).length;
+      const excludedCount = executions.reduce(
+        (total, execution) => total + (execution.value?.observations?.filter((observation) =>
+          observation.status === "binding_error").length ?? 0),
+        0,
+      );
       const createdCount = executions.reduce(
         (total, execution) => total + (execution.value?.createdCount ?? 0),
         0,
       );
       setMessage([
-        failures > 0
+        failures > 0 || excludedCount > 0
           ? `Actualisation partielle : ${executions.length} veille${executions.length === 1 ? "" : "s"} traitée${executions.length === 1 ? "" : "s"}.`
           : `Actualisation terminée : ${executions.length} veille${executions.length === 1 ? "" : "s"}.`,
         `${createdCount} nouveau${createdCount === 1 ? "" : "x"} résultat${createdCount === 1 ? "" : "s"}.`,
+        `${excludedCount} rencontre${excludedCount === 1 ? "" : "s"} écartée${excludedCount === 1 ? "" : "s"}.`,
         failures > 0
           ? `${failures} échec${failures === 1 ? "" : "s"} local${failures === 1 ? "" : "aux"}.`
           : "Aucun échec.",
@@ -1375,16 +1429,32 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           </div>
         ) : null}
         {refreshAllComplete ? (
-          <div style={{ display: "grid", gap: "0.5rem" }}>
-            <p role="status" style={{ margin: 0, color: "#1e3a8a", fontSize: "0.78rem" }}>
+          <div
+            style={{
+              display: "grid",
+              gap: "0.5rem",
+              padding: refreshAllPartial ? "0.65rem" : 0,
+              border: refreshAllPartial ? "1px solid #f59e0b" : 0,
+              borderRadius: refreshAllPartial ? "8px" : 0,
+              background: refreshAllPartial ? "#fffbeb" : "transparent",
+            }}
+          >
+            <p
+              role="status"
+              style={{
+                margin: 0,
+                color: refreshAllPartial ? "#92400e" : "#1e3a8a",
+                fontSize: "0.78rem",
+                fontWeight: refreshAllPartial ? 700 : 400,
+              }}
+            >
               {pluralize(refreshAllCreatedCount, "nouveau résultat", "nouveaux résultats")}
-              {" · "}{refreshAllFailureCount === 0
-                ? "aucun échec"
-                : pluralize(refreshAllFailureCount, "échec")}
+              {" · "}{pluralize(refreshAllExcludedCount, "rencontre écartée", "rencontres écartées")}
+              {" · "}{pluralize(refreshAllFailureCount, "échec")}
             </p>
-            {refreshAllFailureCount > 0 ? (
-              <p role="alert" style={{ margin: 0, color: "#b91c1c", fontSize: "0.76rem", fontWeight: 700 }}>
-                Actualisation partielle : certaines veilles ont échoué. Le détail reste disponible ci-dessous.
+            {refreshAllPartial ? (
+              <p role="alert" style={{ margin: 0, color: "#92400e", fontSize: "0.76rem", fontWeight: 700 }}>
+                Couverture partielle : certaines rencontres ont été écartées ou certaines veilles ont échoué.
               </p>
             ) : null}
             <button
@@ -1409,29 +1479,36 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               >
                 {refreshAllSummaries.map((summary) => {
                   const source = sourceOptions.find((option) => option.key === summary.task.sourceKey);
+                  const warningGroups = groupedWarnings(summary);
+                  const partial = warningGroups.length > 0;
                   return (
                     <article
                       key={`${summary.task.sourceKey}:${summary.task.athleteId}`}
                       style={{
                         minWidth: 0,
                         padding: "0.55rem 0.65rem",
-                        border: "1px solid #bfdbfe",
+                        border: `1px solid ${partial ? "#f59e0b" : "#bfdbfe"}`,
                         borderRadius: "8px",
-                        background: "#fff",
+                        background: partial ? "#fffbeb" : "#fff",
                         overflowWrap: "anywhere",
                       }}
                     >
                       <strong style={{ display: "block", fontSize: "0.78rem" }}>
                         {summary.task.athleteName}
                       </strong>
-                      <span style={{ display: "block", color: "#475569", fontSize: "0.72rem" }}>
+                      <a
+                        href={summary.result?.sourceUrl ?? source?.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: "block", color: "#1d4ed8", fontSize: "0.72rem" }}
+                      >
                         {source?.label ?? summary.task.sourceKey}
-                      </span>
+                      </a>
                       <span
                         style={{
                           display: "block",
                           marginTop: "0.25rem",
-                          color: summary.error ? "#b91c1c" : "#1e3a8a",
+                          color: summary.error ? "#b91c1c" : partial ? "#92400e" : "#1e3a8a",
                           fontSize: "0.74rem",
                           fontWeight: 700,
                         }}
@@ -1441,6 +1518,31 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                       <span style={{ display: "block", marginTop: "0.2rem", color: "#64748b", fontSize: "0.7rem" }}>
                         {summary.error ?? summary.result?.message}
                       </span>
+                      {warningGroups.length > 0 ? (
+                        <details style={{ marginTop: "0.4rem", color: "#78350f", fontSize: "0.7rem" }}>
+                          <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                            {pluralize(
+                              warningGroups.reduce((total, group) => total + group.count, 0),
+                              "rencontre écartée",
+                              "rencontres écartées",
+                            )}
+                          </summary>
+                          <ul style={{ margin: "0.35rem 0 0", paddingLeft: "1rem" }}>
+                            {warningGroups.map((group) => (
+                              <li key={`${group.reason}:${group.url}`} style={{ marginTop: "0.3rem" }}>
+                                <strong>{group.count}× {group.reason}</strong>
+                                {" · "}
+                                <a href={group.url} target="_blank" rel="noreferrer">Source</a>
+                                {group.details.length > 0 ? (
+                                  <ul style={{ margin: "0.2rem 0 0", paddingLeft: "1rem" }}>
+                                    {group.details.map((detail) => <li key={detail}>{detail}</li>)}
+                                  </ul>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
                     </article>
                   );
                 })}

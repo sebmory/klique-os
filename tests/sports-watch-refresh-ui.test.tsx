@@ -128,4 +128,94 @@ describe("sports watch refresh all UI", () => {
     });
     expect(container.textContent).toContain("Échec");
   });
+
+  it("shows grouped partial warnings in amber with clickable source links", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return {
+          ok: true,
+          json: async () => dashboardPayload,
+        };
+      }
+      const body = JSON.parse(String(init.body)) as { sourceKey?: string };
+      if (body.sourceKey !== "swiss-badminton") {
+        return {
+          ok: true,
+          json: async () => ({
+            result: {
+              sourceName: "Badminton Club Bulle",
+              sourceUrl: "https://bcbulle.ch/feed/",
+              message: "Aucun nouveau résultat.",
+              scannedCount: 0,
+              recentCount: 0,
+              createdCount: 0,
+              candidates: [],
+            } satisfies SportsWatchRunResult,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            sourceName: "Swiss Badminton / Tournamentsoftware",
+            sourceUrl: "https://sb.tournamentsoftware.com/player-profile/official",
+            message: "Couverture partielle : 4 rencontres inexploitable écartées.",
+            scannedCount: 7,
+            recentCount: 3,
+            createdCount: 3,
+            observations: Array.from({ length: 4 }, (_, index) => ({
+              matchUrl: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=20",
+              title: `Championnats fribourgeois — Mixte 2 — match ${index + 1}`,
+              eventDate: "2026-10-31",
+              status: "binding_error",
+              warning: "La source Swiss Badminton / Tournamentsoftware est inexploitable : un match attribué à Antoine Majeux possède un HTML incomplet. Rencontre : Championnats fribourgeois — Mixte 2. URL : https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=20",
+            })),
+            candidates: [],
+          } satisfies SportsWatchRunResult,
+        }),
+      };
+    }));
+
+    await act(async () => {
+      root.render(<SportsWatchAdminCard athletes={[athlete]} />);
+      await flush();
+    });
+    const button = Array.from(container.querySelectorAll("button"))
+      .find((item) => item.textContent === "Actualiser toutes les veilles") as HTMLButtonElement;
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+      await flush();
+    });
+
+    expect(container.textContent).toContain("3 nouveaux résultats · 4 rencontres écartées · 0 échecs");
+    expect(container.textContent).toContain("Couverture partielle");
+    const partialPanel = Array.from(container.querySelectorAll<HTMLElement>("div"))
+      .find((item) =>
+        item.style.background === "rgb(255, 251, 235)"
+        && item.textContent?.includes("3 nouveaux résultats · 4 rencontres écartées"));
+    expect(partialPanel).toBeDefined();
+
+    const detailsButton = Array.from(container.querySelectorAll("button"))
+      .find((item) => item.textContent?.includes("Voir le détail"));
+    await act(async () => {
+      detailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+    });
+
+    expect(container.textContent).toContain("4× La source Swiss Badminton");
+    expect(container.textContent?.match(/4× La source Swiss Badminton/g)).toHaveLength(1);
+    expect(container.textContent).toContain("match 1");
+    expect(container.textContent).toContain("match 4");
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        href: "https://sb.tournamentsoftware.com/player-profile/official",
+      }),
+      expect.objectContaining({
+        href: "https://sb.tournamentsoftware.com/sport/draw.aspx?id=official&draw=20",
+      }),
+    ]));
+  });
 });
