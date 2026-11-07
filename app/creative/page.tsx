@@ -6,6 +6,7 @@ import type {
   CreativeMissionResponseDisplayState,
   CreativePortalMission,
 } from "@/lib/creative-missions";
+import { ProductionCreativeSpace } from "@/components/creatives/ProductionCreativeSpace";
 
 type MissionsPayload = {
   missions?: CreativePortalMission[];
@@ -520,10 +521,11 @@ export default function CreativePortalPage() {
 
   return (
     <section style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 20 }}>
+      <ProductionCreativeSpace />
       <header>
-        <p style={{ margin: 0 }}>Espace créatif</p>
-        <h1 style={{ margin: "0.25rem 0" }}>Mes missions</h1>
-        <p>Uniquement les missions qui vous sont personnellement affectées.</p>
+        <p style={{ margin: 0 }}>Services athlètes existants</p>
+        <h2 style={{ margin: "0.25rem 0" }}>Mes autres missions</h2>
+        <p>Les missions de services déjà personnellement affectées restent disponibles ici.</p>
       </header>
       {error ? <p role="alert">{error}</p> : null}
       {loading ? <p role="status">Chargement des missions…</p> : null}

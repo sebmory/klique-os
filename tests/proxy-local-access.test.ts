@@ -167,18 +167,38 @@ describe("proxy local-first access", () => {
     accessRow = null;
     creativeRow = activeCreativeRow;
 
-    const [creativeResponse, todayResponse, crmResponse] = await Promise.all([
+    const [
+      creativeResponse,
+      profileResponse,
+      productionMissionsResponse,
+      todayResponse,
+      crmResponse,
+      adminResponse,
+    ] = await Promise.all([
       handleKliqueProxyRequest(makeAuth("user-local"), request("/creative")),
+      handleKliqueProxyRequest(makeAuth("user-local"), request("/api/creative/profile")),
+      handleKliqueProxyRequest(
+        makeAuth("user-local"),
+        request("/api/creative/production-missions", "POST"),
+      ),
       handleKliqueProxyRequest(makeAuth("user-local"), request("/today")),
       handleKliqueProxyRequest(makeAuth("user-local"), request("/crm/demandes")),
+      handleKliqueProxyRequest(makeAuth("user-local"), request("/api/admin/creatives")),
     ]);
 
-    expectAllowed(creativeResponse);
+    for (const response of [
+      creativeResponse,
+      profileResponse,
+      productionMissionsResponse,
+    ]) {
+      expectAllowed(response);
+    }
     for (const response of [todayResponse, crmResponse]) {
       expect(response.status).toBe(307);
       expect(response.headers.get("location")).toBe("http://localhost/creative");
       expect(response.headers.get("location")).not.toContain("/access-pending");
     }
+    expect(adminResponse.status).toBe(403);
     expect(clerkClientMock).not.toHaveBeenCalled();
   });
 
@@ -209,15 +229,30 @@ describe("proxy local-first access", () => {
     ["partner expert", "/partner", { ...baseAccessRow, role: "partner_expert", partner_id: "partner-1" }],
     ["media", "/media-desk", { ...baseAccessRow, role: "media", media_id: "33333333-3333-4333-8333-333333333333" }],
   ] as const)(
-    "keeps the active historical %s role prioritized over creative access",
+    "composes the active historical %s role with creative access",
     async (_label, expectedPath, row) => {
       accessRow = row;
       creativeRow = activeCreativeRow;
 
-      const response = await handleKliqueProxyRequest(makeAuth("user-local"), request("/creative"));
+      const [
+        historicalResponse,
+        creativeResponse,
+        creativeApiResponse,
+        adminResponse,
+      ] = await Promise.all([
+        handleKliqueProxyRequest(makeAuth("user-local"), request(expectedPath)),
+        handleKliqueProxyRequest(makeAuth("user-local"), request("/creative")),
+        handleKliqueProxyRequest(
+          makeAuth("user-local"),
+          request("/api/creative/production-missions"),
+        ),
+        handleKliqueProxyRequest(makeAuth("user-local"), request("/api/admin/creatives")),
+      ]);
 
-      expect(response.status).toBe(307);
-      expect(response.headers.get("location")).toBe(`http://localhost${expectedPath}`);
+      expectAllowed(historicalResponse);
+      expectAllowed(creativeResponse);
+      expectAllowed(creativeApiResponse);
+      expect(adminResponse.status).toBe(403);
       expect(clerkClientMock).not.toHaveBeenCalled();
     },
   );

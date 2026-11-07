@@ -31,6 +31,7 @@ import {
 import { ProductionMediaSection } from "@/components/production/ProductionMediaSection";
 import { getProductionMediaSummary } from "@/services/production-media";
 import { ShootingService } from "@/services/shooting.service";
+import { ProductionCreativeBriefPanel } from "@/components/production/ProductionCreativeBriefPanel";
 
 const workflowStepLabels: Record<string, string> = {
   import: "Import",
@@ -668,6 +669,10 @@ export function ProductionDetailScreen({ id }: ProductionDetailScreenProps) {
           <ProductionNotesCard
             production={production}
             onChange={(updatedProduction) => setProduction(updatedProduction)}
+          />
+          <ProductionCreativeBriefPanel
+            production={production}
+            athleteId={linkedAthlete?.athleteId ?? linkedAthlete?.key ?? null}
           />
         </div>
       </section>

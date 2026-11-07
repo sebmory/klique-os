@@ -233,6 +233,8 @@ export const isCreativeAllowedRoute = (pathname: string, method: string): boolea
   pathname === "/creative"
   || pathname.startsWith("/creative/")
   || pathname === "/api/creative/missions"
+  || pathname === "/api/creative/profile"
+  || pathname === "/api/creative/production-missions"
   || (pathname === "/api/clerk/access" && method === "GET");
 
 export const isHiddenExternalAthleteProfileRoute = (pathname: string): boolean => {
@@ -328,6 +330,10 @@ export const handleKliqueProxyRequest = async (
     && !isAdminPartnerBenefitReservationAuditApi(pathname, request.method)
   ) {
     return apiAccessDenied();
+  }
+
+  if (hasActiveCreativeAccess && isCreativeAllowedRoute(pathname, request.method)) {
+    return NextResponse.next();
   }
 
   if (access.role === "athlete" && !isAthleteAllowedRoute(pathname, request.method)) {
