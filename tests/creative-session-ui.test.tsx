@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AthleteSessionRequests } from "@/components/athlete/AthleteSessionRequests";
 import { SessionRequestsAdminCockpit } from "@/components/app-shell/SessionRequestsAdminCockpit";
 import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
+import { ProductionCreativeSpace } from "@/components/creatives/ProductionCreativeSpace";
 
 let container: HTMLElement;
 let root: Root;
@@ -56,6 +57,60 @@ describe("creative availability and session request UI", () => {
     expect(container.querySelector('input[type="date"]')).not.toBeNull();
   });
 
+  it("uses the unified Athlete status without exposing internal costs", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => json({
+      requests: [{
+        id: "request-1",
+        athleteId: "athlete-1",
+        athleteName: "Athlète 1",
+        requestType: "match_competition",
+        workflowStatus: "production_linked",
+        sport: "Basketball",
+        eventType: "Match",
+        eventStartsAt: "2026-12-12T14:00:00.000Z",
+        eventEndsAt: "2026-12-12T16:00:00.000Z",
+        scheduleToConfirm: false,
+        locationName: "Lausanne",
+        region: "Vaud",
+        clubOrTeam: null,
+        opponentOrEvent: null,
+        objective: "Couverture du match",
+        deliverables: "20 photos",
+        practicalInformation: null,
+        desiredDurationMinutes: null,
+        constraintsComment: null,
+        productCode: null,
+        commercialMode: "paid_extra",
+        snapshotCreditType: null,
+        snapshotCreditQuantity: null,
+        snapshotPriceChf: 450,
+        adminReason: null,
+        athleteComplement: null,
+        productionBriefId: "brief-1",
+        productionStatus: "draft",
+        assignedCreativeProfileId: null,
+        assignedCreativeName: null,
+        creativeConfirmationStatus: null,
+        applications: [],
+        finalConfirmedAt: null,
+        cancelledAt: null,
+        createdAt: "2026-11-09T12:00:00.000Z",
+        updatedAt: "2026-11-09T12:00:00.000Z",
+        periods: [],
+        events: [],
+        nextAction: "KLIQUE organise la mission.",
+      }],
+    })));
+
+    await act(async () => root.render(<AthleteSessionRequests />));
+    await flush();
+
+    expect(container.textContent).toContain("À organiser");
+    expect(container.textContent).not.toContain("Préparation Production");
+    expect(container.textContent).not.toContain("Droit ou coût");
+    expect(container.textContent).not.toContain("450");
+  });
+
   it("renders the Creative owner form, timezone and non-booking notice", async () => {
     vi.stubGlobal("fetch", vi.fn(() => json({
       rules: [],
@@ -71,6 +126,71 @@ describe("creative availability and session request UI", () => {
     expect(container.textContent).toContain("ni une réservation");
     expect(container.textContent).toContain("Match / compétition");
     expect(container.textContent).toContain("Media Day");
+  });
+
+  it("shows a Creative proposal with its place, deliverables and response deadline", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (
+      String(input).includes("/api/creative/profile")
+        ? json({
+            profile: {
+              displayName: "Créatif Test",
+              creativeType: "both",
+              portfolioUrl: "https://example.test",
+              coverageAreas: ["Vaud"],
+              specialties: ["Basketball"],
+              bio: "Photo et vidéo",
+              generalAvailability: "Semaine",
+              onboardingStatus: "active",
+              onboardingMessage: null,
+            },
+            checklist: {
+              displayName: true,
+              creativeType: true,
+              coverageAreas: true,
+              specialties: true,
+              portfolioUrl: true,
+              bio: true,
+              generalAvailability: true,
+            },
+          })
+        : json({
+            projects: [{
+              id: "brief-1",
+              title: "Media Day",
+              creativeType: "photo_video",
+              athletes: [{ id: "athlete-1", name: "Athlète 1" }],
+              scheduledDate: "2026-12-12",
+              dateToAgree: false,
+              region: "Vaud",
+              locationDetails: "Stade de Lausanne",
+              objective: "Portraits",
+              deliverables: "20 photos",
+              deliveryDueDate: null,
+              responseDeadline: "2026-12-01T17:00:00.000Z",
+              compensation: {
+                type: "unpaid_collaboration",
+                amountMinor: null,
+                currency: null,
+              },
+              expensesCovered: false,
+              expenseTerms: "Frais non prévus",
+              creditsAndUsage: "Web KLIQUE",
+              status: "published",
+              conditionsVersion: 1,
+              applicationStatus: "none",
+              applicationMessage: null,
+              assignment: null,
+            }],
+          })
+    )));
+
+    await act(async () => root.render(<ProductionCreativeSpace />));
+    await flush();
+
+    expect(container.textContent).toContain("Stade de Lausanne");
+    expect(container.textContent).toContain("20 photos");
+    expect(container.textContent).toContain("Répondre avant");
+    expect(container.textContent).toContain("1 déc. 2026");
   });
 
   it("renders the Admin counter, filters and empty queue", async () => {

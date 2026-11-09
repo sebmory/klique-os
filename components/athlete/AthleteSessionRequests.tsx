@@ -51,32 +51,19 @@ const emptyForm = (): FormState => ({
 
 const statusLabels: Record<AthleteSessionRequest["workflowStatus"], string> = {
   draft: "Brouillon",
-  submitted: "Demande envoyée",
-  admin_review: "En revue",
-  accepted: "Acceptée par KLIQUE",
-  refused: "Refusée",
-  changes_requested: "Complément demandé",
-  production_linked: "Préparation Production",
-  proposed_to_creatives: "Recherche d’un créatif",
-  candidate_received: "Candidatures en revue",
-  assigned: "Attribution en attente d’accord",
-  creative_agreed: "Accord créatif reçu",
-  confirmed: "Séance confirmée",
-  completed: "Mission terminée",
+  submitted: "À examiner",
+  admin_review: "À examiner",
+  accepted: "À organiser",
+  refused: "Classée sans suite",
+  changes_requested: "À examiner — complément demandé",
+  production_linked: "À organiser",
+  proposed_to_creatives: "Proposition envoyée",
+  candidate_received: "Proposition envoyée",
+  assigned: "Confirmation en attente",
+  creative_agreed: "Confirmation en attente",
+  confirmed: "Confirmée",
+  completed: "Terminée",
   cancelled: "Annulée",
-};
-
-const commercialLabel = (request: AthleteSessionRequest): string => {
-  if (request.commercialMode === "included_right") {
-    return `${request.snapshotCreditQuantity} droit${request.snapshotCreditQuantity === 1 ? "" : "s"} ${request.snapshotCreditType === "production" ? "de production" : "de contenu"} prévu${request.snapshotCreditQuantity === 1 ? "" : "s"}`;
-  }
-  if (request.commercialMode === "paid_extra" && request.snapshotPriceChf !== null) {
-    return new Intl.NumberFormat("fr-CH", {
-      style: "currency",
-      currency: "CHF",
-    }).format(request.snapshotPriceChf);
-  }
-  return "Décision Admin requise";
 };
 
 const formatZurich = (value: string | null) => value
@@ -312,7 +299,6 @@ export function AthleteSessionRequests() {
             <p>{request.objective}</p>
             <dl>
               <div><dt>Région</dt><dd>{request.region}</dd></div>
-              <div><dt>Droit ou coût</dt><dd>{commercialLabel(request)}</dd></div>
               <div><dt>Prochaine étape</dt><dd>{request.nextAction}</dd></div>
             </dl>
             {request.adminReason ? <p className="athlete-session-reason"><strong>Message de KLIQUE :</strong> {request.adminReason}</p> : null}

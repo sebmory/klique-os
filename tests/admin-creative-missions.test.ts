@@ -231,6 +231,7 @@ describe("Admin missions API", () => {
         history: 0,
       },
     });
+    const listCandidates = vi.fn().mockResolvedValue([]);
     const handler = createAdminMissionListHandler({
       getAccess: vi.fn().mockResolvedValue({
         clerkUserId: "admin-1",
@@ -239,12 +240,16 @@ describe("Admin missions API", () => {
         workspaceId: "workspace-a",
       }),
       listMissions,
+      listCandidates,
     });
 
     const response = await handler(new Request("http://localhost/api/admin/missions"));
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(listMissions).toHaveBeenCalledWith({ workspaceId: "workspace-a" });
+    expect(listCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-a",
+    }));
   });
 
   it.each([

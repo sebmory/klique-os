@@ -816,8 +816,11 @@ export const transitionAthleteSessionRequestAsAdmin = async ({
         AND (
           ($5 = 'start_review' AND target.workflow_status = 'submitted')
           OR
-          ($5 IN ('accept', 'refuse', 'request_changes')
+          ($5 IN ('accept', 'request_changes')
             AND target.workflow_status IN ('submitted', 'admin_review'))
+          OR
+          ($5 = 'refuse'
+            AND target.workflow_status IN ('submitted', 'admin_review', 'accepted'))
         )
       RETURNING request.id, target.workflow_status AS previous_status
     ), event AS (
@@ -857,6 +860,7 @@ export type AthleteSessionProductionInput = {
   creativeType: "photo" | "video" | "photo_video";
   selectedPeriodStart: string | null;
   deliveryDueDate: string | null;
+  responseDeadline?: string | null;
   compensation: ReturnType<typeof parseCompensation>;
   expensesCovered: boolean;
   expenseTerms: string;
@@ -888,6 +892,12 @@ export const parseAthleteSessionProductionInput = (
   if (selectedPeriodStart && Number.isNaN(new Date(selectedPeriodStart).getTime())) {
     throw new Error("Période Media Day invalide.");
   }
+  const responseDeadline = input.responseDeadline
+    ? String(input.responseDeadline).trim()
+    : null;
+  if (responseDeadline && Number.isNaN(new Date(responseDeadline).getTime())) {
+    throw new Error("Date limite de réponse invalide.");
+  }
   if (!Array.isArray(input.recipientIds)) throw new Error("Destinataires invalides.");
   const recipientIds = [...new Set(input.recipientIds.map((id) => String(id).trim()))];
   if (recipientIds.length === 0 || !recipientIds.every((id) => uuidPattern.test(id))) {
@@ -898,6 +908,7 @@ export const parseAthleteSessionProductionInput = (
     creativeType: creativeType as AthleteSessionProductionInput["creativeType"],
     selectedPeriodStart,
     deliveryDueDate,
+    responseDeadline,
     compensation: parseCompensation(input.compensation),
     expensesCovered: input.expensesCovered === true,
     expenseTerms: text(input.expenseTerms, "Conditions de frais", 1000),
@@ -946,7 +957,7 @@ export const createProductionBriefFromAthleteSession = async ({
         region, location_details, objective, deliverables, delivery_due_date,
         compensation_type, compensation_amount_minor, compensation_currency,
         expenses_covered, expense_terms, credits_and_usage,
-        necessary_contact_details, created_by_clerk_user_id
+        necessary_contact_details, response_deadline, created_by_clerk_user_id
       )
       SELECT $1, 'athlete_session_request', NULL, $3,
              jsonb_build_object(
@@ -980,7 +991,7 @@ export const createProductionBriefFromAthleteSession = async ({
                ELSE ($6::timestamptz AT TIME ZONE 'Europe/Zurich')::date END,
              FALSE,
              target.region, target.location_name, target.objective, target.deliverables,
-             $7::date, $8, $9, $10, $11, $12, $13, $14, $15
+             $7::date, $8, $9, $10, $11, $12, $13, $14, $18::timestamptz, $15
       FROM target
       WHERE target.workflow_status = 'accepted'
         AND target.production_brief_id IS NULL
@@ -1089,6 +1100,7 @@ export const createProductionBriefFromAthleteSession = async ({
     clerkUserId,
     input.idempotencyKey,
     input.recipientIds,
+    input.responseDeadline ?? null,
   ]) as Array<{
     outcome: "changed" | "unchanged" | "not_found" | "conflict";
     brief_id: string | null;

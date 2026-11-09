@@ -19,6 +19,7 @@ export type ProductionCreativeBrief = {
   objective: string;
   deliverables: string;
   deliveryDueDate: string | null;
+  responseDeadline: string | null;
   compensation: ProductionCreativeCompensation;
   expensesCovered: boolean;
   expenseTerms: string;

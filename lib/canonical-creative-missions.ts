@@ -4,11 +4,14 @@ export type CanonicalCreativeMissionState =
   | "review"
   | "organize"
   | "proposed"
+  | "confirmation_pending"
   | "confirmed"
   | "in_progress"
   | "review_delivery"
+  | "changes_requested"
   | "completed"
-  | "closed_without_action";
+  | "closed_without_action"
+  | "cancelled";
 
 export type CanonicalCreativeMissionView =
   | "to_process"
@@ -19,11 +22,30 @@ export type CanonicalCreativeMissionView =
 export type CanonicalCreativeMission = {
   id: string;
   recordKind: "mission" | "historical_entry";
+  originKind: "projection" | "athlete_request" | "admin" | "production" | "historical";
   state: CanonicalCreativeMissionState;
   view: CanonicalCreativeMissionView;
   title: string;
-  missionType: "media_day" | "match_competition" | "production" | "other";
+  missionType:
+    | "media_day"
+    | "match_competition"
+    | "video"
+    | "interview"
+    | "production"
+    | "other";
   scheduledAt: string | null;
+  periodEndsAt: string | null;
+  locationName: string | null;
+  region: string | null;
+  deliverables: string | null;
+  contextNotes: string | null;
+  usageRights: string | null;
+  budgetAmountMinor: number | null;
+  expensesCovered: boolean | null;
+  expenseTerms: string | null;
+  responseDeadline: string | null;
+  searchMode: "single_creative" | "targeted_creatives" | "direct_assignment" | null;
+  blockingReason: string | null;
   occurredAt: string | null;
   occurredAtSource: string | null;
   regularizationStatus:
@@ -50,6 +72,7 @@ export type CanonicalCreativeMission = {
     profileId: string | null;
   } | null;
   nextAction: string;
+  nextActor: "Admin" | "Créatif" | "Athlète" | null;
   events: Array<{
     action: string;
     fromState: CanonicalCreativeMissionState | null;
@@ -71,10 +94,23 @@ export type CanonicalCreativeMissionListResult = {
 type MissionRow = {
   id: string;
   record_kind: CanonicalCreativeMission["recordKind"];
+  origin_kind: CanonicalCreativeMission["originKind"];
   business_state: CanonicalCreativeMissionState;
   title: string;
   mission_type: CanonicalCreativeMission["missionType"];
   scheduled_at: string | Date | null;
+  period_ends_at: string | Date | null;
+  location_name: string | null;
+  region: string | null;
+  expected_deliverables: string | null;
+  context_notes: string | null;
+  usage_rights: string | null;
+  budget_amount_minor: number | null;
+  expenses_covered: boolean | null;
+  expense_terms: string | null;
+  response_deadline: string | Date | null;
+  search_mode: CanonicalCreativeMission["searchMode"];
+  blocking_reason: string | null;
   occurred_at: string | Date | null;
   occurred_at_source: string | null;
   regularization_status: CanonicalCreativeMission["regularizationStatus"];
@@ -104,22 +140,45 @@ const viewByState: Record<CanonicalCreativeMissionState, CanonicalCreativeMissio
   review: "to_process",
   organize: "to_organize",
   proposed: "in_progress",
+  confirmation_pending: "in_progress",
   confirmed: "in_progress",
   in_progress: "in_progress",
   review_delivery: "in_progress",
+  changes_requested: "in_progress",
   completed: "history",
   closed_without_action: "history",
+  cancelled: "history",
 };
 
 const nextActionByState: Record<CanonicalCreativeMissionState, string> = {
   review: "Examiner la demande",
   organize: "Organiser la mission",
   proposed: "Suivre les propositions",
+  confirmation_pending: "Attendre la confirmation du créatif",
   confirmed: "Préparer la réalisation",
   in_progress: "Suivre la réalisation",
   review_delivery: "Valider la livraison",
+  changes_requested: "Attendre une nouvelle livraison",
   completed: "Aucune action",
   closed_without_action: "Aucune action",
+  cancelled: "Aucune action",
+};
+
+const nextActorByState: Record<
+  CanonicalCreativeMissionState,
+  CanonicalCreativeMission["nextActor"]
+> = {
+  review: "Admin",
+  organize: "Admin",
+  proposed: "Créatif",
+  confirmation_pending: "Créatif",
+  confirmed: "Créatif",
+  in_progress: "Créatif",
+  review_delivery: "Admin",
+  changes_requested: "Créatif",
+  completed: null,
+  closed_without_action: null,
+  cancelled: null,
 };
 
 const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
@@ -163,11 +222,24 @@ export const mapCanonicalCreativeMission = (row: MissionRow): CanonicalCreativeM
   return {
     id: row.id,
     recordKind: row.record_kind,
+    originKind: row.origin_kind,
     state: row.business_state,
     view: viewByState[row.business_state],
     title: row.title,
     missionType: row.mission_type,
     scheduledAt: toIso(row.scheduled_at),
+    periodEndsAt: toIso(row.period_ends_at),
+    locationName: row.location_name,
+    region: row.region,
+    deliverables: row.expected_deliverables,
+    contextNotes: row.context_notes,
+    usageRights: row.usage_rights,
+    budgetAmountMinor: row.budget_amount_minor,
+    expensesCovered: row.expenses_covered,
+    expenseTerms: row.expense_terms,
+    responseDeadline: toIso(row.response_deadline),
+    searchMode: row.search_mode,
+    blockingReason: row.blocking_reason,
     occurredAt: toIso(row.occurred_at),
     occurredAtSource: row.occurred_at_source,
     regularizationStatus: row.regularization_status,
@@ -177,6 +249,7 @@ export const mapCanonicalCreativeMission = (row: MissionRow): CanonicalCreativeM
     sources,
     creative,
     nextAction: nextActionByState[row.business_state],
+    nextActor: nextActorByState[row.business_state],
     events: asArray<CanonicalCreativeMission["events"][number]>(row.events),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -190,10 +263,23 @@ export const createCanonicalCreativeMissionRepository = (): CanonicalCreativeMis
         SELECT
           mission.id,
           mission.record_kind,
+          mission.origin_kind,
           mission.business_state,
           mission.title,
           mission.mission_type,
           mission.scheduled_at,
+          mission.period_ends_at,
+          mission.location_name,
+          mission.region,
+          mission.expected_deliverables,
+          mission.context_notes,
+          mission.usage_rights,
+          mission.budget_amount_minor,
+          mission.expenses_covered,
+          mission.expense_terms,
+          mission.response_deadline,
+          mission.search_mode,
+          mission.blocking_reason,
           mission.occurred_at,
           mission.occurred_at_source,
           mission.regularization_status,
@@ -262,11 +348,14 @@ export const createCanonicalCreativeMissionRepository = (): CanonicalCreativeMis
             WHEN 'review' THEN 0
             WHEN 'organize' THEN 1
             WHEN 'review_delivery' THEN 2
-            WHEN 'confirmed' THEN 3
-            WHEN 'in_progress' THEN 4
-            WHEN 'proposed' THEN 5
-            WHEN 'completed' THEN 6
-            WHEN 'closed_without_action' THEN 7
+            WHEN 'changes_requested' THEN 3
+            WHEN 'confirmation_pending' THEN 4
+            WHEN 'confirmed' THEN 5
+            WHEN 'in_progress' THEN 6
+            WHEN 'proposed' THEN 7
+            WHEN 'completed' THEN 8
+            WHEN 'closed_without_action' THEN 9
+            WHEN 'cancelled' THEN 10
           END,
           COALESCE(mission.scheduled_at, mission.occurred_at) DESC NULLS LAST,
           mission.id
@@ -280,7 +369,8 @@ export const createCanonicalCreativeMissionRepository = (): CanonicalCreativeMis
             WHEN business_state = 'review' THEN 'to_process'
             WHEN business_state = 'organize' THEN 'to_organize'
             WHEN business_state IN (
-              'proposed', 'confirmed', 'in_progress', 'review_delivery'
+              'proposed', 'confirmation_pending', 'confirmed', 'in_progress',
+              'review_delivery', 'changes_requested'
             ) THEN 'in_progress'
             ELSE 'history'
           END AS view,

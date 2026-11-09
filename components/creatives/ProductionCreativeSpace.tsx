@@ -44,6 +44,15 @@ const checklistLabels: Record<keyof ProfileChecklist, string> = {
 const formatDate = (value: string | null) =>
   value ? new Intl.DateTimeFormat("fr-CH").format(new Date(`${value}T00:00:00`)) : "À convenir";
 
+const formatDateTime = (value: string | null) =>
+  value
+    ? new Intl.DateTimeFormat("fr-CH", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Europe/Zurich",
+      }).format(new Date(value))
+    : "Aucune date limite";
+
 const compensationLabel = (project: ProductionCreativeBrief) =>
   project.compensation.type === "unpaid_collaboration"
     ? "Collaboration non rémunérée"
@@ -215,8 +224,10 @@ export function ProductionCreativeSpace() {
               <dl className="crm-person-info-grid">
                 <div><dt>Date</dt><dd>{formatDate(project.scheduledDate)}</dd></div>
                 <div><dt>Région</dt><dd>{project.region}</dd></div>
+                <div><dt>Lieu</dt><dd>{project.locationDetails || "À convenir"}</dd></div>
                 <div><dt>Livrables</dt><dd>{project.deliverables}</dd></div>
                 <div><dt>Échéance</dt><dd>{formatDate(project.deliveryDueDate)}</dd></div>
+                <div><dt>Répondre avant</dt><dd>{formatDateTime(project.responseDeadline)}</dd></div>
                 <div><dt>Frais</dt><dd>{project.expensesCovered ? "Pris en charge" : "Non pris en charge"} — {project.expenseTerms}</dd></div>
                 <div><dt>Crédits et utilisation</dt><dd>{project.creditsAndUsage}</dd></div>
               </dl>

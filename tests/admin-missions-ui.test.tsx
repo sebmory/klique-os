@@ -32,11 +32,24 @@ const mission = (
 ): CanonicalCreativeMission => ({
   id,
   recordKind: "mission",
+  originKind: "athlete_request",
   state,
   view,
   title: `Mission ${id}`,
   missionType: "production",
   scheduledAt: "2026-12-10T09:00:00.000Z",
+  periodEndsAt: null,
+  locationName: null,
+  region: null,
+  deliverables: null,
+  contextNotes: null,
+  usageRights: null,
+  budgetAmountMinor: null,
+  expensesCovered: null,
+  expenseTerms: null,
+  responseDeadline: null,
+  searchMode: null,
+  blockingReason: null,
   occurredAt: null,
   occurredAtSource: null,
   regularizationStatus: "none",
@@ -51,6 +64,7 @@ const mission = (
   }],
   creative: null,
   nextAction: state === "review" ? "Examiner la demande" : "Organiser la mission",
+  nextActor: "Admin",
   events: [{
     action: "projection_updated",
     fromState: null,
@@ -219,6 +233,70 @@ describe("canonical Admin missions UI", () => {
       view: "history",
       query: "",
     })).toEqual([missions[0], missions[1]]);
+  });
+
+  it("uses profile compatibility and shows missing availability without blocking", async () => {
+    const organized = mission("organize-1", "organize", "to_organize", {
+      originKind: "admin",
+      title: "Media Day Basketball",
+      missionType: "media_day",
+      region: "Vaud",
+      contextNotes: "Portraits Basketball",
+      deliverables: "20 photos",
+      usageRights: "Web KLIQUE",
+      expenseTerms: "Frais non prévus",
+      sources: [],
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (
+      String(input).includes("/api/admin/missions")
+        ? response({
+            missions: [organized],
+            counts: {
+              to_process: 0,
+              to_organize: 1,
+              in_progress: 0,
+              history: 0,
+            },
+            candidates: [{
+              id: "11111111-1111-4111-8111-111111111111",
+              displayName: "Photo Vaud",
+              creativeType: "photographer",
+              coverageAreas: ["Vaud"],
+              specialties: ["Basketball"],
+              generalAvailability: null,
+              availability: [],
+              conflicts: [],
+            }, {
+              id: "22222222-2222-4222-8222-222222222222",
+              displayName: "Vidéo Genève",
+              creativeType: "videographer",
+              coverageAreas: ["Genève"],
+              specialties: ["Football"],
+              generalAvailability: "Le week-end",
+              availability: [],
+              conflicts: [],
+            }],
+          })
+        : response({ athletes: [], source: "google-sheets" })
+    )));
+
+    await renderScreen();
+    const organizeButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("À organiser"));
+    await act(async () => organizeButton?.click());
+
+    expect(container.textContent).toContain("Photo Vaud");
+    expect(container.textContent).toContain("Disponibilité non renseignée");
+    expect(container.querySelector(".admin-mission-candidates .is-compatible")?.textContent)
+      .toContain("Photo Vaud");
+    const compatibleCheckbox = container.querySelector<HTMLInputElement>(
+      ".admin-mission-candidates .is-compatible input",
+    );
+    await act(async () => compatibleCheckbox?.click());
+    expect(Array.from(container.querySelectorAll("button")).some(
+      (button) => button.textContent === "Proposer la mission" && !button.disabled,
+    )).toBe(true);
+    expect(container.textContent).toContain("Créer une mission");
   });
 
   it("keeps the 390px mobile layout bounded and details wrappable", () => {

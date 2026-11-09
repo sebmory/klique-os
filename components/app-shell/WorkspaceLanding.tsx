@@ -17,7 +17,6 @@ import { PartnerIntroductionsAdminCockpit } from "@/components/app-shell/Partner
 import { AthleteNewsReportsAdminCard } from "@/components/app-shell/AthleteNewsReportsAdminCard";
 import { SportsWatchAdminCard } from "@/components/app-shell/SportsWatchAdminCard";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
-import { SessionRequestsAdminCockpit } from "@/components/app-shell/SessionRequestsAdminCockpit";
 import {
   getWeeklyResponseKey,
   parseWeeklyResponseDate,
@@ -817,8 +816,6 @@ export function WorkspaceLanding({
       <AthleteNewsReportsAdminCard athletes={athletes} />
 
       {sportsWatchEnabled ? <SportsWatchAdminCard athletes={athletes} /> : null}
-
-      <SessionRequestsAdminCockpit />
 
       <PartnerIntroductionsAdminCockpit />
 

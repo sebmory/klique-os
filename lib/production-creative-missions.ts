@@ -19,6 +19,7 @@ type BriefRow = {
   objective: string;
   deliverables: string;
   delivery_due_date: string | null;
+  response_deadline: string | null;
   compensation_type: "unpaid_collaboration" | "paid_mandate";
   compensation_amount_minor: number | null;
   compensation_currency: string | null;
@@ -49,6 +50,7 @@ const mapBrief = (row: BriefRow): ProductionCreativeBrief => ({
   objective: row.objective,
   deliverables: row.deliverables,
   deliveryDueDate: row.delivery_due_date,
+  responseDeadline: row.response_deadline,
   compensation: row.compensation_type === "paid_mandate"
     ? {
         type: "paid_mandate",
@@ -85,7 +87,8 @@ export const listProductionCreativeMissions = async (
     SELECT brief.id, brief.title, brief.creative_type, brief.athlete_refs,
            brief.scheduled_date::text, brief.date_to_agree, brief.region,
            brief.location_details, brief.objective, brief.deliverables,
-           brief.delivery_due_date::text, brief.compensation_type,
+           brief.delivery_due_date::text, brief.response_deadline::text,
+           brief.compensation_type,
            brief.compensation_amount_minor, brief.compensation_currency,
            brief.expenses_covered, brief.expense_terms, brief.credits_and_usage,
            brief.status, brief.conditions_version,

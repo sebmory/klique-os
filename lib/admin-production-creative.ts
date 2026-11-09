@@ -238,6 +238,214 @@ export const createProductionCreativeBrief = async (context: {
   return rows[0].id;
 };
 
+export const createProductionCreativeBriefFromCanonicalMission = async (
+  context: {
+    workspaceId: string;
+    clerkUserId: string;
+  },
+  input: {
+    missionId: string;
+    recipientIds: string[];
+  },
+): Promise<{
+  outcome: "changed" | "unchanged" | "not_found" | "incomplete" | "invalid_recipients";
+  briefId: string | null;
+  status: "draft" | "published" | "assigned" | "cancelled" | null;
+}> => {
+  const missionId = requireUuid(input.missionId, "Mission");
+  const recipientIds = [...new Set(
+    input.recipientIds.map((id) => requireUuid(id, "Destinataire")),
+  )];
+  if (recipientIds.length === 0) throw new Error("Sélectionnez au moins un destinataire.");
+  const fingerprint = createHash("sha256")
+    .update(`canonical-mission:${context.workspaceId}:${missionId}`)
+    .digest("hex");
+  const sql = createContentStorageClient();
+  const rows = await sql.query(`
+    WITH target AS MATERIALIZED (
+      SELECT mission.*,
+             COALESCE(athletes.items, '[]'::jsonb) AS athlete_refs
+      FROM creative_missions mission
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', athlete.athlete_id,
+            'name', athlete.athlete_name_snapshot
+          )
+          ORDER BY athlete.athlete_name_snapshot NULLS LAST, athlete.athlete_id
+        ) AS items
+        FROM creative_mission_athletes athlete
+        WHERE athlete.workspace_id = mission.workspace_id
+          AND athlete.mission_id = mission.id
+      ) athletes ON TRUE
+      WHERE mission.workspace_id = $1
+        AND mission.id = $2::uuid
+      FOR UPDATE OF mission
+    ),
+    existing AS MATERIALIZED (
+      SELECT brief.id, brief.status
+      FROM production_creative_briefs brief
+      WHERE brief.workspace_id = $1
+        AND brief.origin_type = 'canonical_mission'
+        AND brief.origin_request_id = $2::uuid
+    ),
+    valid_recipients AS MATERIALIZED (
+      SELECT profile.id
+      FROM creative_profiles profile
+      WHERE profile.workspace_id = $1
+        AND profile.status = 'active'
+        AND profile.id = ANY($4::uuid[])
+    ),
+    inserted AS MATERIALIZED (
+      INSERT INTO production_creative_briefs (
+        workspace_id, production_source, production_source_row,
+        production_source_fingerprint, production_snapshot,
+        origin_type, origin_request_id, planning_timezone,
+        title, creative_type, athlete_refs, scheduled_date, date_to_agree,
+        region, location_details, objective, deliverables, delivery_due_date,
+        compensation_type, compensation_amount_minor, compensation_currency,
+        expenses_covered, expense_terms, credits_and_usage,
+        necessary_contact_details, response_deadline, created_by_clerk_user_id
+      )
+      SELECT
+        $1,
+        'canonical_mission',
+        NULL,
+        $3,
+        jsonb_build_object(
+          'missionId', target.id,
+          'missionType', target.mission_type,
+          'originKind', target.origin_kind
+        ),
+        'canonical_mission',
+        target.id,
+        'Europe/Zurich',
+        target.title,
+        CASE target.mission_type
+          WHEN 'match_competition' THEN 'photo'
+          WHEN 'video' THEN 'video'
+          WHEN 'interview' THEN 'video'
+          ELSE 'photo_video'
+        END,
+        target.athlete_refs,
+        (target.scheduled_at AT TIME ZONE 'Europe/Zurich')::date,
+        target.scheduled_at IS NULL,
+        target.region,
+        target.location_name,
+        target.context_notes,
+        target.expected_deliverables,
+        NULL,
+        CASE WHEN target.budget_amount_minor IS NULL
+          THEN 'unpaid_collaboration'
+          ELSE 'paid_mandate'
+        END,
+        target.budget_amount_minor,
+        CASE WHEN target.budget_amount_minor IS NULL THEN NULL ELSE 'CHF' END,
+        COALESCE(target.expenses_covered, FALSE),
+        target.expense_terms,
+        target.usage_rights,
+        NULL,
+        target.response_deadline,
+        $5
+      FROM target
+      WHERE target.origin_kind = 'admin'
+        AND target.business_state = 'organize'
+        AND target.region IS NOT NULL
+        AND target.context_notes IS NOT NULL
+        AND target.expected_deliverables IS NOT NULL
+        AND target.usage_rights IS NOT NULL
+        AND target.expense_terms IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM existing)
+        AND (SELECT count(*) FROM valid_recipients) = cardinality($4::uuid[])
+      RETURNING id, status, conditions_version, compensation_type,
+                compensation_amount_minor, compensation_currency,
+                expenses_covered, expense_terms, deliverables,
+                credits_and_usage, scheduled_date, date_to_agree, region,
+                location_details, delivery_due_date
+    ),
+    recipients AS (
+      INSERT INTO production_creative_recipients (
+        workspace_id, brief_id, creative_profile_id
+      )
+      SELECT $1, inserted.id, valid_recipients.id
+      FROM inserted
+      CROSS JOIN valid_recipients
+    ),
+    conditions AS (
+      INSERT INTO production_creative_condition_versions (
+        workspace_id, brief_id, version, conditions_snapshot,
+        created_by_clerk_user_id
+      )
+      SELECT
+        $1,
+        inserted.id,
+        inserted.conditions_version,
+        jsonb_build_object(
+          'version', inserted.conditions_version,
+          'compensationType', inserted.compensation_type,
+          'amountMinor', inserted.compensation_amount_minor,
+          'currency', inserted.compensation_currency,
+          'expensesCovered', inserted.expenses_covered,
+          'expenseTerms', inserted.expense_terms,
+          'deliverables', inserted.deliverables,
+          'creditsAndUsage', inserted.credits_and_usage,
+          'scheduledDate', inserted.scheduled_date,
+          'dateToAgree', inserted.date_to_agree,
+          'region', inserted.region,
+          'locationDetails', inserted.location_details,
+          'deliveryDueDate', inserted.delivery_due_date
+        ),
+        $5
+      FROM inserted
+    ),
+    event AS (
+      INSERT INTO production_creative_events (
+        workspace_id, brief_id, action, actor_clerk_user_id, details
+      )
+      SELECT
+        $1,
+        inserted.id,
+        'brief_created',
+        $5,
+        jsonb_build_object(
+          'originType', 'canonical_mission',
+          'originRequestId', $2,
+          'recipientCount', cardinality($4::uuid[])
+        )
+      FROM inserted
+    )
+    SELECT 'changed' AS outcome, id, status FROM inserted
+    UNION ALL
+    SELECT 'unchanged', id, status FROM existing
+    UNION ALL
+    SELECT
+      CASE
+        WHEN NOT EXISTS (SELECT 1 FROM target) THEN 'not_found'
+        WHEN (SELECT count(*) FROM valid_recipients) <> cardinality($4::uuid[])
+          THEN 'invalid_recipients'
+        ELSE 'incomplete'
+      END,
+      NULL::uuid,
+      NULL::text
+    WHERE NOT EXISTS (SELECT 1 FROM inserted)
+      AND NOT EXISTS (SELECT 1 FROM existing)
+    LIMIT 1
+  `, [
+    context.workspaceId,
+    missionId,
+    fingerprint,
+    recipientIds,
+    context.clerkUserId,
+  ]) as Array<{
+    outcome: "changed" | "unchanged" | "not_found" | "incomplete" | "invalid_recipients";
+    id: string | null;
+    status: "draft" | "published" | "assigned" | "cancelled" | null;
+  }>;
+  const row = rows[0];
+  if (!row) throw new Error("Le brief Production n’a pas pu être préparé.");
+  return { outcome: row.outcome, briefId: row.id, status: row.status };
+};
+
 export const listProductionCreativeBriefsForSource = async (
   workspaceId: string,
   productionSourceRow: number,

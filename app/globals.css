@@ -1533,7 +1533,8 @@ button {
 }
 
 .admin-mission-state-badge.is-review,
-.admin-mission-state-badge.is-review_delivery {
+.admin-mission-state-badge.is-review_delivery,
+.admin-mission-state-badge.is-changes_requested {
   border-color: #e2bf34;
   background: #fff3bf;
   color: #6b5400;
@@ -1541,6 +1542,7 @@ button {
 
 .admin-mission-state-badge.is-organize,
 .admin-mission-state-badge.is-proposed,
+.admin-mission-state-badge.is-confirmation_pending,
 .admin-mission-state-badge.is-confirmed,
 .admin-mission-state-badge.is-in_progress {
   border-color: #b7c8df;
@@ -1554,7 +1556,8 @@ button {
   color: #27623a;
 }
 
-.admin-mission-state-badge.is-closed_without_action {
+.admin-mission-state-badge.is-closed_without_action,
+.admin-mission-state-badge.is-cancelled {
   border-color: #d7d2ca;
   background: #f5f3ef;
   color: #605c55;
@@ -1709,6 +1712,152 @@ button {
   overflow-wrap: anywhere;
 }
 
+.admin-mission-form {
+  border: 1px solid #e2bf34;
+  border-radius: 16px;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  background: #fffdf5;
+}
+
+.admin-mission-form > header,
+.admin-mission-organization > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-mission-form h2,
+.admin-mission-organization h3 {
+  margin: 3px 0;
+  color: #242424;
+}
+
+.admin-mission-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-mission-form label,
+.admin-mission-actions label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: #555555;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-mission-form input,
+.admin-mission-form select,
+.admin-mission-form textarea,
+.admin-mission-actions textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d9d5ce;
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: #252525;
+  font: inherit;
+}
+
+.admin-mission-form select[multiple] {
+  min-height: 104px;
+}
+
+.admin-mission-form textarea,
+.admin-mission-actions textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.admin-mission-checkbox {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  justify-content: start;
+}
+
+.admin-mission-checkbox input {
+  width: auto;
+  min-height: 0;
+}
+
+.admin-mission-form footer {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-mission-form footer span,
+.admin-mission-organization p {
+  margin: 0;
+  color: #6b6b6b;
+  font-size: 0.82rem;
+}
+
+.admin-mission-actions,
+.admin-mission-organization {
+  border-top: 1px solid #efebe5;
+  padding-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.admin-mission-actions label {
+  flex: 1 1 260px;
+}
+
+.admin-mission-organization {
+  display: grid;
+}
+
+.admin-mission-candidates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-mission-candidates > label {
+  min-width: 0;
+  border: 1px solid #dedad3;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #faf9f7;
+}
+
+.admin-mission-candidates > label.is-compatible {
+  border-color: #b9d8c1;
+  background: #f3fbf5;
+}
+
+.admin-mission-candidates span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.admin-mission-candidates small,
+.admin-mission-candidates em {
+  overflow-wrap: anywhere;
+  color: #666666;
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.admin-mission-candidates em {
+  color: #665200;
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .admin-mission-card {
     padding: 13px;
@@ -1732,6 +1881,11 @@ button {
   .admin-mission-card dl {
     grid-template-columns: 1fr 1fr;
   }
+
+  .admin-mission-form-grid,
+  .admin-mission-candidates {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1752,6 +1906,13 @@ button {
 
   .admin-mission-card dl {
     grid-template-columns: 1fr;
+  }
+
+  .admin-missions-header,
+  .admin-mission-form > header,
+  .admin-mission-organization > header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .admin-mission-details li > a,
