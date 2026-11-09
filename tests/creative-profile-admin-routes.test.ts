@@ -95,7 +95,28 @@ describe("Admin creative profiles routes", () => {
       "user-admin",
       manualInput,
     );
-    await expect(response.json()).resolves.toEqual({ profile: created });
+    await expect(response.json()).resolves.toEqual({ profile: created, reused: false });
+  });
+
+  it("resolves invitation creation to an existing canonical profile", async () => {
+    const resolveInvitationProfile = vi.fn().mockResolvedValue({
+      profile,
+      created: false,
+    });
+    const response = await createAdminCreativeProfilesHandlers({
+      getAccess: vi.fn().mockResolvedValue(access),
+      listProfiles: vi.fn(),
+      createManualProfile: vi.fn(),
+      resolveInvitationProfile,
+    }).POST(postRequest({ ...manualInput, reuseExisting: true }));
+
+    expect(response.status).toBe(200);
+    expect(resolveInvitationProfile).toHaveBeenCalledWith(
+      "workspace-session",
+      "user-admin",
+      manualInput,
+    );
+    await expect(response.json()).resolves.toEqual({ profile, reused: true });
   });
 
   it("protects manual creation with Admin access and rejects client workspace input", async () => {
@@ -145,6 +166,7 @@ describe("Admin creative profiles routes", () => {
     { ...manualInput, sourceRow: 7 },
     { ...manualInput, provenance: "form_application" },
     { ...manualInput, approvedByClerkUserId: "forged" },
+    { ...manualInput, reuseExisting: "yes" },
     { ...manualInput, creativeType: "designer" },
     { ...manualInput, status: "pending" },
     { ...manualInput, contactEmail: null },

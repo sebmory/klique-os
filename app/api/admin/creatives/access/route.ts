@@ -40,6 +40,7 @@ const reasonStatus: Record<string, number> = {
   missing_email: 422,
   invalid_email: 422,
   invalid_message: 422,
+  ambiguous_identity: 409,
   clerk_error: 502,
 };
 
@@ -53,6 +54,7 @@ const reasonMessage: Record<string, string> = {
   missing_email: "La fiche créative ne contient aucune adresse e-mail.",
   invalid_email: "L’adresse e-mail de la fiche créative est invalide.",
   invalid_message: "Le message est invalide.",
+  ambiguous_identity: "Plusieurs fiches créatives correspondent à cette identité.",
   clerk_error: "L’opération Clerk a échoué.",
 };
 

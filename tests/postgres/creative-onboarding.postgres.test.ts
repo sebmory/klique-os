@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { linkCreativeAccessFromInvitation } from "@/lib/clerk-access/service";
 import { validateCreativeOnboarding } from "@/lib/creatives/onboarding";
 
 const databaseUrl = process.env.KLIQUE_CREATIVE_ONBOARDING_PG_TEST_URL;
@@ -12,8 +13,12 @@ const runId = randomUUID();
 const workspaceId = `creative-onboarding-test-${runId}`;
 const otherWorkspaceId = `creative-onboarding-other-${runId}`;
 const creativeProfileId = randomUUID();
+const invitedProfileId = randomUUID();
+const invitedApplicationId = randomUUID();
 const creativeUserId = `creative-${runId}`;
+const invitedCreativeUserId = `creative-invited-${runId}`;
 const adminUserId = `admin-${runId}`;
+const invitedEmail = `${runId}-invited@example.test`;
 
 const cleanup = async () => {
   await sql.transaction([
@@ -24,6 +29,10 @@ const cleanup = async () => {
     ),
     sql.query(
       "DELETE FROM creative_access WHERE workspace_id IN ($1, $2)",
+      [workspaceId, otherWorkspaceId],
+    ),
+    sql.query(
+      "DELETE FROM creative_invitations WHERE workspace_id IN ($1, $2)",
       [workspaceId, otherWorkspaceId],
     ),
     sql.query(
@@ -60,6 +69,36 @@ describePostgres("creative onboarding PostgreSQL", () => {
       creativeProfileId,
       creativeUserId,
       `${runId}@example.test`,
+      adminUserId,
+    ]);
+    await sql.query(`
+      INSERT INTO creative_profiles (
+        id, workspace_id, provenance, application_id, display_name, creative_type,
+        contact_email, portfolio_url, coverage_areas, specialties, bio,
+        general_availability, status, source_row, approved_by_clerk_user_id,
+        approved_at, onboarding_status
+      ) VALUES (
+        $1::uuid, $2, 'form_application', $3::uuid, 'Fixture Forms', 'photographer',
+        $4, 'https://forms-portfolio.example', ARRAY['Genève'], ARRAY['Athlétisme'],
+        'Présentation Forms.', NULL, 'active', 42, $5, NOW(), 'active'
+      )
+    `, [
+      invitedProfileId,
+      workspaceId,
+      invitedApplicationId,
+      invitedEmail,
+      adminUserId,
+    ]);
+    await sql.query(`
+      INSERT INTO creative_invitations (
+        workspace_id, creative_profile_id, email, clerk_invitation_id, status,
+        invited_by_clerk_user_id
+      ) VALUES ($1, $2::uuid, $3, $4, 'invited', $5)
+    `, [
+      workspaceId,
+      invitedProfileId,
+      invitedEmail,
+      `invitation-${runId}`,
       adminUserId,
     ]);
   });
@@ -111,5 +150,60 @@ describePostgres("creative onboarding PostgreSQL", () => {
        WHERE workspace_id = $1 AND creative_profile_id = $2::uuid`,
       [workspaceId, creativeProfileId],
     )).rejects.toThrow(/immutable/i);
+  });
+
+  it("reconciles an existing sent invitation with its Forms profile", async () => {
+    const before = await sql.query(
+      `SELECT provenance, application_id, source_row, display_name, portfolio_url,
+              coverage_areas, specialties, bio
+       FROM creative_profiles
+       WHERE workspace_id = $1 AND id = $2::uuid`,
+      [workspaceId, invitedProfileId],
+    );
+
+    await expect(linkCreativeAccessFromInvitation(invitedCreativeUserId, {
+      publicMetadata: {
+        role: "creative",
+        workspaceId,
+        creativeProfileId: invitedProfileId,
+      },
+      emailAddresses: [{
+        emailAddress: invitedEmail,
+        verification: { status: "verified" },
+      }],
+    })).resolves.toMatchObject({
+      creativeProfileId: invitedProfileId,
+      clerkUserId: invitedCreativeUserId,
+    });
+
+    const profileAfter = await sql.query(
+      `SELECT provenance, application_id, source_row, display_name, portfolio_url,
+              coverage_areas, specialties, bio, onboarding_status
+       FROM creative_profiles
+       WHERE workspace_id = $1 AND id = $2::uuid`,
+      [workspaceId, invitedProfileId],
+    );
+    const invitationAfter = await sql.query(
+      `SELECT status, accepted_clerk_user_id
+       FROM creative_invitations
+       WHERE workspace_id = $1 AND creative_profile_id = $2::uuid`,
+      [workspaceId, invitedProfileId],
+    );
+    const profileCount = await sql.query(
+      `SELECT count(*)::int AS count
+       FROM creative_profiles
+       WHERE workspace_id = $1 AND lower(btrim(contact_email)) = lower(btrim($2))`,
+      [workspaceId, invitedEmail],
+    );
+
+    expect(profileAfter[0]).toEqual({
+      ...before[0],
+      onboarding_status: "account_created",
+    });
+    expect(invitationAfter[0]).toMatchObject({
+      status: "accepted",
+      accepted_clerk_user_id: invitedCreativeUserId,
+    });
+    expect(profileCount[0]?.count).toBe(1);
   });
 });

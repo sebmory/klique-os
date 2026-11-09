@@ -3,6 +3,7 @@ import {
   createManualCreativeProfileForAdmin,
   CreativeProfileAdminError,
   listCreativeProfilesForAdmin,
+  resolveCreativeProfileForInvitationForAdmin,
 } from "@/lib/creatives/admin-profile-service";
 import {
   creativeAdminErrorResponse,
@@ -34,6 +35,11 @@ type HandlerDependencies = {
     approvedByClerkUserId: string,
     input: CreateManualCreativeProfileInput,
   ) => Promise<CreativeProfile>;
+  resolveInvitationProfile?: (
+    workspaceId: string,
+    approvedByClerkUserId: string,
+    input: CreateManualCreativeProfileInput,
+  ) => Promise<{ profile: CreativeProfile; created: boolean }>;
   invalidateStats?: () => void;
   getAccessState?: typeof getCreativeAccessState;
 };
@@ -42,6 +48,7 @@ const defaultDependencies: HandlerDependencies = {
   getAccess: getDefaultCreativeAdminAccess,
   listProfiles: listCreativeProfilesForAdmin,
   createManualProfile: createManualCreativeProfileForAdmin,
+  resolveInvitationProfile: resolveCreativeProfileForInvitationForAdmin,
   invalidateStats: invalidatePublicKliqueStats,
   getAccessState: getCreativeAccessState,
 };
@@ -60,6 +67,7 @@ const allowedFields = new Set([
   "specialties",
   "bio",
   "status",
+  "reuseExisting",
 ]);
 
 const requiredTextFields = ["displayName", "contactEmail"] as const;
@@ -73,7 +81,9 @@ const nullableTextFields = [
   "bio",
 ] as const;
 
-const parseCreateBody = async (request: Request): Promise<CreateManualCreativeProfileInput> => {
+const parseCreateBody = async (
+  request: Request,
+): Promise<{ input: CreateManualCreativeProfileInput; reuseExisting: boolean }> => {
   const contentType = request.headers.get("content-type")
     ?.split(";", 1)[0]
     .trim()
@@ -91,6 +101,12 @@ const parseCreateBody = async (request: Request): Promise<CreateManualCreativePr
     throw new CreativeProfileAdminError("validation", "Requête invalide.");
   }
   const record = body as Record<string, unknown>;
+  if (
+    Object.hasOwn(record, "reuseExisting")
+    && typeof record.reuseExisting !== "boolean"
+  ) {
+    throw new CreativeProfileAdminError("validation", "Requête invalide.");
+  }
   for (const field of requiredTextFields) {
     if (typeof record[field] !== "string" || !record[field].trim()) {
       throw new CreativeProfileAdminError("validation", "Requête invalide.");
@@ -125,19 +141,22 @@ const parseCreateBody = async (request: Request): Promise<CreateManualCreativePr
     }
   }
   return {
-    displayName: record.displayName as string,
-    creativeType: record.creativeType as CreateManualCreativeProfileInput["creativeType"],
-    contactEmail: record.contactEmail as string,
-    phone: (record.phone as string | null | undefined) ?? null,
-    websiteUrl: (record.websiteUrl as string | null | undefined) ?? null,
-    portfolioUrl: (record.portfolioUrl as string | null | undefined) ?? null,
-    instagram: (record.instagram as string | null | undefined) ?? null,
-    city: (record.city as string | null | undefined) ?? null,
-    country: (record.country as string | null | undefined) ?? null,
-    coverageAreas: (record.coverageAreas as string[] | undefined) ?? [],
-    specialties: (record.specialties as string[] | undefined) ?? [],
-    bio: (record.bio as string | null | undefined) ?? null,
-    status: record.status as CreateManualCreativeProfileInput["status"],
+    input: {
+      displayName: record.displayName as string,
+      creativeType: record.creativeType as CreateManualCreativeProfileInput["creativeType"],
+      contactEmail: record.contactEmail as string,
+      phone: (record.phone as string | null | undefined) ?? null,
+      websiteUrl: (record.websiteUrl as string | null | undefined) ?? null,
+      portfolioUrl: (record.portfolioUrl as string | null | undefined) ?? null,
+      instagram: (record.instagram as string | null | undefined) ?? null,
+      city: (record.city as string | null | undefined) ?? null,
+      country: (record.country as string | null | undefined) ?? null,
+      coverageAreas: (record.coverageAreas as string[] | undefined) ?? [],
+      specialties: (record.specialties as string[] | undefined) ?? [],
+      bio: (record.bio as string | null | undefined) ?? null,
+      status: record.status as CreateManualCreativeProfileInput["status"],
+    },
+    reuseExisting: record.reuseExisting === true,
   };
 };
 
@@ -168,25 +187,48 @@ export const createAdminCreativeProfilesHandlers = (
       const access = await requireCreativeAdminContext(request, dependencies.getAccess);
       if ("response" in access) return access.response;
       rejectQueryParameters(request);
-      const input = await parseCreateBody(request);
-      if (!dependencies.createManualProfile) {
-        throw new CreativeProfileAdminError(
-          "dependency",
-          "La création de fiche créative est indisponible.",
+      const { input, reuseExisting } = await parseCreateBody(request);
+      let resolved: { profile: CreativeProfile; created: boolean };
+      if (reuseExisting) {
+        if (!dependencies.resolveInvitationProfile) {
+          throw new CreativeProfileAdminError(
+            "dependency",
+            "La résolution de fiche créative est indisponible.",
+          );
+        }
+        resolved = await dependencies.resolveInvitationProfile(
+            access.context.workspaceId,
+            access.context.clerkUserId,
+            input,
         );
+      } else {
+        if (!dependencies.createManualProfile) {
+          throw new CreativeProfileAdminError(
+            "dependency",
+            "La création de fiche créative est indisponible.",
+          );
+        }
+        resolved = {
+          profile: await dependencies.createManualProfile(
+            access.context.workspaceId,
+            access.context.clerkUserId,
+            input,
+          ),
+          created: true,
+        };
       }
-      const profile = await dependencies.createManualProfile(
-        access.context.workspaceId,
-        access.context.clerkUserId,
-        input,
-      );
+      const { profile } = resolved;
       if (
-        access.context.workspaceId === PUBLIC_KLIQUE_STATS_WORKSPACE_ID
+        resolved.created
+        && access.context.workspaceId === PUBLIC_KLIQUE_STATS_WORKSPACE_ID
         && profile.status === "active"
       ) {
         dependencies.invalidateStats?.();
       }
-      return NextResponse.json({ profile }, { status: 201 });
+      return NextResponse.json(
+        { profile, reused: !resolved.created },
+        { status: resolved.created ? 201 : 200 },
+      );
     } catch (error) {
       return creativeAdminErrorResponse(error);
     }

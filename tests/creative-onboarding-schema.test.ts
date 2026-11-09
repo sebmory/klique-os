@@ -5,6 +5,10 @@ const migrationUrl = new URL(
   "../db/migrations/20261110_creative_onboarding_v1.sql",
   import.meta.url,
 );
+const identityMigrationUrl = new URL(
+  "../db/migrations/20261111_creative_profile_identity_v1.sql",
+  import.meta.url,
+);
 
 describe("creative onboarding schema", () => {
   it("extends the canonical profile and invitation tables without replacing them", async () => {
@@ -36,5 +40,23 @@ describe("creative onboarding schema", () => {
 
     expect(backfill).toBeGreaterThan(-1);
     expect(notNull).toBeGreaterThan(backfill);
+  });
+
+  it("prevents duplicate normalized emails inside a workspace", async () => {
+    const sql = await readFile(identityMigrationUrl, "utf8");
+
+    expect(sql).toContain(
+      "CREATE UNIQUE INDEX IF NOT EXISTS creative_profiles_workspace_normalized_email_idx",
+    );
+    expect(sql).toContain(
+      "ON creative_profiles (workspace_id, lower(btrim(contact_email)))",
+    );
+    expect(sql).toContain(
+      "WHERE NULLIF(btrim(contact_email), '') IS NOT NULL",
+    );
+    expect(sql).toContain("invitation.status = 'invited'");
+    expect(sql).toContain("access.status = 'active'");
+    expect(sql).toContain("onboarding_status = 'invitation_sent'");
+    expect(sql).toContain("'pending_invitation_reconciled'");
   });
 });

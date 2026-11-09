@@ -293,7 +293,9 @@ export function CreativeProfilesAdminPanel() {
     return payload.profile;
   };
 
-  const createProfile = async (input: CreateManualCreativeProfileInput): Promise<CreativeProfile> => {
+  const createProfile = async (
+    input: CreateManualCreativeProfileInput & { reuseExisting?: boolean },
+  ): Promise<CreativeProfile> => {
     const response = await fetch("/api/admin/creatives", {
       method: "POST",
       credentials: "include",
@@ -370,6 +372,7 @@ export function CreativeProfilesAdminPanel() {
         specialties: [],
         bio: null,
         status: "active",
+        reuseExisting: true,
       });
       const response = await fetch("/api/admin/creatives/access", {
         method: "POST",

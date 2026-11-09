@@ -3,6 +3,7 @@ import {
   createManualCreativeProfileForAdmin,
   CreativeProfileAdminError,
   listCreativeProfilesForAdmin,
+  resolveCreativeProfileForInvitationForAdmin,
   updateCreativeProfileForAdmin,
   type CreativeProfileAdminServiceDependencies,
 } from "@/lib/creatives/admin-profile-service";
@@ -98,6 +99,85 @@ describe("creative profile Admin service", () => {
     await expect(listCreativeProfilesForAdmin(workspaceId, mocks))
       .resolves.toEqual([profile()]);
     expect(mocks.listProfiles).toHaveBeenCalledWith(workspaceId);
+  });
+
+  it("reuses a unique Forms profile for an invitation without creating a second profile", async () => {
+    const formsProfile = profile({
+      contactEmail: "Camille@Example.com",
+      provenance: "form_application",
+      portfolioUrl: "https://portfolio.example.com/",
+      bio: "Photographe sportive.",
+    });
+    const mocks = dependencies({
+      listProfiles: vi.fn().mockResolvedValue([formsProfile]),
+    });
+    const input = {
+      displayName: "Valeur invitation",
+      creativeType: "photographer" as const,
+      contactEmail: " camille@example.com ",
+      phone: null,
+      websiteUrl: null,
+      portfolioUrl: null,
+      instagram: null,
+      city: null,
+      country: null,
+      coverageAreas: ["Genève"],
+      specialties: [],
+      bio: null,
+      status: "active" as const,
+    };
+
+    await expect(resolveCreativeProfileForInvitationForAdmin(
+      workspaceId,
+      "user-admin",
+      input,
+      mocks,
+    )).resolves.toEqual({ profile: formsProfile, created: false });
+    expect(mocks.listProfiles).toHaveBeenCalledWith(workspaceId);
+    expect(mocks.createManualProfile).not.toHaveBeenCalled();
+  });
+
+  it("blocks ambiguous identities and ignores profiles from another workspace", async () => {
+    const duplicate = profile({ id: "33333333-3333-4333-8333-333333333333" });
+    const ambiguous = dependencies({
+      listProfiles: vi.fn().mockResolvedValue([profile(), duplicate]),
+    });
+    const input = {
+      displayName: "Camille Martin",
+      creativeType: "both" as const,
+      contactEmail: "camille@example.com",
+      phone: null,
+      websiteUrl: null,
+      portfolioUrl: null,
+      instagram: null,
+      city: null,
+      country: null,
+      coverageAreas: [],
+      specialties: [],
+      bio: null,
+      status: "active" as const,
+    };
+
+    await expect(resolveCreativeProfileForInvitationForAdmin(
+      workspaceId,
+      "user-admin",
+      input,
+      ambiguous,
+    )).rejects.toMatchObject({ code: "conflict" });
+    expect(ambiguous.createManualProfile).not.toHaveBeenCalled();
+
+    const otherWorkspace = dependencies({
+      listProfiles: vi.fn().mockResolvedValue([
+        profile({ workspaceId: "workspace-other" }),
+      ]),
+    });
+    await expect(resolveCreativeProfileForInvitationForAdmin(
+      workspaceId,
+      "user-admin",
+      input,
+      otherWorkspace,
+    )).resolves.toMatchObject({ created: true });
+    expect(otherWorkspace.createManualProfile).toHaveBeenCalledOnce();
   });
 
   it("updates only by UUID and explicit workspace", async () => {

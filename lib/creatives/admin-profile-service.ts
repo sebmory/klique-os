@@ -25,7 +25,7 @@ export type CreativeProfileAdminServiceDependencies = {
 
 export class CreativeProfileAdminError extends Error {
   constructor(
-    public readonly code: "validation" | "not_found" | "dependency",
+    public readonly code: "validation" | "not_found" | "conflict" | "dependency",
     message: string,
   ) {
     super(message);
@@ -115,6 +115,53 @@ export const createManualCreativeProfileForAdmin = async (
       "La fiche créative n’a pas pu être créée.",
     );
   }
+};
+
+export const resolveCreativeProfileForInvitationForAdmin = async (
+  workspaceId: string,
+  approvedByClerkUserId: string,
+  input: CreateManualCreativeProfileInput,
+  dependencies: CreativeProfileAdminServiceDependencies = defaultDependencies,
+): Promise<{ profile: CreativeProfile; created: boolean }> => {
+  const workspace = requireWorkspaceId(workspaceId);
+  const normalizedEmail = input.contactEmail.trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new CreativeProfileAdminError("validation", "L’adresse e-mail est requise.");
+  }
+
+  let matches: CreativeProfile[];
+  try {
+    const profiles = await dependencies.listProfiles(workspace);
+    matches = profiles.filter((profile) =>
+      profile.workspaceId === workspace
+      && profile.contactEmail.trim().toLowerCase() === normalizedEmail
+    );
+  } catch {
+    throw new CreativeProfileAdminError(
+      "dependency",
+      "Les fiches créatives n’ont pas pu être vérifiées.",
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new CreativeProfileAdminError(
+      "conflict",
+      "Plusieurs fiches créatives correspondent à cette identité.",
+    );
+  }
+  if (matches[0]) {
+    return { profile: matches[0], created: false };
+  }
+
+  return {
+    profile: await createManualCreativeProfileForAdmin(
+      workspace,
+      approvedByClerkUserId,
+      input,
+      dependencies,
+    ),
+    created: true,
+  };
 };
 
 export const updateCreativeProfileForAdmin = async (

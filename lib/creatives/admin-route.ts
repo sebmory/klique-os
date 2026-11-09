@@ -126,11 +126,15 @@ export const creativeAdminErrorResponse = (error: unknown): NextResponse => {
       ? 400
       : error.code === "not_found"
         ? 404
+        : error.code === "conflict"
+          ? 409
         : 500;
     const message = status === 400
       ? "Requête invalide."
       : status === 404
         ? "Fiche créative introuvable."
+        : status === 409
+          ? "Plusieurs fiches créatives correspondent à cette identité."
         : "Une erreur interne est survenue.";
     return NextResponse.json({ error: message, code: error.code }, { status });
   }

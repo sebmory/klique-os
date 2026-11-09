@@ -88,6 +88,28 @@ describe("creative access 6C", () => {
     expect((await duplicate.json()).error).toContain("déjà en attente");
   });
 
+  it("blocks an ambiguous normalized identity before Clerk is called", async () => {
+    const invite = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: "ambiguous_identity",
+    });
+    const handlers = createAdminCreativeAccessHandlers({
+      getAccess: adminAccess,
+      getState: vi.fn(),
+      invite,
+      revoke: vi.fn(),
+    });
+
+    const response = await handlers.POST(request("POST", {
+      creativeProfileId: creativeId,
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "ambiguous_identity",
+    });
+  });
+
   it("supports an idempotent resend and revokes access without changing the profile", async () => {
     const invite = vi.fn(async () => ({
       ok: true as const,

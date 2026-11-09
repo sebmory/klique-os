@@ -24,6 +24,49 @@ export type CreativeOnboardingProfile = {
   onboardingMessage: string | null;
 };
 
+export type CreativeOnboardingProfilePatch = Partial<Pick<
+  CreativeOnboardingProfile,
+  | "displayName"
+  | "creativeType"
+  | "portfolioUrl"
+  | "coverageAreas"
+  | "specialties"
+  | "bio"
+  | "generalAvailability"
+>>;
+
+const preserveText = (
+  current: string | null,
+  incoming: string | null | undefined,
+): string | null => {
+  if (incoming === undefined) return current;
+  const normalized = incoming?.trim() || null;
+  return normalized ?? current;
+};
+
+const preserveList = (current: string[], incoming: string[] | undefined): string[] => {
+  if (incoming === undefined) return current;
+  const normalized = [...new Set(incoming.map((value) => value.trim()).filter(Boolean))];
+  return normalized.length > 0 ? normalized : current;
+};
+
+export const mergeCreativeOnboardingProfile = (
+  current: CreativeOnboardingProfile,
+  patch: CreativeOnboardingProfilePatch,
+): CreativeOnboardingProfile => ({
+  ...current,
+  displayName: preserveText(current.displayName, patch.displayName) ?? current.displayName,
+  creativeType: patch.creativeType ?? current.creativeType,
+  portfolioUrl: preserveText(current.portfolioUrl, patch.portfolioUrl),
+  coverageAreas: preserveList(current.coverageAreas, patch.coverageAreas),
+  specialties: preserveList(current.specialties, patch.specialties),
+  bio: preserveText(current.bio, patch.bio),
+  generalAvailability: preserveText(
+    current.generalAvailability,
+    patch.generalAvailability,
+  ),
+});
+
 export const getCreativeProfileChecklist = (profile: CreativeOnboardingProfile) => ({
   displayName: Boolean(profile.displayName.trim()),
   creativeType: ["photographer", "videographer", "both"].includes(profile.creativeType),
