@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import {
-  listAdminCreativeMissions,
-  type AdminCreativeMissionListItem,
-} from "@/lib/admin-creative-missions";
+  listCanonicalCreativeMissions,
+  type CanonicalCreativeMissionListResult,
+} from "@/lib/canonical-creative-missions";
 import {
   getDefaultCreativeAdminAccess,
   requireCreativeAdminContext,
@@ -14,12 +14,12 @@ export const runtime = "nodejs";
 
 type HandlerDependencies = {
   getAccess: GetCreativeAdminAccess;
-  listMissions: (input: { workspaceId: string }) => Promise<AdminCreativeMissionListItem[]>;
+  listMissions: (input: { workspaceId: string }) => Promise<CanonicalCreativeMissionListResult>;
 };
 
 const defaultDependencies: HandlerDependencies = {
   getAccess: getDefaultCreativeAdminAccess,
-  listMissions: listAdminCreativeMissions,
+  listMissions: listCanonicalCreativeMissions,
 };
 
 export const createAdminMissionListHandler = (
@@ -31,10 +31,10 @@ export const createAdminMissionListHandler = (
     if ([...new URL(request.url).searchParams.keys()].length > 0) {
       return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     }
-    const missions = await dependencies.listMissions({
+    const result = await dependencies.listMissions({
       workspaceId: access.context.workspaceId,
     });
-    return NextResponse.json({ missions }, {
+    return NextResponse.json(result, {
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (error) {
@@ -54,4 +54,3 @@ export const createAdminMissionListHandler = (
 };
 
 export const GET = createAdminMissionListHandler();
-

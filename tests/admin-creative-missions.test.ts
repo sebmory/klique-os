@@ -222,7 +222,15 @@ describe("Admin creative mission read model", () => {
 
 describe("Admin missions API", () => {
   it("requires an active Admin and uses only its server-side workspace", async () => {
-    const listMissions = vi.fn().mockResolvedValue([]);
+    const listMissions = vi.fn().mockResolvedValue({
+      missions: [],
+      counts: {
+        to_process: 0,
+        to_organize: 0,
+        in_progress: 0,
+        history: 0,
+      },
+    });
     const handler = createAdminMissionListHandler({
       getAccess: vi.fn().mockResolvedValue({
         clerkUserId: "admin-1",

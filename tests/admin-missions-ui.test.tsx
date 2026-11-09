@@ -4,56 +4,62 @@ import { act, createElement, type AnchorHTMLAttributes, type ReactNode } from "r
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  AdminCreativeMissionListItem,
-  AdminCreativeMissionQueueStatus,
-} from "@/lib/admin-creative-missions";
+  CanonicalCreativeMission,
+  CanonicalCreativeMissionState,
+  CanonicalCreativeMissionView,
+} from "@/lib/canonical-creative-missions";
 
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string; children: ReactNode }) =>
-    createElement("a", { href, ...props }, children),
+  default: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & {
+    href: string;
+    children: ReactNode;
+  }) => createElement("a", { href, ...props }, children),
 }));
 
 import {
   AdminMissionsScreen,
-  filterAdminMissions,
+  filterCanonicalMissions,
 } from "@/components/missions/AdminMissionsScreen";
 import AdminMissionsPage from "@/app/missions/page";
-import CrmContactRequestsPage from "@/app/crm/demandes/page";
 
 const globalCss = readFileSync("app/globals.css", "utf8");
 
-const cssRule = (selector: string): string => {
-  const index = globalCss.indexOf(`\n${selector} {`);
-  if (index === -1) return "";
-  const start = globalCss.indexOf("{", index);
-  const end = globalCss.indexOf("}", start);
-  return globalCss.slice(start, end);
-};
-
 const mission = (
-  requestId: string,
-  queueStatus: AdminCreativeMissionQueueStatus,
-  overrides: Partial<AdminCreativeMissionListItem> = {},
-): AdminCreativeMissionListItem => ({
-  requestId,
-  athleteId: `athlete-${requestId}`,
-  reference: `KLIQUE-${requestId.padStart(8, "0")}`,
-  title: `Mission ${requestId}`,
-  discipline: "Football",
-  missionDate: "2026-10-25",
-  deliveryDueDate: "2026-10-27",
-  startTime: "14:00",
-  locationName: "Lausanne",
-  requestStatus: "scheduled",
-  preferredDate: null,
-  scheduledAt: "2026-10-25T12:00:00.000Z",
-  creative: { id: `creative-${requestId}`, displayName: `Créatif ${requestId}` },
-  missionStatus: "ready",
-  responseStatus: "accepted",
-  executionStatus: "in_progress",
-  queueStatus,
-  nextAction: queueStatus === "delivery_review" ? "Vérifier la livraison" : "Attendre la livraison",
-  lastUpdatedAt: "2026-10-14T10:00:00.000Z",
+  id: string,
+  state: CanonicalCreativeMissionState,
+  view: CanonicalCreativeMissionView,
+  overrides: Partial<CanonicalCreativeMission> = {},
+): CanonicalCreativeMission => ({
+  id,
+  recordKind: "mission",
+  state,
+  view,
+  title: `Mission ${id}`,
+  missionType: "production",
+  scheduledAt: "2026-12-10T09:00:00.000Z",
+  occurredAt: null,
+  occurredAtSource: null,
+  regularizationStatus: "none",
+  regularizationNote: null,
+  athletes: [{ id: `athlete-${id}`, name: `Athlète ${id}` }],
+  services: [],
+  sources: [{
+    type: "athlete_session_request",
+    relation: "origin",
+    id: `request-${id}`,
+    snapshot: { workflowStatus: state },
+  }],
+  creative: null,
+  nextAction: state === "review" ? "Examiner la demande" : "Organiser la mission",
+  events: [{
+    action: "projection_updated",
+    fromState: null,
+    toState: state,
+    actor: "system",
+    note: null,
+    createdAt: "2026-11-09T12:00:00.000Z",
+  }],
+  updatedAt: "2026-11-09T12:00:00.000Z",
   ...overrides,
 });
 
@@ -70,6 +76,9 @@ const renderScreen = async () => {
   await act(async () => {
     root.render(createElement(AdminMissionsScreen));
   });
+  await act(async () => {
+    await Promise.resolve();
+  });
 };
 
 beforeEach(() => {
@@ -85,108 +94,141 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("Admin missions UI", () => {
-  it("wraps every filter on wide screens and reserves touch scrolling for small mobile", () => {
-    const desktopRule = cssRule(".admin-missions-filters");
-    const smallMobileCss = globalCss.slice(globalCss.indexOf("@media (max-width: 480px)"));
-
-    expect(desktopRule).toContain("flex-wrap: wrap");
-    expect(desktopRule).toContain("overflow-x: visible");
-    expect(smallMobileCss).toContain("flex-wrap: nowrap");
-    expect(smallMobileCss).toContain("overflow-x: auto");
-    expect(smallMobileCss).toContain("touch-action: pan-x");
-  });
-
-  it("wires the Admin page and reuses the existing request panel deep link", async () => {
+describe("canonical Admin missions UI", () => {
+  it("wires the page to the canonical cockpit", () => {
     expect(AdminMissionsPage().type).toBe(AdminMissionsScreen);
-    const requestPage = await CrmContactRequestsPage({
-      searchParams: Promise.resolve({ tab: "services", requestId: "request-1" }),
-    });
-    expect(requestPage.props).toMatchObject({
-      initialView: "services",
-      initialServiceRequestId: "request-1",
-    });
   });
 
-  it("renders counters, canonical athlete links and safe request deep links", async () => {
+  it("renders four server-counted views and a multi-athlete historical mission", async () => {
+    const historical = mission("history-1", "completed", "history", {
+      title: "Media Day — Armand Angha & Raphaël Monty",
+      missionType: "media_day",
+      occurredAt: "2026-07-11T12:00:00.000Z",
+      regularizationStatus: "historical_completed",
+      regularizationNote: "Terminée — historique régularisé.",
+      athletes: [
+        { id: "armand-angha", name: "Armand Angha" },
+        { id: "raphael-monty", name: "Raphaël Monty" },
+      ],
+      services: [
+        {
+          requestId: "service-1",
+          productName: "Session photo KLIQUE",
+          status: "completed",
+          requestedDetails: {},
+        },
+        {
+          requestId: "service-2",
+          productName: "Contenu personnalisé",
+          status: "completed",
+          requestedDetails: {},
+        },
+      ],
+      sources: [{
+        type: "production_sheet",
+        relation: "production",
+        id: "google_sheets:fingerprint",
+        snapshot: { shootingDone: false, published: true },
+      }],
+      creative: {
+        kind: "historical",
+        name: "Sébastien Mory",
+        profileId: "profile-1",
+      },
+      nextAction: "Aucune action",
+    });
     const missions = [
-      mission("1", "delivery_review", { athleteId: "athlete-1", creative: { id: "creative-1", displayName: "Alice Photo" } }),
-      mission("2", "to_prepare", { athleteId: "athlete-2", reference: null, missionStatus: null, responseStatus: "pending", executionStatus: null, nextAction: "Préparer la mission" }),
-      mission("3", "completed", { athleteId: "athlete-3", executionStatus: "completed", nextAction: "Aucune action" }),
-      mission("4", "to_assign", { athleteId: "athlete-4", creative: null, responseStatus: "pending", executionStatus: null, nextAction: "Affecter un créatif" }),
+      mission("review-1", "review", "to_process"),
+      mission("organize-1", "organize", "to_organize"),
+      mission("confirmed-1", "confirmed", "in_progress"),
+      historical,
     ];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      return url.includes("/api/admin/missions")
-        ? response({ missions })
-        : response({
-            athletes: [{ key: "athlete-1", name: "Léa Martin" }],
-            source: "google-sheets",
-          });
-    }));
-
-    await renderScreen();
-
-    expect(container.textContent).toContain("Suivi centralisé des missions");
-    expect(container.querySelectorAll(".admin-mission-card")).toHaveLength(4);
-    expect(container.querySelector(".admin-mission-card")?.textContent).toContain("Vérifier la livraison");
-    expect(container.querySelector('a[href="/crm/personnes/athlete-1"]')?.textContent).toBe("Léa Martin");
-    expect(container.querySelector('a[href="/crm/personnes/athlete-2"]')).toBeNull();
-    expect(container.querySelector(
-      'a[href="/crm/demandes?tab=services&requestId=1"]',
-    )).not.toBeNull();
-    const deliveryAction = container.querySelector<HTMLAnchorElement>(
-      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=1"]',
-    );
-    const prepareAction = container.querySelector<HTMLAnchorElement>(
-      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=2"]',
-    );
-    expect(deliveryAction?.textContent).toBe("Vérifier la livraison");
-    expect(deliveryAction?.getAttribute("aria-label")).toBe("Vérifier la livraison pour Mission 1");
-    expect(prepareAction?.textContent).toBe("Préparer la mission");
-    expect(prepareAction?.classList.contains("is-admin-action")).toBe(true);
-    expect(container.querySelector<HTMLAnchorElement>(
-      'a.admin-mission-priority[href="/crm/demandes?tab=services&requestId=4"]',
-    )?.textContent).toBe("Affecter un créatif");
-    expect(container.querySelector(".admin-mission-card:nth-child(3) .admin-mission-priority")?.tagName).toBe("SPAN");
-    expect(container.querySelector(".admin-mission-card:nth-child(3) .admin-mission-priority")?.classList.contains("is-informational")).toBe(true);
-    const deliveryFilter = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("Livraison à vérifier"));
-    expect(deliveryFilter?.textContent).toContain("1");
-  });
-
-  it("filters by state and searches reference, discipline, location and creative name", async () => {
-    const missions = [
-      mission("1", "delivery_review", { creative: { id: "creative-1", displayName: "Alice Photo" } }),
-      mission("2", "to_prepare", { discipline: "Basketball", locationName: "Fribourg" }),
-    ];
-    expect(filterAdminMissions({ missions, filter: "delivery_review", query: "" })).toEqual([missions[0]]);
-    expect(filterAdminMissions({ missions, filter: "all", query: "alice" })).toEqual([missions[0]]);
-    expect(filterAdminMissions({ missions, filter: "all", query: "basketball" })).toEqual([missions[1]]);
-    expect(filterAdminMissions({ missions, filter: "all", query: "fribourg" })).toEqual([missions[1]]);
-    expect(filterAdminMissions({ missions, filter: "all", query: "KLIQUE-00000001" })).toEqual([missions[0]]);
-
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (
       String(input).includes("/api/admin/missions")
-        ? response({ missions })
+        ? response({
+            missions,
+            counts: {
+              to_process: 1,
+              to_organize: 1,
+              in_progress: 1,
+              history: 1,
+            },
+          })
         : response({ athletes: [], source: "google-sheets" })
     )));
+
     await renderScreen();
 
-    const prepareFilter = Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.includes("À préparer"));
-    await act(async () => {
-      prepareFilter?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(container.querySelectorAll(".admin-mission-card")).toHaveLength(1);
-    expect(container.textContent).toContain("Basketball");
+    expect(container.textContent).toContain("Pilotage unifié des missions");
+    for (const label of ["À traiter", "À organiser", "En cours", "Historique"]) {
+      expect(Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent?.includes(label),
+      )).toBe(true);
+    }
 
-    const search = container.querySelector<HTMLInputElement>('input[type="search"]');
+    const historyButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Historique"));
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "Alice");
-      search?.dispatchEvent(new Event("input", { bubbles: true }));
+      historyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(container.textContent).toContain("Aucun résultat");
+
+    expect(container.querySelectorAll(".admin-mission-card")).toHaveLength(1);
+    expect(container.textContent).toContain("Media Day — Armand Angha & Raphaël Monty");
+    expect(container.textContent).toContain("Terminée — historique régularisé");
+    expect(container.textContent).toContain("Sébastien Mory — créatif historique déclaré");
+    expect(container.querySelector('a[href="/crm/personnes/armand-angha"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/crm/personnes/raphael-monty"]')).not.toBeNull();
+    expect(container.querySelector("details")).not.toBeNull();
+    expect(container.querySelector("pre")?.textContent).toContain('"shootingDone": false');
+  });
+
+  it("filters within one view across athletes, services and creatives", () => {
+    const missions = [
+      mission("1", "completed", "history", {
+        athletes: [{ id: "athlete-1", name: "Chiona Kapinga" }],
+        services: [{
+          requestId: "service-1",
+          productName: "Contenu personnalisé",
+          status: "completed",
+          requestedDetails: {},
+        }],
+      }),
+      mission("2", "completed", "history", {
+        creative: { kind: "historical", name: "Alan Jeanbourquin", profileId: null },
+      }),
+      mission("3", "review", "to_process"),
+    ];
+
+    expect(filterCanonicalMissions({
+      missions,
+      view: "history",
+      query: "chiona",
+    })).toEqual([missions[0]]);
+    expect(filterCanonicalMissions({
+      missions,
+      view: "history",
+      query: "contenu personnalise",
+    })).toEqual([missions[0]]);
+    expect(filterCanonicalMissions({
+      missions,
+      view: "history",
+      query: "alan",
+    })).toEqual([missions[1]]);
+    expect(filterCanonicalMissions({
+      missions,
+      view: "history",
+      query: "",
+    })).toEqual([missions[0], missions[1]]);
+  });
+
+  it("keeps the 390px mobile layout bounded and details wrappable", () => {
+    const mobileCss = globalCss.slice(globalCss.indexOf("@media (max-width: 480px)"));
+    expect(mobileCss).toContain(".admin-missions-screen");
+    expect(mobileCss).toContain("min-width: 0");
+    expect(mobileCss).toContain("grid-template-columns: 1fr");
+    expect(globalCss).toContain(".admin-mission-details pre");
+    expect(globalCss).toContain("white-space: pre-wrap");
+    expect(globalCss).toContain("overflow-wrap: anywhere");
   });
 
   it("shows loading, recoverable error and empty states", async () => {
@@ -207,11 +249,10 @@ describe("Admin missions UI", () => {
       await pending;
     });
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Service indisponible");
-    expect(container.textContent).toContain("Réessayer");
 
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (
       String(input).includes("/api/admin/missions")
-        ? response({ missions: [] })
+        ? response({ missions: [], counts: emptyCountsForTest })
         : response({ athletes: [], source: "google-sheets" })
     )));
     const retry = Array.from(container.querySelectorAll("button"))
@@ -222,3 +263,10 @@ describe("Admin missions UI", () => {
     expect(container.textContent).toContain("Aucune mission créative");
   });
 });
+
+const emptyCountsForTest = {
+  to_process: 0,
+  to_organize: 0,
+  in_progress: 0,
+  history: 0,
+};

@@ -3,105 +3,117 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
-  AdminCreativeMissionListItem,
-  AdminCreativeMissionQueueStatus,
-} from "@/lib/admin-creative-missions";
+  CanonicalCreativeMission,
+  CanonicalCreativeMissionCounts,
+  CanonicalCreativeMissionState,
+  CanonicalCreativeMissionView,
+} from "@/lib/canonical-creative-missions";
 import type { AthletesResponse } from "@/types/athlete";
 
-type MissionFilter = "all" | AdminCreativeMissionQueueStatus;
-
 type MissionsPayload = {
-  missions?: AdminCreativeMissionListItem[];
+  missions?: CanonicalCreativeMission[];
+  counts?: CanonicalCreativeMissionCounts;
   error?: string;
 };
 
-const filters: Array<{ value: MissionFilter; label: string }> = [
-  { value: "all", label: "Toutes" },
-  { value: "to_prepare", label: "À préparer" },
-  { value: "to_assign", label: "À affecter" },
-  { value: "awaiting_creative", label: "En attente du créatif" },
+const emptyCounts: CanonicalCreativeMissionCounts = {
+  to_process: 0,
+  to_organize: 0,
+  in_progress: 0,
+  history: 0,
+};
+
+const views: Array<{ value: CanonicalCreativeMissionView; label: string }> = [
+  { value: "to_process", label: "À traiter" },
+  { value: "to_organize", label: "À organiser" },
   { value: "in_progress", label: "En cours" },
-  { value: "delivery_review", label: "Livraison à vérifier" },
-  { value: "changes_requested", label: "Modifications demandées" },
-  { value: "completed", label: "Terminées" },
-  { value: "cancelled", label: "Annulées" },
+  { value: "history", label: "Historique" },
 ];
 
-const adminActionStatuses = new Set<AdminCreativeMissionQueueStatus>([
-  "to_prepare",
-  "to_assign",
-  "delivery_review",
-]);
-
-const missionStatusLabels: Record<NonNullable<AdminCreativeMissionListItem["missionStatus"]>, string> = {
-  draft: "Brouillon",
-  ready: "Prête",
-  cancelled: "Annulée",
-};
-
-const responseLabels: Record<AdminCreativeMissionListItem["responseStatus"], string> = {
-  pending: "En attente",
-  accepted: "Acceptée",
-  refused: "Refusée",
-};
-
-const executionLabels: Record<NonNullable<AdminCreativeMissionListItem["executionStatus"]>, string> = {
-  accepted: "Acceptée",
+const stateLabels: Record<CanonicalCreativeMissionState, string> = {
+  review: "À examiner",
+  organize: "À organiser",
+  proposed: "Proposée",
+  confirmed: "Confirmée",
   in_progress: "En cours",
-  delivered: "Livrée",
-  changes_requested: "Modifications demandées",
+  review_delivery: "À valider",
   completed: "Terminée",
+  closed_without_action: "Classée sans suite",
+};
+
+const missionTypeLabels: Record<CanonicalCreativeMission["missionType"], string> = {
+  media_day: "Media Day",
+  match_competition: "Match / compétition",
+  production: "Production",
+  other: "Autre",
+};
+
+const sourceLabels: Record<CanonicalCreativeMission["sources"][number]["type"], string> = {
+  athlete_service_request: "Demande historique",
+  athlete_session_request: "Demande Athlète",
+  production_brief: "Brief Production",
+  production_sheet: "Production Google Sheets",
 };
 
 const normalizeSearch = (value: string): string =>
   value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("fr").trim();
 
-export const filterAdminMissions = ({
+export const filterCanonicalMissions = ({
   missions,
-  filter,
+  view,
   query,
 }: {
-  missions: AdminCreativeMissionListItem[];
-  filter: MissionFilter;
+  missions: CanonicalCreativeMission[];
+  view: CanonicalCreativeMissionView;
   query: string;
-}): AdminCreativeMissionListItem[] => {
+}): CanonicalCreativeMission[] => {
   const normalizedQuery = normalizeSearch(query);
   return missions.filter((mission) => {
-    if (filter !== "all" && mission.queueStatus !== filter) return false;
+    if (mission.view !== view) return false;
     if (!normalizedQuery) return true;
     return normalizeSearch([
-      mission.reference,
       mission.title,
-      mission.discipline,
-      mission.locationName,
-      mission.creative?.displayName,
+      mission.creative?.name,
+      ...mission.athletes.flatMap((athlete) => [athlete.id, athlete.name]),
+      ...mission.services.map((service) => service.productName),
+      ...mission.sources.map((source) => sourceLabels[source.type]),
     ].filter(Boolean).join(" ")).includes(normalizedQuery);
   });
 };
 
-const formatMissionDate = (value: string | null, startTime: string | null): string => {
-  if (!value) return "Date à définir";
-  const [year, month, day] = value.split("-");
-  const date = year && month && day ? `${day}.${month}.${year}` : value;
-  return startTime ? `${date} · ${startTime}` : date;
+const formatDate = (mission: CanonicalCreativeMission): string => {
+  const value = mission.occurredAt ?? mission.scheduledAt;
+  if (!value) return "À définir";
+  return new Intl.DateTimeFormat("fr-CH", {
+    timeZone: "Europe/Zurich",
+    dateStyle: "long",
+  }).format(new Date(value));
 };
 
-const formatUpdatedAt = (value: string): string => {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime()) || parsed.getTime() === 0) return "Non renseignée";
-  return new Intl.DateTimeFormat("fr-CH", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
+const stateLabel = (mission: CanonicalCreativeMission): string => {
+  if (mission.regularizationStatus === "historical_completed") {
+    return "Terminée — historique régularisé";
+  }
+  if (mission.regularizationStatus === "historical_closed_without_action") {
+    return "Classée sans suite — historique régularisé";
+  }
+  return stateLabels[mission.state];
 };
+
+const originLabel = (mission: CanonicalCreativeMission): string => {
+  const origins = [...new Set(mission.sources.map((source) => sourceLabels[source.type]))];
+  return origins.length > 0 ? origins.join(" · ") : "Projection canonique";
+};
+
+const prettySourceSnapshot = (
+  source: CanonicalCreativeMission["sources"][number],
+): string => JSON.stringify(source.snapshot, null, 2);
 
 export function AdminMissionsScreen() {
-  const [missions, setMissions] = useState<AdminCreativeMissionListItem[]>([]);
+  const [missions, setMissions] = useState<CanonicalCreativeMission[]>([]);
+  const [counts, setCounts] = useState<CanonicalCreativeMissionCounts>(emptyCounts);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
-  const [activeFilter, setActiveFilter] = useState<MissionFilter>("all");
+  const [activeView, setActiveView] = useState<CanonicalCreativeMissionView>("to_process");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -114,47 +126,40 @@ export function AdminMissionsScreen() {
         fetch("/api/admin/missions", { credentials: "include", cache: "no-store" }),
         fetch("/api/athletes", { credentials: "include", cache: "no-store" }),
       ]);
-      const missionsPayload = (await missionsResponse.json().catch(() => null)) as MissionsPayload | null;
+      const missionsPayload = await missionsResponse.json().catch(() => null) as MissionsPayload | null;
       if (!missionsResponse.ok) {
         throw new Error(missionsPayload?.error || "Impossible de charger les missions créatives.");
       }
       setMissions(missionsPayload?.missions ?? []);
+      setCounts(missionsPayload?.counts ?? emptyCounts);
 
       if (athletesResponse.ok) {
-        const athletesPayload = (await athletesResponse.json().catch(() => null)) as AthletesResponse | null;
-        if (athletesPayload?.source === "google-sheets") {
-          setAthleteNames(Object.fromEntries(
-            (athletesPayload.athletes ?? [])
-              .filter((athlete) => athlete.key && athlete.name)
-              .map((athlete) => [athlete.key, athlete.name]),
-          ));
-        } else {
-          setAthleteNames({});
-        }
+        const athletesPayload = await athletesResponse.json().catch(() => null) as AthletesResponse | null;
+        setAthleteNames(Object.fromEntries(
+          (athletesPayload?.athletes ?? [])
+            .filter((athlete) => athlete.key && athlete.name)
+            .map((athlete) => [athlete.key, athlete.name]),
+        ));
       } else {
         setAthleteNames({});
       }
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Impossible de charger les missions créatives.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void Promise.resolve().then(load);
+    void Promise.resolve()
+      .then(load)
+      .catch((failure) => {
+        setError(failure instanceof Error ? failure.message : "Impossible de charger les missions créatives.");
+        setLoading(false);
+      });
   }, [load]);
 
-  const counts = useMemo(() => {
-    const next = Object.fromEntries(filters.map((filter) => [filter.value, 0])) as Record<MissionFilter, number>;
-    next.all = missions.length;
-    for (const mission of missions) next[mission.queueStatus] += 1;
-    return next;
-  }, [missions]);
-
   const visibleMissions = useMemo(
-    () => filterAdminMissions({ missions, filter: activeFilter, query }),
-    [activeFilter, missions, query],
+    () => filterCanonicalMissions({ missions, view: activeView, query }),
+    [activeView, missions, query],
   );
 
   return (
@@ -162,31 +167,31 @@ export function AdminMissionsScreen() {
       <header className="admin-missions-header">
         <div>
           <p>Missions créatives</p>
-          <h1 id="admin-missions-title">Suivi centralisé des missions</h1>
-          <span>Affectations, réponses, exécutions et livraisons issues des demandes de prestations.</span>
+          <h1 id="admin-missions-title">Pilotage unifié des missions</h1>
+          <span>Demandes, organisation, exécution et historique dans une seule projection métier.</span>
         </div>
       </header>
 
-      <section className="admin-missions-toolbar" aria-label="Recherche et filtres des missions">
+      <section className="admin-missions-toolbar" aria-label="Recherche et vues des missions">
         <label className="admin-missions-search">
           <span>Rechercher</span>
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Référence, titre, discipline, lieu ou créatif"
+            placeholder="Athlète, mission, prestation, Production ou créatif"
           />
         </label>
-        <div className="admin-missions-filters" role="group" aria-label="Filtrer par état">
-          {filters.map((filter) => (
+        <div className="admin-missions-filters" role="group" aria-label="Vues des missions">
+          {views.map((view) => (
             <button
-              key={filter.value}
+              key={view.value}
               type="button"
-              className={activeFilter === filter.value ? "is-active" : undefined}
-              aria-pressed={activeFilter === filter.value}
-              onClick={() => setActiveFilter(filter.value)}
+              className={activeView === view.value ? "is-active" : undefined}
+              aria-pressed={activeView === view.value}
+              onClick={() => setActiveView(view.value)}
             >
-              {filter.label} <span>{counts[filter.value]}</span>
+              {view.label} <span>{counts[view.value]}</span>
             </button>
           ))}
         </div>
@@ -195,7 +200,7 @@ export function AdminMissionsScreen() {
       {loading ? (
         <section className="admin-missions-state" aria-live="polite" aria-busy="true">
           <strong>Chargement des missions créatives…</strong>
-          <p>Les affectations et livraisons sont en cours de regroupement.</p>
+          <p>La projection métier et son journal sont en cours de chargement.</p>
         </section>
       ) : error ? (
         <section className="admin-missions-state is-error" role="alert">
@@ -205,68 +210,120 @@ export function AdminMissionsScreen() {
         </section>
       ) : visibleMissions.length === 0 ? (
         <section className="admin-missions-state">
-          <strong>{missions.length === 0 ? "Aucune mission créative." : "Aucun résultat."}</strong>
+          <strong>{missions.length === 0 ? "Aucune mission créative." : "Aucun résultat dans cette vue."}</strong>
           <p>
             {missions.length === 0
-              ? "Les demandes de prestations apparaîtront ici dès leur création."
-              : "Modifiez la recherche ou sélectionnez un autre état."}
+              ? "Les demandes et besoins apparaîtront ici dès leur création."
+              : "Modifiez la recherche ou sélectionnez une autre vue."}
           </p>
         </section>
       ) : (
         <ul className="admin-missions-list">
-          {visibleMissions.map((mission) => {
-            const athleteName = athleteNames[mission.athleteId];
-            const requestHref = `/crm/demandes?tab=services&requestId=${encodeURIComponent(mission.requestId)}`;
-            const isAdminAction = adminActionStatuses.has(mission.queueStatus);
-            return (
-              <li key={mission.requestId} className="admin-mission-card">
-                <header>
-                  <div>
-                    <small>{mission.reference ?? "Fiche à créer"}</small>
-                    <h2>{mission.title}</h2>
-                  </div>
-                  {isAdminAction ? (
-                    <Link
-                      href={requestHref}
-                      className={`admin-mission-priority is-admin-action is-${mission.queueStatus}`}
-                      aria-label={`${mission.nextAction} pour ${mission.title}`}
-                    >
-                      {mission.nextAction}
-                    </Link>
-                  ) : (
-                    <span className={`admin-mission-priority is-informational is-${mission.queueStatus}`}>
-                      {mission.nextAction}
-                    </span>
-                  )}
-                </header>
+          {visibleMissions.map((mission) => (
+            <li className="admin-mission-card" key={mission.id}>
+              <header>
+                <div>
+                  <small>{originLabel(mission)}</small>
+                  <h2>{mission.title}</h2>
+                </div>
+                <span className={`admin-mission-state-badge is-${mission.state}`}>
+                  {stateLabel(mission)}
+                </span>
+              </header>
 
-                <dl>
-                  <div><dt>Discipline</dt><dd>{mission.discipline ?? "À définir"}</dd></div>
-                  <div><dt>Date</dt><dd>{formatMissionDate(mission.missionDate, mission.startTime)}</dd></div>
-                  <div><dt>Lieu</dt><dd>{mission.locationName ?? "À définir"}</dd></div>
-                  <div>
-                    <dt>Athlète</dt>
-                    <dd>
-                      {athleteName ? (
-                        <Link href={`/crm/personnes/${encodeURIComponent(mission.athleteId)}`}>{athleteName}</Link>
-                      ) : "Identité non disponible"}
-                    </dd>
-                  </div>
-                  <div><dt>Créatif affecté</dt><dd>{mission.creative?.displayName ?? "Non affecté"}</dd></div>
-                  <div><dt>Fiche</dt><dd>{mission.missionStatus ? missionStatusLabels[mission.missionStatus] : "À créer"}</dd></div>
-                  <div><dt>Réponse</dt><dd>{responseLabels[mission.responseStatus]}</dd></div>
-                  <div><dt>Exécution</dt><dd>{mission.executionStatus ? executionLabels[mission.executionStatus] : "Non démarrée"}</dd></div>
-                  <div><dt>Dernière mise à jour</dt><dd>{formatUpdatedAt(mission.lastUpdatedAt)}</dd></div>
-                </dl>
+              <dl>
+                <div>
+                  <dt>Athlète{mission.athletes.length > 1 ? "s" : ""}</dt>
+                  <dd className="admin-mission-athletes">
+                    {mission.athletes.map((athlete) => (
+                      <Link key={athlete.id} href={`/crm/personnes/${encodeURIComponent(athlete.id)}`}>
+                        {athlete.name ?? athleteNames[athlete.id] ?? athlete.id}
+                      </Link>
+                    ))}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Date</dt>
+                  <dd>{formatDate(mission)}</dd>
+                </div>
+                <div>
+                  <dt>Type</dt>
+                  <dd>{missionTypeLabels[mission.missionType]}</dd>
+                </div>
+                <div>
+                  <dt>Prestations</dt>
+                  <dd>
+                    {mission.services.length > 0
+                      ? mission.services.map((service) => service.productName).join(" · ")
+                      : "Aucune prestation historique"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Créatif</dt>
+                  <dd>
+                    {mission.creative
+                      ? `${mission.creative.name} — ${
+                          mission.creative.kind === "historical"
+                            ? "créatif historique déclaré"
+                            : "créatif opérationnel"
+                        }`
+                      : "À définir"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Prochaine action</dt>
+                  <dd>{mission.nextAction}</dd>
+                </div>
+              </dl>
 
-                <footer>
-                  <Link href={requestHref}>
-                    Ouvrir la demande
-                  </Link>
-                </footer>
-              </li>
-            );
-          })}
+              <details className="admin-mission-details">
+                <summary>Détails techniques et journal</summary>
+                {mission.regularizationNote ? (
+                  <section>
+                    <h3>Régularisation</h3>
+                    <p>{mission.regularizationNote}</p>
+                    {mission.occurredAtSource === "historicalRealizationAt_best_available" ? (
+                      <p>
+                        Date réelle fondée sur <code>historicalRealizationAt</code>,
+                        meilleure date historique disponible.
+                      </p>
+                    ) : null}
+                  </section>
+                ) : null}
+                <section>
+                  <h3>Sources</h3>
+                  <ul>
+                    {mission.sources.map((source) => (
+                      <li key={`${source.type}:${source.id}`}>
+                        <strong>{sourceLabels[source.type]}</strong>
+                        {source.type === "athlete_service_request" ? (
+                          <Link href={`/crm/demandes?tab=services&requestId=${encodeURIComponent(source.id)}`}>
+                            Voir la demande source
+                          </Link>
+                        ) : null}
+                        <pre>{prettySourceSnapshot(source)}</pre>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <section>
+                  <h3>Journal</h3>
+                  <ol>
+                    {mission.events.map((event) => (
+                      <li key={`${event.action}:${event.createdAt}`}>
+                        <strong>{event.action}</strong>
+                        <span>{new Intl.DateTimeFormat("fr-CH", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        }).format(new Date(event.createdAt))}</span>
+                        {event.note ? <p>{event.note}</p> : null}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              </details>
+            </li>
+          ))}
         </ul>
       )}
     </section>

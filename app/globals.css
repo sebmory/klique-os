@@ -1520,6 +1520,46 @@ button {
   font-size: 1.08rem;
 }
 
+.admin-mission-state-badge {
+  max-width: 290px;
+  border: 1px solid #dedede;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f2f2f2;
+  color: #5f5a50;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.admin-mission-state-badge.is-review,
+.admin-mission-state-badge.is-review_delivery {
+  border-color: #e2bf34;
+  background: #fff3bf;
+  color: #6b5400;
+}
+
+.admin-mission-state-badge.is-organize,
+.admin-mission-state-badge.is-proposed,
+.admin-mission-state-badge.is-confirmed,
+.admin-mission-state-badge.is-in_progress {
+  border-color: #b7c8df;
+  background: #eef5ff;
+  color: #294d76;
+}
+
+.admin-mission-state-badge.is-completed {
+  border-color: #b9d8c1;
+  background: #effaf2;
+  color: #27623a;
+}
+
+.admin-mission-state-badge.is-closed_without_action {
+  border-color: #d7d2ca;
+  background: #f5f3ef;
+  color: #605c55;
+}
+
 .admin-mission-priority {
   max-width: 260px;
   border-radius: 999px;
@@ -1585,6 +1625,12 @@ button {
   font-weight: 600;
 }
 
+.admin-mission-athletes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
 .admin-mission-card a {
   color: #665200;
   font-weight: 750;
@@ -1604,6 +1650,65 @@ button {
   justify-content: flex-end;
 }
 
+.admin-mission-details {
+  border-top: 1px solid #efebe5;
+  padding-top: 10px;
+}
+
+.admin-mission-details summary {
+  width: fit-content;
+  color: #665200;
+  font-size: 0.86rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.admin-mission-details section {
+  margin-top: 14px;
+}
+
+.admin-mission-details h3 {
+  margin: 0 0 6px;
+  color: #3b3b3b;
+  font-size: 0.9rem;
+}
+
+.admin-mission-details p {
+  margin: 5px 0;
+  color: #5f5f5f;
+  font-size: 0.84rem;
+}
+
+.admin-mission-details ul,
+.admin-mission-details ol {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-mission-details li {
+  min-width: 0;
+}
+
+.admin-mission-details li > a,
+.admin-mission-details li > span {
+  margin-left: 8px;
+}
+
+.admin-mission-details pre {
+  max-width: 100%;
+  margin: 6px 0 0;
+  border-radius: 8px;
+  padding: 9px;
+  overflow: auto;
+  background: #f7f6f3;
+  color: #404040;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .admin-mission-card {
     padding: 13px;
@@ -1619,12 +1724,23 @@ button {
     width: fit-content;
   }
 
+  .admin-mission-state-badge {
+    max-width: none;
+    width: fit-content;
+  }
+
   .admin-mission-card dl {
     grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (max-width: 480px) {
+  .admin-missions-screen,
+  .admin-missions-toolbar,
+  .admin-mission-card {
+    min-width: 0;
+  }
+
   .admin-missions-filters {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -1636,6 +1752,12 @@ button {
 
   .admin-mission-card dl {
     grid-template-columns: 1fr;
+  }
+
+  .admin-mission-details li > a,
+  .admin-mission-details li > span {
+    margin-left: 0;
+    display: block;
   }
 }
 
