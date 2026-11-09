@@ -8,8 +8,12 @@ import {
 } from "@/components/creatives/CreativeApplicationsAdminScreen";
 import { mainNavigation } from "@/components/app-shell/data";
 import type { CreativeApplication } from "@/lib/creatives/applications-sheet";
+import {
+  formatCreativeApplicationDate as formatDateForTest,
+} from "@/lib/creatives/application-date";
 
 const applicationId = "11111111-1111-4111-8111-111111111111";
+const applicationVersion = `v1:${"a".repeat(64)}`;
 
 const fields: CreativeApplication["fields"] = {
   submittedAt: "2026-10-01T10:00:00.000Z",
@@ -63,6 +67,7 @@ const application = (
   status: CreativeApplication["moderationStatus"] = "pending",
 ): CreativeApplication => ({
   applicationId,
+  version: applicationVersion,
   sourceRow: 7,
   fields,
   moderationStatus: status,
@@ -77,8 +82,24 @@ const application = (
 const response = (payload: unknown, status = 200) => ({
   ok: status < 400,
   status,
+  headers: new Headers({ "content-type": "application/json" }),
   json: async () => payload,
 }) as Response;
+
+const moderationSnapshot = (
+  status: CreativeApplication["moderationStatus"],
+) => {
+  const current = application(status);
+  return {
+    applicationId: current.applicationId,
+    version: current.version,
+    moderationStatus: current.moderationStatus,
+    creativeId: current.creativeId,
+    moderatedAt: current.moderatedAt,
+    moderatedBy: current.moderatedBy,
+    moderationNotes: current.moderationNotes,
+  };
+};
 
 const fetchMock = vi.fn();
 let container: HTMLElement;
@@ -190,6 +211,24 @@ describe("Creative applications Admin UI", () => {
     expect(details.textContent).toContain("+41 79 000 00 00");
   });
 
+  it("renders serial, ISO and absent dates without exposing raw Sheets values", async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      applications: [
+        {
+          ...application(),
+          fields: { ...fields, submittedAt: "46335.45586314815" },
+        },
+      ],
+    }));
+    await mount();
+    expect(container.textContent).toContain("09.11.2026");
+    expect(container.textContent).toContain("10:56");
+    expect(container.textContent).not.toContain("46335.45586314815");
+
+    expect(formatDateForTest("2026-11-09T09:56:00.000Z")).toContain("10:56");
+    expect(formatDateForTest("")).toBe("Date non renseignée");
+  });
+
   it("filters pending, approved and rejected applications with explicit tabs", async () => {
     fetchMock.mockResolvedValueOnce(response({
       applications: [
@@ -230,12 +269,19 @@ describe("Creative applications Admin UI", () => {
     expect(window.confirm).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1][0]).toContain(`/${applicationId}/approve`);
-    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "POST", body: "{}" });
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ version: applicationVersion }),
+    });
     expect((container.querySelector('button[aria-busy="true"]') as HTMLButtonElement).disabled)
       .toBe(true);
 
     fetchMock.mockResolvedValueOnce(response({ applications: [] }));
-    await act(async () => resolveApproval(response({ alreadyApproved: false })));
+    await act(async () => resolveApproval(response({
+      application: moderationSnapshot("approved"),
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    })));
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(container.textContent).toContain("Candidature approuvée et fiche canonique créée.");
@@ -249,6 +295,33 @@ describe("Creative applications Admin UI", () => {
     await click(buttonByText("Approuver")!);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves an approved card and updates counters before the full refresh completes", async () => {
+    fetchMock.mockResolvedValueOnce(response({ applications: [application()] }));
+    await mount();
+    fetchMock.mockResolvedValueOnce(response({
+      application: moderationSnapshot("approved"),
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    }));
+    let resolveRefresh!: (value: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    }));
+
+    await click(buttonByText("Approuver")!);
+
+    expect(buttonByText("À valider")?.textContent).toContain("0");
+    expect(buttonByText("Approuvées")?.textContent).toContain("1");
+    expect(container.textContent).not.toContain("Camille Martin");
+    await click(buttonByText("Approuvées")!);
+    expect(container.textContent).toContain("Camille Martin");
+
+    await act(async () => resolveRefresh(response({
+      applications: [application("approved")],
+    })));
+    await flush();
   });
 
   it("requires a rejection reason, sends it, locks actions and refreshes", async () => {
@@ -279,13 +352,17 @@ describe("Creative applications Admin UI", () => {
 
     expect(fetchMock.mock.calls[1][0]).toContain(`/${applicationId}/reject`);
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      version: applicationVersion,
       reason: "Portfolio insuffisant",
     });
     expect((container.querySelector('button[aria-busy="true"]') as HTMLButtonElement).disabled)
       .toBe(true);
 
     fetchMock.mockResolvedValueOnce(response({ applications: [] }));
-    await act(async () => resolveRejection(response({ alreadyRejected: false })));
+    await act(async () => resolveRejection(response({
+      application: moderationSnapshot("rejected"),
+      alreadyRejected: false,
+    })));
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(container.textContent).toContain("Candidature refusée.");
@@ -295,13 +372,28 @@ describe("Creative applications Admin UI", () => {
     fetchMock.mockResolvedValueOnce(response({ applications: [application()] }));
     await mount();
     fetchMock.mockResolvedValueOnce(response({
-      error: "État de candidature incohérent.",
+      error: "Cette candidature a déjà été traitée.",
+      code: "ALREADY_PROCESSED",
     }, 409));
 
     await click(buttonByText("Approuver")!);
 
     expect(container.querySelector('[role="alert"]')?.textContent)
-      .toContain("État de candidature incohérent.");
+      .toContain("Cette candidature a déjà été traitée.");
     expect(container.textContent).not.toContain("credential");
+  });
+
+  it("turns an HTML 404 into an expired Admin session message", async () => {
+    fetchMock.mockResolvedValueOnce(response({ applications: [application()] }));
+    await mount();
+    fetchMock.mockResolvedValueOnce(new Response("<html>Not found</html>", {
+      status: 404,
+      headers: { "content-type": "text/html" },
+    }));
+
+    await click(buttonByText("Approuver")!);
+
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain("Votre session Admin a expiré. Reconnectez-vous.");
   });
 });

@@ -5,6 +5,7 @@ import {
   CreativeApplicationsSheetError,
   type CreativeApplication,
   type UpdateCreativeApplicationModerationInput,
+  versionCreativeApplication,
 } from "@/lib/creatives/applications-sheet";
 import {
   CreativeProfileRepository,
@@ -18,7 +19,9 @@ import type {
 
 export type ApproveCreativeApplicationResult = {
   profile: CreativeProfile;
+  application: CreativeApplication;
   alreadyApproved: boolean;
+  sheetSynchronized: boolean;
 };
 
 export type RejectCreativeApplicationResult = {
@@ -41,13 +44,24 @@ export type CreativeApplicationAdminServiceDependencies = {
     workspaceId: string,
     creativeId: string,
   ) => Promise<CreativeProfile | null>;
+  listProfilesByApplicationIds: (
+    workspaceId: string,
+    applicationIds: string[],
+  ) => Promise<CreativeProfile[]>;
   now: () => Date;
 };
 
 export class CreativeApplicationAdminError extends Error {
   constructor(
-    public readonly code: "validation" | "not_found" | "conflict" | "dependency",
+    public readonly code:
+      | "validation"
+      | "missing_required_field"
+      | "not_found"
+      | "version_conflict"
+      | "conflict"
+      | "dependency",
     message: string,
+    public readonly field?: string,
   ) {
     super(message);
     this.name = "CreativeApplicationAdminError";
@@ -60,6 +74,8 @@ const defaultDependencies: CreativeApplicationAdminServiceDependencies = {
   updateModeration: updateCreativeApplicationModeration,
   createProfile: CreativeProfileRepository.createIdempotent.bind(CreativeProfileRepository),
   getProfileById: CreativeProfileRepository.getById.bind(CreativeProfileRepository),
+  listProfilesByApplicationIds:
+    CreativeProfileRepository.listByApplicationIds.bind(CreativeProfileRepository),
   now: () => new Date(),
 };
 
@@ -80,6 +96,28 @@ const requireUuid = (value: unknown, field: string): string => {
   return normalized;
 };
 
+const requireVersion = (value: unknown): string => {
+  const version = requireText(value, "version");
+  if (!/^v1:[0-9a-f]{64}$/.test(version)) {
+    throw new CreativeApplicationAdminError("validation", "version est invalide.");
+  }
+  return version;
+};
+
+const requireApplicationField = (
+  value: unknown,
+  field: string,
+): string => {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new CreativeApplicationAdminError(
+      "missing_required_field",
+      `${field} est requis.`,
+      field,
+    );
+  }
+  return value.trim();
+};
+
 const normalizeOptionalText = (value: string): string | null => {
   const normalized = value.trim();
   return normalized || null;
@@ -98,9 +136,9 @@ const normalizeOptionalUrl = (value: string): string | null => {
   }
   try {
     const withProtocol = new URL(`https://${normalized}`);
-    return withProtocol.toString();
+    return withProtocol.hostname.includes(".") ? withProtocol.toString() : null;
   } catch {
-    return normalized;
+    return null;
   }
 };
 
@@ -120,8 +158,9 @@ const creativeTypeFromApplication = (value: string): CreativeType => {
   if (isPhotographer) return "photographer";
   if (isVideographer) return "videographer";
   throw new CreativeApplicationAdminError(
-    "validation",
+    "missing_required_field",
     "Le type de créatif de la candidature est invalide.",
+    "profile",
   );
 };
 
@@ -136,26 +175,39 @@ const profileInputFromApplication = (
   application: CreativeApplication,
   approvedByClerkUserId: string,
   approvedAt: string,
-): CreateFormApplicationCreativeProfileInput => ({
-  provenance: "form_application",
-  applicationId: application.applicationId,
-  displayName: application.fields.fullName,
-  creativeType: creativeTypeFromApplication(application.fields.profile),
-  contactEmail: application.fields.email,
-  phone: normalizeOptionalText(application.fields.phone),
-  websiteUrl: normalizeOptionalUrl(application.fields.websiteUrl),
-  portfolioUrl: normalizeOptionalUrl(application.fields.portfolioUrl),
-  instagram: normalizeOptionalText(application.fields.instagram),
-  city: normalizeOptionalText(application.fields.city),
-  country: null,
-  coverageAreas: splitList(application.fields.travelRegions),
-  specialties: splitList(application.fields.sportsToCover),
-  bio: normalizeOptionalText(application.fields.background),
-  status: "active",
-  sourceRow: application.sourceRow,
-  approvedByClerkUserId,
-  approvedAt,
-});
+): CreateFormApplicationCreativeProfileInput => {
+  const displayName = requireApplicationField(application.fields.fullName, "fullName");
+  const contactEmail = requireApplicationField(application.fields.email, "email").toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    throw new CreativeApplicationAdminError(
+      "missing_required_field",
+      "email est invalide.",
+      "email",
+    );
+  }
+  return {
+    provenance: "form_application",
+    applicationId: application.applicationId,
+    displayName,
+    creativeType: creativeTypeFromApplication(
+      requireApplicationField(application.fields.profile, "profile"),
+    ),
+    contactEmail,
+    phone: normalizeOptionalText(application.fields.phone),
+    websiteUrl: normalizeOptionalUrl(application.fields.websiteUrl),
+    portfolioUrl: normalizeOptionalUrl(application.fields.portfolioUrl),
+    instagram: normalizeOptionalText(application.fields.instagram),
+    city: normalizeOptionalText(application.fields.city),
+    country: null,
+    coverageAreas: splitList(application.fields.travelRegions),
+    specialties: splitList(application.fields.sportsToCover),
+    bio: normalizeOptionalText(application.fields.background),
+    status: "active",
+    sourceRow: application.sourceRow,
+    approvedByClerkUserId,
+    approvedAt,
+  };
+};
 
 const normalizeReason = (value: unknown): string => {
   const reason = requireText(value, "reason").replace(/\s+/g, " ");
@@ -259,14 +311,84 @@ const writeModeration = async (
   }
 };
 
+const applicationFromProfile = (
+  application: CreativeApplication,
+  profile: CreativeProfile,
+): CreativeApplication => versionCreativeApplication({
+  applicationId: application.applicationId,
+  sourceRow: application.sourceRow,
+  fields: application.fields,
+  moderationStatus: "approved",
+  creativeId: profile.id,
+  moderatedAt: profile.approvedAt,
+  moderatedBy: profile.approvedByClerkUserId,
+  moderationNotes: null,
+});
+
+const profilesByApplicationId = (
+  workspaceId: string,
+  applications: CreativeApplication[],
+  profiles: CreativeProfile[],
+): Map<string, CreativeProfile> => {
+  const result = new Map<string, CreativeProfile>();
+  for (const profile of profiles) {
+    if (
+      profile.workspaceId !== workspaceId
+      || profile.provenance !== "form_application"
+      || !profile.applicationId
+      || !applications.some((application) => application.applicationId === profile.applicationId)
+      || result.has(profile.applicationId)
+    ) {
+      throw new CreativeApplicationAdminError(
+        "conflict",
+        "Les fiches canoniques liées aux candidatures sont incohérentes.",
+      );
+    }
+    result.set(profile.applicationId, profile);
+  }
+  return result;
+};
+
 export const listCreativeApplicationsForAdmin = async (
   workspaceId: string,
   dependencies: CreativeApplicationAdminServiceDependencies = defaultDependencies,
 ): Promise<CreativeApplication[]> => {
   requireText(workspaceId, "workspaceId");
   try {
-    return await dependencies.listApplications();
-  } catch {
+    const applications = await dependencies.listApplications();
+    const profiles = await dependencies.listProfilesByApplicationIds(
+      workspaceId,
+      applications.map((application) => application.applicationId),
+    );
+    const profileByApplicationId = profilesByApplicationId(
+      workspaceId,
+      applications,
+      profiles,
+    );
+    return applications.map((application) => {
+      const profile = profileByApplicationId.get(application.applicationId);
+      if (!profile) {
+        if (application.moderationStatus === "approved" || application.creativeId) {
+          throw new CreativeApplicationAdminError(
+            "conflict",
+            "Une candidature référence une fiche canonique introuvable.",
+          );
+        }
+        return application;
+      }
+      if (
+        application.moderationStatus === "rejected"
+        || (application.creativeId && application.creativeId !== profile.id)
+      ) {
+        throw new CreativeApplicationAdminError(
+          "conflict",
+          "La décision canonique et la modération Google Sheets divergent.",
+        );
+      }
+      return applicationFromProfile(application, profile);
+    });
+  } catch (error) {
+    if (error instanceof CreativeApplicationAdminError) throw error;
     throw dependencyError();
   }
 };
@@ -275,11 +397,13 @@ export const approveCreativeApplication = async (
   workspaceId: string,
   applicationId: string,
   approvedByClerkUserId: string,
+  expectedVersion: string,
   dependencies: CreativeApplicationAdminServiceDependencies = defaultDependencies,
 ): Promise<ApproveCreativeApplicationResult> => {
   const workspace = requireText(workspaceId, "workspaceId");
   const id = requireUuid(applicationId, "applicationId");
   const adminId = requireText(approvedByClerkUserId, "approvedByClerkUserId");
+  const version = requireVersion(expectedVersion);
   const initial = await loadApplication(id, dependencies);
 
   if (initial.moderationStatus === "rejected") {
@@ -291,8 +415,16 @@ export const approveCreativeApplication = async (
   if (initial.moderationStatus === "approved") {
     return {
       profile: await loadApprovedProfile(workspace, initial, dependencies),
+      application: initial,
       alreadyApproved: true,
+      sheetSynchronized: true,
     };
+  }
+  if (initial.version !== version) {
+    throw new CreativeApplicationAdminError(
+      "version_conflict",
+      "La candidature a été modifiée.",
+    );
   }
   if (initial.creativeId) {
     throw new CreativeApplicationAdminError(
@@ -301,10 +433,22 @@ export const approveCreativeApplication = async (
     );
   }
 
+  const confirmed = await loadApplication(id, dependencies);
+  if (
+    confirmed.moderationStatus !== "pending"
+    || confirmed.creativeId
+    || confirmed.version !== version
+  ) {
+    throw new CreativeApplicationAdminError(
+      "version_conflict",
+      "La candidature a été modifiée.",
+    );
+  }
+
   const attemptedAt = dependencies.now().toISOString();
   const profile = await createProfile(
     workspace,
-    profileInputFromApplication(initial, adminId, attemptedAt),
+    profileInputFromApplication(confirmed, adminId, attemptedAt),
     dependencies,
   );
   if (profile.workspaceId !== workspace || profile.applicationId !== id) {
@@ -322,23 +466,45 @@ export const approveCreativeApplication = async (
         "La candidature référence une autre fiche canonique.",
       );
     }
-    return { profile, alreadyApproved: true };
+    return {
+      profile,
+      application: current,
+      alreadyApproved: true,
+      sheetSynchronized: true,
+    };
   }
-  if (current.moderationStatus !== "pending" || current.creativeId) {
+  if (
+    current.moderationStatus === "rejected"
+    || (current.creativeId && current.creativeId !== profile.id)
+  ) {
     throw new CreativeApplicationAdminError(
       "conflict",
       "L’état de la candidature a changé pendant son approbation.",
     );
   }
 
-  await writeModeration(id, {
-    status: "approved",
-    creativeId: profile.id,
-    moderatedAt: profile.approvedAt,
-    moderatedBy: profile.approvedByClerkUserId,
-    notes: null,
-  }, dependencies);
-  return { profile, alreadyApproved: false };
+  try {
+    const synchronized = await dependencies.updateModeration(id, {
+      status: "approved",
+      creativeId: profile.id,
+      moderatedAt: profile.approvedAt,
+      moderatedBy: profile.approvedByClerkUserId,
+      notes: null,
+    });
+    return {
+      profile,
+      application: synchronized,
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    };
+  } catch {
+    return {
+      profile,
+      application: applicationFromProfile(current, profile),
+      alreadyApproved: false,
+      sheetSynchronized: false,
+    };
+  }
 };
 
 export const rejectCreativeApplication = async (
@@ -346,12 +512,14 @@ export const rejectCreativeApplication = async (
   applicationId: string,
   rejectedByClerkUserId: string,
   reason: string,
+  expectedVersion: string,
   dependencies: CreativeApplicationAdminServiceDependencies = defaultDependencies,
 ): Promise<RejectCreativeApplicationResult> => {
   requireText(workspaceId, "workspaceId");
   const id = requireUuid(applicationId, "applicationId");
   const adminId = requireText(rejectedByClerkUserId, "rejectedByClerkUserId");
   const normalizedReason = normalizeReason(reason);
+  const version = requireVersion(expectedVersion);
   const application = await loadApplication(id, dependencies);
 
   if (application.moderationStatus === "approved") {
@@ -374,6 +542,12 @@ export const rejectCreativeApplication = async (
       );
     }
     return { application, alreadyRejected: true };
+  }
+  if (application.version !== version) {
+    throw new CreativeApplicationAdminError(
+      "version_conflict",
+      "La candidature a été modifiée.",
+    );
   }
 
   const rejected = await writeModeration(id, {

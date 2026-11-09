@@ -6,7 +6,7 @@ import {
 import {
   creativeAdminErrorResponse,
   getDefaultCreativeAdminAccess,
-  parseEmptyJsonBody,
+  parseApproveJsonBody,
   rejectQueryParameters,
   requireApplicationId,
   requireCreativeAdminContext,
@@ -30,6 +30,7 @@ type HandlerDependencies = {
     workspaceId: string,
     applicationId: string,
     approvedByClerkUserId: string,
+    expectedVersion: string,
   ) => Promise<ApproveCreativeApplicationResult>;
   invalidateStats?: () => void;
 };
@@ -50,11 +51,12 @@ export const createAdminCreativeApplicationApproveHandlers = (
       rejectQueryParameters(request);
       const { applicationId: rawApplicationId } = await context.params;
       const applicationId = requireApplicationId(rawApplicationId);
-      await parseEmptyJsonBody(request);
+      const body = await parseApproveJsonBody(request);
       const result = await dependencies.approve(
         access.context.workspaceId,
         applicationId,
         access.context.clerkUserId,
+        body.version,
       );
       if (
         access.context.workspaceId === PUBLIC_KLIQUE_STATS_WORKSPACE_ID
@@ -63,7 +65,24 @@ export const createAdminCreativeApplicationApproveHandlers = (
       ) {
         dependencies.invalidateStats?.();
       }
-      return NextResponse.json(result);
+      if (!result.sheetSynchronized) {
+        console.warn("Creative application Sheets mirror pending", {
+          code: "SHEET_SYNC_PENDING",
+        });
+      }
+      return NextResponse.json({
+        application: {
+          applicationId: result.application.applicationId,
+          moderationStatus: result.application.moderationStatus,
+          creativeId: result.application.creativeId,
+          moderatedAt: result.application.moderatedAt,
+          moderatedBy: result.application.moderatedBy,
+          moderationNotes: result.application.moderationNotes,
+          version: result.application.version,
+        },
+        alreadyApproved: result.alreadyApproved,
+        sheetSynchronized: result.sheetSynchronized,
+      });
     } catch (error) {
       return creativeAdminErrorResponse(error);
     }

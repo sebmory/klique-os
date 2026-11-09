@@ -27,6 +27,7 @@ type HandlerDependencies = {
     applicationId: string,
     rejectedByClerkUserId: string,
     reason: string,
+    expectedVersion: string,
   ) => Promise<RejectCreativeApplicationResult>;
 };
 
@@ -45,14 +46,26 @@ export const createAdminCreativeApplicationRejectHandlers = (
       rejectQueryParameters(request);
       const { applicationId: rawApplicationId } = await context.params;
       const applicationId = requireApplicationId(rawApplicationId);
-      const reason = await parseRejectJsonBody(request);
+      const body = await parseRejectJsonBody(request);
       const result = await dependencies.reject(
         access.context.workspaceId,
         applicationId,
         access.context.clerkUserId,
-        reason,
+        body.reason,
+        body.version,
       );
-      return NextResponse.json(result);
+      return NextResponse.json({
+        application: {
+          applicationId: result.application.applicationId,
+          moderationStatus: result.application.moderationStatus,
+          creativeId: result.application.creativeId,
+          moderatedAt: result.application.moderatedAt,
+          moderatedBy: result.application.moderatedBy,
+          moderationNotes: result.application.moderationNotes,
+          version: result.application.version,
+        },
+        alreadyRejected: result.alreadyRejected,
+      });
     } catch (error) {
       return creativeAdminErrorResponse(error);
     }

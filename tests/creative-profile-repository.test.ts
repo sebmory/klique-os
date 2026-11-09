@@ -161,6 +161,10 @@ describe("CreativeProfileRepository", () => {
     for (const [sql, values] of sqlMock.query.mock.calls as Array<[string, unknown[]]>) {
       expect(normalizeSql(sql)).toContain("ON CONFLICT (workspace_id, application_id)");
       expect(normalizeSql(sql)).toContain("DO UPDATE SET application_id = creative_profiles.application_id");
+      expect(normalizeSql(sql)).toContain("INSERT INTO creative_onboarding_events");
+      expect(normalizeSql(sql)).toContain("'application_approved'");
+      expect(normalizeSql(sql)).toContain("ON CONFLICT (workspace_id, creative_profile_id, event_type)");
+      expect(sql).not.toMatch(/creative_(?:access|invitations)/);
       expect(values).toContain(workspaceId);
       expect(values).toContain(applicationId);
     }
@@ -180,16 +184,23 @@ describe("CreativeProfileRepository", () => {
     expect(sqlMock.query.mock.calls[1][1]).toContain("workspace-2");
   });
 
-  it("scopes UUID lookup and list to the explicit workspace", async () => {
-    sqlMock.query.mockResolvedValueOnce([row]).mockResolvedValueOnce([row]);
+  it("scopes UUID and application lookups and list to the explicit workspace", async () => {
+    sqlMock.query
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([row])
+      .mockResolvedValueOnce([row]);
 
     await CreativeProfileRepository.getById(workspaceId, creativeId);
+    await CreativeProfileRepository.listByApplicationIds(workspaceId, [applicationId]);
     await CreativeProfileRepository.list(workspaceId);
 
     const [getSql, getValues] = sqlMock.query.mock.calls[0] as [string, unknown[]];
-    const [listSql, listValues] = sqlMock.query.mock.calls[1] as [string, unknown[]];
+    const [applicationsSql, applicationsValues] = sqlMock.query.mock.calls[1] as [string, unknown[]];
+    const [listSql, listValues] = sqlMock.query.mock.calls[2] as [string, unknown[]];
     expect(normalizeSql(getSql)).toContain("WHERE workspace_id = $1 AND id = $2::uuid");
     expect(getValues).toEqual([workspaceId, creativeId]);
+    expect(normalizeSql(applicationsSql)).toContain("application_id = ANY($2::uuid[])");
+    expect(applicationsValues).toEqual([workspaceId, [applicationId]]);
     expect(normalizeSql(listSql)).toContain("WHERE workspace_id = $1");
     expect(listValues).toEqual([workspaceId]);
   });

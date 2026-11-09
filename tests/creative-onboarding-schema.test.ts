@@ -9,6 +9,10 @@ const identityMigrationUrl = new URL(
   "../db/migrations/20261111_creative_profile_identity_v1.sql",
   import.meta.url,
 );
+const approvalAuditMigrationUrl = new URL(
+  "../db/migrations/20261109_creative_application_approval_audit_v1.sql",
+  import.meta.url,
+);
 
 describe("creative onboarding schema", () => {
   it("extends the canonical profile and invitation tables without replacing them", async () => {
@@ -58,5 +62,18 @@ describe("creative onboarding schema", () => {
     expect(sql).toContain("access.status = 'active'");
     expect(sql).toContain("onboarding_status = 'invitation_sent'");
     expect(sql).toContain("'pending_invitation_reconciled'");
+  });
+
+  it("allows only one append-only approval event per Forms profile", async () => {
+    const sql = await readFile(approvalAuditMigrationUrl, "utf8");
+
+    expect(sql).toContain(
+      "CREATE UNIQUE INDEX IF NOT EXISTS creative_onboarding_events_application_approved_idx",
+    );
+    expect(sql).toContain(
+      "ON creative_onboarding_events (workspace_id, creative_profile_id, event_type)",
+    );
+    expect(sql).toContain("WHERE event_type = 'application_approved'");
+    expect(sql).not.toMatch(/UPDATE creative_onboarding_events|DELETE FROM creative_onboarding_events/);
   });
 });

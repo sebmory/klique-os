@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { google } from "googleapis";
 
 export const CREATIVE_APPLICATIONS_SHEET_NAME = "Forms_Creatifs_Reponses";
@@ -73,6 +73,7 @@ export type CreativeApplicationModerationStatus =
 
 export type CreativeApplication = {
   applicationId: string;
+  version: string;
   sourceRow: number;
   fields: CreativeApplicationFields;
   moderationStatus: CreativeApplicationModerationStatus;
@@ -81,6 +82,21 @@ export type CreativeApplication = {
   moderatedBy: string | null;
   moderationNotes: string | null;
 };
+
+export const versionCreativeApplication = (
+  application: Omit<CreativeApplication, "version">,
+): CreativeApplication => ({
+  ...application,
+  version: `v1:${createHash("sha256").update(JSON.stringify([
+    application.applicationId,
+    application.sourceRow,
+    application.moderationStatus,
+    application.creativeId,
+    application.moderatedAt,
+    application.moderatedBy,
+    application.moderationNotes,
+  ])).digest("hex")}`,
+});
 
 export type UpdateCreativeApplicationModerationInput = {
   status: CreativeApplicationModerationStatus;
@@ -304,7 +320,7 @@ const parseTechnicalFields = (
   initialized: { applicationId: string; moderationStatus: CreativeApplicationModerationStatus },
 ): CreativeApplication => {
   const creativeIdValue = normalizeCell(row.values[indexes.technical.creativeId]);
-  return {
+  return versionCreativeApplication({
     applicationId: initialized.applicationId,
     sourceRow: row.rowNumber,
     fields: parseFields(row.values, indexes.business),
@@ -315,7 +331,7 @@ const parseTechnicalFields = (
     moderatedAt: nullableCell(row.values[indexes.technical.moderatedAt]),
     moderatedBy: nullableCell(row.values[indexes.technical.moderatedBy]),
     moderationNotes: nullableCell(row.values[indexes.technical.moderationNotes]),
-  };
+  });
 };
 
 const resolveDependencies = (
@@ -432,7 +448,7 @@ export const updateCreativeApplicationModeration = async (
   ]);
   await resolved.repository.writeTechnicalCells(row.rowNumber, cells);
 
-  return {
+  return versionCreativeApplication({
     applicationId: id,
     sourceRow: row.rowNumber,
     fields: parseFields(row.values, indexes.business),
@@ -441,7 +457,7 @@ export const updateCreativeApplicationModeration = async (
     moderatedAt,
     moderatedBy: status === "pending" ? null : moderatedBy,
     moderationNotes: notes ? neutralizeFormula(notes) : null,
-  };
+  });
 };
 
 const getGoogleAuth = () => {

@@ -15,6 +15,7 @@ const otherCreativeId = "33333333-3333-4333-8333-333333333333";
 const workspaceId = "workspace-session";
 const adminId = "user-admin";
 const approvedAt = "2026-10-09T15:00:00.000Z";
+const applicationVersion = `v1:${"a".repeat(64)}`;
 
 const applicationFields: CreativeApplication["fields"] = {
   submittedAt: "2026-10-01 10:00:00",
@@ -68,6 +69,7 @@ const application = (
   overrides: Partial<CreativeApplication> = {},
 ): CreativeApplication => ({
   applicationId,
+  version: applicationVersion,
   sourceRow: 7,
   fields: applicationFields,
   moderationStatus: "pending",
@@ -128,9 +130,29 @@ const dependencies = (
   })),
   createProfile: vi.fn().mockResolvedValue(profile()),
   getProfileById: vi.fn().mockResolvedValue(profile()),
+  listProfilesByApplicationIds: vi.fn().mockResolvedValue([]),
   now: () => new Date(approvedAt),
   ...overrides,
 });
+
+const approveWith = (
+  mocks: CreativeApplicationAdminServiceDependencies,
+  id = applicationId,
+  version = applicationVersion,
+) => approveCreativeApplication(workspaceId, id, adminId, version, mocks);
+
+const rejectWith = (
+  mocks: CreativeApplicationAdminServiceDependencies,
+  reason: string,
+  version = applicationVersion,
+) => rejectCreativeApplication(
+  workspaceId,
+  applicationId,
+  adminId,
+  reason,
+  version,
+  mocks,
+);
 
 describe("creative application Admin service", () => {
   it("lists applications without logging or exposing dependency failures", async () => {
@@ -150,14 +172,19 @@ describe("creative application Admin service", () => {
   it("approves by UUID, creates in the explicit workspace, then audits Sheets", async () => {
     const mocks = dependencies();
 
-    const result = await approveCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      mocks,
-    );
+    const result = await approveWith(mocks);
 
-    expect(result).toEqual({ profile: profile(), alreadyApproved: false });
+    expect(result).toEqual({
+      profile: profile(),
+      application: application({
+        moderationStatus: "approved",
+        creativeId,
+        moderatedAt: approvedAt,
+        moderatedBy: adminId,
+      }),
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    });
     expect(mocks.createProfile).toHaveBeenCalledWith(
       workspaceId,
       expect.objectContaining({
@@ -184,6 +211,95 @@ describe("creative application Admin service", () => {
     });
   });
 
+  it("approves a historical Forms application while discarding invalid optional URLs", async () => {
+    const historical = application({
+      fields: {
+        ...applicationFields,
+        portfolioUrl: "Mon portfolio est disponible sur demande",
+        websiteUrl: "",
+        additionalNotes: "",
+      },
+    });
+    const mocks = dependencies({
+      findApplication: vi.fn().mockResolvedValue(historical),
+    });
+
+    await expect(approveWith(mocks)).resolves.toMatchObject({
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    });
+
+    expect(mocks.createProfile).toHaveBeenCalledWith(
+      workspaceId,
+      expect.objectContaining({
+        provenance: "form_application",
+        applicationId,
+        sourceRow: 7,
+        portfolioUrl: null,
+        websiteUrl: null,
+      }),
+    );
+    expect(historical.fields.portfolioUrl)
+      .toBe("Mon portfolio est disponible sur demande");
+  });
+
+  it("reports the exact required legacy field without mutating storage", async () => {
+    const missingEmail = application({
+      fields: { ...applicationFields, email: "" },
+    });
+    const mocks = dependencies({
+      findApplication: vi.fn().mockResolvedValue(missingEmail),
+    });
+
+    await expect(approveWith(mocks)).rejects.toMatchObject({
+      code: "missing_required_field",
+      field: "email",
+    });
+    expect(mocks.createProfile).not.toHaveBeenCalled();
+    expect(mocks.updateModeration).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale optimistic version before creating a profile", async () => {
+    const mocks = dependencies();
+
+    await expect(approveWith(mocks, applicationId, `v1:${"b".repeat(64)}`))
+      .rejects.toMatchObject({ code: "version_conflict" });
+    expect(mocks.createProfile).not.toHaveBeenCalled();
+    expect(mocks.updateModeration).not.toHaveBeenCalled();
+  });
+
+  it("projects a canonical profile as approved when the Sheets mirror is still pending", async () => {
+    const pending = application();
+    const mocks = dependencies({
+      listApplications: vi.fn().mockResolvedValue([pending]),
+      listProfilesByApplicationIds: vi.fn().mockResolvedValue([profile()]),
+    });
+
+    await expect(listCreativeApplicationsForAdmin(workspaceId, mocks))
+      .resolves.toEqual([
+        expect.objectContaining({
+          applicationId,
+          moderationStatus: "approved",
+          creativeId,
+          moderatedAt: approvedAt,
+          moderatedBy: adminId,
+        }),
+      ]);
+    expect(mocks.listProfilesByApplicationIds).toHaveBeenCalledWith(
+      workspaceId,
+      [applicationId],
+    );
+  });
+
+  it("does not write Sheets when canonical profile creation fails", async () => {
+    const mocks = dependencies({
+      createProfile: vi.fn().mockRejectedValue(new Error("database unavailable")),
+    });
+
+    await expect(approveWith(mocks)).rejects.toMatchObject({ code: "dependency" });
+    expect(mocks.updateModeration).not.toHaveBeenCalled();
+  });
+
   it("reuses the same canonical profile after a Sheets failure", async () => {
     const sharedProfile = profile();
     const updateModeration = vi.fn()
@@ -197,10 +313,20 @@ describe("creative application Admin service", () => {
       updateModeration,
     });
 
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, mocks))
-      .rejects.toMatchObject({ code: "dependency" });
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, mocks))
-      .resolves.toEqual({ profile: sharedProfile, alreadyApproved: false });
+    await expect(approveWith(mocks)).resolves.toMatchObject({
+      profile: sharedProfile,
+      application: {
+        moderationStatus: "approved",
+        creativeId,
+      },
+      alreadyApproved: false,
+      sheetSynchronized: false,
+    });
+    await expect(approveWith(mocks)).resolves.toMatchObject({
+      profile: sharedProfile,
+      alreadyApproved: false,
+      sheetSynchronized: true,
+    });
 
     expect(mocks.createProfile).toHaveBeenCalledTimes(2);
     expect(updateModeration).toHaveBeenCalledTimes(2);
@@ -212,8 +338,12 @@ describe("creative application Admin service", () => {
     const approved = application({ moderationStatus: "approved", creativeId });
     const mocks = dependencies({ findApplication: vi.fn().mockResolvedValue(approved) });
 
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, mocks))
-      .resolves.toEqual({ profile: profile(), alreadyApproved: true });
+    await expect(approveWith(mocks)).resolves.toEqual({
+      profile: profile(),
+      application: approved,
+      alreadyApproved: true,
+      sheetSynchronized: true,
+    });
     expect(mocks.createProfile).not.toHaveBeenCalled();
     expect(mocks.updateModeration).not.toHaveBeenCalled();
 
@@ -221,7 +351,7 @@ describe("creative application Admin service", () => {
       findApplication: vi.fn().mockResolvedValue(approved),
       getProfileById: vi.fn().mockResolvedValue(profile({ applicationId: otherCreativeId })),
     });
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, conflict))
+    await expect(approveWith(conflict))
       .rejects.toMatchObject({ code: "conflict" });
   });
 
@@ -229,21 +359,26 @@ describe("creative application Admin service", () => {
     const coherent = dependencies({
       findApplication: vi.fn()
         .mockResolvedValueOnce(application())
+        .mockResolvedValueOnce(application())
         .mockResolvedValueOnce(application({ moderationStatus: "approved", creativeId })),
     });
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, coherent))
-      .resolves.toEqual({ profile: profile(), alreadyApproved: true });
+    await expect(approveWith(coherent)).resolves.toMatchObject({
+      profile: profile(),
+      alreadyApproved: true,
+      sheetSynchronized: true,
+    });
     expect(coherent.updateModeration).not.toHaveBeenCalled();
 
     const conflict = dependencies({
       findApplication: vi.fn()
+        .mockResolvedValueOnce(application())
         .mockResolvedValueOnce(application())
         .mockResolvedValueOnce(application({
           moderationStatus: "approved",
           creativeId: otherCreativeId,
         })),
     });
-    await expect(approveCreativeApplication(workspaceId, applicationId, adminId, conflict))
+    await expect(approveWith(conflict))
       .rejects.toMatchObject({ code: "conflict" });
   });
 
@@ -253,14 +388,14 @@ describe("creative application Admin service", () => {
       application({ creativeId }),
     ]) {
       const mocks = dependencies({ findApplication: vi.fn().mockResolvedValue(current) });
-      await expect(approveCreativeApplication(workspaceId, applicationId, adminId, mocks))
+      await expect(approveWith(mocks))
         .rejects.toBeInstanceOf(CreativeApplicationAdminError);
       expect(mocks.createProfile).not.toHaveBeenCalled();
       expect(mocks.updateModeration).not.toHaveBeenCalled();
     }
 
     const invalid = dependencies();
-    await expect(approveCreativeApplication(workspaceId, "not-a-uuid", adminId, invalid))
+    await expect(approveWith(invalid, "not-a-uuid"))
       .rejects.toMatchObject({ code: "validation" });
     expect(invalid.findApplication).not.toHaveBeenCalled();
   });
@@ -268,13 +403,7 @@ describe("creative application Admin service", () => {
   it("rejects with a required reason and never creates a canonical profile", async () => {
     const mocks = dependencies();
 
-    const result = await rejectCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      "  Portfolio insuffisant  ",
-      mocks,
-    );
+    const result = await rejectWith(mocks, "  Portfolio insuffisant  ");
 
     expect(result.alreadyRejected).toBe(false);
     expect(mocks.updateModeration).toHaveBeenCalledWith(applicationId, {
@@ -293,23 +422,13 @@ describe("creative application Admin service", () => {
         application({ moderationStatus: "approved", creativeId }),
       ),
     });
-    await expect(rejectCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      "Motif",
-      approvedMocks,
-    )).rejects.toMatchObject({ code: "conflict" });
+    await expect(rejectWith(approvedMocks, "Motif"))
+      .rejects.toMatchObject({ code: "conflict" });
     expect(approvedMocks.updateModeration).not.toHaveBeenCalled();
 
     const emptyReasonMocks = dependencies();
-    await expect(rejectCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      " ",
-      emptyReasonMocks,
-    )).rejects.toMatchObject({ code: "validation" });
+    await expect(rejectWith(emptyReasonMocks, " "))
+      .rejects.toMatchObject({ code: "validation" });
     expect(emptyReasonMocks.findApplication).not.toHaveBeenCalled();
   });
 
@@ -321,23 +440,13 @@ describe("creative application Admin service", () => {
       moderatedAt: approvedAt,
     });
     const same = dependencies({ findApplication: vi.fn().mockResolvedValue(rejected) });
-    await expect(rejectCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      "Portfolio insuffisant",
-      same,
-    )).resolves.toEqual({ application: rejected, alreadyRejected: true });
+    await expect(rejectWith(same, "Portfolio insuffisant"))
+      .resolves.toEqual({ application: rejected, alreadyRejected: true });
     expect(same.updateModeration).not.toHaveBeenCalled();
     expect(same.createProfile).not.toHaveBeenCalled();
 
     const different = dependencies({ findApplication: vi.fn().mockResolvedValue(rejected) });
-    await expect(rejectCreativeApplication(
-      workspaceId,
-      applicationId,
-      adminId,
-      "Autre motif",
-      different,
-    )).rejects.toMatchObject({ code: "conflict" });
+    await expect(rejectWith(different, "Autre motif"))
+      .rejects.toMatchObject({ code: "conflict" });
   });
 });

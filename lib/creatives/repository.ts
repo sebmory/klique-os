@@ -322,17 +322,37 @@ export const CreativeProfileRepository = {
     }
     const sql = createContentStorageClient();
     const rows = await sql.query(`
-      INSERT INTO creative_profiles (
-        id, workspace_id, provenance, application_id, display_name, creative_type, contact_email,
-        phone, website_url, portfolio_url, instagram, city, country, coverage_areas,
-        specialties, bio, status, source_row, approved_by_clerk_user_id, approved_at
-      ) VALUES (
-        $1::uuid, $2, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-        $14::text[], $15::text[], $16, $17, $18, $19, $20::timestamptz
+      WITH profile AS (
+        INSERT INTO creative_profiles (
+          id, workspace_id, provenance, application_id, display_name, creative_type, contact_email,
+          phone, website_url, portfolio_url, instagram, city, country, coverage_areas,
+          specialties, bio, status, source_row, approved_by_clerk_user_id, approved_at
+        ) VALUES (
+          $1::uuid, $2, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14::text[], $15::text[], $16, $17, $18, $19, $20::timestamptz
+        )
+        ON CONFLICT (workspace_id, application_id)
+        DO UPDATE SET application_id = creative_profiles.application_id
+        RETURNING *
+      ),
+      approval_event AS (
+        INSERT INTO creative_onboarding_events (
+          workspace_id, creative_profile_id, event_type, from_status, to_status,
+          actor_clerk_user_id, details
+        )
+        SELECT workspace_id, id, 'application_approved', NULL, onboarding_status,
+               approved_by_clerk_user_id,
+               jsonb_build_object(
+                 'applicationId', application_id,
+                 'sourceRow', source_row
+               )
+        FROM profile
+        ON CONFLICT (workspace_id, creative_profile_id, event_type)
+          WHERE event_type = 'application_approved'
+        DO NOTHING
       )
-      ON CONFLICT (workspace_id, application_id)
-      DO UPDATE SET application_id = creative_profiles.application_id
-      RETURNING ${columns}
+      SELECT ${columns}
+      FROM profile
     `, [
       randomUUID(), workspace, validated.provenance, validated.applicationId, validated.displayName,
       validated.creativeType, validated.contactEmail, validated.phone,
@@ -402,6 +422,27 @@ export const CreativeProfileRepository = {
       LIMIT 1
     `, [workspace, id]) as CreativeProfileRow[];
     return rows[0] ? mapRow(rows[0]) : null;
+  },
+
+  async listByApplicationIds(
+    workspaceId: string,
+    applicationIds: string[],
+  ): Promise<CreativeProfile[]> {
+    const workspace = normalizeWorkspaceId(workspaceId);
+    const ids = [...new Set(
+      applicationIds.map((applicationId) => normalizeUuid(applicationId, "applicationId")),
+    )];
+    if (ids.length === 0) return [];
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${columns}
+      FROM creative_profiles
+      WHERE workspace_id = $1
+        AND provenance = 'form_application'
+        AND application_id = ANY($2::uuid[])
+      ORDER BY created_at ASC, id ASC
+    `, [workspace, ids]) as CreativeProfileRow[];
+    return rows.map(mapRow);
   },
 
   async list(workspaceId: string): Promise<CreativeProfile[]> {

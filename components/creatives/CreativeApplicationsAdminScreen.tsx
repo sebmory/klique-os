@@ -22,15 +22,20 @@ import type {
   CreativeApplication,
   CreativeApplicationModerationStatus,
 } from "@/lib/creatives/applications-sheet";
+import {
+  createApproveCreativeApplicationRequest,
+  createRejectCreativeApplicationRequest,
+  userMessageForCreativeApplicationResponse,
+  type CreativeApplicationApproveResponse,
+  type CreativeApplicationModerationSnapshot,
+  type CreativeApplicationRejectResponse,
+} from "@/lib/creatives/admin-application-contract";
+import { formatCreativeApplicationDate } from "@/lib/creatives/application-date";
 import { CreativeProfilesAdminPanel } from "@/components/creatives/CreativeProfilesAdminPanel";
 import styles from "./creative-applications-admin.module.css";
 
 type ApplicationsResponse = {
   applications?: CreativeApplication[];
-  error?: string;
-};
-
-type ModerationResponse = {
   error?: string;
 };
 
@@ -51,20 +56,6 @@ const statusLabels: Record<CreativeApplicationModerationStatus, string> = {
   rejected: "Refusée",
 };
 
-const dateFormatter = new Intl.DateTimeFormat("fr-CH", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-const formatDate = (value: string): string => {
-  if (!value) return "Date non renseignée";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : dateFormatter.format(parsed);
-};
-
 const externalUrl = (value: string): string | null => {
   const normalized = value.trim();
   if (!normalized) return null;
@@ -80,11 +71,6 @@ const externalUrl = (value: string): string | null => {
       return null;
     }
   }
-};
-
-const readError = async (response: Response, fallback: string): Promise<string> => {
-  const payload = (await response.json().catch(() => null)) as ModerationResponse | null;
-  return payload?.error || fallback;
 };
 
 const profileIcon = (profile: string) => {
@@ -117,7 +103,7 @@ export function CreativeApplicationsAdminScreen() {
   const [rejectionError, setRejectionError] = useState<string | null>(null);
   const activeActions = useRef(new Set<string>());
 
-  const loadApplications = useCallback(async (signal?: AbortSignal) => {
+  const fetchApplications = useCallback(async (signal?: AbortSignal) => {
     const response = await fetch("/api/admin/creatives/applications", {
       credentials: "include",
       cache: "no-store",
@@ -127,14 +113,17 @@ export function CreativeApplicationsAdminScreen() {
     if (!response.ok || !Array.isArray(payload?.applications)) {
       throw new Error(payload?.error || "Impossible de charger les candidatures créatives.");
     }
-    setApplications(payload.applications);
+    return payload.applications;
   }, []);
+
+  const loadApplications = useCallback(async (signal?: AbortSignal) => {
+    setApplications(await fetchApplications(signal));
+  }, [fetchApplications]);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    setLoadError(null);
-    void loadApplications(controller.signal)
+    void fetchApplications(controller.signal)
+      .then(setApplications)
       .catch((error) => {
         if (!controller.signal.aborted) {
           setLoadError(
@@ -148,7 +137,7 @@ export function CreativeApplicationsAdminScreen() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [loadApplications]);
+  }, [fetchApplications]);
 
   const counts = useMemo(() => applications.reduce<Record<Filter, number>>(
     (current, application) => {
@@ -171,6 +160,16 @@ export function CreativeApplicationsAdminScreen() {
     }
   };
 
+  const applyModerationSnapshot = (
+    snapshot: CreativeApplicationModerationSnapshot,
+  ) => {
+    setApplications((current) => current.map((application) =>
+      application.applicationId === snapshot.applicationId
+        ? { ...application, ...snapshot }
+        : application
+    ));
+  };
+
   const approve = async (application: CreativeApplication) => {
     if (activeActions.current.has(application.applicationId)) return;
     if (!window.confirm(CREATIVE_APPROVAL_CONFIRMATION)) return;
@@ -180,18 +179,16 @@ export function CreativeApplicationsAdminScreen() {
     setActionError(null);
     setSuccessMessage(null);
     try {
-      const response = await fetch(
-        `/api/admin/creatives/applications/${encodeURIComponent(application.applicationId)}/approve`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        },
-      );
+      const request = createApproveCreativeApplicationRequest(application);
+      const response = await fetch(request.url, request.init);
       if (!response.ok) {
-        throw new Error(await readError(response, "La candidature n’a pas pu être approuvée."));
+        throw new Error(await userMessageForCreativeApplicationResponse(
+          response,
+          "L’approbation n’a pas pu être enregistrée. Réessayez.",
+        ));
       }
+      const payload = await response.json() as CreativeApplicationApproveResponse;
+      applyModerationSnapshot(payload.application);
       setSuccessMessage("Candidature approuvée et fiche canonique créée.");
       await refreshAfterSuccess();
     } catch (error) {
@@ -238,18 +235,16 @@ export function CreativeApplicationsAdminScreen() {
     setActionError(null);
     setSuccessMessage(null);
     try {
-      const response = await fetch(
-        `/api/admin/creatives/applications/${encodeURIComponent(application.applicationId)}/reject`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason }),
-        },
-      );
+      const request = createRejectCreativeApplicationRequest(application, reason);
+      const response = await fetch(request.url, request.init);
       if (!response.ok) {
-        throw new Error(await readError(response, "La candidature n’a pas pu être refusée."));
+        throw new Error(await userMessageForCreativeApplicationResponse(
+          response,
+          "Le refus n’a pas pu être enregistré. Réessayez.",
+        ));
       }
+      const payload = await response.json() as CreativeApplicationRejectResponse;
+      applyModerationSnapshot(payload.application);
       setSuccessMessage("Candidature refusée.");
       cancelRejection();
       await refreshAfterSuccess();
@@ -447,7 +442,7 @@ export function CreativeApplicationsAdminScreen() {
                   ) : null}
 
                   <footer className={styles.cardFooter}>
-                    <span>Réponse reçue le {formatDate(fields.submittedAt)}</span>
+                    <span>Réponse reçue le {formatCreativeApplicationDate(fields.submittedAt)}</span>
                     {application.moderationStatus === "pending" ? (
                       <div className={styles.actions}>
                         <Button
@@ -475,7 +470,7 @@ export function CreativeApplicationsAdminScreen() {
                     ) : (
                       <span>
                         {application.moderatedAt
-                          ? `Décision le ${formatDate(application.moderatedAt)}`
+                          ? `Décision le ${formatCreativeApplicationDate(application.moderatedAt)}`
                           : "Décision enregistrée"}
                       </span>
                     )}
