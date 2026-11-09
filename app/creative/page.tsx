@@ -114,21 +114,6 @@ function MissionCard({
   const canDeliver = mission.execution?.status === "in_progress"
     || mission.execution?.status === "changes_requested";
 
-  useEffect(() => {
-    if (!canDeliver) return;
-    setDeliveryLinks(
-      mission.execution?.deliveryLinks.length
-        ? [...mission.execution.deliveryLinks]
-        : [""],
-    );
-    setDeliveryNote(mission.execution?.deliveryNote ?? "");
-  }, [
-    canDeliver,
-    mission.execution?.deliveredAt,
-    mission.execution?.deliveryLinks,
-    mission.execution?.deliveryNote,
-  ]);
-
   const submitResponse = async () => {
     if (
       !responseAction
@@ -484,7 +469,12 @@ export function CreativeMissionContent({
       {visibleMissions.length === 0 ? <p>Aucune mission dans cette section.</p> : null}
       {visibleMissions.map((mission) => (
         <MissionCard
-          key={mission.reference}
+          key={[
+            mission.reference,
+            mission.execution?.status,
+            mission.execution?.deliveredAt,
+            mission.execution?.deliveryLinks.join(","),
+          ].join(":")}
           mission={mission}
           onReload={onReload}
           onDelivered={() => setFilter("delivered")}
@@ -523,8 +513,8 @@ export default function CreativePortalPage() {
     <section style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 20 }}>
       <ProductionCreativeSpace />
       <header>
-        <p style={{ margin: 0 }}>Services athlètes existants</p>
-        <h2 style={{ margin: "0.25rem 0" }}>Mes autres missions</h2>
+        <p style={{ margin: 0 }}>Historique</p>
+        <h2 style={{ margin: "0.25rem 0" }}>Missions historiques</h2>
         <p>Les missions de services déjà personnellement affectées restent disponibles ici.</p>
       </header>
       {error ? <p role="alert">{error}</p> : null}

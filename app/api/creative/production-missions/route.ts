@@ -43,6 +43,12 @@ export async function GET(request: Request) {
     const access = await requireAccess(request);
     if (access === null) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     if (access === false) return NextResponse.json({ error: "Accès créatif refusé." }, { status: 403 });
+    if (access.onboardingStatus !== "active") {
+      return NextResponse.json(
+        { projects: [], onboardingRequired: true },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
     const projects = await listProductionCreativeMissions(access);
     return NextResponse.json({ projects }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
@@ -56,6 +62,9 @@ export async function POST(request: Request) {
     const access = await requireAccess(request);
     if (access === null) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     if (access === false) return NextResponse.json({ error: "Accès créatif refusé." }, { status: 403 });
+    if (access.onboardingStatus !== "active") {
+      return NextResponse.json({ error: "Validation Admin requise." }, { status: 403 });
+    }
     const input = parseApplicationInput(await request.json());
     return outcomeResponse(await applyToProductionCreativeMission(access, input));
   } catch (error) {
@@ -69,6 +78,9 @@ export async function PATCH(request: Request) {
     const access = await requireAccess(request);
     if (access === null) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
     if (access === false) return NextResponse.json({ error: "Accès créatif refusé." }, { status: 403 });
+    if (access.onboardingStatus !== "active") {
+      return NextResponse.json({ error: "Validation Admin requise." }, { status: 403 });
+    }
     const input = parseDeliveryInput(await request.json());
     return outcomeResponse(await updateProductionCreativeAssignment(access, input));
   } catch (error) {

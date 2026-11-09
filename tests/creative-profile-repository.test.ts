@@ -117,7 +117,8 @@ describe("CreativeProfileRepository", () => {
     expect(normalizeSql(sql)).toContain("provenance, application_id");
     expect(normalizeSql(sql)).toContain("$1::uuid, $2, $3, NULL");
     expect(normalizeSql(sql)).toContain("status, source_row");
-    expect(sql).not.toMatch(/ON CONFLICT|SELECT/i);
+    expect(sql).not.toMatch(/ON CONFLICT/i);
+    expect(normalizeSql(sql)).toContain("INSERT INTO creative_onboarding_events");
     expect(values).toContain("admin_manual");
     expect(values).toContain(workspaceId);
   });

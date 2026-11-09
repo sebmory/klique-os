@@ -19,6 +19,7 @@ const access = {
   clerkUserId: "user-creative",
   status: "active",
   creativeProfileStatus: "active",
+  onboardingStatus: "active",
 };
 
 const mission: CreativePortalMission = {
@@ -101,6 +102,35 @@ describe("creative missions 6C", () => {
 
     expect(payload.missions).toHaveLength(1);
     expect(payload.missions[0].reference).toBe(mission.reference);
+  });
+
+  it("shows a safe empty state before Admin validation and blocks mission mutations", async () => {
+    const listMissions = vi.fn();
+    const respond = vi.fn();
+    const handlers = createCreativeMissionHandlers({
+      getAccess: vi.fn(async () => ({
+        ...access,
+        onboardingStatus: "profile_incomplete",
+      })),
+      listMissions,
+      respond,
+    });
+
+    const getResponse = await handlers.GET(new Request("http://localhost/api/creative/missions"));
+    const postResponse = await handlers.POST(postRequest({
+      reference: mission.reference,
+      action: "accepted",
+      note: null,
+      idempotencyKey,
+    }));
+
+    expect(await getResponse.json()).toEqual({
+      missions: [],
+      onboardingRequired: true,
+    });
+    expect(postResponse.status).toBe(403);
+    expect(listMissions).not.toHaveBeenCalled();
+    expect(respond).not.toHaveBeenCalled();
   });
 
   it("accepts a mission with a server-derived identity and supports idempotent replay", async () => {

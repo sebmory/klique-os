@@ -7,7 +7,7 @@ import {
 } from "@/types/production-creative";
 import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
 
-type Tab = "proposals" | "assigned" | "availability" | "profile";
+type Tab = "proposals" | "applications" | "assigned" | "deliveries" | "availability" | "profile";
 type Profile = {
   displayName: string;
   creativeType: "photographer" | "videographer" | "both";
@@ -16,6 +16,29 @@ type Profile = {
   specialties: string[];
   bio: string | null;
   generalAvailability: string | null;
+  onboardingStatus:
+    | "invitation_to_send"
+    | "invitation_sent"
+    | "account_created"
+    | "profile_incomplete"
+    | "pending_validation"
+    | "active"
+    | "disabled";
+  onboardingMessage: string | null;
+};
+type ProfileChecklist = Record<
+  "displayName" | "creativeType" | "coverageAreas" | "specialties" | "portfolioUrl" | "bio" | "generalAvailability",
+  boolean
+>;
+
+const checklistLabels: Record<keyof ProfileChecklist, string> = {
+  displayName: "Nom affiché",
+  creativeType: "Activité photo ou vidéo",
+  coverageAreas: "Régions",
+  specialties: "Sports",
+  portfolioUrl: "Portfolio HTTPS",
+  bio: "Présentation",
+  generalAvailability: "Disponibilités générales",
 };
 
 const formatDate = (value: string | null) =>
@@ -33,6 +56,7 @@ export function ProductionCreativeSpace() {
   const [tab, setTab] = useState<Tab>("proposals");
   const [projects, setProjects] = useState<ProductionCreativeBrief[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [checklist, setChecklist] = useState<ProfileChecklist | null>(null);
   const [message, setMessage] = useState("");
   const [refusalReason, setRefusalReason] = useState("");
   const [error, setError] = useState("");
@@ -48,6 +72,7 @@ export function ProductionCreativeSpace() {
     if (!profileResponse.ok) throw new Error(profilePayload.error || "Chargement impossible.");
     setProjects(projectsPayload.projects ?? []);
     setProfile(profilePayload.profile ?? null);
+    setChecklist(profilePayload.checklist ?? null);
   }, []);
 
   useEffect(() => {
@@ -67,23 +92,69 @@ export function ProductionCreativeSpace() {
     await load();
   };
 
-  const visibleProjects = projects.filter((project) =>
-    tab === "assigned" ? project.assignment !== null : project.assignment === null
-  );
+  const visibleProjects = projects.filter((project) => {
+    if (tab === "proposals") {
+      return project.assignment === null && project.applicationStatus !== "interested";
+    }
+    if (tab === "applications") {
+      return project.assignment === null && ["interested", "selected"].includes(project.applicationStatus);
+    }
+    if (tab === "assigned") {
+      return project.assignment !== null
+        && ["pending", "changes_requested"].includes(project.assignment.deliveryStatus);
+    }
+    if (tab === "deliveries") {
+      return project.assignment !== null
+        && ["delivered", "validated"].includes(project.assignment.deliveryStatus);
+    }
+    return false;
+  });
+  const incompleteItems = checklist
+    ? (Object.keys(checklist) as Array<keyof ProfileChecklist>).filter((key) => !checklist[key])
+    : [];
+  const showOnboarding = profile && profile.onboardingStatus !== "active";
 
   return (
     <section className="crm-person-card-shell" aria-label="Espace créatifs Production">
       <header>
         <div>
           <p className="crm-kicker">Espace créatifs</p>
-          <h1>Collaborations Production</h1>
+          <h1>Bienvenue dans votre espace KLIQUE</h1>
+          <p>Gérez votre profil, vos disponibilités, vos propositions et vos livraisons au même endroit.</p>
         </div>
       </header>
+      {showOnboarding ? (
+        <section className="crm-person-card-shell" aria-labelledby="creative-onboarding-title">
+          <h2 id="creative-onboarding-title">
+            {profile.onboardingStatus === "pending_validation"
+              ? "Votre profil est prêt pour validation"
+              : "Complétez votre profil"}
+          </h2>
+          {profile.onboardingMessage ? <p>{profile.onboardingMessage}</p> : null}
+          {profile.onboardingStatus === "pending_validation" ? (
+            <p>Un Admin doit maintenant valider votre profil. Vous pouvez encore le modifier.</p>
+          ) : (
+            <>
+              <p>Renseignez les éléments suivants pour soumettre votre profil à un Admin.</p>
+              <ul>
+                {(Object.keys(checklist ?? {}) as Array<keyof ProfileChecklist>).map((key) => (
+                  <li key={key}>{checklist?.[key] ? "✓" : "○"} {checklistLabels[key]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <button type="button" className="primary-button" onClick={() => setTab("profile")}>
+            {incompleteItems.length > 0 ? "Compléter mon profil" : "Voir mon profil"}
+          </button>
+        </section>
+      ) : null}
       <div className="crm-skeleton-label" role="note">{CREATIVE_FINANCIAL_NOTICE}</div>
       <div className="crm-tabs" aria-label="Rubriques de l’espace créatif">
         <button type="button" onClick={() => setTab("proposals")} aria-pressed={tab === "proposals"}>Projets proposés</button>
-        <button type="button" onClick={() => setTab("assigned")} aria-pressed={tab === "assigned"}>Mes projets</button>
-        <button type="button" onClick={() => setTab("availability")} aria-pressed={tab === "availability"}>Mes disponibilités</button>
+        <button type="button" onClick={() => setTab("applications")} aria-pressed={tab === "applications"}>Candidatures</button>
+        <button type="button" onClick={() => setTab("assigned")} aria-pressed={tab === "assigned"}>Projets attribués</button>
+        <button type="button" onClick={() => setTab("deliveries")} aria-pressed={tab === "deliveries"}>Livraisons</button>
+        <button type="button" onClick={() => setTab("availability")} aria-pressed={tab === "availability"}>Calendrier</button>
         <button type="button" onClick={() => setTab("profile")} aria-pressed={tab === "profile"}>Mon profil</button>
       </div>
       {error ? <p className="form-message is-error" role="alert">{error}</p> : null}
@@ -98,11 +169,20 @@ export function ProductionCreativeSpace() {
             fetch("/api/creative/profile", {
               method: "PATCH",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify(profile),
+              body: JSON.stringify({
+                displayName: profile.displayName,
+                creativeType: profile.creativeType,
+                portfolioUrl: profile.portfolioUrl,
+                coverageAreas: profile.coverageAreas,
+                specialties: profile.specialties,
+                bio: profile.bio,
+                generalAvailability: profile.generalAvailability,
+              }),
             }).then(async (response) => {
               const payload = await response.json();
               if (!response.ok) throw new Error(payload.error);
-            }).then(() => setMessage("Profil enregistré."))
+            }).then(load)
+              .then(() => setMessage("Profil enregistré."))
               .catch((failure) => setError(failure.message || "Enregistrement impossible."));
           }}
         >
@@ -110,7 +190,7 @@ export function ProductionCreativeSpace() {
           <label>Activité<select value={profile.creativeType} onChange={(event) => setProfile({ ...profile, creativeType: event.target.value as Profile["creativeType"] })}><option value="photographer">Photo</option><option value="videographer">Vidéo</option><option value="both">Photo et vidéo</option></select></label>
           <label>Régions<input value={profile.coverageAreas.join(", ")} onChange={(event) => setProfile({ ...profile, coverageAreas: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
           <label>Sports<input value={profile.specialties.join(", ")} onChange={(event) => setProfile({ ...profile, specialties: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
-          <label>Portfolio<input type="url" value={profile.portfolioUrl ?? ""} onChange={(event) => setProfile({ ...profile, portfolioUrl: event.target.value })} /></label>
+          <label>Portfolio HTTPS<input type="url" inputMode="url" placeholder="https://…" value={profile.portfolioUrl ?? ""} onChange={(event) => setProfile({ ...profile, portfolioUrl: event.target.value })} /></label>
           <label>Présentation<textarea value={profile.bio ?? ""} onChange={(event) => setProfile({ ...profile, bio: event.target.value })} /></label>
           <label>Disponibilités générales<textarea value={profile.generalAvailability ?? ""} onChange={(event) => setProfile({ ...profile, generalAvailability: event.target.value })} /></label>
           <button type="submit" className="primary-button">Enregistrer le profil</button>
@@ -118,7 +198,17 @@ export function ProductionCreativeSpace() {
         </form>
       ) : tab !== "profile" ? (
         <div className="crm-production-list">
-          {visibleProjects.length === 0 ? <p className="crm-skeleton-label">Aucun projet dans cette rubrique.</p> : visibleProjects.map((project) => (
+          {visibleProjects.length === 0 ? (
+            <p className="crm-skeleton-label">
+              {tab === "proposals"
+                ? "Aucune proposition pour le moment."
+                : tab === "applications"
+                  ? "Aucune candidature pour le moment."
+                  : tab === "assigned"
+                    ? "Aucun projet attribué pour le moment."
+                    : "Aucune livraison pour le moment."}
+            </p>
+          ) : visibleProjects.map((project) => (
             <article key={project.id} className="crm-person-card-shell">
               <header><h2>{project.title}</h2><strong>{compensationLabel(project)}</strong></header>
               <p>{project.objective}</p>

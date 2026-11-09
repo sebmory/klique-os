@@ -22,6 +22,7 @@ type CreativeAccess = {
   clerkUserId: string;
   status: string;
   creativeProfileStatus: string | null;
+  onboardingStatus?: string | null;
 };
 
 type HandlerDependencies = {
@@ -140,6 +141,12 @@ export const createCreativeMissionHandlers = (
       }
       const access = await requireActiveAccess(request, dependencies.getAccess);
       if (access instanceof NextResponse) return access;
+      if (access.onboardingStatus !== "active") {
+        return NextResponse.json(
+          { missions: [], onboardingRequired: true },
+          { headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
       const missions = await dependencies.listMissions({
         workspaceId: access.workspaceId,
         creativeProfileId: access.creativeProfileId,
@@ -165,6 +172,9 @@ export const createCreativeMissionHandlers = (
       }
       const access = await requireActiveAccess(request, dependencies.getAccess);
       if (access instanceof NextResponse) return access;
+      if (access.onboardingStatus !== "active") {
+        return NextResponse.json({ error: "Validation Admin requise." }, { status: 403 });
+      }
       const body = await request.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
@@ -208,6 +218,9 @@ export const createCreativeMissionHandlers = (
       }
       const access = await requireActiveAccess(request, dependencies.getAccess);
       if (access instanceof NextResponse) return access;
+      if (access.onboardingStatus !== "active") {
+        return NextResponse.json({ error: "Validation Admin requise." }, { status: 403 });
+      }
       const body = await request.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return NextResponse.json({ error: "Requête invalide." }, { status: 400 });

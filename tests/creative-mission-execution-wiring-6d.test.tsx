@@ -160,6 +160,7 @@ describe("real creative mission 6D wiring", () => {
       clerkUserId: "user-creative",
       status: "active",
       creativeProfileStatus: "active",
+      onboardingStatus: "active",
     });
 
     const query = vi.fn((statement: string, parameters: unknown[]) => {

@@ -60,8 +60,12 @@ describe("creative access 6C", () => {
     expect(await response.json()).toEqual({
       state: "invited",
       email: "creative@example.com",
+      onboardingState: "invitation_sent",
     });
-    expect(invite).toHaveBeenCalledWith(expect.any(Request), creativeId, { resend: false });
+    expect(invite).toHaveBeenCalledWith(expect.any(Request), creativeId, {
+      resend: false,
+      message: null,
+    });
   });
 
   it("rejects an inactive profile and prevents duplicate pending invitations", async () => {
@@ -98,7 +102,11 @@ describe("creative access 6C", () => {
     }));
     const handlers = createAdminCreativeAccessHandlers({
       getAccess: adminAccess,
-      getState: vi.fn(),
+      getState: vi.fn(async () => ({
+        state: "revoked" as const,
+        email: "creative@example.com",
+        onboardingState: "disabled" as const,
+      })),
       invite,
       revoke,
     });
@@ -110,8 +118,15 @@ describe("creative access 6C", () => {
     const revoked = await handlers.DELETE(request("DELETE", { creativeProfileId: creativeId }));
 
     expect(resend.status).toBe(201);
-    expect(invite).toHaveBeenCalledWith(expect.any(Request), creativeId, { resend: true });
-    expect(await revoked.json()).toEqual({ state: "revoked" });
+    expect(invite).toHaveBeenCalledWith(expect.any(Request), creativeId, {
+      resend: true,
+      message: null,
+    });
+    expect(await revoked.json()).toEqual({
+      state: "revoked",
+      email: "creative@example.com",
+      onboardingState: "disabled",
+    });
     expect(revoke).toHaveBeenCalledWith(expect.any(Request), creativeId);
   });
 
@@ -132,5 +147,33 @@ describe("creative access 6C", () => {
 
     expect(response.status).toBe(200);
     expect(getState).toHaveBeenCalledWith("workspace-a", creativeId);
+  });
+
+  it("validates a submitted profile explicitly in the Admin workspace", async () => {
+    const validate = vi.fn(async () => "validated" as const);
+    const getState = vi.fn(async () => ({
+      state: "active" as const,
+      email: "creative@example.com",
+      onboardingState: "active" as const,
+    }));
+    const handlers = createAdminCreativeAccessHandlers({
+      getAccess: adminAccess,
+      getState,
+      invite: vi.fn(),
+      revoke: vi.fn(),
+      validate,
+    });
+
+    const response = await handlers.PATCH(request("PATCH", {
+      creativeProfileId: creativeId,
+      action: "validate",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(validate).toHaveBeenCalledWith("workspace-a", creativeId, "admin-1");
+    expect(await response.json()).toMatchObject({
+      state: "active",
+      onboardingState: "active",
+    });
   });
 });

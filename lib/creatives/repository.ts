@@ -356,16 +356,29 @@ export const CreativeProfileRepository = {
     }
     const sql = createContentStorageClient();
     const rows = await sql.query(`
-      INSERT INTO creative_profiles (
-        id, workspace_id, provenance, application_id, display_name, creative_type,
-        contact_email, phone, website_url, portfolio_url, instagram, city, country,
-        coverage_areas, specialties, bio, status, source_row,
-        approved_by_clerk_user_id, approved_at
-      ) VALUES (
-        $1::uuid, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-        $13::text[], $14::text[], $15, $16, NULL, $17, $18::timestamptz
+      WITH inserted AS (
+        INSERT INTO creative_profiles (
+          id, workspace_id, provenance, application_id, display_name, creative_type,
+          contact_email, phone, website_url, portfolio_url, instagram, city, country,
+          coverage_areas, specialties, bio, status, source_row,
+          approved_by_clerk_user_id, approved_at
+        ) VALUES (
+          $1::uuid, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+          $13::text[], $14::text[], $15, $16, NULL, $17, $18::timestamptz
+        )
+        RETURNING *
+      ),
+      onboarding_event AS (
+        INSERT INTO creative_onboarding_events (
+          workspace_id, creative_profile_id, event_type, from_status, to_status,
+          actor_clerk_user_id
+        )
+        SELECT workspace_id, id, 'profile_created', NULL, onboarding_status,
+               approved_by_clerk_user_id
+        FROM inserted
       )
-      RETURNING ${columns}
+      SELECT ${columns}
+      FROM inserted
     `, [
       randomUUID(), workspace, validated.provenance, validated.displayName,
       validated.creativeType, validated.contactEmail, validated.phone,

@@ -7,7 +7,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { CheckCircle2, ExternalLink, Pencil, Plus, Power, RefreshCw, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, Pencil, Plus, Power, RefreshCw, UserPlus, X } from "lucide-react";
 import { Button, Card, Input, Select, Textarea } from "@/src/design-system/components";
 import type {
   CreativeProfile,
@@ -28,6 +28,23 @@ type ProfilesResponse = {
 type CreativeAccessSummary = {
   state: "none" | "invited" | "active" | "revoked";
   email: string | null;
+  onboardingState:
+    | "invitation_to_send"
+    | "invitation_sent"
+    | "account_created"
+    | "profile_incomplete"
+    | "pending_validation"
+    | "active"
+    | "disabled";
+};
+
+type InviteForm = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  creativeType: CreativeType;
+  coverageAreas: string;
+  message: string;
 };
 
 type ProfileForm = {
@@ -51,7 +68,7 @@ export const CREATIVE_DEACTIVATION_CONFIRMATION =
 export const CREATIVE_INVITATION_CONFIRMATION =
   "Envoyer une invitation KLIQUE OS à l’adresse de cette fiche ?";
 export const CREATIVE_ACCESS_REVOCATION_CONFIRMATION =
-  "Révoquer cet accès créatif ? La fiche restera active.";
+  "Confirmer l’annulation de l’invitation ou la désactivation de l’accès créatif ?";
 
 const creativeTypeLabels: Record<CreativeType, string> = {
   photographer: "Photographe",
@@ -65,6 +82,25 @@ const creativeAccessLabels: Record<CreativeAccessSummary["state"], string> = {
   active: "Accès actif",
   revoked: "Accès révoqué",
 };
+
+const onboardingLabels: Record<CreativeAccessSummary["onboardingState"], string> = {
+  invitation_to_send: "Invitation à envoyer",
+  invitation_sent: "Invitation envoyée",
+  account_created: "Compte créé",
+  profile_incomplete: "Profil incomplet",
+  pending_validation: "Profil à valider",
+  active: "Actif",
+  disabled: "Désactivé",
+};
+
+const emptyInviteForm = (): InviteForm => ({
+  firstName: "",
+  lastName: "",
+  email: "",
+  creativeType: "photographer",
+  coverageAreas: "",
+  message: "",
+});
 
 const formFromProfile = (profile: CreativeProfile): ProfileForm => ({
   displayName: profile.displayName,
@@ -170,6 +206,8 @@ export function CreativeProfilesAdminPanel() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteForm, setInviteForm] = useState<InviteForm>(emptyInviteForm);
   const [form, setForm] = useState<ProfileForm | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const activeActions = useRef(new Set<string>());
@@ -205,6 +243,7 @@ export function CreativeProfilesAdminPanel() {
   }, [loadProfiles]);
 
   const startEditing = (profile: CreativeProfile) => {
+    setInviting(false);
     setCreating(false);
     setEditingId(profile.id);
     setForm(formFromProfile(profile));
@@ -219,9 +258,20 @@ export function CreativeProfilesAdminPanel() {
   };
 
   const startCreating = () => {
+    setInviting(false);
     setEditingId(null);
     setCreating(true);
     setForm(emptyProfileForm());
+    setActionError(null);
+    setSuccessMessage(null);
+  };
+
+  const startInviting = () => {
+    setEditingId(null);
+    setCreating(false);
+    setForm(null);
+    setInviting(true);
+    setInviteForm(emptyInviteForm());
     setActionError(null);
     setSuccessMessage(null);
   };
@@ -302,6 +352,47 @@ export function CreativeProfilesAdminPanel() {
     });
   };
 
+  const inviteNewCreative = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const displayName = `${inviteForm.firstName.trim()} ${inviteForm.lastName.trim()}`.trim();
+    await runAction("invite-new", async () => {
+      const profile = await createProfile({
+        displayName,
+        creativeType: inviteForm.creativeType,
+        contactEmail: inviteForm.email.trim(),
+        phone: null,
+        websiteUrl: null,
+        portfolioUrl: null,
+        instagram: null,
+        city: null,
+        country: null,
+        coverageAreas: splitList(inviteForm.coverageAreas),
+        specialties: [],
+        bio: null,
+        status: "active",
+      });
+      const response = await fetch("/api/admin/creatives/access", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          creativeProfileId: profile.id,
+          message: inviteForm.message.trim() || null,
+        }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(
+          `La fiche a été créée, mais l’invitation n’a pas été envoyée. ${payload?.error ?? ""}`.trim(),
+        );
+      }
+      setInviting(false);
+      setInviteForm(emptyInviteForm());
+      setSuccessMessage("Invitation créative envoyée.");
+      await loadProfiles();
+    });
+  };
+
   const setStatus = async (profile: CreativeProfile, status: CreativeStatus) => {
     if (activeActions.current.has(profile.id)) return;
     if (status === "inactive" && !window.confirm(CREATIVE_DEACTIVATION_CONFIRMATION)) return;
@@ -335,8 +426,9 @@ export function CreativeProfilesAdminPanel() {
         error?: string;
         state?: CreativeAccessSummary["state"];
         email?: string | null;
+        onboardingState?: CreativeAccessSummary["onboardingState"];
       } | null;
-      if (!response.ok || !payload?.state) {
+      if (!response.ok || !payload?.state || !payload.onboardingState) {
         throw new Error(payload?.error || "L’accès créatif n’a pas pu être modifié.");
       }
       setAccessByProfileId((current) => ({
@@ -344,6 +436,7 @@ export function CreativeProfilesAdminPanel() {
         [profile.id]: {
           state: payload.state!,
           email: payload.email ?? profile.contactEmail,
+          onboardingState: payload.onboardingState!,
         },
       }));
       setSuccessMessage(
@@ -353,6 +446,23 @@ export function CreativeProfilesAdminPanel() {
             ? "Accès créatif activé pour le compte Clerk existant."
             : "Invitation créative envoyée.",
       );
+    });
+  };
+
+  const validateOnboarding = async (profile: CreativeProfile) => {
+    await runAction(`access:${profile.id}`, async () => {
+      const response = await fetch("/api/admin/creatives/access", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ creativeProfileId: profile.id, action: "validate" }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Le profil n’a pas pu être validé.");
+      }
+      setSuccessMessage("Profil créatif validé et actif.");
+      await loadProfiles();
     });
   };
 
@@ -399,6 +509,15 @@ export function CreativeProfilesAdminPanel() {
           <Button
             type="button"
             className={styles.primaryButton}
+            disabled={busyId !== null || inviting}
+            onClick={startInviting}
+          >
+            <UserPlus size={16} aria-hidden />
+            Inviter un créatif
+          </Button>
+          <Button
+            type="button"
+            className={styles.primaryButton}
             disabled={busyId !== null || creating}
             onClick={startCreating}
           >
@@ -415,6 +534,54 @@ export function CreativeProfilesAdminPanel() {
         </p>
       ) : null}
       {actionError ? <p className={styles.error} role="alert">{actionError}</p> : null}
+
+      {inviting ? (
+        <Card className={styles.card}>
+          <div className={styles.cardHeader}>
+            <div>
+              <h3>Inviter un créatif</h3>
+              <p>Crée la fiche canonique puis utilise l’invitation Clerk existante.</p>
+            </div>
+          </div>
+          <form className={styles.form} onSubmit={(event) => void inviteNewCreative(event)}>
+            <label>
+              <span>Prénom</span>
+              <Input required value={inviteForm.firstName} onChange={(event) => setInviteForm({ ...inviteForm, firstName: event.target.value })} />
+            </label>
+            <label>
+              <span>Nom</span>
+              <Input required value={inviteForm.lastName} onChange={(event) => setInviteForm({ ...inviteForm, lastName: event.target.value })} />
+            </label>
+            <label>
+              <span>E-mail</span>
+              <Input type="email" required value={inviteForm.email} onChange={(event) => setInviteForm({ ...inviteForm, email: event.target.value })} />
+            </label>
+            <label>
+              <span>Activité</span>
+              <Select value={inviteForm.creativeType} onChange={(event) => setInviteForm({ ...inviteForm, creativeType: event.target.value as CreativeType })}>
+                {Object.entries(creativeTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </Select>
+            </label>
+            <label className={styles.wide}>
+              <span>Régions principales</span>
+              <Input required value={inviteForm.coverageAreas} onChange={(event) => setInviteForm({ ...inviteForm, coverageAreas: event.target.value })} placeholder="Vaud, Genève" />
+            </label>
+            <label className={styles.wide}>
+              <span>Message facultatif</span>
+              <Textarea maxLength={1000} value={inviteForm.message} onChange={(event) => setInviteForm({ ...inviteForm, message: event.target.value })} />
+            </label>
+            <div className={`${styles.actions} ${styles.wide}`}>
+              <Button type="submit" className={styles.primaryButton} disabled={busyId !== null} aria-busy={busyId === "invite-new"}>
+                {busyId === "invite-new" ? "Envoi…" : "Créer et envoyer l’invitation"}
+              </Button>
+              <Button type="button" className={styles.secondaryButton} disabled={busyId !== null} onClick={() => setInviting(false)}>
+                <X size={16} aria-hidden />
+                Annuler
+              </Button>
+            </div>
+          </form>
+        </Card>
+      ) : null}
 
       {creating && form ? (
         <Card className={styles.card}>
@@ -574,7 +741,7 @@ export function CreativeProfilesAdminPanel() {
         </Card>
       ) : null}
 
-      {profiles.length === 0 && !creating ? (
+      {profiles.length === 0 && !creating && !inviting ? (
         <div className={styles.state}>
           <strong>Aucune fiche créative canonique.</strong>
           <span>Approuvez une candidature ou créez une fiche manuellement.</span>
@@ -586,9 +753,18 @@ export function CreativeProfilesAdminPanel() {
             const isBusy = busyId === profile.id;
             const actionsLocked = busyId !== null;
             const portfolioUrl = externalUrl(profile.portfolioUrl);
-            const creativeAccess = accessByProfileId[profile.id] ?? {
-              state: "none" as const,
-              email: profile.contactEmail,
+            const storedAccess = accessByProfileId[profile.id];
+            const creativeAccess: CreativeAccessSummary = {
+              state: storedAccess?.state ?? "none",
+              email: storedAccess?.email ?? profile.contactEmail,
+              onboardingState: storedAccess?.onboardingState
+                ?? (storedAccess?.state === "active"
+                  ? "active"
+                  : storedAccess?.state === "invited"
+                    ? "invitation_sent"
+                    : storedAccess?.state === "revoked"
+                      ? "disabled"
+                      : "invitation_to_send"),
             };
             const accessBusy = busyId === `access:${profile.id}`;
             return (
@@ -607,6 +783,7 @@ export function CreativeProfilesAdminPanel() {
                   <p>
                     <strong>Accès KLIQUE OS :</strong> {creativeAccessLabels[creativeAccess.state]}
                   </p>
+                  <p><strong>Onboarding :</strong> {onboardingLabels[creativeAccess.onboardingState]}</p>
                   <p>Adresse proposée : {profile.contactEmail}</p>
                   <div className={styles.actions}>
                     {profile.status === "active" && (creativeAccess.state === "none" || creativeAccess.state === "revoked") ? (
@@ -639,7 +816,18 @@ export function CreativeProfilesAdminPanel() {
                         aria-busy={accessBusy}
                         onClick={() => void changeCreativeAccess(profile, "revoke")}
                       >
-                        Révoquer l’accès
+                        {creativeAccess.state === "invited" ? "Annuler l’invitation" : "Désactiver l’accès"}
+                      </Button>
+                    ) : null}
+                    {creativeAccess.onboardingState === "pending_validation" ? (
+                      <Button
+                        type="button"
+                        className={styles.primaryButton}
+                        disabled={busyId !== null}
+                        aria-busy={accessBusy}
+                        onClick={() => void validateOnboarding(profile)}
+                      >
+                        Valider le profil
                       </Button>
                     ) : null}
                   </div>

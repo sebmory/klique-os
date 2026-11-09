@@ -12,6 +12,7 @@ import {
   getActiveMediaOrganization,
   MediaOrganizationError,
 } from "@/lib/media-organizations/service";
+import type { CreativeOnboardingStatus } from "@/lib/creatives/onboarding";
 
 const getBootstrapAdminEmail = (): string | null => {
   const configuredEmail = process.env.KLIQUE_BOOTSTRAP_ADMIN_EMAIL?.trim();
@@ -116,6 +117,7 @@ export type CreativeAccessRecord = {
   updatedAt: string;
   creativeDisplayName: string | null;
   creativeProfileStatus: string | null;
+  onboardingStatus: CreativeOnboardingStatus | null;
 };
 
 export type CurrentCreativeAccessProfile = {
@@ -152,7 +154,7 @@ export type InviteCreativeResult =
   | { ok: true; creativeProfileId: string; email: string; clerkInvitationId: string; workspaceId: string }
   | {
       ok: false;
-      reason: "forbidden" | "missing_email" | "invalid_email" | "already_active" | "already_invited" | "creative_not_found" | "inactive_profile" | "clerk_error";
+      reason: "forbidden" | "missing_email" | "invalid_email" | "invalid_message" | "already_active" | "already_invited" | "not_invited" | "creative_not_found" | "inactive_profile" | "clerk_error";
       message?: string;
     };
 
@@ -446,6 +448,9 @@ const mapCreativeAccessRow = (row: Record<string, unknown>): CreativeAccessRecor
   updatedAt: String(row.updated_at ?? ""),
   creativeDisplayName: typeof row.creative_display_name === "string" ? row.creative_display_name : null,
   creativeProfileStatus: typeof row.creative_profile_status === "string" ? row.creative_profile_status : null,
+  onboardingStatus: typeof row.creative_onboarding_status === "string"
+    ? row.creative_onboarding_status as CreativeOnboardingStatus
+    : null,
 });
 
 export const buildUserAccessPermissionContext = (
@@ -912,11 +917,29 @@ const linkCreativeAccessFromInvitation = async (
         AND invitation.status = 'invited'
         AND EXISTS (SELECT 1 FROM upserted)
       RETURNING invitation.id
+    ),
+    profile_updated AS (
+      UPDATE creative_profiles profile
+      SET onboarding_status = 'account_created', updated_at = NOW()
+      FROM upserted access
+      WHERE profile.workspace_id = access.workspace_id
+        AND profile.id = access.creative_profile_id
+        AND profile.onboarding_status = 'invitation_sent'
+      RETURNING profile.workspace_id, profile.id, profile.onboarding_status
+    ),
+    onboarding_event AS (
+      INSERT INTO creative_onboarding_events (
+        workspace_id, creative_profile_id, event_type, from_status, to_status,
+        actor_clerk_user_id
+      )
+      SELECT workspace_id, id, 'account_linked', 'invitation_sent', onboarding_status, ${userId}
+      FROM profile_updated
     )
     SELECT ca.id, ca.workspace_id, ca.creative_profile_id, ca.clerk_user_id, ca.status,
            ca.invitation_email, ca.invited_by_clerk_user_id, ca.invited_at,
            ca.activated_at, ca.revoked_at, ca.created_at, ca.updated_at,
-           cp.display_name AS creative_display_name, cp.status AS creative_profile_status
+           cp.display_name AS creative_display_name, cp.status AS creative_profile_status,
+           cp.onboarding_status AS creative_onboarding_status
     FROM creative_access ca
     LEFT JOIN creative_profiles cp
       ON cp.id = ca.creative_profile_id
@@ -1246,7 +1269,8 @@ const getLocalCreativeAccessProfile = async (
     SELECT ca.id, ca.workspace_id, ca.creative_profile_id, ca.clerk_user_id, ca.status,
            ca.invitation_email, ca.invited_by_clerk_user_id, ca.invited_at,
            ca.activated_at, ca.revoked_at, ca.created_at, ca.updated_at,
-           cp.display_name AS creative_display_name, cp.status AS creative_profile_status
+           cp.display_name AS creative_display_name, cp.status AS creative_profile_status,
+           cp.onboarding_status AS creative_onboarding_status
     FROM creative_access ca
     LEFT JOIN creative_profiles cp
       ON cp.id = ca.creative_profile_id
@@ -1709,7 +1733,6 @@ export const invitePartnerToKlique = async (
   ) {
     return { ok: false, reason: "already_invited" };
   }
-
   const storedPartnerId = pendingPartnerId || exactPartnerId;
   const nextAttemptId = randomUUID();
   if (!pending) {
@@ -1883,16 +1906,34 @@ export const invitePartnerToKlique = async (
 export const getCreativeAccessState = async (
   workspaceId: string,
   creativeProfileId: string,
-): Promise<{ state: CreativeAccessState; email: string | null }> => {
+): Promise<{
+  state: CreativeAccessState;
+  email: string | null;
+  onboardingState?: CreativeOnboardingStatus;
+}> => {
   const normalizedWorkspace = workspaceId.trim();
   const normalizedProfileId = creativeProfileId.trim();
   if (!normalizedWorkspace || !normalizedProfileId) {
-    return { state: "none", email: null };
+    return { state: "none", email: null, onboardingState: "invitation_to_send" };
   }
 
   await createCreativeAccessTable();
   await createCreativeInvitationsTable();
   const sql = getSql();
+
+  const profileRows = await sql`
+    SELECT onboarding_status, status
+    FROM creative_profiles
+    WHERE workspace_id = ${normalizedWorkspace}
+      AND id = ${normalizedProfileId}::uuid
+    LIMIT 1
+  `;
+  const profileRow = profileRows[0] as Record<string, unknown> | undefined;
+  const onboardingState = (
+    profileRow?.status === "inactive"
+      ? "disabled"
+      : String(profileRow?.onboarding_status ?? "invitation_to_send")
+  ) as CreativeOnboardingStatus;
 
   const activeRows = await sql`
     SELECT invitation_email AS email
@@ -1903,7 +1944,11 @@ export const getCreativeAccessState = async (
     LIMIT 1
   `;
   if (activeRows[0]) {
-    return { state: "active", email: String((activeRows[0] as Record<string, unknown>).email ?? "") || null };
+    return {
+      state: "active",
+      email: String((activeRows[0] as Record<string, unknown>).email ?? "") || null,
+      onboardingState,
+    };
   }
 
   const pendingRows = await sql`
@@ -1915,7 +1960,11 @@ export const getCreativeAccessState = async (
     LIMIT 1
   `;
   if (pendingRows[0]) {
-    return { state: "invited", email: String((pendingRows[0] as Record<string, unknown>).email ?? "") || null };
+    return {
+      state: "invited",
+      email: String((pendingRows[0] as Record<string, unknown>).email ?? "") || null,
+      onboardingState,
+    };
   }
 
   const revokedRows = await sql`
@@ -1927,20 +1976,28 @@ export const getCreativeAccessState = async (
     LIMIT 1
   `;
   if (revokedRows[0]) {
-    return { state: "revoked", email: String((revokedRows[0] as Record<string, unknown>).email ?? "") || null };
+    return {
+      state: "revoked",
+      email: String((revokedRows[0] as Record<string, unknown>).email ?? "") || null,
+      onboardingState,
+    };
   }
 
-  return { state: "none", email: null };
+  return { state: "none", email: null, onboardingState };
 };
 
 export const inviteCreativeProfileToKlique = async (
   request: Request,
   creativeProfileId: string,
-  options?: { resend?: boolean },
+  options?: { resend?: boolean; message?: string | null },
 ): Promise<InviteCreativeResult> => {
   const normalizedCreativeProfileId = creativeProfileId.trim();
+  const onboardingMessage = options?.message?.trim() || null;
   if (!normalizedCreativeProfileId) {
     return { ok: false, reason: "creative_not_found" };
+  }
+  if (onboardingMessage && onboardingMessage.length > 1000) {
+    return { ok: false, reason: "invalid_message", message: "Le message est trop long." };
   }
 
   const permissionContext = await getCurrentUserAccessProfile(request);
@@ -1961,14 +2018,20 @@ export const inviteCreativeProfileToKlique = async (
   const sql = getSql();
 
   const profileRows = await sql`
-    SELECT id, workspace_id, contact_email, status
+    SELECT id, workspace_id, contact_email, status, onboarding_message
     FROM creative_profiles
     WHERE workspace_id = ${workspaceId}
       AND id = ${normalizedCreativeProfileId}::uuid
     LIMIT 1
   `;
 
-  const profile = profileRows[0] as { id?: string; workspace_id?: string; contact_email?: string; status?: string } | undefined;
+  const profile = profileRows[0] as {
+    id?: string;
+    workspace_id?: string;
+    contact_email?: string;
+    status?: string;
+    onboarding_message?: string | null;
+  } | undefined;
   if (!profile?.id) {
     return { ok: false, reason: "creative_not_found" };
   }
@@ -1977,6 +2040,8 @@ export const inviteCreativeProfileToKlique = async (
   }
 
   const email = String(profile.contact_email ?? "").trim();
+  const effectiveOnboardingMessage = onboardingMessage
+    ?? (typeof profile.onboarding_message === "string" ? profile.onboarding_message : null);
   if (!email) {
     return { ok: false, reason: "missing_email" };
   }
@@ -1985,11 +2050,17 @@ export const inviteCreativeProfileToKlique = async (
   }
 
   const activeRows = await sql`
-    SELECT clerk_user_id
-    FROM creative_access
-    WHERE workspace_id = ${workspaceId}
-      AND creative_profile_id = ${normalizedCreativeProfileId}::uuid
-      AND status = 'active'
+    SELECT access.clerk_user_id
+    FROM creative_access access
+    JOIN creative_profiles profile
+      ON profile.workspace_id = access.workspace_id
+     AND profile.id = access.creative_profile_id
+    WHERE access.workspace_id = ${workspaceId}
+      AND access.status = 'active'
+      AND (
+        access.creative_profile_id = ${normalizedCreativeProfileId}::uuid
+        OR lower(btrim(profile.contact_email)) = lower(btrim(${email}))
+      )
     LIMIT 1
   `;
   if (activeRows[0]) {
@@ -1997,16 +2068,28 @@ export const inviteCreativeProfileToKlique = async (
   }
 
   const pendingRows = await sql`
-    SELECT id, email
+    SELECT id, email, creative_profile_id
     FROM creative_invitations
     WHERE workspace_id = ${workspaceId}
-      AND creative_profile_id = ${normalizedCreativeProfileId}::uuid
       AND status = 'invited'
+      AND (
+        creative_profile_id = ${normalizedCreativeProfileId}::uuid
+        OR lower(btrim(email)) = lower(btrim(${email}))
+      )
     LIMIT 1
   `;
   const isResend = options?.resend === true;
-  if (pendingRows[0] && !isResend) {
+  const pendingProfileId = String(
+    (pendingRows[0] as Record<string, unknown> | undefined)?.creative_profile_id ?? "",
+  );
+  if (
+    pendingRows[0]
+    && (!isResend || pendingProfileId !== normalizedCreativeProfileId)
+  ) {
     return { ok: false, reason: "already_invited" };
+  }
+  if (isResend && !pendingRows[0]) {
+    return { ok: false, reason: "not_invited" };
   }
 
   try {
@@ -2023,7 +2106,13 @@ export const inviteCreativeProfileToKlique = async (
     );
     if (exactVerifiedUser) {
       await sql`
-        WITH linked AS (
+        WITH current_profile AS (
+          SELECT onboarding_status
+          FROM creative_profiles
+          WHERE workspace_id = ${workspaceId}
+            AND id = ${normalizedCreativeProfileId}::uuid
+        ),
+        linked AS (
           INSERT INTO creative_access (
             workspace_id, creative_profile_id, clerk_user_id, status,
             invitation_email, invited_by_clerk_user_id, invited_at,
@@ -2043,14 +2132,34 @@ export const inviteCreativeProfileToKlique = async (
             revoked_at = NULL,
             updated_at = NOW()
           RETURNING creative_profile_id
+        ),
+        profile_updated AS (
+          UPDATE creative_profiles
+          SET onboarding_status = 'account_created',
+              onboarding_message = ${effectiveOnboardingMessage},
+              updated_at = NOW()
+          WHERE workspace_id = ${workspaceId}
+            AND id = ${normalizedCreativeProfileId}::uuid
+          RETURNING id
+        ),
+        onboarding_event AS (
+          INSERT INTO creative_onboarding_events (
+            workspace_id, creative_profile_id, event_type, from_status, to_status,
+            actor_clerk_user_id, details
+          )
+          SELECT ${workspaceId}, profile_updated.id, 'existing_account_linked',
+                 current_profile.onboarding_status, 'account_created', ${authResult.userId},
+                 jsonb_build_object('email', ${email})
+          FROM profile_updated, current_profile
         )
         INSERT INTO creative_invitations (
           workspace_id, creative_profile_id, email, clerk_invitation_id,
           status, invited_by_clerk_user_id, accepted_clerk_user_id,
-          created_at, updated_at, accepted_at
+          created_at, updated_at, accepted_at, admin_message
         )
         SELECT ${workspaceId}, ${normalizedCreativeProfileId}::uuid, ${email}, NULL,
-               'accepted', ${authResult.userId}, ${exactVerifiedUser.id}, NOW(), NOW(), NOW()
+               'accepted', ${authResult.userId}, ${exactVerifiedUser.id}, NOW(), NOW(), NOW(),
+               ${effectiveOnboardingMessage}
         FROM linked
       `;
       return {
@@ -2081,7 +2190,14 @@ export const inviteCreativeProfileToKlique = async (
     }
 
     const rows = await sql`
-      INSERT INTO creative_invitations (
+      WITH current_profile AS (
+        SELECT onboarding_status
+        FROM creative_profiles
+        WHERE workspace_id = ${workspaceId}
+          AND id = ${normalizedCreativeProfileId}::uuid
+      ),
+      invitation_saved AS (
+        INSERT INTO creative_invitations (
         workspace_id,
         creative_profile_id,
         email,
@@ -2090,7 +2206,8 @@ export const inviteCreativeProfileToKlique = async (
         invited_by_clerk_user_id,
         created_at,
         updated_at,
-        expires_at
+        expires_at,
+        admin_message
       )
       VALUES (
         ${workspaceId},
@@ -2101,16 +2218,41 @@ export const inviteCreativeProfileToKlique = async (
         ${authResult.userId},
         NOW(),
         NOW(),
-        NOW() + INTERVAL '30 days'
+        NOW() + INTERVAL '30 days',
+        ${effectiveOnboardingMessage}
       )
       ON CONFLICT (workspace_id, creative_profile_id) WHERE status = 'invited'
       DO UPDATE SET
         email = EXCLUDED.email,
         clerk_invitation_id = EXCLUDED.clerk_invitation_id,
         invited_by_clerk_user_id = EXCLUDED.invited_by_clerk_user_id,
+        admin_message = COALESCE(EXCLUDED.admin_message, creative_invitations.admin_message),
         updated_at = NOW(),
         expires_at = EXCLUDED.expires_at
       RETURNING workspace_id, creative_profile_id, email, clerk_invitation_id, status
+      ),
+      profile_updated AS (
+        UPDATE creative_profiles
+        SET onboarding_status = 'invitation_sent',
+            onboarding_message = ${effectiveOnboardingMessage},
+            updated_at = NOW()
+        WHERE workspace_id = ${workspaceId}
+          AND id = ${normalizedCreativeProfileId}::uuid
+          AND EXISTS (SELECT 1 FROM invitation_saved)
+        RETURNING id
+      ),
+      onboarding_event AS (
+        INSERT INTO creative_onboarding_events (
+          workspace_id, creative_profile_id, event_type, from_status, to_status,
+          actor_clerk_user_id, details
+        )
+        SELECT ${workspaceId}, profile_updated.id,
+               ${isResend ? "invitation_resent" : "invitation_sent"},
+               current_profile.onboarding_status, 'invitation_sent', ${authResult.userId},
+               jsonb_build_object('email', ${email})
+        FROM profile_updated, current_profile
+      )
+      SELECT * FROM invitation_saved
     `;
 
     const saved = rows[0] as { email?: string; clerk_invitation_id?: string; creative_profile_id?: string } | undefined;
@@ -2191,6 +2333,7 @@ export const revokeCreativeProfileAccess = async (
     }
   }
 
+  const nextOnboardingStatus = target.access_id ? "disabled" : "invitation_to_send";
   await sql.transaction([
     sql`
       UPDATE creative_invitations
@@ -2205,6 +2348,31 @@ export const revokeCreativeProfileAccess = async (
       WHERE workspace_id = ${workspaceId}
         AND creative_profile_id = ${normalizedCreativeProfileId}::uuid
         AND status = 'active'
+    `,
+    sql`
+      WITH current_profile AS (
+        SELECT onboarding_status
+        FROM creative_profiles
+        WHERE workspace_id = ${workspaceId}
+          AND id = ${normalizedCreativeProfileId}::uuid
+      ),
+      profile_updated AS (
+        UPDATE creative_profiles
+        SET onboarding_status = ${nextOnboardingStatus},
+            onboarding_validated_at = NULL,
+            updated_at = NOW()
+        WHERE workspace_id = ${workspaceId}
+          AND id = ${normalizedCreativeProfileId}::uuid
+        RETURNING id
+      )
+      INSERT INTO creative_onboarding_events (
+        workspace_id, creative_profile_id, event_type, from_status, to_status,
+        actor_clerk_user_id
+      )
+      SELECT ${workspaceId}, profile_updated.id,
+             ${target.access_id ? "access_disabled" : "invitation_cancelled"},
+             current_profile.onboarding_status, ${nextOnboardingStatus}, ${profile.clerkUser.id}
+      FROM profile_updated, current_profile
     `,
   ], { isolationLevel: "Serializable" });
   return { ok: true, creativeProfileId: normalizedCreativeProfileId };
