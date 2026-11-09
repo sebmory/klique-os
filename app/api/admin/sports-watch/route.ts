@@ -23,8 +23,45 @@ export async function GET(request: Request) {
   if (!isSportsWatchEnabled()) return disabledResponse();
   try {
     const identity = await requireSportsWatchAdmin(request);
+    const url = new URL(request.url);
+    const allowedParameters = new Set(["group", "cursor", "limit"]);
+    const unknownParameter = [...url.searchParams.keys()]
+      .find((parameter) => !allowedParameters.has(parameter));
+    if (unknownParameter) {
+      return NextResponse.json(
+        { ok: false, message: `Le paramètre « ${unknownParameter} » n’est pas reconnu.` },
+        { status: 400, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    const duplicateParameter = [...allowedParameters]
+      .find((parameter) => url.searchParams.getAll(parameter).length > 1);
+    if (duplicateParameter) {
+      return NextResponse.json(
+        { ok: false, message: `Le paramètre « ${duplicateParameter} » ne peut être répété.` },
+        { status: 400, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    const group = url.searchParams.get("group");
+    if (group) {
+      const page = await SportsWatchService.listPage(
+        group,
+        url.searchParams.get("cursor"),
+        url.searchParams.get("limit"),
+        identity,
+      );
+      return NextResponse.json(
+        { ok: true, page },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (url.searchParams.has("cursor")) {
+      return NextResponse.json(
+        { ok: false, message: "Un groupe est requis avec un curseur de pagination." },
+        { status: 400, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
     const [
-      candidates,
+      candidateDashboard,
       swissBindings,
       iwwfBindings,
       safvBindings,
@@ -32,7 +69,7 @@ export async function GET(request: Request) {
       swissBasketballBindings,
       latestRefresh,
     ] = await Promise.all([
-      SportsWatchService.list(identity),
+      SportsWatchService.dashboard(identity, url.searchParams.get("limit")),
       SportsWatchService.listSwissBindings(identity),
       SportsWatchService.listIwwfBindings(identity),
       SportsWatchService.listSafvBindings(identity),
@@ -46,7 +83,12 @@ export async function GET(request: Request) {
       {
         ok: true,
         workspaceId: identity.workspaceId,
-        candidates,
+        candidateDashboard,
+        candidates: [
+          ...candidateDashboard.pages.pending.items,
+          ...candidateDashboard.pages.validated.items,
+          ...candidateDashboard.pages.history.items,
+        ],
         swissBindings,
         iwwfBindings,
         safvBindings,

@@ -86,6 +86,8 @@ describe("sports watch Article selection UI", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     router.push.mockReset();
+    window.sessionStorage.clear();
+    window.localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -306,4 +308,121 @@ describe("sports watch Article selection UI", () => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
     },
   );
+
+  it("keeps validated news accessible with more than 50 pending and paginates groups independently", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const pending = Array.from({ length: 40 }, (_, index) =>
+      candidate(
+        `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        "athlete-a",
+        "Athlète A",
+        "pending",
+      ));
+    const validated = Array.from({ length: 6 }, (_, index) =>
+      candidate(
+        `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        "athlete-b",
+        "Athlète B",
+      ));
+    const history = [
+      candidate("30000000-0000-4000-8000-000000000001", "athlete-a", "Athlète A", "exploited"),
+      candidate("30000000-0000-4000-8000-000000000002", "athlete-b", "Athlète B", "dismissed"),
+    ];
+    const requestedUrls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes("group=pending")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            page: {
+              group: "pending",
+              items: pending.slice(20),
+              nextCursor: null,
+              hasMore: false,
+              limit: 20,
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workspaceId: "workspace-a",
+          candidateDashboard: {
+            pages: {
+              pending: {
+                group: "pending",
+                items: pending.slice(0, 20),
+                nextCursor: "pending-page-2",
+                hasMore: true,
+                limit: 20,
+              },
+              validated: {
+                group: "validated",
+                items: validated,
+                nextCursor: null,
+                hasMore: false,
+                limit: 20,
+              },
+              history: {
+                group: "history",
+                items: history,
+                nextCursor: null,
+                hasMore: false,
+                limit: 20,
+              },
+            },
+            totals: {
+              pending: 54,
+              validated: 6,
+              exploited: 1,
+              rejected: 0,
+              dismissed: 1,
+              superseded: 0,
+              supersededPending: 0,
+              supersededValidated: 0,
+            },
+            athleteTotals: [
+              { athleteId: "athlete-a", athleteName: "Athlète A", pending: 54, validated: 0 },
+              { athleteId: "athlete-b", athleteName: "Athlète B", pending: 0, validated: 6 },
+            ],
+          },
+          swissBindings: [],
+          iwwfBindings: [],
+          safvBindings: [],
+          beBasketBindings: [],
+          swissBasketballBindings: [],
+        }),
+      };
+    }));
+
+    await act(async () => {
+      root.render(<SportsWatchAdminCard athletes={[]} />);
+      await flush();
+    });
+
+    expect(container.textContent).toContain("À exploiter (60)");
+    expect(container.textContent).toContain("Historique (2)");
+    expect(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).toHaveLength(6);
+    expect(container.textContent).toContain("Charger plus · 20/54 actualités à vérifier");
+    expect(container.textContent).toContain("6/6 actualités à exploiter");
+    const loadPending = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("20/54 actualités à vérifier"))!;
+
+    await act(async () => {
+      loadPending.click();
+      await flush();
+    });
+
+    expect(requestedUrls.some((url) =>
+      url.includes("group=pending")
+      && url.includes("cursor=pending-page-2"))).toBe(true);
+    expect(requestedUrls.some((url) => url.includes("group=validated"))).toBe(false);
+    expect(container.textContent).toContain("40/54 actualités à vérifier");
+    expect(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).toHaveLength(6);
+  });
 });

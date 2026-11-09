@@ -10,7 +10,11 @@ import type {
   SafvBinding,
   SafvTeamVerification,
   SportsWatchAdminStatus,
+  SportsWatchAthleteCandidateTotals,
   SportsWatchCandidate,
+  SportsWatchCandidateGroup,
+  SportsWatchCandidatePage,
+  SportsWatchCandidateTotals,
   SwissBasketballBinding,
   SwissBasketballBindingVerification,
   SwissBadmintonBinding,
@@ -37,6 +41,29 @@ type CandidateRow = {
   admin_status: SportsWatchCandidate["adminStatus"];
   supersedes_candidate_id: string | null;
   version: number | string;
+};
+
+type CandidateCursor = {
+  collectedAt: string;
+  id: string;
+};
+
+type CandidateTotalsRow = {
+  pending: number | string;
+  validated: number | string;
+  exploited: number | string;
+  rejected: number | string;
+  dismissed: number | string;
+  superseded: number | string;
+  superseded_pending: number | string;
+  superseded_validated: number | string;
+};
+
+type AthleteCandidateTotalsRow = {
+  athlete_id: string;
+  athlete_name_snapshot: string;
+  pending: number | string;
+  validated: number | string;
 };
 
 type SwissBindingRow = {
@@ -165,6 +192,12 @@ const mapCandidate = (row: CandidateRow): SportsWatchCandidate => ({
   supersedesCandidateId: row.supersedes_candidate_id,
   version: Number(row.version),
 });
+
+const encodeCandidateCursor = (candidate: SportsWatchCandidate): string =>
+  Buffer.from(JSON.stringify({
+    collectedAt: candidate.collectedAt,
+    id: candidate.id,
+  } satisfies CandidateCursor)).toString("base64url");
 
 const mapSwissBinding = (row: SwissBindingRow): SwissBadmintonBinding => ({
   id: row.id,
@@ -298,6 +331,16 @@ export type SportsWatchRepository = {
   failRun(input: { workspaceId: string; runId: string; message: string }): Promise<void>;
   saveCandidates(workspaceId: string, candidates: CollectedSportsWatchCandidate[]): Promise<number>;
   listCandidates(workspaceId: string): Promise<SportsWatchCandidate[]>;
+  listCandidatePage(
+    workspaceId: string,
+    input: {
+      group: SportsWatchCandidateGroup;
+      cursor: CandidateCursor | null;
+      limit: number;
+    },
+  ): Promise<SportsWatchCandidatePage>;
+  countCandidates(workspaceId: string): Promise<SportsWatchCandidateTotals>;
+  countCandidatesByAthlete(workspaceId: string): Promise<SportsWatchAthleteCandidateTotals[]>;
   getCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
   reviewCandidate(input: {
     workspaceId: string;
@@ -586,6 +629,142 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       LIMIT 50
     `, [workspaceId]) as CandidateRow[];
     return rows.map(mapCandidate);
+  },
+
+  async listCandidatePage(workspaceId, input) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates AS candidate
+      WHERE candidate.workspace_id = $1
+        AND (
+          (
+            $2::text IN ('pending', 'validated')
+            AND candidate.admin_status = $2::text
+            AND NOT EXISTS (
+              SELECT 1
+              FROM sports_watch_candidates AS replacement
+              WHERE replacement.workspace_id = candidate.workspace_id
+                AND replacement.supersedes_candidate_id = candidate.id
+            )
+          )
+          OR (
+            $2::text = 'history'
+            AND (
+              candidate.admin_status IN ('exploited', 'rejected', 'dismissed')
+              OR EXISTS (
+                SELECT 1
+                FROM sports_watch_candidates AS replacement
+                WHERE replacement.workspace_id = candidate.workspace_id
+                  AND replacement.supersedes_candidate_id = candidate.id
+              )
+            )
+          )
+        )
+        AND (
+          $3::timestamptz IS NULL
+          OR (candidate.collected_at, candidate.id) < ($3::timestamptz, $4::uuid)
+        )
+      ORDER BY candidate.collected_at DESC, candidate.id DESC
+      LIMIT $5
+    `, [
+      workspaceId,
+      input.group,
+      input.cursor?.collectedAt ?? null,
+      input.cursor?.id ?? null,
+      input.limit + 1,
+    ]) as CandidateRow[];
+    const hasMore = rows.length > input.limit;
+    const items = rows.slice(0, input.limit).map(mapCandidate);
+    return {
+      group: input.group,
+      items,
+      hasMore,
+      nextCursor: hasMore && items.length > 0
+        ? encodeCandidateCursor(items[items.length - 1])
+        : null,
+      limit: input.limit,
+    };
+  },
+
+  async countCandidates(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE admin_status = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE admin_status = 'validated') AS validated,
+        COUNT(*) FILTER (WHERE admin_status = 'exploited') AS exploited,
+        COUNT(*) FILTER (WHERE admin_status = 'rejected') AS rejected,
+        COUNT(*) FILTER (WHERE admin_status = 'dismissed') AS dismissed,
+        COUNT(*) FILTER (
+          WHERE admin_status IN ('pending', 'validated')
+            AND EXISTS (
+              SELECT 1
+              FROM sports_watch_candidates AS replacement
+              WHERE replacement.workspace_id = candidate.workspace_id
+                AND replacement.supersedes_candidate_id = candidate.id
+            )
+        ) AS superseded,
+        COUNT(*) FILTER (
+          WHERE admin_status = 'pending'
+            AND EXISTS (
+              SELECT 1
+              FROM sports_watch_candidates AS replacement
+              WHERE replacement.workspace_id = candidate.workspace_id
+                AND replacement.supersedes_candidate_id = candidate.id
+            )
+        ) AS superseded_pending,
+        COUNT(*) FILTER (
+          WHERE admin_status = 'validated'
+            AND EXISTS (
+              SELECT 1
+              FROM sports_watch_candidates AS replacement
+              WHERE replacement.workspace_id = candidate.workspace_id
+                AND replacement.supersedes_candidate_id = candidate.id
+            )
+        ) AS superseded_validated
+      FROM sports_watch_candidates AS candidate
+      WHERE candidate.workspace_id = $1
+    `, [workspaceId]) as CandidateTotalsRow[];
+    const row = rows[0];
+    return {
+      pending: Number(row?.pending ?? 0),
+      validated: Number(row?.validated ?? 0),
+      exploited: Number(row?.exploited ?? 0),
+      rejected: Number(row?.rejected ?? 0),
+      dismissed: Number(row?.dismissed ?? 0),
+      superseded: Number(row?.superseded ?? 0),
+      supersededPending: Number(row?.superseded_pending ?? 0),
+      supersededValidated: Number(row?.superseded_validated ?? 0),
+    };
+  },
+
+  async countCandidatesByAthlete(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT
+        athlete_id,
+        MAX(athlete_name_snapshot) AS athlete_name_snapshot,
+        COUNT(*) FILTER (WHERE admin_status = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE admin_status = 'validated') AS validated
+      FROM sports_watch_candidates
+      WHERE workspace_id = $1
+        AND admin_status IN ('pending', 'validated')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates AS replacement
+          WHERE replacement.workspace_id = sports_watch_candidates.workspace_id
+            AND replacement.supersedes_candidate_id = sports_watch_candidates.id
+        )
+      GROUP BY athlete_id
+      ORDER BY athlete_id
+    `, [workspaceId]) as AthleteCandidateTotalsRow[];
+    return rows.map((row) => ({
+      athleteId: row.athlete_id,
+      athleteName: row.athlete_name_snapshot,
+      pending: Number(row.pending),
+      validated: Number(row.validated),
+    }));
   },
 
   async getCandidate(workspaceId, candidateId) {

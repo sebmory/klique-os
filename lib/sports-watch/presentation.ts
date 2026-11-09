@@ -1,4 +1,7 @@
-import type { SportsWatchCandidate } from "@/types/sports-watch";
+import type {
+  SportsWatchAthleteCandidateTotals,
+  SportsWatchCandidate,
+} from "@/types/sports-watch";
 
 export type SportsWatchDiscipline = "simple" | "double" | "mixte";
 export type SportsWatchOutcome = "victory" | "defeat" | "forfeit" | "retirement" | "unknown";
@@ -395,14 +398,22 @@ const candidateSortDate = (candidate: SportsWatchCandidate): string =>
 export const buildSportsWatchAthleteGroups = (
   visibleCandidates: SportsWatchCandidate[],
   allCandidates: SportsWatchCandidate[],
+  serverTotals?: SportsWatchAthleteCandidateTotals[],
 ): SportsWatchAthleteGroup[] => {
   const views = buildSportsWatchCandidateViews(allCandidates);
-  const counts = new Map<string, { pending: number; exploitable: number }>();
-  for (const candidate of views.latest) {
-    const current = counts.get(candidate.athleteId) ?? { pending: 0, exploitable: 0 };
-    if (candidate.adminStatus === "pending") current.pending += 1;
-    if (candidate.adminStatus === "validated") current.exploitable += 1;
-    counts.set(candidate.athleteId, current);
+  const counts = new Map(
+    serverTotals?.map((total) => [
+      total.athleteId,
+      { pending: total.pending, exploitable: total.validated },
+    ]) ?? [],
+  );
+  if (!serverTotals) {
+    for (const candidate of views.latest) {
+      const current = counts.get(candidate.athleteId) ?? { pending: 0, exploitable: 0 };
+      if (candidate.adminStatus === "pending") current.pending += 1;
+      if (candidate.adminStatus === "validated") current.exploitable += 1;
+      counts.set(candidate.athleteId, current);
+    }
   }
 
   const grouped = new Map<string, SportsWatchCandidate[]>();

@@ -69,6 +69,9 @@ import type {
   SportsWatchAdminStatus,
   SportsWatchArticlePrefill,
   SportsWatchCandidate,
+  SportsWatchCandidateDashboard,
+  SportsWatchCandidateGroup,
+  SportsWatchCandidatePage,
   SportsWatchCollectionObservation,
   SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
@@ -298,6 +301,76 @@ const requireUuid = (value: unknown): string => {
   const id = normalize(value);
   if (!UUID_PATTERN.test(id)) throw new SportsWatchError("validation", "Le candidat de veille est invalide.");
   return id;
+};
+
+const SPORTS_WATCH_DEFAULT_PAGE_LIMIT = 20;
+const SPORTS_WATCH_MAX_PAGE_LIMIT = 50;
+
+const requireCandidateGroup = (value: unknown): SportsWatchCandidateGroup => {
+  const group = normalize(value);
+  if (group !== "pending" && group !== "validated" && group !== "history") {
+    throw new SportsWatchError("validation", "Le groupe d’actualités demandé est invalide.");
+  }
+  return group;
+};
+
+const requireCandidatePageLimit = (value: unknown): number => {
+  if (value === undefined || value === null || value === "") {
+    return SPORTS_WATCH_DEFAULT_PAGE_LIMIT;
+  }
+  const normalized = normalize(value);
+  if (!/^\d+$/.test(normalized)) {
+    throw new SportsWatchError("validation", "La limite de pagination est invalide.");
+  }
+  const limit = Number(normalized);
+  if (!Number.isInteger(limit) || limit < 1 || limit > SPORTS_WATCH_MAX_PAGE_LIMIT) {
+    throw new SportsWatchError(
+      "validation",
+      `La limite doit être comprise entre 1 et ${SPORTS_WATCH_MAX_PAGE_LIMIT}.`,
+    );
+  }
+  return limit;
+};
+
+const requireCandidateCursor = (
+  value: unknown,
+): { collectedAt: string; id: string } | null => {
+  const cursor = normalize(value);
+  if (!cursor) return null;
+  if (cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor)) {
+    throw new SportsWatchError("validation", "Le curseur de pagination est invalide.");
+  }
+  try {
+    const decodedText = Buffer.from(cursor, "base64url").toString("utf8");
+    if (Buffer.from(decodedText).toString("base64url") !== cursor) {
+      throw new Error("non-canonical cursor");
+    }
+    const decoded = JSON.parse(decodedText) as {
+      collectedAt?: unknown;
+      id?: unknown;
+    };
+    if (
+      typeof decoded !== "object"
+      || decoded === null
+      || Object.keys(decoded).sort().join(",") !== "collectedAt,id"
+    ) {
+      throw new Error("invalid cursor shape");
+    }
+    const collectedAt = normalize(decoded.collectedAt);
+    const id = normalize(decoded.id);
+    const timestamp = new Date(collectedAt);
+    if (
+      !UUID_PATTERN.test(id)
+      || !collectedAt
+      || Number.isNaN(timestamp.getTime())
+      || collectedAt !== timestamp.toISOString()
+    ) {
+      throw new Error("invalid cursor");
+    }
+    return { collectedAt: timestamp.toISOString(), id };
+  } catch {
+    throw new SportsWatchError("validation", "Le curseur de pagination est invalide.");
+  }
 };
 
 const requireSourceKey = (value: unknown): SportsWatchCollectionSourceKey => {
@@ -679,6 +752,53 @@ export const createSportsWatchService = (
     }
   };
   return {
+  async dashboard(
+    identity: SportsWatchAdminIdentity,
+    limitValue?: unknown,
+  ): Promise<SportsWatchCandidateDashboard> {
+    const limit = requireCandidatePageLimit(limitValue);
+    const [pending, validated, history, totals, athleteTotals] = await Promise.all([
+      dependencies.repository.listCandidatePage(identity.workspaceId, {
+        group: "pending",
+        cursor: null,
+        limit,
+      }),
+      dependencies.repository.listCandidatePage(identity.workspaceId, {
+        group: "validated",
+        cursor: null,
+        limit,
+      }),
+      dependencies.repository.listCandidatePage(identity.workspaceId, {
+        group: "history",
+        cursor: null,
+        limit,
+      }),
+      dependencies.repository.countCandidates(identity.workspaceId),
+      dependencies.repository.countCandidatesByAthlete(identity.workspaceId),
+    ]);
+    return {
+      pages: { pending, validated, history },
+      totals,
+      athleteTotals,
+    };
+  },
+
+  async listPage(
+    groupValue: unknown,
+    cursorValue: unknown,
+    limitValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchCandidatePage> {
+    const group = requireCandidateGroup(groupValue);
+    const cursor = requireCandidateCursor(cursorValue);
+    const limit = requireCandidatePageLimit(limitValue);
+    return dependencies.repository.listCandidatePage(identity.workspaceId, {
+      group,
+      cursor,
+      limit,
+    });
+  },
+
   async list(identity: SportsWatchAdminIdentity): Promise<SportsWatchCandidate[]> {
     return dependencies.repository.listCandidates(identity.workspaceId);
   },

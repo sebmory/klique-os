@@ -6,6 +6,7 @@ export type SportsWatchAdminStatus =
   | "exploited"
   | "rejected"
   | "dismissed";
+export type SportsWatchCandidateGroup = "pending" | "validated" | "history";
 export type SportsWatchAttributionStatus = "matched" | "ambiguous";
 export type SportsWatchVerificationStatus = "unverified" | "verified" | "disputed";
 export type SportsWatchResultKind = "individual_result" | "collective_result" | "participation" | "news_excerpt";
@@ -227,6 +228,33 @@ export type SportsWatchCandidate = {
   adminStatus: SportsWatchAdminStatus;
   supersedesCandidateId: string | null;
   version: number;
+};
+
+export type SportsWatchCandidateTotals = Record<SportsWatchAdminStatus, number> & {
+  superseded: number;
+  supersededPending: number;
+  supersededValidated: number;
+};
+
+export type SportsWatchAthleteCandidateTotals = {
+  athleteId: string;
+  athleteName: string;
+  pending: number;
+  validated: number;
+};
+
+export type SportsWatchCandidatePage = {
+  group: SportsWatchCandidateGroup;
+  items: SportsWatchCandidate[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  limit: number;
+};
+
+export type SportsWatchCandidateDashboard = {
+  pages: Record<SportsWatchCandidateGroup, SportsWatchCandidatePage>;
+  totals: SportsWatchCandidateTotals;
+  athleteTotals: SportsWatchAthleteCandidateTotals[];
 };
 
 export type SportsWatchRunResult = {

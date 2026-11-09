@@ -261,6 +261,101 @@ const createMemoryRepository = (): SportsWatchRepository => {
     async listCandidates(workspaceId) {
       return records.filter((record) => record.workspaceId === workspaceId).map((record) => record.candidate);
     },
+    async listCandidatePage(workspaceId, input) {
+      const workspaceCandidates = records
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.candidate);
+      const supersededIds = new Set(workspaceCandidates
+        .map((candidate) => candidate.supersedesCandidateId)
+        .filter((id): id is string => Boolean(id)));
+      const ordered = workspaceCandidates
+        .filter((record) =>
+          input.group === "history"
+            ? record.adminStatus === "exploited"
+              || record.adminStatus === "rejected"
+              || record.adminStatus === "dismissed"
+              || supersededIds.has(record.id)
+            : record.adminStatus === input.group && !supersededIds.has(record.id))
+        .sort((left, right) =>
+          right.collectedAt.localeCompare(left.collectedAt)
+          || right.id.localeCompare(left.id));
+      const afterCursor = input.cursor
+        ? ordered.filter((candidate) =>
+            candidate.collectedAt < input.cursor!.collectedAt
+            || (
+              candidate.collectedAt === input.cursor!.collectedAt
+              && candidate.id < input.cursor!.id
+            ))
+        : ordered;
+      const items = afterCursor.slice(0, input.limit);
+      const hasMore = afterCursor.length > input.limit;
+      const last = items.at(-1);
+      return {
+        group: input.group,
+        items,
+        hasMore,
+        nextCursor: hasMore && last
+          ? Buffer.from(JSON.stringify({
+              collectedAt: last.collectedAt,
+              id: last.id,
+            })).toString("base64url")
+          : null,
+        limit: input.limit,
+      };
+    },
+    async countCandidates(workspaceId) {
+      const workspaceCandidates = records
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.candidate);
+      return {
+        pending: workspaceCandidates.filter((candidate) => candidate.adminStatus === "pending").length,
+        validated: workspaceCandidates.filter((candidate) => candidate.adminStatus === "validated").length,
+        exploited: workspaceCandidates.filter((candidate) => candidate.adminStatus === "exploited").length,
+        rejected: workspaceCandidates.filter((candidate) => candidate.adminStatus === "rejected").length,
+        dismissed: workspaceCandidates.filter((candidate) => candidate.adminStatus === "dismissed").length,
+        superseded: workspaceCandidates.filter((candidate) =>
+          candidate.adminStatus !== "exploited"
+          && candidate.adminStatus !== "rejected"
+          && candidate.adminStatus !== "dismissed"
+          && workspaceCandidates.some((replacement) =>
+            replacement.supersedesCandidateId === candidate.id)).length,
+        supersededPending: workspaceCandidates.filter((candidate) =>
+          candidate.adminStatus === "pending"
+          && workspaceCandidates.some((replacement) =>
+            replacement.supersedesCandidateId === candidate.id)).length,
+        supersededValidated: workspaceCandidates.filter((candidate) =>
+          candidate.adminStatus === "validated"
+          && workspaceCandidates.some((replacement) =>
+            replacement.supersedesCandidateId === candidate.id)).length,
+      };
+    },
+    async countCandidatesByAthlete(workspaceId) {
+      const workspaceCandidates = records
+        .filter((record) => record.workspaceId === workspaceId)
+        .map((record) => record.candidate);
+      const supersededIds = new Set(workspaceCandidates
+        .map((candidate) => candidate.supersedesCandidateId)
+        .filter((id): id is string => Boolean(id)));
+      const counts = new Map<string, {
+        athleteId: string;
+        athleteName: string;
+        pending: number;
+        validated: number;
+      }>();
+      for (const candidate of workspaceCandidates) {
+        if (supersededIds.has(candidate.id)) continue;
+        if (candidate.adminStatus !== "pending" && candidate.adminStatus !== "validated") continue;
+        const current = counts.get(candidate.athleteId) ?? {
+          athleteId: candidate.athleteId,
+          athleteName: candidate.athleteName,
+          pending: 0,
+          validated: 0,
+        };
+        current[candidate.adminStatus] += 1;
+        counts.set(candidate.athleteId, current);
+      }
+      return [...counts.values()];
+    },
     async getCandidate(workspaceId, candidateId) {
       return records.find((record) =>
         record.workspaceId === workspaceId
@@ -1803,5 +1898,170 @@ describe("sports watch service", () => {
     );
     expect(reactivated.active).toBe(true);
     expect(verifySwissProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("paginates status groups independently with global totals and workspace isolation", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates(
+      "workspace-a",
+      Array.from({ length: 60 }, (_, index) => ({
+        ...collectedCandidate(`content-${index}`, `Résultat ${index}.`),
+        logicalKey: `logical-${index}`,
+        contentHash: `content-${index}`,
+        collectedAt: new Date(Date.UTC(2026, 9, 26, 10, index)).toISOString(),
+      })),
+    );
+    await repository.saveCandidates("workspace-b", [{
+      ...collectedCandidate("isolated", "Résultat isolé."),
+      logicalKey: "isolated",
+    }]);
+    const initial = await repository.listCandidates("workspace-a");
+    const validated = [];
+    for (const candidate of initial.slice(0, 6)) {
+      validated.push(await service.review(
+        candidate.id,
+        "validated",
+        candidate.version,
+        identity("workspace-a"),
+      ));
+    }
+
+    const dashboard = await service.dashboard(identity("workspace-a"));
+    expect(dashboard.totals).toEqual({
+      pending: 54,
+      validated: 6,
+      exploited: 0,
+      rejected: 0,
+      dismissed: 0,
+      superseded: 0,
+      supersededPending: 0,
+      supersededValidated: 0,
+    });
+    expect(dashboard.pages.pending.items).toHaveLength(20);
+    expect(dashboard.pages.pending.hasMore).toBe(true);
+    expect(dashboard.pages.validated.items.map((candidate) => candidate.id).sort())
+      .toEqual(validated.map((candidate) => candidate.id).sort());
+
+    const pendingIds = new Set(dashboard.pages.pending.items.map((candidate) => candidate.id));
+    let cursor = dashboard.pages.pending.nextCursor;
+    while (cursor) {
+      const page = await service.listPage(
+        "pending",
+        cursor,
+        20,
+        identity("workspace-a"),
+      );
+      for (const candidate of page.items) {
+        expect(pendingIds.has(candidate.id)).toBe(false);
+        pendingIds.add(candidate.id);
+      }
+      cursor = page.nextCursor;
+    }
+    expect(pendingIds.size).toBe(54);
+
+    const dismissed = await service.review(
+      validated[0].id,
+      "dismissed",
+      validated[0].version,
+      identity("workspace-a"),
+    );
+    const afterDismissal = await service.dashboard(identity("workspace-a"));
+    expect(afterDismissal.totals.validated).toBe(5);
+    expect(afterDismissal.totals.dismissed).toBe(1);
+    expect(afterDismissal.pages.history.items).toEqual([
+      expect.objectContaining({ id: dismissed.id, adminStatus: "dismissed" }),
+    ]);
+    await service.review(
+      dismissed.id,
+      "validated",
+      dismissed.version,
+      identity("workspace-a"),
+    );
+    expect((await service.dashboard(identity("workspace-a"))).totals).toMatchObject({
+      validated: 6,
+      dismissed: 0,
+    });
+    expect((await service.dashboard(identity("workspace-b"))).totals).toMatchObject({
+      pending: 1,
+      validated: 0,
+    });
+
+    await expect(service.listPage(
+      "unknown",
+      null,
+      20,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "validation" });
+    await expect(service.listPage(
+      "pending",
+      "invalid",
+      20,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "validation" });
+    await expect(service.listPage(
+      "pending",
+      Buffer.from(JSON.stringify({
+        collectedAt: "2026-10-26T10:00:00.000Z",
+        id: "00000000-0000-4000-8000-000000000001",
+        extra: true,
+      })).toString("base64url"),
+      20,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "validation" });
+    await expect(service.listPage(
+      "pending",
+      Buffer.from(JSON.stringify({
+        collectedAt: "2026-10-26T10:00:00Z",
+        id: "00000000-0000-4000-8000-000000000001",
+      })).toString("base64url"),
+      20,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "validation" });
+    await expect(service.listPage(
+      "pending",
+      null,
+      51,
+      identity("workspace-a"),
+    )).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("keeps superseded pending or validated versions in paginated history", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate("version-1", "Ancienne version."),
+      logicalKey: "shared-result",
+    }]);
+    const original = (await repository.listCandidates("workspace-a"))[0];
+    await service.review(
+      original.id,
+      "validated",
+      original.version,
+      identity("workspace-a"),
+    );
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate("version-2", "Nouvelle version."),
+      logicalKey: "shared-result",
+    }]);
+
+    const dashboard = await service.dashboard(identity("workspace-a"));
+    expect(dashboard.totals).toMatchObject({
+      pending: 1,
+      validated: 1,
+      superseded: 1,
+      supersededPending: 0,
+      supersededValidated: 1,
+    });
+    expect(dashboard.pages.pending.items).toEqual([
+      expect.objectContaining({ excerpt: "Nouvelle version." }),
+    ]);
+    expect(dashboard.pages.validated.items).toEqual([]);
+    expect(dashboard.pages.history.items).toEqual([
+      expect.objectContaining({ id: original.id, adminStatus: "validated" }),
+    ]);
+    expect(dashboard.athleteTotals).toEqual([
+      expect.objectContaining({ pending: 1, validated: 0 }),
+    ]);
   });
 });

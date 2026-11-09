@@ -23,8 +23,14 @@ import type {
   IwwfIdentityVerification,
   SafvBinding,
   SafvTeamVerification,
-  SportsWatchCandidate,
+  SportsWatchAdminStatus,
   SportsWatchArticlePrefill,
+  SportsWatchAthleteCandidateTotals,
+  SportsWatchCandidate,
+  SportsWatchCandidateDashboard,
+  SportsWatchCandidateGroup,
+  SportsWatchCandidatePage,
+  SportsWatchCandidateTotals,
   SportsWatchCollectionSourceKey,
   SportsWatchRefreshBatchSummary,
   SportsWatchRunResult,
@@ -46,6 +52,7 @@ type AthleteSummary = {
 type SportsWatchDashboardPayload = {
   workspaceId?: string;
   candidates?: SportsWatchCandidate[];
+  candidateDashboard?: SportsWatchCandidateDashboard;
   swissBindings?: SwissBadmintonBinding[];
   iwwfBindings?: IwwfBinding[];
   safvBindings?: SafvBinding[];
@@ -53,6 +60,85 @@ type SportsWatchDashboardPayload = {
   swissBasketballBindings?: SwissBasketballBinding[];
   latestRefresh?: SportsWatchRefreshBatchSummary | null;
   message?: string;
+};
+
+type SportsWatchPageState = Record<SportsWatchCandidateGroup, {
+  nextCursor: string | null;
+  hasMore: boolean;
+  limit: number;
+}>;
+
+const emptyCandidateTotals = (): SportsWatchCandidateTotals => ({
+  pending: 0,
+  validated: 0,
+  exploited: 0,
+  rejected: 0,
+  dismissed: 0,
+  superseded: 0,
+  supersededPending: 0,
+  supersededValidated: 0,
+});
+
+const emptyPageState = (): SportsWatchPageState => ({
+  pending: { nextCursor: null, hasMore: false, limit: 20 },
+  validated: { nextCursor: null, hasMore: false, limit: 20 },
+  history: { nextCursor: null, hasMore: false, limit: 20 },
+});
+
+const candidateGroup = (status: SportsWatchAdminStatus): SportsWatchCandidateGroup =>
+  status === "pending" ? "pending" : status === "validated" ? "validated" : "history";
+
+const candidateDashboardState = (payload: SportsWatchDashboardPayload): {
+  candidates: SportsWatchCandidate[];
+  totals: SportsWatchCandidateTotals;
+  athleteTotals: SportsWatchAthleteCandidateTotals[];
+  pages: SportsWatchPageState;
+} => {
+  if (payload.candidateDashboard) {
+    const { pages, totals, athleteTotals } = payload.candidateDashboard;
+    return {
+      candidates: [...pages.pending.items, ...pages.validated.items, ...pages.history.items],
+      totals,
+      athleteTotals,
+      pages: {
+        pending: {
+          nextCursor: pages.pending.nextCursor,
+          hasMore: pages.pending.hasMore,
+          limit: pages.pending.limit,
+        },
+        validated: {
+          nextCursor: pages.validated.nextCursor,
+          hasMore: pages.validated.hasMore,
+          limit: pages.validated.limit,
+        },
+        history: {
+          nextCursor: pages.history.nextCursor,
+          hasMore: pages.history.hasMore,
+          limit: pages.history.limit,
+        },
+      },
+    };
+  }
+  const candidates = payload.candidates ?? [];
+  const totals = emptyCandidateTotals();
+  for (const candidate of candidates) totals[candidate.adminStatus] += 1;
+  const views = buildSportsWatchCandidateViews(candidates);
+  totals.superseded = [...views.supersededIds]
+    .filter((id) => {
+      const candidate = candidates.find((item) => item.id === id);
+      return candidate?.adminStatus === "pending" || candidate?.adminStatus === "validated";
+    })
+    .length;
+  totals.supersededPending = candidates.filter((candidate) =>
+    candidate.adminStatus === "pending" && views.supersededIds.has(candidate.id)).length;
+  totals.supersededValidated = candidates.filter((candidate) =>
+    candidate.adminStatus === "validated" && views.supersededIds.has(candidate.id)).length;
+  return {
+    candidates,
+    totals,
+    athleteTotals: [],
+    pages: emptyPageState(),
+  };
 };
 
 type SportsWatchRefreshSummary = {
@@ -66,6 +152,20 @@ const fetchSportsWatchDashboard = async (): Promise<SportsWatchDashboardPayload>
   const payload = await response.json() as SportsWatchDashboardPayload;
   if (!response.ok) throw new Error(payload.message || "Impossible de charger la veille sportive.");
   return payload;
+};
+
+const fetchSportsWatchPage = async (
+  group: SportsWatchCandidateGroup,
+  cursor: string,
+  limit: number,
+): Promise<SportsWatchCandidatePage> => {
+  const query = new URLSearchParams({ group, cursor, limit: String(limit) });
+  const response = await fetch(`/api/admin/sports-watch?${query}`, { cache: "no-store" });
+  const payload = await response.json() as { page?: SportsWatchCandidatePage; message?: string };
+  if (!response.ok || !payload.page) {
+    throw new Error(payload.message || "Impossible de charger davantage d’actualités.");
+  }
+  return payload.page;
 };
 
 const formatDate = (value: string | null): string => {
@@ -108,6 +208,54 @@ const writeOpenAthleteIds = (workspaceId: string, athleteIds: Set<string>): void
     );
   } catch {
     // La préférence locale ne doit pas bloquer la veille.
+  }
+};
+
+type SportsWatchNavigationState = {
+  view: "current" | "history";
+  selectedAthleteId: string;
+  selectedSourceKey: SportsWatchCollectionSourceKey;
+  scrollY: number;
+};
+
+const navigationStorageKey = (workspaceId: string): string =>
+  `klique.today.sports-watch.navigation.v1:${workspaceId}`;
+
+const readNavigationState = (workspaceId: string): SportsWatchNavigationState | null => {
+  if (!workspaceId || typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(navigationStorageKey(workspaceId)) ?? "null",
+    ) as Partial<SportsWatchNavigationState> | null;
+    if (!parsed || (parsed.view !== "current" && parsed.view !== "history")) return null;
+    const selectedSourceKey = sourceOptions.some((source) => source.key === parsed.selectedSourceKey)
+      ? parsed.selectedSourceKey
+      : "bc-bulle";
+    return {
+      view: parsed.view,
+      selectedAthleteId: typeof parsed.selectedAthleteId === "string"
+        ? parsed.selectedAthleteId
+        : "",
+      selectedSourceKey: selectedSourceKey as SportsWatchCollectionSourceKey,
+      scrollY: typeof parsed.scrollY === "number" && parsed.scrollY >= 0 ? parsed.scrollY : 0,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeNavigationState = (
+  workspaceId: string,
+  state: Omit<SportsWatchNavigationState, "scrollY">,
+): void => {
+  if (!workspaceId || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(navigationStorageKey(workspaceId), JSON.stringify({
+      ...state,
+      scrollY: window.scrollY,
+    }));
+  } catch {
+    // La navigation reste utilisable lorsque le stockage de session est indisponible.
   }
 };
 
@@ -218,6 +366,13 @@ const scheduledStatusLabel = {
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
+  const [candidateTotals, setCandidateTotals] =
+    useState<SportsWatchCandidateTotals>(emptyCandidateTotals);
+  const [athleteCandidateTotals, setAthleteCandidateTotals] =
+    useState<SportsWatchAthleteCandidateTotals[]>([]);
+  const [candidatePages, setCandidatePages] = useState<SportsWatchPageState>(emptyPageState);
+  const [loadingCandidateGroup, setLoadingCandidateGroup] =
+    useState<SportsWatchCandidateGroup | null>(null);
   const [view, setView] = useState<"current" | "history">("current");
   const [swissBindings, setSwissBindings] = useState<SwissBadmintonBinding[]>([]);
   const [iwwfBindings, setIwwfBindings] = useState<IwwfBinding[]>([]);
@@ -268,6 +423,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [refreshAllDetailsOpen, setRefreshAllDetailsOpen] = useState(false);
   const [latestRefresh, setLatestRefresh] = useState<SportsWatchRefreshBatchSummary | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
+  const [navigationReady, setNavigationReady] = useState(false);
   const [openAthleteIds, setOpenAthleteIds] = useState<Set<string>>(new Set());
   const busyCandidateIdRef = useRef<string | null>(null);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
@@ -326,22 +482,13 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const historicalCandidates = candidateViews.history;
   const visibleCandidates = view === "current" ? currentCandidates : historicalCandidates;
   const athleteGroups = useMemo(
-    () => buildSportsWatchAthleteGroups(visibleCandidates, candidates),
-    [candidates, visibleCandidates],
+    () => buildSportsWatchAthleteGroups(
+      visibleCandidates,
+      candidates,
+      athleteCandidateTotals.length > 0 ? athleteCandidateTotals : undefined,
+    ),
+    [athleteCandidateTotals, candidates, visibleCandidates],
   );
-  useEffect(() => {
-    setSelectedCandidateIds((current) => {
-      const eligibleIds = new Set(
-        candidates
-          .filter((candidate) =>
-            candidate.adminStatus === "validated"
-            && !candidateViews.supersededIds.has(candidate.id))
-          .map((candidate) => candidate.id),
-      );
-      const next = new Set([...current].filter((candidateId) => eligibleIds.has(candidateId)));
-      return next.size === current.size ? current : next;
-    });
-  }, [candidateViews.supersededIds, candidates]);
   const crmAthleteNames = useMemo(() => new Map(
     athletes.map((athlete) => [
       athlete.athleteId?.trim() || athlete.key.trim(),
@@ -387,9 +534,42 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       .then((payload) => {
         if (active) {
           const resolvedWorkspaceId = payload.workspaceId ?? "";
+          const dashboard = candidateDashboardState(payload);
+          const navigation = readNavigationState(resolvedWorkspaceId);
           setWorkspaceId(resolvedWorkspaceId);
           setOpenAthleteIds(readOpenAthleteIds(resolvedWorkspaceId));
-          setCandidates(payload.candidates ?? []);
+          if (navigation) {
+            const navigationSwissBinding = payload.swissBindings?.find((binding) =>
+              binding.athleteId === navigation.selectedAthleteId);
+            const navigationIwwfBinding = payload.iwwfBindings?.find((binding) =>
+              binding.athleteId === navigation.selectedAthleteId);
+            const navigationSafvBinding = payload.safvBindings?.find((binding) =>
+              binding.athleteId === navigation.selectedAthleteId);
+            const navigationBeBasketBinding = payload.beBasketBindings?.find((binding) =>
+              binding.athleteId === navigation.selectedAthleteId);
+            setView(navigation.view);
+            setSelectedAthleteId(navigation.selectedAthleteId);
+            setSelectedSourceKey(navigation.selectedSourceKey);
+            setSwissProfileUrl(navigationSwissBinding?.officialIdentity.profileUrl ?? "");
+            setSwissPlayerId(navigationSwissBinding?.officialIdentity.playerId ?? "");
+            setIwwfProfileUrl(navigationIwwfBinding?.officialIdentity.profileUrl ?? "");
+            setSafvScheduleUrl(navigationSafvBinding?.officialTeam.scheduleUrl ?? "");
+            setSafvTeamName(navigationSafvBinding?.officialTeam.teamName ?? "");
+            setBeBasketCalendarUrl(navigationBeBasketBinding?.officialIdentity.calendarUrl ?? "");
+            setBeBasketTeamName(navigationBeBasketBinding?.officialIdentity.teamName ?? "");
+            setBeBasketPlayerName(
+              navigationBeBasketBinding?.officialIdentity.playerName ?? "",
+            );
+            if (navigation.scrollY > 0) {
+              window.requestAnimationFrame(() => window.scrollTo({ top: navigation.scrollY }));
+            }
+          }
+          setNavigationReady(true);
+          setCandidates(dashboard.candidates);
+          setCandidateTotals(dashboard.totals);
+          setAthleteCandidateTotals(dashboard.athleteTotals);
+          setCandidatePages(dashboard.pages);
+          setSelectedCandidateIds(new Set());
           setSwissBindings(payload.swissBindings ?? []);
           setIwwfBindings(payload.iwwfBindings ?? []);
           setSafvBindings(payload.safvBindings ?? []);
@@ -408,38 +588,20 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   }, []);
 
   useEffect(() => {
-    setSwissProfileUrl(selectedSwissBinding?.officialIdentity.profileUrl ?? "");
-    setSwissPlayerId(selectedSwissBinding?.officialIdentity.playerId ?? "");
-    setSwissVerification(null);
-  }, [selectedAthleteId, selectedSwissBinding]);
-
-  useEffect(() => {
-    setIwwfProfileUrl(selectedIwwfBinding?.officialIdentity.profileUrl ?? "");
-    setIwwfVerification(null);
-  }, [selectedAthleteId, selectedIwwfBinding]);
-
-  useEffect(() => {
-    setSafvScheduleUrl(selectedSafvBinding?.officialTeam.scheduleUrl ?? "");
-    setSafvTeamName(selectedSafvBinding?.officialTeam.teamName ?? "");
-    setSafvVerification(null);
-  }, [selectedAthleteId, selectedSafvBinding]);
-
-  useEffect(() => {
-    setBeBasketCalendarUrl(selectedBeBasketBinding?.officialIdentity.calendarUrl ?? "");
-    setBeBasketTeamName(selectedBeBasketBinding?.officialIdentity.teamName ?? "");
-    setBeBasketPlayerName(
-      selectedBeBasketBinding?.officialIdentity.playerName
-        ?? selectedAthlete?.name
-        ?? "",
-    );
-    setBeBasketVerification(null);
-  }, [selectedAthlete?.name, selectedAthleteId, selectedBeBasketBinding]);
+    if (!navigationReady || !workspaceId) return;
+    writeNavigationState(workspaceId, { view, selectedAthleteId, selectedSourceKey });
+  }, [navigationReady, selectedAthleteId, selectedSourceKey, view, workspaceId]);
 
   const updateSwissBinding = (binding: SwissBadmintonBinding) => {
     setSwissBindings((current) => {
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
+    if (binding.athleteId === selectedAthleteId) {
+      setSwissProfileUrl(binding.officialIdentity.profileUrl);
+      setSwissPlayerId(binding.officialIdentity.playerId);
+      setSwissVerification(null);
+    }
   };
 
   const updateIwwfBinding = (binding: IwwfBinding) => {
@@ -447,6 +609,10 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
+    if (binding.athleteId === selectedAthleteId) {
+      setIwwfProfileUrl(binding.officialIdentity.profileUrl);
+      setIwwfVerification(null);
+    }
   };
 
   const updateSafvBinding = (binding: SafvBinding) => {
@@ -454,6 +620,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
+    if (binding.athleteId === selectedAthleteId) {
+      setSafvScheduleUrl(binding.officialTeam.scheduleUrl);
+      setSafvTeamName(binding.officialTeam.teamName);
+      setSafvVerification(null);
+    }
   };
 
   const updateBeBasketBinding = (binding: BeBasketBinding) => {
@@ -461,6 +632,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       const remaining = current.filter((item) => item.athleteId !== binding.athleteId);
       return [binding, ...remaining];
     });
+    if (binding.athleteId === selectedAthleteId) {
+      setBeBasketCalendarUrl(binding.officialIdentity.calendarUrl);
+      setBeBasketTeamName(binding.officialIdentity.teamName);
+      setBeBasketPlayerName(binding.officialIdentity.playerName);
+      setBeBasketVerification(null);
+    }
   };
 
   const updateSwissBasketballBinding = (binding: SwissBasketballBinding) => {
@@ -471,7 +648,25 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   };
 
   const selectAthlete = (athleteId: string) => {
+    const athlete = athletes.find((item) =>
+      (item.athleteId?.trim() || item.key.trim()) === athleteId);
+    const swissBinding = swissBindings.find((binding) => binding.athleteId === athleteId);
+    const iwwfBinding = iwwfBindings.find((binding) => binding.athleteId === athleteId);
+    const safvBinding = safvBindings.find((binding) => binding.athleteId === athleteId);
+    const beBasketBinding = beBasketBindings.find((binding) => binding.athleteId === athleteId);
     setSelectedAthleteId(athleteId);
+    setSwissProfileUrl(swissBinding?.officialIdentity.profileUrl ?? "");
+    setSwissPlayerId(swissBinding?.officialIdentity.playerId ?? "");
+    setSwissVerification(null);
+    setIwwfProfileUrl(iwwfBinding?.officialIdentity.profileUrl ?? "");
+    setIwwfVerification(null);
+    setSafvScheduleUrl(safvBinding?.officialTeam.scheduleUrl ?? "");
+    setSafvTeamName(safvBinding?.officialTeam.teamName ?? "");
+    setSafvVerification(null);
+    setBeBasketCalendarUrl(beBasketBinding?.officialIdentity.calendarUrl ?? "");
+    setBeBasketTeamName(beBasketBinding?.officialIdentity.teamName ?? "");
+    setBeBasketPlayerName(beBasketBinding?.officialIdentity.playerName ?? athlete?.name ?? "");
+    setBeBasketVerification(null);
     setSwissBasketballFederationId("12");
     setSwissBasketballSeasonId("");
     setSwissBasketballLeagueId("");
@@ -1013,7 +1208,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         },
       );
       const payload = await fetchSportsWatchDashboard();
-      setCandidates(payload.candidates ?? []);
+      const dashboard = candidateDashboardState(payload);
+      setCandidates(dashboard.candidates);
+      setCandidateTotals(dashboard.totals);
+      setAthleteCandidateTotals(dashboard.athleteTotals);
+      setCandidatePages(dashboard.pages);
+      setSelectedCandidateIds(new Set());
       setSwissBindings(payload.swissBindings ?? []);
       setIwwfBindings(payload.iwwfBindings ?? []);
       setSafvBindings(payload.safvBindings ?? []);
@@ -1067,13 +1267,83 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       if (!response.ok || !payload.result) {
         throw new Error(payload.message || "Impossible de lancer la veille sportive.");
       }
-      setCandidates(payload.result.candidates);
+      const refreshedPayload = await fetchSportsWatchDashboard();
+      const dashboard = candidateDashboardState(refreshedPayload);
+      setCandidates(dashboard.candidates);
+      setCandidateTotals(dashboard.totals);
+      setAthleteCandidateTotals(dashboard.athleteTotals);
+      setCandidatePages(dashboard.pages);
       setMessage(payload.result.message);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Collecte impossible.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const loadMoreCandidates = async (group: SportsWatchCandidateGroup) => {
+    const pageState = candidatePages[group];
+    if (!pageState.hasMore || !pageState.nextCursor || loadingCandidateGroup) return;
+    setLoadingCandidateGroup(group);
+    setError(null);
+    try {
+      const page = await fetchSportsWatchPage(group, pageState.nextCursor, pageState.limit);
+      setCandidates((current) => {
+        const byId = new Map(current.map((candidate) => [candidate.id, candidate]));
+        for (const candidate of page.items) byId.set(candidate.id, candidate);
+        return [...byId.values()];
+      });
+      setCandidatePages((current) => ({
+        ...current,
+        [group]: {
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          limit: page.limit,
+        },
+      }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Chargement impossible.");
+    } finally {
+      setLoadingCandidateGroup(null);
+    }
+  };
+
+  const moveCandidateLocally = (
+    previous: SportsWatchCandidate,
+    next: SportsWatchCandidate,
+  ) => {
+    const previousStatus = previous.adminStatus;
+    const nextStatus = next.adminStatus;
+    setCandidates((current) =>
+      current.map((item) => item.id === next.id ? next : item));
+    if (previousStatus === nextStatus) return;
+    setCandidateTotals((current) => ({
+      ...current,
+      [previousStatus]: Math.max(0, current[previousStatus] - 1),
+      [nextStatus]: current[nextStatus] + 1,
+    }));
+    setAthleteCandidateTotals((current) => {
+      const nextTotals = [...current];
+      const index = nextTotals.findIndex((total) => total.athleteId === next.athleteId);
+      const existing = index >= 0
+        ? nextTotals[index]
+        : {
+            athleteId: next.athleteId,
+            athleteName: next.athleteName,
+            pending: 0,
+            validated: 0,
+          };
+      const updated = { ...existing };
+      if (previousStatus === "pending") updated.pending = Math.max(0, updated.pending - 1);
+      if (previousStatus === "validated") {
+        updated.validated = Math.max(0, updated.validated - 1);
+      }
+      if (nextStatus === "pending") updated.pending += 1;
+      if (nextStatus === "validated") updated.validated += 1;
+      if (index >= 0) nextTotals[index] = updated;
+      else nextTotals.push(updated);
+      return nextTotals;
+    });
   };
 
   const review = async (
@@ -1089,8 +1359,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       ? { ...candidate, adminStatus: "dismissed" as const, version: candidate.version + 1 }
       : null;
     if (optimisticDismissal) {
-      setCandidates((current) =>
-        current.map((item) => item.id === candidate.id ? optimisticDismissal : item));
+      moveCandidateLocally(candidate, optimisticDismissal);
+    }
+    if (status !== "validated") {
       setSelectedCandidateIds((current) => {
         const next = new Set(current);
         next.delete(candidate.id);
@@ -1107,8 +1378,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       if (!response.ok || !payload.candidate) {
         throw new Error(payload.message || "Impossible d’enregistrer la décision.");
       }
-      setCandidates((current) =>
-        current.map((item) => item.id === payload.candidate!.id ? payload.candidate! : item));
+      if (optimisticDismissal) {
+        setCandidates((current) =>
+          current.map((item) => item.id === payload.candidate!.id ? payload.candidate! : item));
+      } else {
+        moveCandidateLocally(candidate, payload.candidate);
+      }
       if (status === "dismissed") {
         setMessage("Actualité classée comme non exploitée.");
         setDismissUndoCandidate(payload.candidate);
@@ -1117,8 +1392,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       }
     } catch (caught) {
       if (optimisticDismissal) {
-        setCandidates((current) =>
-          current.map((item) => item.id === candidate.id ? candidate : item));
+        moveCandidateLocally(optimisticDismissal, candidate);
       }
       setError(caught instanceof Error ? caught.message : "Décision impossible.");
     } finally {
@@ -1135,6 +1409,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       contextType: "athlete",
       sportsWatchCandidateId: candidate.id,
     });
+    writeNavigationState(workspaceId, { view, selectedAthleteId, selectedSourceKey });
     router.push(`/contents/create?${query.toString()}`);
   };
 
@@ -1191,6 +1466,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       });
       if (singleAthlete) query.set("subjectId", singleAthlete.athleteId);
       if (confirmDistinct) query.set("sportsWatchDistinctConfirmed", "true");
+      writeNavigationState(workspaceId, { view, selectedAthleteId, selectedSourceKey });
       router.push(`/contents/create?${query.toString()}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Impossible de préparer la sélection.");
@@ -1333,7 +1609,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       storageKey="sports-watch"
       title="Veille sportive"
       description="Résultats collectés à valider ou à exploiter éditorialement."
-      attentionCount={currentCandidates.length + (error ? 1 : 0)}
+      attentionCount={
+        candidateTotals.pending
+        + candidateTotals.validated
+        - candidateTotals.superseded
+        + (error ? 1 : 0)
+      }
       className="today-sports-watch-card"
     >
       <section
@@ -2393,16 +2674,38 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             candidate,
             ...current.filter((item) => item.id !== candidate.id),
           ]);
+          setCandidateTotals((current) => ({
+            ...current,
+            pending: current.pending + 1,
+          }));
+          setAthleteCandidateTotals((current) => {
+            const index = current.findIndex((total) => total.athleteId === candidate.athleteId);
+            if (index < 0) {
+              return [...current, {
+                athleteId: candidate.athleteId,
+                athleteName: candidate.athleteName,
+                pending: 1,
+                validated: 0,
+              }];
+            }
+            return current.map((total, currentIndex) =>
+              currentIndex === index ? { ...total, pending: total.pending + 1 } : total);
+          });
         }}
       />
       </details>
 
       <div className="today-view-switch" aria-label="Vue de la veille sportive">
         <button type="button" aria-pressed={view === "current"} onClick={() => setView("current")}>
-          À exploiter ({currentCandidates.length})
+          À exploiter ({candidateTotals.pending + candidateTotals.validated - candidateTotals.superseded})
         </button>
         <button type="button" aria-pressed={view === "history"} onClick={() => setView("history")}>
-          Historique ({historicalCandidates.length})
+          Historique ({
+            candidateTotals.exploited
+            + candidateTotals.rejected
+            + candidateTotals.dismissed
+            + candidateTotals.superseded
+          })
         </button>
       </div>
 
@@ -2585,6 +2888,50 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           ? "Aucun résultat à valider ou exploiter."
           : "Aucun résultat exploité, rejeté ou remplacé dans l’historique."}</p>
       )}
+      <div
+        aria-label="Pagination des actualités"
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          flexWrap: "wrap",
+          marginTop: "0.8rem",
+        }}
+      >
+        {(view === "current"
+          ? (["pending", "validated"] as const)
+          : (["history"] as const)).map((group) => {
+          const loaded = candidates.filter((candidate) =>
+            candidateGroup(candidate.adminStatus) === group).length;
+          const total = group === "history"
+            ? candidateTotals.exploited
+              + candidateTotals.rejected
+              + candidateTotals.dismissed
+              + candidateTotals.superseded
+            : candidateTotals[group] - (group === "pending"
+              ? candidateTotals.supersededPending
+              : candidateTotals.supersededValidated);
+          const label = group === "pending"
+            ? "actualités à vérifier"
+            : group === "validated"
+              ? "actualités à exploiter"
+              : "actualités de l’historique";
+          return (
+            <button
+              key={group}
+              type="button"
+              className="card-link-button"
+              disabled={!candidatePages[group].hasMore || loadingCandidateGroup !== null}
+              onClick={() => void loadMoreCandidates(group)}
+            >
+              {loadingCandidateGroup === group
+                ? "Chargement…"
+                : candidatePages[group].hasMore
+                  ? `Charger plus · ${loaded}/${total} ${label}`
+                  : `${loaded}/${total} ${label}`}
+            </button>
+          );
+        })}
+      </div>
     </TodayCollapsibleCard>
   );
 }
