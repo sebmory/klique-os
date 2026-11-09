@@ -75,13 +75,6 @@ const formatDate = (value: string | null): string => {
   return new Intl.DateTimeFormat("fr-CH", { dateStyle: "medium", timeZone: "UTC" }).format(date);
 };
 
-const adminStatusLabels = {
-  pending: "En attente",
-  validated: "Validé",
-  exploited: "Exploité",
-  rejected: "Rejeté",
-} as const;
-
 const verificationLabels = {
   unverified: "À vérifier",
   verified: "Vérifié",
@@ -276,11 +269,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
   const [latestRefresh, setLatestRefresh] = useState<SportsWatchRefreshBatchSummary | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
   const [openAthleteIds, setOpenAthleteIds] = useState<Set<string>>(new Set());
+  const busyCandidateIdRef = useRef<string | null>(null);
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
   const [articleTransferBusy, setArticleTransferBusy] = useState(false);
   const [potentialDuplicates, setPotentialDuplicates] =
     useState<SportsWatchArticlePrefill["potentialDuplicates"]>([]);
+  const [dismissUndoCandidate, setDismissUndoCandidate] =
+    useState<SportsWatchCandidate | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const athleteOptions = useMemo(
@@ -1082,11 +1078,25 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const review = async (
     candidate: SportsWatchCandidate,
-    status: "validated" | "exploited" | "rejected",
+    status: "validated" | "exploited" | "rejected" | "dismissed",
   ) => {
-    if (busyCandidateId) return;
+    if (busyCandidateIdRef.current) return;
+    busyCandidateIdRef.current = candidate.id;
     setBusyCandidateId(candidate.id);
     setError(null);
+    setDismissUndoCandidate(null);
+    const optimisticDismissal = status === "dismissed"
+      ? { ...candidate, adminStatus: "dismissed" as const, version: candidate.version + 1 }
+      : null;
+    if (optimisticDismissal) {
+      setCandidates((current) =>
+        current.map((item) => item.id === candidate.id ? optimisticDismissal : item));
+      setSelectedCandidateIds((current) => {
+        const next = new Set(current);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
     try {
       const response = await fetch(`/api/admin/sports-watch/${encodeURIComponent(candidate.id)}`, {
         method: "PATCH",
@@ -1099,9 +1109,20 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       }
       setCandidates((current) =>
         current.map((item) => item.id === payload.candidate!.id ? payload.candidate! : item));
+      if (status === "dismissed") {
+        setMessage("Actualité classée comme non exploitée.");
+        setDismissUndoCandidate(payload.candidate);
+      } else if (candidate.adminStatus === "dismissed" && status === "validated") {
+        setMessage("Actualité restaurée dans À exploiter.");
+      }
     } catch (caught) {
+      if (optimisticDismissal) {
+        setCandidates((current) =>
+          current.map((item) => item.id === candidate.id ? candidate : item));
+      }
       setError(caught instanceof Error ? caught.message : "Décision impossible.");
     } finally {
+      busyCandidateIdRef.current = null;
       setBusyCandidateId(null);
     }
   };
@@ -1227,14 +1248,24 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           </>
         ) : null}
         {candidate.adminStatus === "validated" && !superseded ? (
-          <button
-            type="button"
-            className="card-link-button sports-action"
-            disabled={busyCandidateId === candidate.id}
-            onClick={() => void review(candidate, "exploited")}
-          >
-            Marquer comme exploité
-          </button>
+          <>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => void review(candidate, "exploited")}
+            >
+              Marquer comme exploité
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => void review(candidate, "dismissed")}
+            >
+              Ne pas exploiter
+            </button>
+          </>
         ) : null}
         {candidate.adminStatus === "exploited" && !superseded ? (
           <button
@@ -1244,6 +1275,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             onClick={() => void review(candidate, "validated")}
           >
             Remettre à exploiter
+          </button>
+        ) : null}
+        {candidate.adminStatus === "dismissed" && !superseded ? (
+          <button
+            type="button"
+            className="card-link-button sports-action"
+            disabled={busyCandidateId === candidate.id}
+            onClick={() => void review(candidate, "validated")}
+          >
+            Restaurer dans À exploiter
           </button>
         ) : null}
         {candidate.adminStatus === "validated" || candidate.adminStatus === "exploited" ? (
@@ -2462,15 +2503,29 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
       ) : null}
 
       {message ? (
-        <p
+        <div
           role="status"
           style={{
             color: message.startsWith("Actualisation partielle") ? "#92400e" : "#166534",
             fontSize: "0.84rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.55rem",
+            flexWrap: "wrap",
           }}
         >
-          {message}
-        </p>
+          <span>{message}</span>
+          {dismissUndoCandidate ? (
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={busyCandidateId === dismissUndoCandidate.id}
+              onClick={() => void review(dismissUndoCandidate, "validated")}
+            >
+              Annuler
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {error ? <p role="alert" style={{ color: "#b91c1c", fontSize: "0.84rem" }}>{error}</p> : null}
 

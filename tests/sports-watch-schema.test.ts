@@ -25,6 +25,10 @@ const beBasketBindingsMigration = readFileSync(
   new URL("../db/migrations/20261027_sports_watch_bebasket_bindings.sql", import.meta.url),
   "utf8",
 );
+const dismissedStatusMigration = readFileSync(
+  new URL("../db/migrations/20261112_sports_watch_dismissed_status.sql", import.meta.url),
+  "utf8",
+);
 
 describe("sports watch additive schema", () => {
   it("isolates workspaces, prevents concurrent runs and keeps content versions", () => {
@@ -82,5 +86,15 @@ describe("sports watch additive schema", () => {
     expect(beBasketBindingsMigration).toContain("player_name_snapshot TEXT NOT NULL");
     expect(beBasketBindingsMigration).toContain("disabled_at TIMESTAMPTZ NULL");
     expect(beBasketBindingsMigration).not.toMatch(/\bINSERT\s+INTO\b/i);
+  });
+
+  it("adds a distinct non-exploited status with an append-only workspace audit log", () => {
+    expect(dismissedStatusMigration).toContain("'dismissed'");
+    expect(dismissedStatusMigration).toContain("dismissed_by_clerk_user_id");
+    expect(dismissedStatusMigration).toContain("dismissed_at");
+    expect(dismissedStatusMigration).toContain("sports_watch_candidate_events");
+    expect(dismissedStatusMigration).toContain("FOREIGN KEY (workspace_id, candidate_id)");
+    expect(dismissedStatusMigration).toContain("BEFORE UPDATE OR DELETE");
+    expect(dismissedStatusMigration).not.toMatch(/\bINSERT\s+INTO\s+sports_watch_candidates\b/i);
   });
 });

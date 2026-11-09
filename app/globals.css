@@ -8896,6 +8896,7 @@ button {
 .sports-result-status.is-validated { color: #995018; }
 .sports-result-status.is-exploited { color: #48674d; }
 .sports-result-status.is-rejected { color: #8b4b45; }
+.sports-result-status.is-dismissed { color: #6d6259; }
 
 .sports-collective-result {
   margin: 0;

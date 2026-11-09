@@ -63,7 +63,7 @@ const prefill = (
     : null,
   athleteIds: [...new Set(selected.map((item) => item.athleteId))],
   verificationStatus: "unverified",
-  materials: selected.map((item, index) => ({
+  materials: selected.map((item) => ({
     id: `sports-watch-${item.id}-1`,
     kind: "note",
     text: item.excerpt,
@@ -227,4 +227,83 @@ describe("sports watch Article selection UI", () => {
     expect(router.push).toHaveBeenCalledOnce();
     expect(router.push.mock.calls[0][0]).toContain("sportsWatchDistinctConfirmed=true");
   });
+
+  it.each([390, 1440])(
+    "dismisses, updates counters and restores a result without reloading at %ipx",
+    async (width) => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      const mutableCandidate = candidate(
+        "00000000-0000-4000-8000-000000000010",
+        "athlete-a",
+        "Athlète A",
+      );
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body)) as {
+            status: SportsWatchCandidate["adminStatus"];
+          };
+          mutableCandidate.adminStatus = body.status;
+          mutableCandidate.version += 1;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ candidate: { ...mutableCandidate } }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            workspaceId: "workspace-a",
+            candidates: [mutableCandidate],
+            swissBindings: [],
+            iwwfBindings: [],
+            safvBindings: [],
+            beBasketBindings: [],
+            swissBasketballBindings: [],
+          }),
+        };
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await act(async () => {
+        root.render(<SportsWatchAdminCard athletes={[]} />);
+        await flush();
+      });
+      expect(container.textContent).toContain("À exploiter (1)");
+
+      const dismissButton = Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Ne pas exploiter")!;
+      await act(async () => {
+        dismissButton.click();
+        dismissButton.click();
+        await Promise.resolve();
+        expect(container.textContent).toContain("À exploiter (0)");
+        await flush();
+      });
+      expect(container.textContent).toContain("Historique (1)");
+      expect(container.textContent).toContain("Actualité classée comme non exploitée.");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent === "Historique (1)")!
+          .click();
+        await flush();
+      });
+      expect(container.textContent).toContain("Non exploitée");
+      expect(container.textContent).toContain("Restaurer dans À exploiter");
+
+      await act(async () => {
+        Array.from(container.querySelectorAll("button"))
+          .find((button) => button.textContent === "Annuler")!
+          .click();
+        await flush();
+      });
+      expect(container.textContent).toContain("À exploiter (1)");
+      expect(container.textContent).toContain("Historique (0)");
+      expect(container.textContent).toContain("Actualité restaurée dans À exploiter.");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    },
+  );
 });

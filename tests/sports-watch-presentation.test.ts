@@ -325,6 +325,31 @@ describe("sports watch tournament presentation", () => {
     expect(views.current.map((item) => item.id)).not.toContain("original");
   });
 
+  it("moves dismissed results to History without counting them as exploitable", () => {
+    const dismissed = candidate(
+      "dismissed",
+      "Résultat non exploité",
+      "Information validée mais écartée.",
+      1,
+      "2026-10-27",
+      { adminStatus: "dismissed" },
+    );
+    const validated = candidate(
+      "validated-current",
+      "Résultat à exploiter",
+      "Information validée à exploiter.",
+      2,
+      "2026-10-28",
+      { adminStatus: "validated" },
+    );
+    const views = buildSportsWatchCandidateViews([dismissed, validated]);
+    const groups = buildSportsWatchAthleteGroups(views.current, [dismissed, validated]);
+
+    expect(views.current.map((item) => item.id)).toEqual(["validated-current"]);
+    expect(views.history.map((item) => item.id)).toEqual(["dismissed"]);
+    expect(groups[0]).toMatchObject({ pendingCount: 0, exploitableCount: 1 });
+  });
+
   it("keeps every version actionable but excludes superseded versions from summaries", () => {
     const original = twelveMatches()[0];
     const successor = {

@@ -1244,7 +1244,7 @@ export const createSportsWatchService = (
     const status = normalize(statusValue) as SportsWatchAdminStatus;
     const version = Number(versionValue);
     if (
-      !["validated", "exploited", "rejected"].includes(status)
+      !["validated", "exploited", "rejected", "dismissed"].includes(status)
       || !Number.isInteger(version)
       || version < 1
     ) {
@@ -1260,6 +1260,7 @@ export const createSportsWatchService = (
         "Candidat introuvable dans cet espace.",
       );
     }
+    if (current.adminStatus === status) return current;
     if (status === "validated") {
       if (current.attributionStatus === "ambiguous") {
         throw new SportsWatchError(
@@ -1274,9 +1275,15 @@ export const createSportsWatchService = (
         "Seul un résultat validé éditorialement peut être marqué comme exploité.",
       );
     }
+    if (status === "dismissed" && current.adminStatus !== "validated") {
+      throw new SportsWatchError(
+        "validation",
+        "Seule une actualité à exploiter peut être classée comme non exploitée.",
+      );
+    }
     if (
       status === "validated"
-      && !["pending", "rejected", "exploited"].includes(current.adminStatus)
+      && !["pending", "rejected", "exploited", "dismissed"].includes(current.adminStatus)
     ) {
       throw new SportsWatchError("validation", "Cette transition éditoriale n’est pas autorisée.");
     }
@@ -1284,10 +1291,16 @@ export const createSportsWatchService = (
       workspaceId: identity.workspaceId,
       candidateId,
       status: status as Exclude<SportsWatchAdminStatus, "pending">,
+      expectedAdminStatus: current.adminStatus,
       expectedVersion: version,
       clerkUserId: identity.clerkUserId,
     });
     if (!candidate) {
+      const repeated = await dependencies.repository.getCandidate(
+        identity.workspaceId,
+        candidateId,
+      );
+      if (repeated?.adminStatus === status) return repeated;
       throw new SportsWatchError("conflict", "Le candidat a été modifié ou n’est pas accessible dans cet espace.");
     }
     return candidate;

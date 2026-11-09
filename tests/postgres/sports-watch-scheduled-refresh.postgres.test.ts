@@ -377,6 +377,7 @@ describePostgres.sequential("scheduled sports watch refresh on Neon Test", () =>
       candidateId: created.id,
       status: "validated",
       clerkUserId: "fixture-admin",
+      expectedAdminStatus: created.adminStatus,
       expectedVersion: created.version,
     });
     const exploited = await PostgresSportsWatchRepository.reviewCandidate({
@@ -384,6 +385,7 @@ describePostgres.sequential("scheduled sports watch refresh on Neon Test", () =>
       candidateId: created.id,
       status: "exploited",
       clerkUserId: "fixture-admin",
+      expectedAdminStatus: validated!.adminStatus,
       expectedVersion: validated!.version,
     });
     expect(await PostgresSportsWatchRepository.saveCandidates(

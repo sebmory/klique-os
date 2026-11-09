@@ -270,6 +270,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
       const record = records.find((item) =>
         item.workspaceId === input.workspaceId
         && item.candidate.id === input.candidateId
+        && item.candidate.adminStatus === input.expectedAdminStatus
         && item.candidate.version === input.expectedVersion);
       if (!record) return null;
       record.candidate = {
@@ -1487,6 +1488,103 @@ describe("sports watch service", () => {
     const transferredText = prefill.materials.map((material) => material.text).join(" ");
     expect(transferredText).toContain("PTS 12");
     expect(transferredText).toContain("PTS 14");
+  });
+
+  it("dismisses a validated result idempotently, preserves deduplication and restores it", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    const fixture = {
+      ...collectedCandidate("dismissed", "Actualité validée mais non retenue."),
+      logicalKey: "dismissed-result",
+    };
+    await repository.saveCandidates("workspace-a", [fixture]);
+    const pending = (await repository.listCandidates("workspace-a"))[0];
+    const validated = await service.review(
+      pending.id,
+      "validated",
+      pending.version,
+      identity("workspace-a"),
+    );
+
+    const dismissed = await service.review(
+      validated.id,
+      "dismissed",
+      validated.version,
+      identity("workspace-a"),
+    );
+    const repeated = await service.review(
+      validated.id,
+      "dismissed",
+      validated.version,
+      identity("workspace-a"),
+    );
+
+    expect(dismissed.adminStatus).toBe("dismissed");
+    expect(repeated).toEqual(dismissed);
+    expect(await repository.saveCandidates("workspace-a", [fixture])).toBe(0);
+    await expect(service.review(
+      dismissed.id,
+      "exploited",
+      dismissed.version,
+      identity("workspace-a"),
+    )).rejects.toThrow("Seul un résultat validé");
+    await expect(service.review(
+      dismissed.id,
+      "validated",
+      dismissed.version,
+      identity("workspace-b"),
+    )).rejects.toMatchObject({ code: "not_found" });
+
+    const restored = await service.review(
+      dismissed.id,
+      "validated",
+      dismissed.version,
+      identity("workspace-a"),
+    );
+    expect(restored.adminStatus).toBe("validated");
+  });
+
+  it("keeps rejected and exploited results distinct from non-exploited results", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [
+      { ...collectedCandidate("rejected", "Information à rejeter."), logicalKey: "rejected" },
+      { ...collectedCandidate("exploited", "Information à exploiter."), logicalKey: "exploited" },
+    ]);
+    const pending = await repository.listCandidates("workspace-a");
+    const rejected = await service.review(
+      pending.find((candidate) => candidate.excerpt === "Information à rejeter.")!.id,
+      "rejected",
+      pending.find((candidate) => candidate.excerpt === "Information à rejeter.")!.version,
+      identity("workspace-a"),
+    );
+    const validated = await service.review(
+      pending.find((candidate) => candidate.excerpt === "Information à exploiter.")!.id,
+      "validated",
+      pending.find((candidate) => candidate.excerpt === "Information à exploiter.")!.version,
+      identity("workspace-a"),
+    );
+    const exploited = await service.review(
+      validated.id,
+      "exploited",
+      validated.version,
+      identity("workspace-a"),
+    );
+
+    expect(rejected.adminStatus).toBe("rejected");
+    expect(exploited.adminStatus).toBe("exploited");
+    await expect(service.review(
+      rejected.id,
+      "dismissed",
+      rejected.version,
+      identity("workspace-a"),
+    )).rejects.toThrow("Seule une actualité à exploiter");
+    await expect(service.review(
+      exploited.id,
+      "dismissed",
+      exploited.version,
+      identity("workspace-a"),
+    )).rejects.toThrow("Seule une actualité à exploiter");
   });
 
   it("rejects capacity overflow, another workspace, replaced and newly ineligible candidates", async () => {

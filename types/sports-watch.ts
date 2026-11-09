@@ -1,6 +1,11 @@
 import type { ManualEditorialMaterial } from "@/types/context-intelligence";
 
-export type SportsWatchAdminStatus = "pending" | "validated" | "exploited" | "rejected";
+export type SportsWatchAdminStatus =
+  | "pending"
+  | "validated"
+  | "exploited"
+  | "rejected"
+  | "dismissed";
 export type SportsWatchAttributionStatus = "matched" | "ambiguous";
 export type SportsWatchVerificationStatus = "unverified" | "verified" | "disputed";
 export type SportsWatchResultKind = "individual_result" | "collective_result" | "participation" | "news_excerpt";

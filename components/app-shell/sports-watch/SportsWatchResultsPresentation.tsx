@@ -20,6 +20,7 @@ const adminStatusLabels = {
   validated: "À exploiter",
   exploited: "Exploité",
   rejected: "Rejeté",
+  dismissed: "Non exploitée",
 } as const;
 
 const pluralize = (count: number, singular: string, plural = `${singular}s`): string =>

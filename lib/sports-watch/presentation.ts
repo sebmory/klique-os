@@ -384,7 +384,8 @@ export const buildSportsWatchCandidateViews = (
     history: candidates.filter((candidate) =>
       supersededIds.has(candidate.id)
       || candidate.adminStatus === "exploited"
-      || candidate.adminStatus === "rejected"),
+      || candidate.adminStatus === "rejected"
+      || candidate.adminStatus === "dismissed"),
   };
 };
 

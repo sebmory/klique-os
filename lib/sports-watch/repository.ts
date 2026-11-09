@@ -303,6 +303,7 @@ export type SportsWatchRepository = {
     workspaceId: string;
     candidateId: string;
     status: Exclude<SportsWatchAdminStatus, "pending">;
+    expectedAdminStatus: SportsWatchAdminStatus;
     expectedVersion: number;
     clerkUserId: string;
   }): Promise<SportsWatchCandidate | null>;
@@ -601,22 +602,54 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
   async reviewCandidate(input) {
     const sql = createContentStorageClient();
     const rows = await sql.query(`
-      UPDATE sports_watch_candidates
-      SET admin_status = $3,
-          reviewed_by_clerk_user_id = $4,
-          reviewed_at = NOW(),
-          version = version + 1,
-          updated_at = NOW()
-      WHERE workspace_id = $1
-        AND id = $2::uuid
-        AND version = $5
-      RETURNING ${candidateColumns}
+      WITH changed AS (
+        UPDATE sports_watch_candidates
+        SET admin_status = $3,
+            reviewed_by_clerk_user_id = $4,
+            reviewed_at = NOW(),
+            dismissed_by_clerk_user_id = CASE
+              WHEN $3 = 'dismissed' THEN $4
+              ELSE dismissed_by_clerk_user_id
+            END,
+            dismissed_at = CASE
+              WHEN $3 = 'dismissed' THEN NOW()
+              ELSE dismissed_at
+            END,
+            version = version + 1,
+            updated_at = NOW()
+        WHERE workspace_id = $1
+          AND id = $2::uuid
+          AND version = $5
+          AND admin_status = $6
+        RETURNING *
+      ),
+      logged AS (
+        INSERT INTO sports_watch_candidate_events (
+          id, workspace_id, candidate_id, action, from_status, to_status,
+          actor_clerk_user_id
+        )
+        SELECT
+          $7::uuid,
+          workspace_id,
+          id,
+          CASE WHEN $3 = 'dismissed' THEN 'dismissed' ELSE 'restored' END,
+          $6,
+          $3,
+          $4
+        FROM changed
+        WHERE ($6 = 'validated' AND $3 = 'dismissed')
+           OR ($6 = 'dismissed' AND $3 = 'validated')
+      )
+      SELECT ${candidateColumns}
+      FROM changed
     `, [
       input.workspaceId,
       input.candidateId,
       input.status,
       input.clerkUserId,
       input.expectedVersion,
+      input.expectedAdminStatus,
+      randomUUID(),
     ]) as CandidateRow[];
     return rows[0] ? mapCandidate(rows[0]) : null;
   },
