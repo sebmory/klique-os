@@ -119,6 +119,10 @@ export const isAthleteAllowedRoute = (pathname: string, method: string): boolean
     return true;
   }
 
+  if (pathname === "/api/athlete/session-requests") {
+    return method === "GET" || method === "POST" || method === "PATCH";
+  }
+
   if (pathname === "/athlete" || pathname.startsWith("/athlete/")) {
     return true;
   }
@@ -235,6 +239,10 @@ export const isCreativeAllowedRoute = (pathname: string, method: string): boolea
   || pathname === "/api/creative/missions"
   || pathname === "/api/creative/profile"
   || pathname === "/api/creative/production-missions"
+  || (
+    pathname === "/api/creative/availability"
+    && (method === "GET" || method === "POST" || method === "PATCH" || method === "DELETE")
+  )
   || (pathname === "/api/clerk/access" && method === "GET");
 
 export const isHiddenExternalAthleteProfileRoute = (pathname: string): boolean => {

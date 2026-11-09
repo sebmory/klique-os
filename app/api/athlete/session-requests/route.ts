@@ -11,8 +11,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export const resolveAthleteSessionIdentity = (profile: {
-  clerkUser?: { id?: string | null } | null;
+  clerkUser?: { id?: string | null; email?: string | null } | null;
   userAccess?: {
+    clerkUserId?: string | null;
+    email?: string | null;
     role?: string | null;
     status?: string | null;
     workspaceId?: string | null;
@@ -22,17 +24,19 @@ export const resolveAthleteSessionIdentity = (profile: {
   const access = profile?.userAccess;
   const workspaceId = access?.workspaceId?.trim() ?? "";
   const athleteId = access?.athleteId?.trim() ?? "";
-  const clerkUserId = profile?.clerkUser?.id?.trim() ?? "";
+  const authenticatedClerkUserId = profile?.clerkUser?.id?.trim() ?? "";
+  const accessClerkUserId = access?.clerkUserId?.trim() ?? "";
   if (
     access?.role !== "athlete"
     || access.status !== "active"
     || !workspaceId
     || !athleteId
-    || !clerkUserId
+    || !authenticatedClerkUserId
+    || accessClerkUserId !== authenticatedClerkUserId
   ) {
     return null;
   }
-  return { workspaceId, athleteId, clerkUserId };
+  return { workspaceId, athleteId, clerkUserId: authenticatedClerkUserId };
 };
 
 const getIdentity = async (request: Request) =>
