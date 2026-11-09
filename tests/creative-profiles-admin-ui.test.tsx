@@ -224,6 +224,7 @@ describe("Creative profiles Admin UI", () => {
 
     for (const value of [
       "Camille Martin",
+      "Fiche active",
       "Photographe et vidéaste",
       "camille@example.com",
       "Vaud, Fribourg",
@@ -237,6 +238,22 @@ describe("Creative profiles Admin UI", () => {
     expect(container.textContent).not.toContain("Application ID");
     expect(container.textContent).not.toContain("Ligne source");
     expect(container.querySelector('input[name="applicationId"]')).toBeNull();
+  });
+
+  it("explains an expired Admin session instead of showing a generic access error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ profiles: [profile()] }))
+      .mockResolvedValueOnce(new Response("<html>Not found</html>", {
+        status: 404,
+        headers: { "content-type": "text/html" },
+      }));
+    await mountPanel();
+
+    await click(buttonByText("Inviter sur KLIQUE OS")!);
+
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain("Votre session Admin a expiré");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("edits allowed fields, locks saving and refreshes without immutable fields", async () => {

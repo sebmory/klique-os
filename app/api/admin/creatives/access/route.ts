@@ -113,9 +113,15 @@ export const createAdminCreativeAccessHandlers = (
       return NextResponse.json({
         state: result.clerkInvitationId.startsWith("existing:") ? "active" : "invited",
         email: result.email,
-        onboardingState: result.clerkInvitationId.startsWith("existing:")
-          ? "account_created"
-          : "invitation_sent",
+        onboardingState: result.onboardingState
+          ?? (result.clerkInvitationId.startsWith("existing:")
+            ? "account_created"
+            : "invitation_sent"),
+        message: result.outcome === "existing_user_linked"
+          ? "Utilisateur existant relié à l’espace Créatif."
+          : result.outcome === "invitation_reconciled"
+            ? "Invitation déjà existante et réconciliée."
+            : "Invitation envoyée.",
       }, { status: 201 });
     } catch {
       return NextResponse.json({ error: "Impossible d’envoyer l’invitation." }, { status: 500 });

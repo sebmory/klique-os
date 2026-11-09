@@ -151,7 +151,15 @@ type ClerkPartnerInvitation = {
 };
 
 export type InviteCreativeResult =
-  | { ok: true; creativeProfileId: string; email: string; clerkInvitationId: string; workspaceId: string }
+  | {
+      ok: true;
+      creativeProfileId: string;
+      email: string;
+      clerkInvitationId: string;
+      workspaceId: string;
+      outcome: "invitation_sent" | "invitation_reconciled" | "existing_user_linked";
+      onboardingState?: CreativeOnboardingStatus;
+    }
   | {
       ok: false;
       reason: "forbidden" | "missing_email" | "invalid_email" | "invalid_message" | "ambiguous_identity" | "already_active" | "already_invited" | "not_invited" | "creative_not_found" | "inactive_profile" | "clerk_error";
@@ -2117,16 +2125,6 @@ export const inviteCreativeProfileToKlique = async (
   if (pendingRows[0] && pendingProfileId !== normalizedCreativeProfileId) {
     return { ok: false, reason: "already_invited" };
   }
-  if (pendingRows[0] && !isResend) {
-    const pending = pendingRows[0] as Record<string, unknown>;
-    return {
-      ok: true,
-      creativeProfileId: normalizedCreativeProfileId,
-      email: String(pending.email ?? email),
-      clerkInvitationId: String(pending.clerk_invitation_id ?? ""),
-      workspaceId,
-    };
-  }
   if (isResend && !pendingRows[0]) {
     return { ok: false, reason: "not_invited" };
   }
@@ -2137,14 +2135,18 @@ export const inviteCreativeProfileToKlique = async (
       emailAddress: [email],
       limit: 10,
     });
-    const exactVerifiedUser = existingUsers.data.find((user) =>
+    const exactVerifiedUsers = existingUsers.data.filter((user) =>
       user.emailAddresses.some((address) =>
         address.emailAddress.trim().toLowerCase() === email
         && address.verification?.status === "verified"
       )
     );
+    if (exactVerifiedUsers.length > 1) {
+      throw new Error("AMBIGUOUS_EXISTING_CREATIVE_USER");
+    }
+    const exactVerifiedUser = exactVerifiedUsers[0];
     if (exactVerifiedUser) {
-      await sql`
+      const linkedRows = await sql`
         WITH current_profile AS (
           SELECT onboarding_status
           FROM creative_profiles
@@ -2172,14 +2174,40 @@ export const inviteCreativeProfileToKlique = async (
             updated_at = NOW()
           RETURNING creative_profile_id
         ),
+        invitation_updated AS (
+          UPDATE creative_invitations
+          SET status = 'accepted',
+              accepted_clerk_user_id = ${exactVerifiedUser.id},
+              accepted_at = COALESCE(accepted_at, NOW()),
+              admin_message = COALESCE(${effectiveOnboardingMessage}, admin_message),
+              updated_at = NOW()
+          WHERE workspace_id = ${workspaceId}
+            AND creative_profile_id = ${normalizedCreativeProfileId}::uuid
+            AND lower(btrim(email)) = lower(btrim(${email}))
+            AND status IN ('invited', 'accepted')
+          RETURNING id
+        ),
+        invitation_inserted AS (
+          INSERT INTO creative_invitations (
+            workspace_id, creative_profile_id, email, clerk_invitation_id,
+            status, invited_by_clerk_user_id, accepted_clerk_user_id,
+            created_at, updated_at, accepted_at, admin_message
+          )
+          SELECT ${workspaceId}, ${normalizedCreativeProfileId}::uuid, ${email}, NULL,
+                 'accepted', ${authResult.userId}, ${exactVerifiedUser.id}, NOW(), NOW(), NOW(),
+                 ${effectiveOnboardingMessage}
+          WHERE NOT EXISTS (SELECT 1 FROM invitation_updated)
+          RETURNING id
+        ),
         profile_updated AS (
           UPDATE creative_profiles
           SET onboarding_status = 'account_created',
-              onboarding_message = ${effectiveOnboardingMessage},
+              onboarding_message = COALESCE(${effectiveOnboardingMessage}, onboarding_message),
               updated_at = NOW()
           WHERE workspace_id = ${workspaceId}
             AND id = ${normalizedCreativeProfileId}::uuid
-          RETURNING id
+            AND onboarding_status IN ('invitation_to_send', 'invitation_sent', 'active')
+          RETURNING id, onboarding_status
         ),
         onboarding_event AS (
           INSERT INTO creative_onboarding_events (
@@ -2190,23 +2218,44 @@ export const inviteCreativeProfileToKlique = async (
                  current_profile.onboarding_status, 'account_created', ${authResult.userId},
                  jsonb_build_object('email', ${email}::text)
           FROM profile_updated, current_profile
+          WHERE current_profile.onboarding_status <> profile_updated.onboarding_status
         )
-        INSERT INTO creative_invitations (
-          workspace_id, creative_profile_id, email, clerk_invitation_id,
-          status, invited_by_clerk_user_id, accepted_clerk_user_id,
-          created_at, updated_at, accepted_at, admin_message
-        )
-        SELECT ${workspaceId}, ${normalizedCreativeProfileId}::uuid, ${email}, NULL,
-               'accepted', ${authResult.userId}, ${exactVerifiedUser.id}, NOW(), NOW(), NOW(),
-               ${effectiveOnboardingMessage}
+        SELECT linked.creative_profile_id, profile.onboarding_status
         FROM linked
+        JOIN creative_profiles profile
+          ON profile.workspace_id = ${workspaceId}
+         AND profile.id = linked.creative_profile_id
       `;
+      if (!linkedRows[0]) {
+        return {
+          ok: false,
+          reason: "clerk_error",
+          message: "Le compte Clerk existant n’a pas pu être relié à la fiche créative.",
+        };
+      }
       return {
         ok: true,
         creativeProfileId: normalizedCreativeProfileId,
         email,
         clerkInvitationId: `existing:${exactVerifiedUser.id}`,
         workspaceId,
+        outcome: "existing_user_linked",
+        onboardingState: String(
+          (linkedRows[0] as Record<string, unknown>).onboarding_status ?? "account_created",
+        ) as CreativeOnboardingStatus,
+      };
+    }
+
+    if (pendingRows[0] && !isResend) {
+      const pending = pendingRows[0] as Record<string, unknown>;
+      return {
+        ok: true,
+        creativeProfileId: normalizedCreativeProfileId,
+        email: String(pending.email ?? email),
+        clerkInvitationId: String(pending.clerk_invitation_id ?? ""),
+        workspaceId,
+        outcome: "invitation_reconciled",
+        onboardingState: "invitation_sent",
       };
     }
 
@@ -2232,6 +2281,7 @@ export const inviteCreativeProfileToKlique = async (
     };
 
     let invitation = isResend ? null : await findMatchingPendingInvitation();
+    const reusedPendingInvitation = Boolean(invitation);
     if (!invitation) {
       try {
         invitation = await client.invitations.createInvitation({
@@ -2336,19 +2386,22 @@ export const inviteCreativeProfileToKlique = async (
       email: String(saved.email ?? email),
       clerkInvitationId: String(saved.clerk_invitation_id),
       workspaceId,
+      outcome: reusedPendingInvitation ? "invitation_reconciled" : "invitation_sent",
+      onboardingState: "invitation_sent",
     };
   } catch (error) {
     const clerkError = error as { code?: unknown; status?: unknown; message?: unknown };
-    const ambiguousPending = clerkError.message === "AMBIGUOUS_PENDING_CREATIVE_INVITATION";
+    const ambiguousIdentity = clerkError.message === "AMBIGUOUS_PENDING_CREATIVE_INVITATION"
+      || clerkError.message === "AMBIGUOUS_EXISTING_CREATIVE_USER";
     console.error("[creative_access][invite_failed]", {
       code: String(clerkError.code ?? clerkError.status ?? "unknown"),
-      ambiguousPending,
+      ambiguousIdentity,
     });
     return {
       ok: false,
-      reason: ambiguousPending ? "ambiguous_identity" : "clerk_error",
-      message: ambiguousPending
-        ? "Une invitation existante ne correspond pas de manière univoque à cette fiche."
+      reason: ambiguousIdentity ? "ambiguous_identity" : "clerk_error",
+      message: ambiguousIdentity
+        ? "La correspondance Clerk n’est pas univoque. Une intervention Admin est nécessaire."
         : "L’invitation n’a pas pu être finalisée. Vérifiez son état avant de réessayer.",
     };
   }

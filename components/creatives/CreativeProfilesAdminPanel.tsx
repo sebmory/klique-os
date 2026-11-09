@@ -430,8 +430,12 @@ export function CreativeProfilesAdminPanel() {
         state?: CreativeAccessSummary["state"];
         email?: string | null;
         onboardingState?: CreativeAccessSummary["onboardingState"];
+        message?: string;
       } | null;
       if (!response.ok || !payload?.state || !payload.onboardingState) {
+        if (!payload && [401, 403, 404].includes(response.status)) {
+          throw new Error("Votre session Admin a expiré. Reconnectez-vous avant de réessayer.");
+        }
         throw new Error(payload?.error || "L’accès créatif n’a pas pu être modifié.");
       }
       setAccessByProfileId((current) => ({
@@ -445,9 +449,10 @@ export function CreativeProfilesAdminPanel() {
       setSuccessMessage(
         action === "revoke"
           ? "Accès créatif révoqué. La fiche reste inchangée."
-          : payload.state === "active"
-            ? "Accès créatif activé pour le compte Clerk existant."
-            : "Invitation créative envoyée.",
+          : payload.message
+            ?? (payload.state === "active"
+              ? "Utilisateur existant relié à l’espace Créatif."
+              : "Invitation envoyée."),
       );
     });
   };
@@ -778,7 +783,7 @@ export function CreativeProfilesAdminPanel() {
                     <p>{creativeTypeLabels[profile.creativeType]}</p>
                   </div>
                   <span className={profile.status === "active" ? styles.active : styles.inactive}>
-                    {profile.status === "active" ? "Active" : "Inactive"}
+                    {profile.status === "active" ? "Fiche active" : "Fiche inactive"}
                   </span>
                 </div>
 

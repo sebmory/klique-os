@@ -46,6 +46,7 @@ describe("creative access 6C", () => {
       email: "creative@example.com",
       clerkInvitationId: "inv_1",
       workspaceId: "workspace-a",
+      outcome: "invitation_sent" as const,
     }));
     const handlers = createAdminCreativeAccessHandlers({
       getAccess: adminAccess,
@@ -61,6 +62,7 @@ describe("creative access 6C", () => {
       state: "invited",
       email: "creative@example.com",
       onboardingState: "invitation_sent",
+      message: "Invitation envoyée.",
     });
     expect(invite).toHaveBeenCalledWith(expect.any(Request), creativeId, {
       resend: false,
@@ -117,6 +119,7 @@ describe("creative access 6C", () => {
       email: "creative@example.com",
       clerkInvitationId: "inv_2",
       workspaceId: "workspace-a",
+      outcome: "invitation_sent" as const,
     }));
     const revoke = vi.fn(async () => ({
       ok: true as const,
