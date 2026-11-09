@@ -145,7 +145,8 @@ export const applyToProductionCreativeMission = async (
         AND creative_access.creative_profile_id = $2::uuid
         AND creative_access.clerk_user_id = $3
     ), target AS (
-      SELECT brief.id, brief.status, brief.assigned_creative_profile_id
+      SELECT brief.id, brief.status, brief.assigned_creative_profile_id,
+             brief.origin_type, brief.origin_request_id
       FROM production_creative_briefs brief
       JOIN production_creative_recipients recipient
         ON recipient.workspace_id = brief.workspace_id
@@ -175,7 +176,28 @@ export const applyToProductionCreativeMission = async (
       SELECT $1, changed.brief_id, $2::uuid,
              CASE WHEN $5 = 'apply' THEN 'application_submitted' ELSE 'application_withdrawn' END,
              $3, jsonb_build_object('message', $6)
-      FROM changed RETURNING id
+      FROM changed RETURNING id, brief_id
+    ), session_change AS (
+      UPDATE athlete_session_requests request
+      SET workflow_status = 'candidate_received', updated_at = NOW()
+      FROM target, event
+      WHERE $5 = 'apply'
+        AND target.origin_type = 'athlete_session_request'
+        AND target.origin_request_id = request.id
+        AND request.workspace_id = $1
+        AND request.workflow_status = 'proposed_to_creatives'
+      RETURNING request.id, target.id AS brief_id
+    ), session_event AS (
+      INSERT INTO athlete_session_request_events (
+        workspace_id, request_id, from_status, to_status, action,
+        actor_clerk_user_id, actor_role, details, idempotency_key
+      )
+      SELECT $1, session_change.id, 'proposed_to_creatives', 'candidate_received',
+             'creative_application_received', $3, 'creative',
+             jsonb_build_object('briefId', session_change.brief_id, 'creativeProfileId', $2::uuid),
+             'application:' || session_change.brief_id::text || ':' || $2::text
+      FROM session_change
+      ON CONFLICT DO NOTHING
     )
     SELECT CASE
       WHEN NOT EXISTS (SELECT 1 FROM access WHERE profile_status = 'active' AND access_status = 'active')
@@ -221,7 +243,8 @@ export const updateProductionCreativeAssignment = async (
     ), target AS (
       SELECT assignment.id, assignment.brief_id, assignment.confirmation_status, assignment.conditions_version,
              assignment.delivery_status, assignment.conditions_snapshot,
-             brief.conditions_version AS current_conditions_version
+             brief.conditions_version AS current_conditions_version,
+             brief.origin_type, brief.origin_request_id
       FROM production_creative_assignments assignment
       JOIN production_creative_briefs brief
         ON brief.workspace_id = assignment.workspace_id AND brief.id = assignment.brief_id
@@ -283,7 +306,41 @@ export const updateProductionCreativeAssignment = async (
                )
                ELSE jsonb_build_object('conditionsVersion', $6) END
       FROM changed JOIN target ON target.brief_id = changed.brief_id
-      RETURNING id
+      RETURNING id, brief_id
+    ), session_target AS (
+      SELECT request.id, request.workflow_status AS previous_status, target.brief_id
+      FROM target
+      JOIN athlete_session_requests request
+        ON target.origin_type = 'athlete_session_request'
+       AND target.origin_request_id = request.id
+       AND request.workspace_id = $1
+      WHERE ($5 = 'confirm' AND request.workflow_status = 'assigned')
+         OR ($5 = 'refuse' AND request.workflow_status IN ('assigned', 'creative_agreed'))
+      FOR UPDATE OF request
+    ), session_change AS (
+      UPDATE athlete_session_requests request
+      SET workflow_status = CASE
+            WHEN $5 = 'confirm' THEN 'creative_agreed'
+            ELSE 'proposed_to_creatives'
+          END,
+          updated_at = NOW()
+      FROM session_target, event
+      WHERE request.id = session_target.id
+      RETURNING request.id, session_target.previous_status,
+                request.workflow_status, session_target.brief_id
+    ), session_event AS (
+      INSERT INTO athlete_session_request_events (
+        workspace_id, request_id, from_status, to_status, action,
+        actor_clerk_user_id, actor_role, details, idempotency_key
+      )
+      SELECT $1, session_change.id, session_change.previous_status,
+             session_change.workflow_status,
+             CASE WHEN $5 = 'confirm' THEN 'creative_agreed' ELSE 'creative_refused' END,
+             $3, 'creative',
+             jsonb_build_object('briefId', session_change.brief_id, 'creativeProfileId', $2::uuid),
+             'assignment:' || $5 || ':' || session_change.brief_id::text || ':' || $2::text
+      FROM session_change
+      ON CONFLICT DO NOTHING
     )
     SELECT CASE
       WHEN NOT EXISTS (SELECT 1 FROM access WHERE profile_status = 'active' AND access_status = 'active')

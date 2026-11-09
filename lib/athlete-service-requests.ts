@@ -400,6 +400,7 @@ const createRepository = (): AthleteServiceRequestRepository => {
           balance: { production: 0, custom_content: 0 },
           reserved: { production: 0, custom_content: 0 },
         };
+
       }
       return {
         product: mapProduct(row),
@@ -434,6 +435,13 @@ const createRepository = (): AthleteServiceRequestRepository => {
     },
   };
 };
+
+export const getAthleteServiceRequestCreationContext = (
+  workspaceId: string,
+  athleteId: string,
+  productCode: AthleteServiceProductCode,
+): Promise<AthleteServiceRequestCreationContext> =>
+  createRepository().loadCreationContext(workspaceId, athleteId, productCode);
 
 const createAdminRepository = (): AdminAthleteServiceRequestRepository => {
   const sql = createContentStorageClient();

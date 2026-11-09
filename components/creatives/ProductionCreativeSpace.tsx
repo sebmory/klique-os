@@ -5,8 +5,9 @@ import {
   CREATIVE_FINANCIAL_NOTICE,
   type ProductionCreativeBrief,
 } from "@/types/production-creative";
+import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
 
-type Tab = "proposals" | "assigned" | "profile";
+type Tab = "proposals" | "assigned" | "availability" | "profile";
 type Profile = {
   displayName: string;
   creativeType: "photographer" | "videographer" | "both";
@@ -82,10 +83,13 @@ export function ProductionCreativeSpace() {
       <div className="crm-tabs" aria-label="Rubriques de l’espace créatif">
         <button type="button" onClick={() => setTab("proposals")} aria-pressed={tab === "proposals"}>Projets proposés</button>
         <button type="button" onClick={() => setTab("assigned")} aria-pressed={tab === "assigned"}>Mes projets</button>
+        <button type="button" onClick={() => setTab("availability")} aria-pressed={tab === "availability"}>Mes disponibilités</button>
         <button type="button" onClick={() => setTab("profile")} aria-pressed={tab === "profile"}>Mon profil</button>
       </div>
       {error ? <p className="form-message is-error" role="alert">{error}</p> : null}
-      {tab === "profile" && profile ? (
+      {tab === "availability" ? (
+        <CreativeAvailabilityManager />
+      ) : tab === "profile" && profile ? (
         <form
           className="crm-person-info-grid"
           onSubmit={(event) => {

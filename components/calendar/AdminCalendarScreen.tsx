@@ -8,6 +8,7 @@ import type {
   AdminCalendarEventType,
   AdminOperationalCalendar,
 } from "@/lib/admin-operational-calendar";
+import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
 
 type CalendarView = "upcoming" | "month";
 type TypeFilter = "all" | AdminCalendarEventType;
@@ -247,6 +248,8 @@ export function AdminCalendarScreen() {
         </div>
         <CalendarDays size={30} aria-hidden />
       </header>
+
+      <CreativeAvailabilityManager admin />
 
       <div className="admin-calendar-toolbar">
         <div className="admin-calendar-view-tabs" role="group" aria-label="Vue du calendrier">

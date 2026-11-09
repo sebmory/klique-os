@@ -12,6 +12,7 @@ import type {
   AthleteServiceRequestClientFulfillmentMode,
   PublicAthleteServiceRequest,
 } from "@/lib/athlete-service-requests";
+import { AthleteSessionRequests } from "@/components/athlete/AthleteSessionRequests";
 
 type ServicesPayload = AthleteMemberServicesProjection & { error?: string };
 type RequestsPayload = {
@@ -233,6 +234,8 @@ export default function AthleteServicesPage() {
           <p style={{ margin: 0, color: "#d1d5db", fontSize: "0.86rem", lineHeight: 1.55 }}>KLIQUE continue de suivre votre actualité grâce aux formulaires hebdomadaires et mensuels et sélectionne régulièrement des sujets à mettre en avant. Les contenus initiés par KLIQUE dans ce cadre ne sont pas déduits de vos droits.</p>
         </aside>
       </header>
+
+      <AthleteSessionRequests />
 
       {successMessage ? <p role="status" style={{ margin: 0, border: "1px solid rgba(74, 222, 128, 0.35)", background: "rgba(74, 222, 128, 0.1)", color: "#bbf7d0", borderRadius: "8px", padding: "0.8rem 0.9rem" }}>{successMessage}</p> : null}
 

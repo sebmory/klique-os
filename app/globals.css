@@ -9,6 +9,357 @@ body {
   overflow-x: hidden;
 }
 
+.athlete-session-requests,
+.session-requests-admin,
+.creative-availability {
+  border: 1px solid var(--kl-color-border);
+  border-radius: var(--kl-radius-lg);
+  background: var(--kl-color-surface);
+  padding: clamp(1rem, 2vw, 1.5rem);
+  display: grid;
+  gap: 1rem;
+}
+
+.athlete-session-requests > header,
+.session-requests-admin > header,
+.creative-availability-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.athlete-session-requests header p,
+.session-requests-admin header p,
+.creative-availability-header p {
+  margin: 0 0 0.25rem;
+  color: var(--kl-color-textSecondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.athlete-session-requests h2,
+.session-requests-admin h2,
+.creative-availability h2,
+.session-request-detail h3 {
+  margin: 0;
+}
+
+.athlete-session-requests header span,
+.creative-availability-header span {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--kl-color-textSecondary);
+  max-width: 70ch;
+}
+
+.session-requests-admin > header > strong {
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--kl-color-accent);
+  color: #141414;
+}
+
+.athlete-session-form,
+.creative-availability-form,
+.session-production-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid var(--kl-color-border);
+  border-radius: var(--kl-radius-md);
+  background: color-mix(in srgb, var(--kl-color-surface) 85%, black);
+}
+
+.athlete-session-form label,
+.creative-availability-form label,
+.session-production-form label,
+.session-request-actions label,
+.creative-availability-filters label,
+.session-requests-filters label,
+.athlete-session-complement label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--kl-color-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.athlete-session-form input,
+.athlete-session-form select,
+.athlete-session-form textarea,
+.creative-availability input,
+.creative-availability select,
+.creative-availability textarea,
+.session-requests-admin input,
+.session-requests-admin select,
+.session-requests-admin textarea {
+  width: 100%;
+  min-height: 2.7rem;
+  border: 1px solid var(--kl-color-border);
+  border-radius: var(--kl-radius-sm);
+  background: var(--kl-color-background);
+  color: var(--kl-color-textPrimary);
+  padding: 0.65rem 0.75rem;
+}
+
+.athlete-session-form textarea,
+.creative-availability textarea,
+.session-requests-admin textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.athlete-session-kind,
+.athlete-session-period,
+.creative-availability-form fieldset,
+.session-production-form fieldset {
+  border: 1px solid var(--kl-color-border);
+  border-radius: var(--kl-radius-sm);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.athlete-session-kind,
+.athlete-session-period,
+.athlete-session-notice,
+.athlete-session-form > button,
+.creative-availability-form fieldset,
+.creative-availability-actions,
+.session-production-form h3,
+.session-production-form p,
+.session-production-form fieldset,
+.session-production-form > button {
+  grid-column: 1 / -1;
+}
+
+.athlete-session-kind label,
+.athlete-session-checkbox,
+.creative-availability-checkbox,
+.session-request-checkbox,
+.session-production-form fieldset label {
+  display: flex !important;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.athlete-session-kind input,
+.athlete-session-checkbox input,
+.creative-availability-checkbox input,
+.session-request-checkbox input,
+.session-production-form fieldset input {
+  width: auto;
+  min-height: auto;
+}
+
+.athlete-session-notice {
+  margin: 0;
+  color: var(--kl-color-textSecondary);
+  font-size: 0.85rem;
+}
+
+.athlete-session-history,
+.session-requests-admin-list,
+.creative-availability-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.athlete-session-history > article,
+.session-requests-admin-list > article,
+.creative-availability-list > article,
+.session-request-candidates > article {
+  border: 1px solid var(--kl-color-border);
+  border-radius: var(--kl-radius-md);
+  padding: 0.9rem;
+  background: var(--kl-color-background);
+}
+
+.athlete-session-history article > header,
+.creative-availability-list article > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.athlete-session-history article header div,
+.creative-availability-list article > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.athlete-session-history mark,
+.session-request-summary mark,
+.creative-availability-list mark {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--kl-color-accent) 18%, transparent);
+  color: var(--kl-color-textPrimary);
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.athlete-session-history dl,
+.session-request-detail dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.athlete-session-history dl div,
+.session-request-detail dl div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.athlete-session-history dt,
+.session-request-detail dt {
+  color: var(--kl-color-textSecondary);
+  font-size: 0.75rem;
+}
+
+.athlete-session-history dd,
+.session-request-detail dd {
+  margin: 0;
+}
+
+.athlete-session-reason,
+.athlete-session-complement,
+.session-request-actions,
+.session-request-candidates {
+  border-left: 3px solid var(--kl-color-accent);
+  padding-left: 0.8rem;
+}
+
+.session-requests-filters,
+.creative-availability-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.session-request-summary {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 1rem;
+  text-align: left;
+}
+
+.session-request-summary > span:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.session-request-summary small {
+  color: var(--kl-color-textSecondary);
+}
+
+.session-request-detail,
+.session-request-actions,
+.session-request-candidates,
+.creative-availability-list article {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.creative-availability-header > strong {
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.creative-availability-actions,
+.creative-availability-list article > div:last-child {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.creative-availability-list article.has-conflict {
+  border-color: #ef9a5a;
+}
+
+.creative-availability-list article p,
+.creative-availability-list article small {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .athlete-session-requests,
+  .session-requests-admin,
+  .creative-availability {
+    padding: 0.85rem;
+    border-radius: var(--kl-radius-md);
+  }
+
+  .athlete-session-requests > header,
+  .session-requests-admin > header,
+  .creative-availability-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .athlete-session-form,
+  .creative-availability-form,
+  .session-production-form,
+  .session-requests-filters,
+  .creative-availability-filters,
+  .athlete-session-history dl,
+  .session-request-detail dl {
+    grid-template-columns: 1fr;
+  }
+
+  .athlete-session-kind,
+  .athlete-session-period,
+  .athlete-session-notice,
+  .athlete-session-form > button,
+  .creative-availability-form fieldset,
+  .creative-availability-actions,
+  .session-production-form h3,
+  .session-production-form p,
+  .session-production-form fieldset,
+  .session-production-form > button {
+    grid-column: auto;
+  }
+
+  .session-request-summary {
+    grid-template-columns: 1fr auto;
+  }
+
+  .session-request-summary > span:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 390px) {
+  .athlete-session-requests,
+  .session-requests-admin,
+  .creative-availability {
+    margin-inline: -0.35rem;
+  }
+
+  .athlete-session-form,
+  .creative-availability-form,
+  .session-production-form {
+    padding: 0.75rem;
+  }
+
+  .session-request-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 body {
   background: var(--kl-color-background);
   color: var(--kl-color-textPrimary);

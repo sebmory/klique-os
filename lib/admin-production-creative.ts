@@ -402,6 +402,51 @@ export const transitionProductionCreativeBrief = async (context: {
       WHERE $3 IN ('publish', 'assign')
          OR EXISTS (SELECT 1 FROM delivery_change)
       RETURNING id
+    ), session_target AS (
+      SELECT request.id, request.workflow_status AS previous_status,
+             brief_change.id AS brief_id
+      FROM athlete_session_requests request
+      JOIN brief_change
+        ON brief_change.origin_type = 'athlete_session_request'
+       AND brief_change.origin_request_id = request.id
+      WHERE request.workspace_id = $1
+      FOR UPDATE OF request
+    ), session_change AS (
+      UPDATE athlete_session_requests request
+      SET workflow_status = CASE
+            WHEN $3 = 'publish' THEN 'proposed_to_creatives'
+            WHEN $3 = 'assign' THEN 'assigned'
+            WHEN $3 = 'validate_delivery' THEN 'completed'
+            ELSE request.workflow_status
+          END,
+          updated_at = NOW()
+      FROM session_target
+      WHERE session_target.id = request.id
+        AND (
+          ($3 = 'publish' AND session_target.previous_status = 'production_linked')
+          OR ($3 = 'assign' AND session_target.previous_status IN ('proposed_to_creatives', 'candidate_received'))
+          OR ($3 = 'validate_delivery' AND session_target.previous_status = 'confirmed'
+            AND EXISTS (SELECT 1 FROM delivery_change))
+        )
+      RETURNING request.id, session_target.brief_id,
+                session_target.previous_status,
+                request.workflow_status
+    ), session_event AS (
+      INSERT INTO athlete_session_request_events (
+        workspace_id, request_id, from_status, to_status, action,
+        actor_clerk_user_id, actor_role, details, idempotency_key
+      )
+      SELECT $1, session_change.id, session_change.previous_status,
+             session_change.workflow_status,
+             CASE
+               WHEN $3 = 'publish' THEN 'proposed_to_creatives'
+               WHEN $3 = 'assign' THEN 'creative_assigned'
+               ELSE 'mission_completed'
+             END,
+             $4, 'admin', jsonb_build_object('briefId', session_change.brief_id),
+             'production:' || $3 || ':' || session_change.brief_id::text
+      FROM session_change
+      ON CONFLICT DO NOTHING
     )
     SELECT CASE
       WHEN NOT EXISTS (SELECT 1 FROM target) THEN 'not_found'
@@ -530,6 +575,35 @@ export const updateProductionCreativeConditions = async (context: {
         ON assignment.workspace_id = $1 AND assignment.brief_id = changed_brief.id
        AND assignment.status = 'active'
       RETURNING id
+    ), session_target AS (
+      SELECT request.id, request.workflow_status AS previous_status, changed_brief.id AS brief_id
+      FROM changed_brief
+      JOIN athlete_session_requests request
+        ON changed_brief.origin_type = 'athlete_session_request'
+       AND changed_brief.origin_request_id = request.id
+       AND request.workspace_id = $1
+      WHERE request.workflow_status IN ('creative_agreed', 'confirmed')
+      FOR UPDATE OF request
+    ), session_change AS (
+      UPDATE athlete_session_requests request
+      SET workflow_status = 'assigned',
+          final_confirmed_at = NULL,
+          updated_at = NOW()
+      FROM session_target
+      WHERE request.id = session_target.id
+      RETURNING request.id, session_target.previous_status, session_target.brief_id
+    ), session_event AS (
+      INSERT INTO athlete_session_request_events (
+        workspace_id, request_id, from_status, to_status, action,
+        actor_clerk_user_id, actor_role, details, idempotency_key
+      )
+      SELECT $1, session_change.id, session_change.previous_status, 'assigned',
+             'conditions_changed', $15, 'admin',
+             jsonb_build_object('briefId', session_change.brief_id),
+             'conditions:' || session_change.brief_id::text || ':' ||
+               (SELECT conditions_version::text FROM changed_brief LIMIT 1)
+      FROM session_change
+      ON CONFLICT DO NOTHING
     )
     SELECT CASE
       WHEN NOT EXISTS (SELECT 1 FROM target) THEN 'not_found'
