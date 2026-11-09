@@ -2100,7 +2100,7 @@ export const inviteCreativeProfileToKlique = async (
   }
 
   const pendingRows = await sql`
-    SELECT id, email, creative_profile_id
+    SELECT id, email, creative_profile_id, clerk_invitation_id
     FROM creative_invitations
     WHERE workspace_id = ${workspaceId}
       AND status = 'invited'
@@ -2114,11 +2114,18 @@ export const inviteCreativeProfileToKlique = async (
   const pendingProfileId = String(
     (pendingRows[0] as Record<string, unknown> | undefined)?.creative_profile_id ?? "",
   );
-  if (
-    pendingRows[0]
-    && (!isResend || pendingProfileId !== normalizedCreativeProfileId)
-  ) {
+  if (pendingRows[0] && pendingProfileId !== normalizedCreativeProfileId) {
     return { ok: false, reason: "already_invited" };
+  }
+  if (pendingRows[0] && !isResend) {
+    const pending = pendingRows[0] as Record<string, unknown>;
+    return {
+      ok: true,
+      creativeProfileId: normalizedCreativeProfileId,
+      email: String(pending.email ?? email),
+      clerkInvitationId: String(pending.clerk_invitation_id ?? ""),
+      workspaceId,
+    };
   }
   if (isResend && !pendingRows[0]) {
     return { ok: false, reason: "not_invited" };
@@ -2181,7 +2188,7 @@ export const inviteCreativeProfileToKlique = async (
           )
           SELECT ${workspaceId}, profile_updated.id, 'existing_account_linked',
                  current_profile.onboarding_status, 'account_created', ${authResult.userId},
-                 jsonb_build_object('email', ${email})
+                 jsonb_build_object('email', ${email}::text)
           FROM profile_updated, current_profile
         )
         INSERT INTO creative_invitations (
@@ -2203,18 +2210,48 @@ export const inviteCreativeProfileToKlique = async (
       };
     }
 
-    const invitation = await client.invitations.createInvitation({
-      emailAddress: email,
-      publicMetadata: {
-        role: "creative",
-        workspaceId,
-        creativeProfileId: normalizedCreativeProfileId,
-      },
-      redirectUrl: `${getAppOrigin()}/sign-up?portal=creative`,
-      notify: true,
-      ignoreExisting: isResend,
-      expiresInDays: 30,
-    });
+    const findMatchingPendingInvitation = async () => {
+      const invitations = await client.invitations.getInvitationList({
+        query: email,
+        status: "pending",
+        limit: 10,
+      });
+      const exactMatches = invitations.data.filter((candidate) =>
+        candidate.emailAddress.trim().toLowerCase() === email
+      );
+      if (exactMatches.length === 0) return null;
+      const canonicalMatches = exactMatches.filter((candidate) =>
+        candidate.publicMetadata?.role === "creative"
+        && candidate.publicMetadata.workspaceId === workspaceId
+        && candidate.publicMetadata.creativeProfileId === normalizedCreativeProfileId
+      );
+      if (exactMatches.length !== 1 || canonicalMatches.length !== 1) {
+        throw new Error("AMBIGUOUS_PENDING_CREATIVE_INVITATION");
+      }
+      return canonicalMatches[0];
+    };
+
+    let invitation = isResend ? null : await findMatchingPendingInvitation();
+    if (!invitation) {
+      try {
+        invitation = await client.invitations.createInvitation({
+          emailAddress: email,
+          publicMetadata: {
+            role: "creative",
+            workspaceId,
+            creativeProfileId: normalizedCreativeProfileId,
+          },
+          redirectUrl: `${getAppOrigin()}/sign-up?portal=creative`,
+          notify: true,
+          ignoreExisting: isResend,
+          expiresInDays: 30,
+        });
+      } catch (error) {
+        if (isResend) throw error;
+        invitation = await findMatchingPendingInvitation();
+        if (!invitation) throw error;
+      }
+    }
 
     const invitationId = String(invitation.id ?? "").trim();
     if (!invitationId) {
@@ -2271,6 +2308,7 @@ export const inviteCreativeProfileToKlique = async (
         WHERE workspace_id = ${workspaceId}
           AND id = ${normalizedCreativeProfileId}::uuid
           AND EXISTS (SELECT 1 FROM invitation_saved)
+          AND onboarding_status <> 'invitation_sent'
         RETURNING id
       ),
       onboarding_event AS (
@@ -2281,7 +2319,7 @@ export const inviteCreativeProfileToKlique = async (
         SELECT ${workspaceId}, profile_updated.id,
                ${isResend ? "invitation_resent" : "invitation_sent"},
                current_profile.onboarding_status, 'invitation_sent', ${authResult.userId},
-               jsonb_build_object('email', ${email})
+               jsonb_build_object('email', ${email}::text)
         FROM profile_updated, current_profile
       )
       SELECT * FROM invitation_saved
@@ -2300,11 +2338,18 @@ export const inviteCreativeProfileToKlique = async (
       workspaceId,
     };
   } catch (error) {
-    const clerkError = error as { message?: unknown };
+    const clerkError = error as { code?: unknown; status?: unknown; message?: unknown };
+    const ambiguousPending = clerkError.message === "AMBIGUOUS_PENDING_CREATIVE_INVITATION";
+    console.error("[creative_access][invite_failed]", {
+      code: String(clerkError.code ?? clerkError.status ?? "unknown"),
+      ambiguousPending,
+    });
     return {
       ok: false,
-      reason: "clerk_error",
-      message: String(clerkError.message ?? "Échec de l'invitation Clerk."),
+      reason: ambiguousPending ? "ambiguous_identity" : "clerk_error",
+      message: ambiguousPending
+        ? "Une invitation existante ne correspond pas de manière univoque à cette fiche."
+        : "L’invitation n’a pas pu être finalisée. Vérifiez son état avant de réessayer.",
     };
   }
 };
