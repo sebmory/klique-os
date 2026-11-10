@@ -48,6 +48,7 @@ export const adminNavigationGroups: NavGroup[] = [
       { id: "today", label: "Tableau de bord", href: "/today", icon: "house" },
       { id: "calendar", label: "Calendrier", href: "/calendar", icon: "calendar" },
       { id: "visibility", label: "Visibilité", href: "/analytics/visibilite", icon: "chart" },
+      { id: "sports-watch", label: "Sports Watch", href: "/sports-watch", icon: "newspaper" },
     ],
   },
   {
@@ -128,6 +129,7 @@ export const commandEntries: SearchEntry[] = [
   { id: "admin-media", label: "Banque médias", category: "Medias", href: "/media" },
   { id: "admin-dashboard", label: "Tableau de bord", category: "Actions rapides", href: "/today" },
   { id: "admin-calendar", label: "Calendrier opérationnel", category: "Actions rapides", href: "/calendar" },
+  { id: "admin-sports-watch", label: "Sports Watch", category: "Actions rapides", href: "/sports-watch" },
   { id: "admin-requests", label: "Demandes", category: "Actions rapides", href: "/crm/demandes" },
   { id: "admin-settings", label: "Paramètres", category: "Actions rapides", href: "/settings" },
 ];

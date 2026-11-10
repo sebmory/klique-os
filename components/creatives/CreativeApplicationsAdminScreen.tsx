@@ -31,6 +31,7 @@ import {
   type CreativeApplicationRejectResponse,
 } from "@/lib/creatives/admin-application-contract";
 import { formatCreativeApplicationDate } from "@/lib/creatives/application-date";
+import { creativeApplicationStatusPresentation } from "@/lib/status-presentation";
 import { CreativeProfilesAdminPanel } from "@/components/creatives/CreativeProfilesAdminPanel";
 import styles from "./creative-applications-admin.module.css";
 
@@ -51,9 +52,9 @@ const filters: Array<{ value: Filter; label: string }> = [
 ];
 
 const statusLabels: Record<CreativeApplicationModerationStatus, string> = {
-  pending: "À valider",
-  approved: "Approuvée",
-  rejected: "Refusée",
+  pending: creativeApplicationStatusPresentation.pending.label,
+  approved: creativeApplicationStatusPresentation.approved.label,
+  rejected: creativeApplicationStatusPresentation.rejected.label,
 };
 
 const externalUrl = (value: string): string | null => {

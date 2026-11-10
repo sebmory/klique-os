@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { google } from "googleapis";
+import { parseCreativeApplicationDate } from "@/lib/creatives/application-date";
 
 export const CREATIVE_APPLICATIONS_SHEET_NAME = "Forms_Creatifs_Reponses";
 
@@ -123,9 +124,101 @@ export type TechnicalCellWrite = {
 
 export type CreativeApplicationsSheetRepository = {
   readSnapshot: () => Promise<CreativeApplicationsSheetSnapshot>;
+  readHeaders?: () => Promise<string[]>;
+  readColumnValues?: (columnIndex: number) => Promise<string[]>;
   appendTechnicalHeaders: (startColumnIndex: number, headers: string[]) => Promise<void>;
   readCell: (rowNumber: number, columnIndex: number) => Promise<string>;
   writeTechnicalCells: (rowNumber: number, cells: TechnicalCellWrite[]) => Promise<void>;
+};
+
+export const countCreativeApplicationsByModeration = async (
+  dependencies?: Partial<CreativeApplicationsSheetDependencies>,
+): Promise<Record<CreativeApplicationModerationStatus, number>> => {
+  const resolved = resolveDependencies(dependencies);
+  const snapshot = resolved.repository.readHeaders
+    ? null
+    : await resolved.repository.readSnapshot();
+  const headers = resolved.repository.readHeaders
+    ? await resolved.repository.readHeaders()
+    : snapshot?.headers ?? [];
+  const columnIndex = headers.indexOf(creativeApplicationTechnicalHeaders.moderationStatus);
+  if (columnIndex < 0) {
+    return { pending: 0, approved: 0, rejected: 0 };
+  }
+  const values = resolved.repository.readColumnValues
+    ? await resolved.repository.readColumnValues(columnIndex)
+    : snapshot?.rows.map((row) => row.values[columnIndex] ?? "") ?? [];
+  return values.reduce<Record<CreativeApplicationModerationStatus, number>>(
+    (counts, value) => {
+      const status = normalizeCell(value) as CreativeApplicationModerationStatus;
+      if (creativeApplicationModerationStatuses.includes(status)) counts[status] += 1;
+      return counts;
+    },
+    { pending: 0, approved: 0, rejected: 0 },
+  );
+};
+
+export type CreativeApplicationsModerationSummary = {
+  counts: Record<CreativeApplicationModerationStatus, number>;
+  oldestPendingAt: string | null;
+};
+
+export const summarizeCreativeApplicationsModeration = async (
+  dependencies?: Partial<CreativeApplicationsSheetDependencies>,
+): Promise<CreativeApplicationsModerationSummary> => {
+  const resolved = resolveDependencies(dependencies);
+  const snapshot = resolved.repository.readHeaders
+    ? null
+    : await resolved.repository.readSnapshot();
+  const headers = resolved.repository.readHeaders
+    ? await resolved.repository.readHeaders()
+    : snapshot?.headers ?? [];
+  const statusColumn = headers.indexOf(creativeApplicationTechnicalHeaders.moderationStatus);
+  const submittedAtColumn = headers.indexOf(creativeApplicationBusinessHeaders.submittedAt);
+  if (statusColumn < 0) {
+    return {
+      counts: { pending: 0, approved: 0, rejected: 0 },
+      oldestPendingAt: null,
+    };
+  }
+  const [statuses, submittedAtValues] = resolved.repository.readColumnValues
+    ? await Promise.all([
+        resolved.repository.readColumnValues(statusColumn),
+        submittedAtColumn >= 0
+          ? resolved.repository.readColumnValues(submittedAtColumn)
+          : Promise.resolve([]),
+      ])
+    : [
+        snapshot?.rows.map((row) => row.values[statusColumn] ?? "") ?? [],
+        submittedAtColumn >= 0
+          ? snapshot?.rows.map((row) => row.values[submittedAtColumn] ?? "") ?? []
+          : [],
+      ];
+  const counts: Record<CreativeApplicationModerationStatus, number> = {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+  };
+  let oldestPendingTimestamp: number | null = null;
+  statuses.forEach((value, index) => {
+    const status = normalizeCell(value) as CreativeApplicationModerationStatus;
+    if (!creativeApplicationModerationStatuses.includes(status)) return;
+    counts[status] += 1;
+    if (status !== "pending") return;
+    const submittedAt = parseCreativeApplicationDate(submittedAtValues[index]);
+    if (
+      submittedAt
+      && (oldestPendingTimestamp === null || submittedAt.getTime() < oldestPendingTimestamp)
+    ) {
+      oldestPendingTimestamp = submittedAt.getTime();
+    }
+  });
+  return {
+    counts,
+    oldestPendingAt: oldestPendingTimestamp === null
+      ? null
+      : new Date(oldestPendingTimestamp).toISOString(),
+  };
 };
 
 export type CreativeApplicationsSheetDependencies = {
@@ -517,6 +610,15 @@ export const createCreativeApplicationsGoogleSheetsRepository = (
   };
 
   return {
+    async readHeaders() {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${CREATIVE_APPLICATIONS_SHEET_NAME}'!1:1`,
+        valueRenderOption: "FORMULA",
+      });
+      return (response.data.values?.[0] ?? []).map((value) => String(value ?? ""));
+    },
+
     async readSnapshot() {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -532,6 +634,19 @@ export const createCreativeApplicationsGoogleSheetsRepository = (
           values: row,
         })),
       };
+    },
+
+    async readColumnValues(columnIndex) {
+      if (!Number.isInteger(columnIndex) || columnIndex < 0) {
+        throw new CreativeApplicationsSheetError("validation", "Colonne Google Sheets invalide.");
+      }
+      const column = toColumnLetters(columnIndex);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${CREATIVE_APPLICATIONS_SHEET_NAME}'!${column}2:${column}`,
+        valueRenderOption: "FORMULA",
+      });
+      return (response.data.values ?? []).map((row) => String(row[0] ?? ""));
     },
 
     async appendTechnicalHeaders(startColumnIndex, headers) {

@@ -413,6 +413,7 @@ export type SportsWatchRepository = {
     },
   ): Promise<SportsWatchCandidatePage>;
   countCandidates(workspaceId: string): Promise<SportsWatchCandidateTotals>;
+  getOldestActiveCandidateAt?(workspaceId: string): Promise<string | null>;
   countCandidatesByAthlete(workspaceId: string): Promise<SportsWatchAthleteCandidateTotals[]>;
   getCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
   reviewCandidate(input: {
@@ -863,6 +864,23 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       pending: Number(row.pending),
       validated: Number(row.validated),
     }));
+  },
+
+  async getOldestActiveCandidateAt(workspaceId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT MIN(candidate.created_at) AS oldest_at
+      FROM sports_watch_candidates AS candidate
+      WHERE candidate.workspace_id = $1
+        AND candidate.admin_status IN ('pending', 'validated')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates AS replacement
+          WHERE replacement.workspace_id = candidate.workspace_id
+            AND replacement.supersedes_candidate_id = candidate.id
+        )
+    `, [workspaceId]) as Array<{ oldest_at: string | Date | null }>;
+    return normalizeTimestamp(rows[0]?.oldest_at ?? null);
   },
 
   async getCandidate(workspaceId, candidateId) {

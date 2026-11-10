@@ -8,6 +8,7 @@ import type {
   SportsWatchTournamentGroup,
 } from "@/lib/sports-watch/presentation";
 import type { SportsWatchCandidate } from "@/types/sports-watch";
+import { sportsWatchStatusPresentation } from "@/lib/status-presentation";
 
 const disciplineLabels = {
   simple: "Simple",
@@ -16,11 +17,11 @@ const disciplineLabels = {
 } as const;
 
 const adminStatusLabels = {
-  pending: "À vérifier",
-  validated: "À exploiter",
-  exploited: "Exploité",
-  rejected: "Rejeté",
-  dismissed: "Non exploitée",
+  pending: sportsWatchStatusPresentation.pending.label,
+  validated: sportsWatchStatusPresentation.validated.label,
+  exploited: sportsWatchStatusPresentation.exploited.label,
+  rejected: sportsWatchStatusPresentation.rejected.label,
+  dismissed: sportsWatchStatusPresentation.dismissed.label,
 } as const;
 
 const pluralize = (count: number, singular: string, plural = `${singular}s`): string =>
