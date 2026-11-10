@@ -16,7 +16,6 @@ import {
 } from "@/components/app-shell/module-guide-config";
 
 const expectedAdminRoutes = [
-  "/today",
   "/calendar",
   "/analytics/visibilite",
   "/crm/personnes",

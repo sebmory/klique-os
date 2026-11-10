@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTodayCockpit } from "@/components/app-shell/AdminTodayCockpit";
 import { adminNavigationGroups } from "@/components/app-shell/data";
+import { resolveModuleGuide } from "@/components/app-shell/module-guide-config";
 import {
   athleteRequestStatusPresentation,
   creativeApplicationStatusPresentation,
@@ -126,6 +127,7 @@ describe("cockpit Admin Aujourd’hui", () => {
   it("déclare la navigation et un dictionnaire complet", () => {
     expect(adminNavigationGroups.flatMap((group) => group.items)
       .some((item) => item.href === "/sports-watch")).toBe(true);
+    expect(resolveModuleGuide("/today", "admin")).toBeNull();
     for (const dictionary of [
       athleteRequestStatusPresentation,
       creativeMissionQueueStatusPresentation,

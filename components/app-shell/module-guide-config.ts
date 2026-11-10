@@ -14,16 +14,6 @@ export type ModuleGuideDefinition = {
 };
 
 const adminGuides = {
-  "/today": {
-    name: "Tableau de bord",
-    purpose: "Centralise les priorités, alertes et actions à traiter aujourd’hui.",
-    start: "Commencez par les éléments signalés comme prioritaires, puis répartissez les actions dans les modules concernés.",
-    actions: [
-      { label: "Traiter les demandes", description: "Passez en revue les prestations et mises en relation en attente.", href: "/crm/demandes" },
-      { label: "Suivre les productions", description: "Vérifiez les projets qui nécessitent une prochaine action.", href: "/production" },
-      { label: "Préparer une annonce", description: "Informez les publics concernés depuis les notifications.", href: "/settings/notifications" },
-    ],
-  },
   "/calendar": {
     name: "Calendrier opérationnel",
     purpose: "Réunit les dates fiables des missions, demandes, productions et journées média.",
