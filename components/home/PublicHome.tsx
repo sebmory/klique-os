@@ -6,20 +6,26 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import type { PublicPassPlan } from "@/components/pass/PublicPassCatalog";
-import AthletePortrait from "@/components/public-athletes/AthletePortrait";
+import AthleteSphere from "@/components/home/AthleteSphere";
 import type { PublicAthleteCard } from "@/lib/public-athletes";
 import type { PublicKliqueStats } from "@/lib/public-klique-stats";
 import { KLIQUE_PASS_LAUNCH_PROMOTION_LABEL } from "@/lib/klique-pass-launch-promotion";
 import styles from "./public-home.module.css";
 
 type PublicHomeProps = {
+  publicAthletes?: readonly PublicAthleteCard[];
   featuredAthletes?: readonly PublicAthleteCard[];
+  athleteDirectoryError?: boolean;
 };
 
 const formatPrice = (value: number): string =>
   Number.isInteger(value) ? `CHF ${value}.–` : `CHF ${value.toFixed(2)}`;
 
-export default function PublicHome({ featuredAthletes = [] }: PublicHomeProps) {
+export default function PublicHome({
+  publicAthletes = [],
+  featuredAthletes = [],
+  athleteDirectoryError = false,
+}: PublicHomeProps) {
   const { isLoaded, isSignedIn } = useUser();
   const [plans, setPlans] = useState<PublicPassPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
@@ -152,30 +158,11 @@ export default function PublicHome({ featuredAthletes = [] }: PublicHomeProps) {
           </section>
         ) : null}
 
-        {featuredAthletes.length ? (
-          <section className={styles.featuredSection} aria-labelledby="featured-title">
-            <div className={styles.featuredHeading}>
-              <div><p className={styles.sectionLabel}>Au cœur du réseau</p><h2 id="featured-title">Des parcours à découvrir.</h2></div>
-              <Link className={styles.outlineButton} href="/athletes">Voir tous les athlètes <ArrowRight size={18} aria-hidden="true" /></Link>
-            </div>
-            <ul className={styles.featuredGrid}>
-              {featuredAthletes.map((athlete) => (
-                <li key={athlete.slug}>
-                  <Link href={`/athletes/${athlete.slug}`} prefetch={false}>
-                    <AthletePortrait
-                      name={athlete.name}
-                      sport={athlete.sport}
-                      portrait={athlete.portrait}
-                      colorCategory={athlete.colorCategory}
-                      decorative
-                    />
-                    <div><p>{athlete.sport}</p><h3>{athlete.name}</h3>{athlete.club ? <span>{athlete.club}</span> : null}</div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+        <AthleteSphere
+          athletes={publicAthletes}
+          fallbackAthletes={featuredAthletes}
+          loadError={athleteDirectoryError}
+        />
 
         <section className={styles.ecosystemSection} aria-labelledby="ecosystem-title">
           <div className={styles.ecosystemCopy}>

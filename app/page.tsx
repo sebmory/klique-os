@@ -17,7 +17,23 @@ export const metadata: Metadata = {
   },
 };
 
+const loadHomeAthletes = async () => {
+  try {
+    const athletes = await listPublicAthletes();
+    return { athletes, loadError: false };
+  } catch (error) {
+    console.error("[PublicHome] Public athlete projection unavailable", error);
+    return { athletes: [], loadError: true };
+  }
+};
+
 export default async function Home() {
-  const athletes = await listPublicAthletes();
-  return <PublicHome featuredAthletes={selectFeaturedPublicAthletes(athletes, 6)} />;
+  const { athletes, loadError } = await loadHomeAthletes();
+  return (
+    <PublicHome
+      publicAthletes={athletes}
+      featuredAthletes={selectFeaturedPublicAthletes(athletes, 6)}
+      athleteDirectoryError={loadError}
+    />
+  );
 }

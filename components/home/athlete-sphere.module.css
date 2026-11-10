@@ -1,0 +1,468 @@
+.section {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(3.5rem, 6vw, 5rem) 0;
+}
+
+.heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 .45rem;
+  color: #b44c32;
+  font-size: .72rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.heading h2 {
+  max-width: 720px;
+  margin: 0;
+  color: #173c34;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-weight: 500;
+  line-height: 1.02;
+}
+
+.intro {
+  max-width: 520px;
+  margin: .85rem 0 0;
+  color: #59655f;
+  line-height: 1.55;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr);
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  align-items: stretch;
+}
+
+.stage {
+  position: relative;
+  min-width: 0;
+  min-height: 510px;
+  overflow: hidden;
+  border: 1px solid rgba(232, 224, 207, .22);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(218, 164, 65, .12), transparent 36%),
+    linear-gradient(145deg, #173c34 0%, #0d2923 72%, #09211c 100%);
+  box-shadow: inset 0 0 80px rgba(0, 0, 0, .18);
+}
+
+.stage::before,
+.stage::after {
+  position: absolute;
+  border: 1px solid rgba(239, 230, 211, .08);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.stage::before {
+  inset: 9%;
+}
+
+.stage::after {
+  inset: 19%;
+}
+
+.canvas {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas:active {
+  cursor: grabbing;
+}
+
+.canvas:focus-visible,
+.control:focus-visible,
+.roster summary:focus-visible,
+.roster button:focus-visible,
+.profileLink:focus-visible,
+.directoryLink:focus-visible,
+.fallbackGrid a:focus-visible {
+  outline: 3px solid #f2c66f;
+  outline-offset: 3px;
+}
+
+.stageStatus {
+  position: absolute;
+  z-index: 2;
+  top: 1rem;
+  left: 1rem;
+  margin: 0;
+  color: rgba(255, 255, 255, .72);
+  font-size: .76rem;
+  pointer-events: none;
+}
+
+.controls {
+  position: absolute;
+  z-index: 3;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.control {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: .35rem;
+  padding: .55rem .8rem;
+  border: 1px solid rgba(255, 255, 255, .38);
+  border-radius: 999px;
+  background: rgba(9, 33, 28, .82);
+  color: #fff;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.motionDisabled {
+  color: rgba(255, 255, 255, .78);
+  cursor: default;
+}
+
+.selectedCard {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid #bfc5be;
+  background: #f5f0e5;
+}
+
+.portrait {
+  min-height: 250px;
+  overflow: hidden;
+  background: #d7d0c0;
+}
+
+.portrait > * {
+  width: 100%;
+  height: 100%;
+  min-height: 250px;
+  object-fit: cover;
+}
+
+.selectedCopy {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 1.4rem;
+}
+
+.selectedCopy > p:first-child {
+  margin: 0;
+  color: #b44c32;
+  font-size: .72rem;
+  font-weight: 850;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.selectedCopy h3 {
+  margin: .5rem 0 0;
+  color: #173c34;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.65rem, 3vw, 2.3rem);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.club {
+  margin: .55rem 0 0;
+  color: #59655f;
+  line-height: 1.45;
+}
+
+.profileLink,
+.directoryLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  padding: .7rem 1rem;
+  border-radius: 4px;
+  font-size: .86rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.profileLink {
+  margin-top: auto;
+  background: #173c34;
+  color: #fff;
+}
+
+.directoryLink {
+  flex: 0 0 auto;
+  border: 1px solid #173c34;
+  color: #173c34;
+}
+
+.networkNote {
+  margin: .9rem 0 0;
+  color: #68746e;
+  font-size: .76rem;
+  line-height: 1.5;
+}
+
+.roster {
+  margin-top: 1rem;
+  border-top: 1px solid #d5cdbd;
+  border-bottom: 1px solid #d5cdbd;
+}
+
+.roster summary {
+  padding: .85rem 0;
+  color: #173c34;
+  font-size: .82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rosterList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .45rem;
+  margin: 0;
+  padding: 0 0 1rem;
+  list-style: none;
+}
+
+.roster button {
+  width: 100%;
+  min-height: 42px;
+  padding: .5rem .65rem;
+  overflow: hidden;
+  border: 1px solid #d2c9b8;
+  border-radius: 3px;
+  background: #fff;
+  color: #173c34;
+  font: inherit;
+  font-size: .76rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.roster button[aria-pressed="true"] {
+  border-color: #b44c32;
+  background: #f6e8df;
+  color: #8d3926;
+}
+
+.state {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  padding: 2rem;
+  border: 1px solid #d2c9b8;
+  background: #f5f0e5;
+  text-align: center;
+}
+
+.state h3,
+.state p {
+  margin: 0;
+}
+
+.state p {
+  max-width: 520px;
+  margin-top: .65rem;
+  color: #59655f;
+}
+
+.state .directoryLink {
+  margin-top: 1rem;
+}
+
+.fallbackNotice {
+  margin: 0 0 1rem;
+  color: #59655f;
+}
+
+.fallbackGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fallbackGrid a {
+  display: block;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #bfc5be;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.fallbackPortrait {
+  width: 100%;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  background: #d7d0c0;
+}
+
+.fallbackPortrait > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+}
+
+.fallbackGrid a > div:last-child {
+  padding: .8rem;
+}
+
+.fallbackGrid p,
+.fallbackGrid h3,
+.fallbackGrid span {
+  margin: 0;
+}
+
+.fallbackGrid p {
+  color: #b44c32;
+  font-size: .68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.fallbackGrid h3 {
+  margin-top: .3rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+}
+
+.fallbackGrid span {
+  display: block;
+  margin-top: .25rem;
+  color: #68746e;
+  font-size: .75rem;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  margin: -1px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, .72fr);
+  }
+
+  .stage {
+    min-height: 450px;
+  }
+
+  .portrait,
+  .portrait > * {
+    min-height: 210px;
+  }
+}
+
+@media (max-width: 700px) {
+  .section {
+    padding: 3rem 0;
+  }
+
+  .heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .stage {
+    min-height: 350px;
+  }
+
+  .selectedCard {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr);
+  }
+
+  .portrait,
+  .portrait > * {
+    min-height: 180px;
+  }
+
+  .selectedCopy {
+    padding: 1rem;
+  }
+
+  .selectedCopy h3 {
+    font-size: 1.45rem;
+  }
+
+  .profileLink {
+    align-self: start;
+    margin-top: 1rem;
+  }
+
+  .rosterList,
+  .fallbackGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .stage {
+    min-height: 330px;
+  }
+
+  .controls {
+    right: .75rem;
+    bottom: .75rem;
+  }
+
+  .selectedCard {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .portrait,
+  .portrait > * {
+    min-height: 170px;
+  }
+
+  .profileLink {
+    min-height: 40px;
+    padding: .55rem .65rem;
+    font-size: .76rem;
+  }
+}

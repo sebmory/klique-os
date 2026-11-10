@@ -260,8 +260,7 @@
   border-right: 0;
 }
 
-.entryDoors span,
-.featuredGrid p {
+.entryDoors span {
   color: #b44c32;
   font-size: .72rem;
   font-weight: 850;
@@ -394,74 +393,6 @@
   padding: clamp(3.5rem, 6vw, 5rem) max(1rem, calc((100vw - 1180px) / 2));
   background: #173c34;
   color: #fff;
-}
-
-.featuredSection {
-  width: min(1180px, calc(100% - 2rem));
-  margin: 0 auto;
-  padding: clamp(3.5rem, 6vw, 5rem) 0;
-}
-
-.featuredHeading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 2rem;
-  margin-bottom: 2rem;
-}
-
-.featuredHeading h2 {
-  margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2rem, 4vw, 3.6rem);
-  font-weight: 500;
-}
-
-.featuredGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.featuredGrid a {
-  display: block;
-  height: 100%;
-  overflow: hidden;
-  border: 1px solid #bfc5be;
-  background: #fff;
-  color: inherit;
-  text-decoration: none;
-}
-
-.featuredGrid img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-
-.featuredGrid div {
-  padding: 1rem;
-}
-
-.featuredGrid p,
-.featuredGrid h3 {
-  margin: 0;
-}
-
-.featuredGrid h3 {
-  margin-top: .35rem;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.25rem;
-}
-
-.featuredGrid span {
-  display: block;
-  margin-top: .35rem;
-  color: #68746e;
-  font-size: .85rem;
 }
 
 .ecosystemCopy h2 {
@@ -736,10 +667,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .featuredGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .pillars article:nth-child(2) {
     border-right: 0;
   }
@@ -812,35 +739,6 @@
     font-size: 2.65rem;
   }
 
-  .featuredHeading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
-  }
-
-  .featuredGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: .75rem;
-  }
-
-  .featuredGrid div {
-    padding: .75rem;
-  }
-
-  .featuredGrid h3 {
-    font-size: 1.05rem;
-    line-height: 1.1;
-  }
-
-  .featuredGrid span {
-    display: -webkit-box;
-    overflow: hidden;
-    font-size: .75rem;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-
   .heroActions {
     width: 100%;
     flex-direction: column;
@@ -872,7 +770,6 @@
   }
 
   .valueSection,
-  .featuredSection,
   .offersSection {
     padding: 3rem 0;
   }

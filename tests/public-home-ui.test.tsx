@@ -9,8 +9,20 @@ const { authState } = vi.hoisted(() => ({
 
 vi.mock("@clerk/nextjs", () => ({ useUser: () => authState }));
 vi.mock("next/link", () => ({
-  default: ({ href, children, ...props }: { href: string; children: ReactNode }) =>
-    createElement("a", { href, ...props }, children),
+  default: (linkProps: {
+    href: string;
+    children: ReactNode;
+    prefetch?: boolean;
+  }) => {
+    const {
+    href,
+    children,
+    prefetch,
+    ...props
+    } = linkProps;
+    void prefetch;
+    return createElement("a", { href, ...props }, children);
+  },
 }));
 vi.mock("next/image", () => ({
   default: (props: { fill?: boolean; priority?: boolean; alt: string; src: string }) => {
@@ -58,7 +70,12 @@ const mount = async (
     throw new Error(`Unexpected URL: ${url}`);
   });
   await act(async () => {
-    root.render(<PublicHome featuredAthletes={featuredAthletes} />);
+    root.render(
+      <PublicHome
+        publicAthletes={featuredAthletes}
+        featuredAthletes={featuredAthletes}
+      />,
+    );
   });
   await act(async () => {
     await Promise.resolve();
@@ -71,6 +88,7 @@ beforeEach(() => {
   authState.isLoaded = true;
   authState.isSignedIn = false;
   vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -80,6 +98,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
