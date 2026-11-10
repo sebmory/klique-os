@@ -31,6 +31,12 @@ export const isScheduledSportsWatchRefreshCron = (
 
 export const isPublicHomePage = (pathname: string): boolean => pathname === "/";
 
+export const isPublicAthletesPage = (pathname: string, method: string): boolean =>
+  method === "GET" && (pathname === "/athletes" || pathname.startsWith("/athletes/"));
+
+export const isPublicSeoMetadataRoute = (pathname: string, method: string): boolean =>
+  method === "GET" && (pathname === "/robots.txt" || pathname === "/sitemap.xml");
+
 export const isProspectMembershipOrderApi = (pathname: string, method: string): boolean =>
   pathname === "/api/join/pass/order"
   && (method === "GET" || method === "POST" || method === "DELETE");
@@ -264,25 +270,31 @@ type ProxyAuth = {
 
 type CallableProxyAuth = ProxyAuth & (() => Promise<{ userId?: string | null }>);
 
+const isUnauthenticatedPublicRequest = (request: NextRequest): boolean => {
+  const { pathname } = request.nextUrl;
+
+  return isPublicRoute(request)
+    || isPublicHomePage(pathname)
+    || isPublicAthletesPage(pathname, request.method)
+    || isPublicSeoMetadataRoute(pathname, request.method)
+    || isPublicPassPage(pathname)
+    || isPublicKliqueStatsApi(pathname, request.method)
+    || isPublicMembershipPlansApi(pathname, request.method)
+    || isScheduledSportsWatchRefreshCron(pathname, request.method);
+};
+
 export const handleKliqueProxyRequest = async (
   auth: ProxyAuth,
   request: NextRequest,
 ) => {
   const { pathname } = request.nextUrl;
-  const authResult = typeof auth === "function" ? await (auth as CallableProxyAuth)() : null;
-  const clerkUserId = authResult?.userId ?? null;
 
-  if (
-    isPublicRoute(request)
-    || isPublicHomePage(pathname)
-    || isPublicPassPage(pathname)
-    || isPublicKliqueStatsApi(pathname, request.method)
-    || isPublicMembershipPlansApi(pathname, request.method)
-    || isScheduledSportsWatchRefreshCron(pathname, request.method)
-  ) {
+  if (isUnauthenticatedPublicRequest(request)) {
     return NextResponse.next();
   }
 
+  const authResult = typeof auth === "function" ? await (auth as CallableProxyAuth)() : null;
+  const clerkUserId = authResult?.userId ?? null;
   await auth.protect();
 
   if (isProspectPassPage(pathname) || isProspectMembershipOrderApi(pathname, request.method)) {
@@ -387,12 +399,23 @@ export const handleKliqueProxyRequest = async (
   return NextResponse.next();
 };
 
-export default clerkMiddleware(
+const protectedKliqueProxy = clerkMiddleware(
   handleKliqueProxyRequest,
   {
     signInUrl: "/sign-in",
   },
 );
+
+export default function proxy(
+  request: NextRequest,
+  event: Parameters<typeof protectedKliqueProxy>[1],
+) {
+  if (isUnauthenticatedPublicRequest(request)) {
+    return NextResponse.next();
+  }
+
+  return protectedKliqueProxy(request, event);
+}
 
 export const config = {
   matcher: [

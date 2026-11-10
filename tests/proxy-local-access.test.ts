@@ -30,7 +30,7 @@ vi.mock("@/lib/google-sheets", () => ({
 }));
 
 import { GET as getClerkAccess } from "@/app/api/clerk/access/route";
-import { handleKliqueProxyRequest } from "@/proxy";
+import { handleKliqueProxyRequest, isPublicAthletesPage } from "@/proxy";
 
 type AccessRow = {
   clerk_user_id: string;
@@ -111,6 +111,22 @@ describe("proxy local-first access", () => {
       }
       return [];
     });
+
+  });
+
+  it("opens only GET public athlete pages without opening an API or similarly named route", async () => {
+    expect(isPublicAthletesPage("/athletes", "GET")).toBe(true);
+    expect(isPublicAthletesPage("/athletes/mila-martin", "GET")).toBe(true);
+    expect(isPublicAthletesPage("/athletes", "POST")).toBe(false);
+    expect(isPublicAthletesPage("/api/athletes", "GET")).toBe(false);
+    expect(isPublicAthletesPage("/athlete", "GET")).toBe(false);
+
+    const publicAuth = makeAuth(null);
+    expectAllowed(await handleKliqueProxyRequest(publicAuth, request("/athletes/mila-martin")));
+    expect(protect).not.toHaveBeenCalled();
+
+    await handleKliqueProxyRequest(publicAuth, request("/today"));
+    expect(protect).toHaveBeenCalledOnce();
   });
 
   it("allows only GET on the exact scheduled Sports Watch Cron path past Clerk", async () => {

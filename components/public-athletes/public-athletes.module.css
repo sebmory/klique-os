@@ -1,0 +1,386 @@
+.page {
+  min-height: 100vh;
+  background: #f3f1eb;
+  color: #17211d;
+}
+
+.page * {
+  box-sizing: border-box;
+}
+
+.header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 1rem max(1rem, calc((100vw - 1180px) / 2));
+  border-bottom: 1px solid #cbc7bc;
+  background: #173c34;
+  color: #fff;
+}
+
+.brand {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+}
+
+.header nav {
+  display: flex;
+  gap: clamp(.8rem, 3vw, 2rem);
+}
+
+.header a {
+  color: inherit;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.intro,
+.directory,
+.profileBody {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 3rem;
+  padding: clamp(3rem, 6vw, 5rem) 0 clamp(1.75rem, 4vw, 3rem);
+}
+
+.eyebrow,
+.card p {
+  margin: 0;
+  color: #b44c32;
+  font-size: .75rem;
+  font-weight: 850;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.intro h1,
+.profileHero h1,
+.contentBlock h2,
+.emptyState h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+.intro h1 {
+  font-size: clamp(2.7rem, 6vw, 5rem);
+}
+
+.intro > div > p:last-child {
+  max-width: 62ch;
+  margin: 1.25rem 0 0;
+  color: #56615c;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.directory {
+  padding-bottom: 4rem;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid #c9c4b9;
+  background: #e7e2d7;
+}
+
+.filters label {
+  display: grid;
+  gap: .45rem;
+  font-size: .78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.filters input,
+.filters select {
+  width: 100%;
+  min-height: 48px;
+  padding: .7rem .8rem;
+  border: 1px solid #aeb4ae;
+  border-radius: 4px;
+  background: #fff;
+  color: #17211d;
+  font: inherit;
+  text-transform: none;
+}
+
+.resultCount {
+  margin: 1.25rem 0;
+  color: #68716c;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: grid;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #c9c4b9;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #d7d4cb;
+}
+
+.card div {
+  padding: 1rem;
+}
+
+.card h2 {
+  margin: .35rem 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.15rem, 1.7vw, 1.4rem);
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.card span {
+  display: block;
+  color: #66716b;
+  font-size: .88rem;
+  line-height: 1.35;
+}
+
+.loadMore {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.loadMore button {
+  min-height: 44px;
+  padding: .75rem 1.1rem;
+  border: 1px solid #173c34;
+  border-radius: 4px;
+  background: transparent;
+  color: #173c34;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.emptyState {
+  padding: 4rem 1rem;
+  border: 1px solid #c9c4b9;
+  text-align: center;
+}
+
+.emptyState p {
+  color: #66716b;
+}
+
+.emptyState button,
+.contactLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: .7rem 1rem;
+  border: 1px solid #173c34;
+  border-radius: 4px;
+  background: #173c34;
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.profileHero {
+  display: grid;
+  min-height: 610px;
+  grid-template-columns: 1fr 1fr;
+  background: #173c34;
+  color: #fff;
+}
+
+.profileHero img {
+  width: 100%;
+  height: 100%;
+  min-height: 430px;
+  object-fit: cover;
+}
+
+.profileHeroContent {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(2rem, 7vw, 7rem);
+}
+
+.profileHero h1 {
+  margin-top: .8rem;
+  font-size: clamp(3rem, 6vw, 5.7rem);
+}
+
+.profileMeta {
+  margin: .8rem 0 0;
+  color: #e0b46a;
+  font-weight: 800;
+}
+
+.profileBio {
+  max-width: 58ch;
+  margin: 1.6rem 0 0;
+  color: rgba(255,255,255,.82);
+  line-height: 1.75;
+}
+
+.profileBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  padding: clamp(3rem, 8vw, 7rem) 0;
+  background: #c9c4b9;
+  border: 1px solid #c9c4b9;
+}
+
+.contentBlock {
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background: #f3f1eb;
+}
+
+.contentBlock h2 {
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+}
+
+.contentBlock p,
+.contentBlock li {
+  color: #53605a;
+  line-height: 1.7;
+}
+
+.contentBlock ul {
+  padding-left: 1.2rem;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  color: #173c34;
+  font-weight: 800;
+}
+
+.page a:focus-visible,
+.page button:focus-visible,
+.page input:focus-visible,
+.page select:focus-visible {
+  outline: 3px solid #d9a441;
+  outline-offset: 3px;
+}
+
+@media (max-width: 800px) {
+  .intro,
+  .profileHero,
+  .profileBody {
+    grid-template-columns: 1fr;
+  }
+
+  .cardGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .header {
+    align-items: flex-start;
+  }
+
+  .header nav {
+    flex-direction: column;
+    gap: .55rem;
+    font-size: .85rem;
+  }
+
+  .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .cardGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+
+  .intro {
+    gap: 1rem;
+    padding: 2.5rem 0 1.5rem;
+  }
+
+  .intro h1 {
+    font-size: 2.5rem;
+  }
+
+  .intro > div > p:last-child {
+    margin-top: .9rem;
+    font-size: .96rem;
+    line-height: 1.55;
+  }
+
+  .filters {
+    gap: .75rem;
+    padding: 1rem;
+  }
+
+  .resultCount {
+    margin: 1rem 0;
+  }
+
+  .card div {
+    padding: .75rem;
+  }
+
+  .card h2 {
+    font-size: 1.08rem;
+  }
+
+  .card span {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: .78rem;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .loadMore {
+    margin-top: 1.5rem;
+  }
+
+  .profileHero {
+    min-height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

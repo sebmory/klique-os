@@ -12157,4 +12157,53 @@ button {
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+
+  .public-error-page {
+    display: grid;
+    min-height: 100vh;
+    place-content: center;
+    justify-items: start;
+    gap: 1rem;
+    padding: 2rem;
+    background: #f3f1eb;
+    color: #17211d;
+  }
+
+  .public-error-page > * {
+    max-width: 680px;
+    margin: 0;
+  }
+
+  .public-error-page > p:first-child {
+    color: #b44c32;
+    font-size: .75rem;
+    font-weight: 850;
+    letter-spacing: .06em;
+  }
+
+  .public-error-page h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(2.2rem, 6vw, 4.5rem);
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .public-error-page div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+
+  .public-error-page button,
+  .public-error-page a {
+    min-height: 44px;
+    padding: .75rem 1rem;
+    border: 1px solid #173c34;
+    border-radius: 4px;
+    background: #173c34;
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    text-decoration: none;
+  }
 }

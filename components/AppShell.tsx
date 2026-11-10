@@ -28,14 +28,21 @@ type AccessLoadStatus = "loading" | "authorized" | "denied" | "error";
 
 const sidebarStorageKey = "klique-sidebar-collapsed";
 
+export const isPublicAppShellRoute = (pathname: string): boolean =>
+  pathname === "/"
+  || pathname === "/athletes"
+  || pathname.startsWith("/athletes/")
+  || pathname.startsWith("/sign-in")
+  || pathname.startsWith("/sign-up")
+  || pathname === "/access-pending"
+  || pathname === "/pass"
+  || pathname === "/join/pass";
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useUser();
-  const isPublicHomeRoute = pathname === "/";
-  const isPublicAuthRoute = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
-  const isAccessPendingRoute = pathname === "/access-pending";
-  const isPassFlowRoute = pathname === "/pass" || pathname === "/join/pass";
+  const isPublicRoute = isPublicAppShellRoute(pathname);
   const clerkDisplayName =
     user?.fullName
     || [user?.firstName, user?.lastName].filter(Boolean).join(" ")
@@ -67,7 +74,7 @@ export function AppShell({ children }: AppShellProps) {
   }, [collapsed]);
 
   useEffect(() => {
-    if (isPublicHomeRoute || isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
+    if (isPublicRoute) {
       return;
     }
 
@@ -173,10 +180,7 @@ export function AppShell({ children }: AppShellProps) {
       cancelled = true;
     };
   }, [
-    isAccessPendingRoute,
-    isPassFlowRoute,
-    isPublicAuthRoute,
-    isPublicHomeRoute,
+    isPublicRoute,
     accessLoadAttempt,
     clerkDisplayName,
     router,
@@ -194,7 +198,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener("keydown", onEscape);
   }, []);
 
-  if (isPublicHomeRoute || isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
+  if (isPublicRoute) {
     return <>{children}</>;
   }
 

@@ -197,6 +197,23 @@ describe("getPublicAthleteProfileFromGoogleSheets", () => {
     expect(athletes.map((athlete) => athlete.athleteId)).toEqual(["athlete-1"]);
   });
 
+  it("excludes inactive, refused and prospect rows from the public directory", async () => {
+    mockSheets(
+      [
+        ["Athlete ID", "Nom", "Sport", "Club", "Statut", "Présentation publique", "Portrait URL"],
+        ["active", "Profil actif", "Judo", "Club", "Actif", "Bio", "https://images.example/active.jpg"],
+        ["inactive", "Profil inactif", "Judo", "Club", "Inactif", "Bio", "https://images.example/inactive.jpg"],
+        ["refused", "Profil refusé", "Judo", "Club", "Refusé", "Bio", "https://images.example/refused.jpg"],
+        ["prospect", "Profil prospect", "Judo", "Club", "Prospect", "Bio", "https://images.example/prospect.jpg"],
+      ],
+      [],
+    );
+
+    const athletes = await getPublicAthleteDirectoryFromGoogleSheets();
+
+    expect(athletes.map(({ athleteId }) => athleteId)).toEqual(["active"]);
+  });
+
   it("does not read Google Sheets for the hidden seb-mory public profile", async () => {
     const profile = await getPublicAthleteProfileFromGoogleSheets("seb-mory");
 

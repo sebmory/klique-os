@@ -45,7 +45,7 @@ vi.mock("@/components/app-shell/ModuleGuide", () => ({
   ModuleGuideForRoute: () => null,
 }));
 
-import { AppShell } from "@/components/AppShell";
+import { AppShell, isPublicAppShellRoute } from "@/components/AppShell";
 
 const fetchMock = vi.fn();
 let container: HTMLElement;
@@ -95,6 +95,14 @@ afterEach(async () => {
 });
 
 describe("AppShell access guardrails", () => {
+  it("recognizes only the intended public shell routes", () => {
+    expect(isPublicAppShellRoute("/athletes")).toBe(true);
+    expect(isPublicAppShellRoute("/athletes/mila-martin")).toBe(true);
+    expect(isPublicAppShellRoute("/athlete")).toBe(false);
+    expect(isPublicAppShellRoute("/today")).toBe(false);
+    expect(isPublicAppShellRoute("/api/athletes")).toBe(false);
+  });
+
   it("shows a neutral loading state without protected content or navigation", async () => {
     fetchMock.mockImplementation(() => new Promise(() => undefined));
 

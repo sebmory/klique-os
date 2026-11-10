@@ -13,11 +13,16 @@ vi.mock("next/link", () => ({
     createElement("a", { href, ...props }, children),
 }));
 vi.mock("next/image", () => ({
-  default: ({ fill: _fill, priority: _priority, ...props }: { fill?: boolean; priority?: boolean; alt: string; src: string }) =>
-    createElement("img", props),
+  default: (props: { fill?: boolean; priority?: boolean; alt: string; src: string }) => {
+    const imageProps = { ...props };
+    delete imageProps.fill;
+    delete imageProps.priority;
+    return createElement("img", imageProps);
+  },
 }));
 
 import PublicHome from "@/components/home/PublicHome";
+import type { PublicAthleteCard } from "@/lib/public-athletes";
 
 const plans = [
   { code: "essential", name: "Essentiel", annualPriceChf: 249, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
@@ -38,14 +43,16 @@ const mount = async (
     sportCount: 6,
     creativeCount: 4,
   })),
+  plansResponse: Promise<Response> = Promise.resolve(response({ plans })),
+  featuredAthletes: readonly PublicAthleteCard[] = [],
 ) => {
   fetchMock.mockImplementation((url: string) => {
-    if (url === "/api/public/membership-plans") return Promise.resolve(response({ plans }));
+    if (url === "/api/public/membership-plans") return plansResponse;
     if (url === "/api/public/klique-stats") return statsResponse;
     throw new Error(`Unexpected URL: ${url}`);
   });
   await act(async () => {
-    root.render(<PublicHome />);
+    root.render(<PublicHome featuredAthletes={featuredAthletes} />);
   });
   await act(async () => {
     await Promise.resolve();
@@ -80,38 +87,30 @@ describe("Public KLIQUE home", () => {
     expect(container.textContent).toContain("LE RÉSEAU AU SERVICE DES ATHLÈTES");
     expect(container.textContent).toContain("KLIQUE réunit autour des Athlètes les ressources, les expertises et les opportunités");
     expect(container.textContent).toContain("KLIQUE · UN RÉSEAU AUTOUR DE L’ATHLÈTE");
-    expect(container.textContent).toContain("Bien plus qu’un abonnement. Un réseau pour avancer.");
-    expect(container.textContent).toContain("Chaque Athlète a son parcours, ses besoins et ses objectifs.");
-    expect(container.textContent).toContain("Développer son image");
-    expect(container.textContent).toContain("S’entourer d’experts");
-    expect(container.textContent).toContain("Profiter d’avantages");
-    expect(container.textContent).toContain("Accéder à des opportunités");
-    expect(container.textContent).toContain("Activez votre réseau");
-    expect(container.textContent).toContain("Utilisez les contenus, expertises, avantages et opportunités disponibles");
-    expect(container.textContent).toContain("Un écosystème complémentaire, construit autour de l’Athlète.");
-    expect(container.textContent).toContain("Prêt à rejoindre un réseau construit autour de vos ambitions ?");
-    expect(container.textContent).toContain("Le paiement est vérifié manuellement par KLIQUE");
-    for (const actor of ["Athlètes", "Partenaires et experts", "Médias", "Créatifs KLIQUE"]) {
+    expect(container.textContent).toContain("Trois portes d’entrée");
+    expect(container.textContent).toContain("Des compétences qui répondent aux réalités du parcours.");
+    expect(container.textContent).toContain("Chaque Pass ouvre un niveau d’accompagnement");
+    expect(container.textContent).toContain("Quelle place voulez-vous prendre dans le réseau ?");
+    for (const actor of ["Athlètes", "Experts · Partenaires", "Créatifs · Médias"]) {
       expect(container.textContent).toContain(actor);
     }
     expect(container.textContent).toContain("Essentiel");
     expect(container.textContent).toContain("CHF 549.00");
     expect(container.textContent).toContain("3 crédit(s) production photo/vidéo");
     const passLinkLabels = [...container.querySelectorAll('a[href="/pass"]')].map((link) => link.textContent);
-    expect(passLinkLabels).toContain("Les offres");
-    expect(passLinkLabels.some((label) => label?.includes("Découvrir les Pass"))).toBe(true);
+    expect(passLinkLabels).toContain("Les Pass");
     expect(passLinkLabels.some((label) => label?.includes("Comparer les Pass"))).toBe(true);
-    expect(container.querySelectorAll('a[href="/sign-in"]')).toHaveLength(4);
+    expect(container.querySelector('a[href="/athletes"]')?.textContent).toContain("Les athlètes");
   });
 
   it("renders the four real statistics in an accessible band", async () => {
     await mount();
 
     const statsBand = container.querySelector('[aria-label="KLIQUE en chiffres"]');
-    expect(statsBand?.textContent).toContain("14Athlètes accompagnés");
-    expect(statsBand?.textContent).toContain("9Partenaires & experts");
+    expect(statsBand?.textContent).toContain("14Athlètes actifs accompagnés");
+    expect(statsBand?.textContent).toContain("9Partenaires & experts actifs");
     expect(statsBand?.textContent).toContain("6Disciplines représentées");
-    expect(statsBand?.textContent).toContain("4Créatifs");
+    expect(statsBand?.textContent).toContain("4Créatifs actifs");
     expect(statsBand?.querySelectorAll("strong")).toHaveLength(4);
   });
 
@@ -124,25 +123,50 @@ describe("Public KLIQUE home", () => {
     })));
 
     const statsBand = container.querySelector('[aria-label="KLIQUE en chiffres"]');
-    expect(statsBand?.textContent).toContain("14Athlètes accompagnés");
-    expect(statsBand?.textContent).toContain("9Partenaires & experts");
+    expect(statsBand?.textContent).toContain("14Athlètes actifs accompagnés");
+    expect(statsBand?.textContent).toContain("9Partenaires & experts actifs");
     expect(statsBand?.textContent).toContain("6Disciplines représentées");
-    expect(statsBand?.textContent).toContain("0Créatifs");
+    expect(statsBand?.textContent).toContain("0Créatifs actifs");
   });
 
   it("shows no false counters while statistics are loading", async () => {
     await mount(new Promise<Response>(() => {}));
 
     expect(container.querySelector('[aria-label="KLIQUE en chiffres"]')).toBeNull();
-    expect(container.textContent).not.toContain("0Athlètes accompagnés");
+    expect(container.textContent).not.toContain("0Athlètes actifs accompagnés");
   });
 
-  it("silently hides the statistics when their API is unavailable", async () => {
+  it("shows a compact retryable state when statistics are unavailable", async () => {
     await mount(Promise.resolve(response({ error: "indisponible" }, false)));
 
     expect(container.querySelector('[aria-label="KLIQUE en chiffres"]')).toBeNull();
-    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain("Les chiffres du réseau sont momentanément indisponibles.");
+    expect(container.querySelector('[role="alert"] button')?.textContent).toBe("Réessayer");
     expect(container.querySelector("h1")?.textContent).toBe("Votre ambition mérite tout un réseau.");
+  });
+
+  it("shows a separate retryable state when plans are unavailable", async () => {
+    await mount(undefined, Promise.resolve(response({ error: "indisponible" }, false)));
+
+    const alerts = [...container.querySelectorAll('[role="alert"]')];
+    expect(alerts.some((alert) => alert.textContent?.includes("Les offres sont momentanément indisponibles."))).toBe(true);
+    expect(alerts.some((alert) => alert.querySelector("button")?.textContent === "Réessayer")).toBe(true);
+  });
+
+  it("uses the premium placeholder for a featured athlete without portrait", async () => {
+    await mount(undefined, undefined, [{
+      slug: "noa-roy",
+      name: "Noa Roy",
+      sport: "Judo",
+      club: "Judo Club",
+      colorCategory: "combat",
+    }]);
+
+    const featuredLink = container.querySelector('a[href="/athletes/noa-roy"]');
+    expect(featuredLink?.textContent).toContain("NR");
+    expect(featuredLink?.textContent).toContain("Noa Roy");
+    expect(featuredLink?.querySelector("img")).toBeNull();
   });
 
   it("sends an authenticated visitor back to the existing workspace", async () => {
@@ -150,8 +174,7 @@ describe("Public KLIQUE home", () => {
     await mount();
 
     const workspaceLinks = [...container.querySelectorAll('a[href="/today"]')];
-    expect(workspaceLinks).toHaveLength(4);
+    expect(workspaceLinks).toHaveLength(2);
     expect(workspaceLinks.every((link) => link.textContent?.includes("Accéder à mon espace"))).toBe(true);
-    expect(container.querySelector('a[href="/sign-in"]')).toBeNull();
   });
 });
