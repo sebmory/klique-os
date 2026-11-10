@@ -654,6 +654,18 @@ const createMemoryRepository = (): SportsWatchRepository => {
       };
       return existing.binding;
     },
+    async getManualEntryByIdempotency() {
+      return null;
+    },
+    async getExactManualEntry() {
+      return null;
+    },
+    async listManualEntryDuplicates() {
+      return [];
+    },
+    async createManualEntry() {
+      throw new Error("Manual entry is not used by this test repository.");
+    },
   };
 };
 

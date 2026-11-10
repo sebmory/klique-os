@@ -18,9 +18,89 @@ export type SportsWatchSourceKey =
   | "safv"
   | "bebasket"
   | "swiss-basketball"
-  | "manual-import";
+  | "manual-import"
+  | "manual-entry";
 
-export type SportsWatchCollectionSourceKey = Exclude<SportsWatchSourceKey, "manual-import">;
+export type SportsWatchCollectionSourceKey = Exclude<
+  SportsWatchSourceKey,
+  "manual-import" | "manual-entry"
+>;
+
+export type SportsWatchManualNewsType =
+  | "result_match"
+  | "individual_performance"
+  | "selection_callup"
+  | "transfer_signing"
+  | "injury_return"
+  | "distinction"
+  | "record"
+  | "other_news";
+
+export type SportsWatchParticipationStatus =
+  | "starter"
+  | "entered"
+  | "unused_substitute"
+  | "unknown";
+
+export type SportsWatchManualStatistic = {
+  label: string;
+  value: string;
+  unit: string | null;
+};
+
+export type SportsWatchManualFootballDetails = {
+  team: string | null;
+  participationStatus: SportsWatchParticipationStatus;
+  minutes: number | null;
+  goals: number | null;
+  assists: number | null;
+  yellowCards: number | null;
+  redCards: number | null;
+  opponent: string | null;
+  score: string | null;
+  competition: string | null;
+  footstatsReference: string | null;
+  footstatsPlayerId: string | null;
+  footstatsTeamId: string | null;
+};
+
+export type SportsWatchManualBasketballDetails = {
+  starter: boolean | null;
+  minutes: number | null;
+  points: number | null;
+  rebounds: number | null;
+  assists: number | null;
+  steals: number | null;
+  blocks: number | null;
+};
+
+export type SportsWatchManualEntryMetadata = {
+  mode: "manual_entry";
+  newsType: SportsWatchManualNewsType;
+  competition: string | null;
+  opponent: string | null;
+  score: string | null;
+  source: string | null;
+  sourceReference: string | null;
+  internalNote: string | null;
+  football: SportsWatchManualFootballDetails | null;
+  basketball: SportsWatchManualBasketballDetails | null;
+  statistics: SportsWatchManualStatistic[];
+};
+
+export type SportsWatchManualEntryDuplicate = {
+  candidateId: string;
+  sourceName: string;
+  title: string;
+  eventDate: string | null;
+  articleUrl: string;
+  reason: string;
+};
+
+export type SportsWatchManualEntryCreation = {
+  candidate: SportsWatchCandidate;
+  created: boolean;
+};
 
 export type SwissBadmintonOfficialIdentity = {
   profileUrl: string;
@@ -228,6 +308,7 @@ export type SportsWatchCandidate = {
   adminStatus: SportsWatchAdminStatus;
   supersedesCandidateId: string | null;
   version: number;
+  manualEntry?: SportsWatchManualEntryMetadata | null;
 };
 
 export type SportsWatchCandidateTotals = Record<SportsWatchAdminStatus, number> & {

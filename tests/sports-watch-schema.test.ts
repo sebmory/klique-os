@@ -29,6 +29,10 @@ const dismissedStatusMigration = readFileSync(
   new URL("../db/migrations/20261112_sports_watch_dismissed_status.sql", import.meta.url),
   "utf8",
 );
+const manualEntryMigration = readFileSync(
+  new URL("../db/migrations/20261113_sports_watch_manual_entry.sql", import.meta.url),
+  "utf8",
+);
 
 describe("sports watch additive schema", () => {
   it("isolates workspaces, prevents concurrent runs and keeps content versions", () => {
@@ -96,5 +100,15 @@ describe("sports watch additive schema", () => {
     expect(dismissedStatusMigration).toContain("FOREIGN KEY (workspace_id, candidate_id)");
     expect(dismissedStatusMigration).toContain("BEFORE UPDATE OR DELETE");
     expect(dismissedStatusMigration).not.toMatch(/\bINSERT\s+INTO\s+sports_watch_candidates\b/i);
+  });
+
+  it("adds workspace-scoped manual entry metadata, attribution and idempotency", () => {
+    expect(manualEntryMigration).toContain("manual_entry_json JSONB");
+    expect(manualEntryMigration).toContain("created_by_clerk_user_id TEXT");
+    expect(manualEntryMigration).toContain("idempotency_key UUID");
+    expect(manualEntryMigration).toContain("ON sports_watch_candidates (workspace_id, idempotency_key)");
+    expect(manualEntryMigration).toContain("'manual_created'");
+    expect(manualEntryMigration).toContain("factual_verification_status = 'unverified'");
+    expect(manualEntryMigration).not.toMatch(/\bINSERT\s+INTO\s+sports_watch_candidates\b/i);
   });
 });

@@ -15,6 +15,7 @@ import {
 import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
+import { SportsWatchManualEntryPanel } from "@/components/app-shell/SportsWatchManualEntryPanel";
 import { SportsWatchResultsPresentation } from "@/components/app-shell/sports-watch/SportsWatchResultsPresentation";
 import type {
   BeBasketBinding,
@@ -180,6 +181,8 @@ const verificationLabels = {
   verified: "Vérifié",
   disputed: "Contesté",
 } as const;
+
+const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
 
 const pluralize = (count: number, singular: string, plural = `${singular}s`): string =>
   `${count} ${count === 1 ? singular : plural}`;
@@ -1591,11 +1594,49 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         <p style={{ margin: "0 0 0.45rem", whiteSpace: "pre-wrap", fontSize: "0.82rem" }}>
           {candidate.excerpt}
         </p>
+        {candidate.manualEntry ? (
+          <div
+            style={{
+              display: "grid",
+              gap: "0.25rem",
+              marginBottom: "0.5rem",
+              padding: "0.55rem",
+              borderRadius: "7px",
+              background: "#f8fafc",
+              fontSize: "0.76rem",
+            }}
+          >
+            <strong>Provenance manuelle</strong>
+            <span>Mode : {candidate.manualEntry.mode}</span>
+            {candidate.manualEntry.sourceReference ? (
+              <span>Référence : {candidate.manualEntry.sourceReference}</span>
+            ) : null}
+            {candidate.manualEntry.football?.footstatsPlayerId ? (
+              <span>Identifiant joueur Footstats : {candidate.manualEntry.football.footstatsPlayerId}</span>
+            ) : null}
+            {candidate.manualEntry.football?.footstatsTeamId ? (
+              <span>Identifiant équipe Footstats : {candidate.manualEntry.football.footstatsTeamId}</span>
+            ) : null}
+            {candidate.manualEntry.internalNote ? (
+              <span><strong>Note interne Admin :</strong> {candidate.manualEntry.internalNote}</span>
+            ) : null}
+          </div>
+        ) : null}
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.76rem" }}>
-          <a href={candidate.articleUrl} target="_blank" rel="noreferrer">
-            {candidate.sourceName === "BeBasket — source tierce" ? "Feuille BeBasket" : "Résultat officiel"}
-          </a>
-          <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">{candidate.sourceName}</a>
+          {isHttpUrl(candidate.articleUrl) ? (
+            <a href={candidate.articleUrl} target="_blank" rel="noreferrer">
+              {candidate.manualEntry
+                ? "Ouvrir la référence"
+                : candidate.sourceName === "BeBasket — source tierce"
+                  ? "Feuille BeBasket"
+                  : "Résultat officiel"}
+            </a>
+          ) : null}
+          {isHttpUrl(candidate.sourceUrl) && candidate.sourceUrl !== candidate.articleUrl ? (
+            <a href={candidate.sourceUrl} target="_blank" rel="noreferrer">{candidate.sourceName}</a>
+          ) : (
+            <span>{candidate.sourceName}</span>
+          )}
           <span>Attribution : {candidate.attributionStatus === "matched" ? "concordante" : "à vérifier"}</span>
           <span>Vérification : {verificationLabels[candidate.verificationStatus]}</span>
           <span>Collecte : {formatDate(candidate.collectedAt)}</span>
@@ -1847,6 +1888,39 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           </div>
         ) : null}
       </section>
+      <SportsWatchManualEntryPanel
+        athletes={athletes}
+        onCandidateCreated={(candidate, created) => {
+          setCandidates((current) => [
+            candidate,
+            ...current.filter((item) => item.id !== candidate.id),
+          ]);
+          if (!created) return;
+          setCandidateTotals((current) => ({
+            ...current,
+            [candidate.adminStatus]: current[candidate.adminStatus] + 1,
+          }));
+          setAthleteCandidateTotals((current) => {
+            const index = current.findIndex((total) => total.athleteId === candidate.athleteId);
+            if (index < 0) {
+              return [...current, {
+                athleteId: candidate.athleteId,
+                athleteName: candidate.athleteName,
+                pending: candidate.adminStatus === "pending" ? 1 : 0,
+                validated: candidate.adminStatus === "validated" ? 1 : 0,
+              }];
+            }
+            return current.map((total, currentIndex) =>
+              currentIndex === index
+                ? {
+                    ...total,
+                    pending: total.pending + (candidate.adminStatus === "pending" ? 1 : 0),
+                    validated: total.validated + (candidate.adminStatus === "validated" ? 1 : 0),
+                  }
+                : total);
+          });
+        }}
+      />
       <details className="today-secondary-action">
         <summary>Configurer une source ou importer un résultat</summary>
         <p style={{ margin: "0.5rem 0", color: "#6b7280", fontSize: "0.82rem" }}>

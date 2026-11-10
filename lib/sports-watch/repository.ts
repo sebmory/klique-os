@@ -15,6 +15,7 @@ import type {
   SportsWatchCandidateGroup,
   SportsWatchCandidatePage,
   SportsWatchCandidateTotals,
+  SportsWatchManualEntryMetadata,
   SwissBasketballBinding,
   SwissBasketballBindingVerification,
   SwissBadmintonBinding,
@@ -41,6 +42,7 @@ type CandidateRow = {
   admin_status: SportsWatchCandidate["adminStatus"];
   supersedes_candidate_id: string | null;
   version: number | string;
+  manual_entry_json: SportsWatchManualEntryMetadata | string | null;
 };
 
 type CandidateCursor = {
@@ -171,6 +173,16 @@ const readStringArray = (value: CandidateRow["attribution_evidence_json"]): stri
   return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
 };
 
+const readManualEntry = (
+  value: CandidateRow["manual_entry_json"],
+): SportsWatchManualEntryMetadata | null => {
+  if (value === null) return null;
+  const parsed = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  return parsed && typeof parsed === "object"
+    ? parsed as SportsWatchManualEntryMetadata
+    : null;
+};
+
 const mapCandidate = (row: CandidateRow): SportsWatchCandidate => ({
   id: row.id,
   athleteId: row.athlete_id,
@@ -191,6 +203,7 @@ const mapCandidate = (row: CandidateRow): SportsWatchCandidate => ({
   adminStatus: row.admin_status,
   supersedesCandidateId: row.supersedes_candidate_id,
   version: Number(row.version),
+  manualEntry: readManualEntry(row.manual_entry_json),
 });
 
 const encodeCandidateCursor = (candidate: SportsWatchCandidate): string =>
@@ -307,8 +320,38 @@ const candidateColumns = `
   event_date_from::text AS event_date_from,
   event_date_to::text AS event_date_to,
   collected_at, attribution_status, attribution_evidence_json,
-  factual_verification_status, admin_status, supersedes_candidate_id, version
+  factual_verification_status, admin_status, supersedes_candidate_id, version,
+  manual_entry_json
 `;
+
+export type SportsWatchManualEntryCandidateInput = {
+  id: string;
+  athlete: {
+    id: string;
+    name: string;
+    sport: string;
+    club: string;
+  };
+  sourceName: string;
+  sourceUrl: string;
+  articleUrl: string;
+  title: string;
+  excerpt: string;
+  resultKind: SportsWatchCandidate["resultKind"];
+  eventDate: string;
+  collectedAt: string;
+  attributionEvidence: string[];
+  initialStatus: "pending" | "validated";
+  logicalKey: string;
+  contentHash: string;
+  metadata: SportsWatchManualEntryMetadata;
+  idempotencyKey: string;
+};
+
+export type SportsWatchManualEntryStored = {
+  candidate: SportsWatchCandidate;
+  contentHash: string;
+};
 
 export type SportsWatchRepository = {
   startRun(input: {
@@ -352,6 +395,29 @@ export type SportsWatchRepository = {
   }): Promise<SportsWatchCandidate | null>;
   getValidatedCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
   getArticleCandidates(workspaceId: string, candidateIds: string[]): Promise<SportsWatchCandidate[]>;
+  getManualEntryByIdempotency(
+    workspaceId: string,
+    idempotencyKey: string,
+  ): Promise<SportsWatchManualEntryStored | null>;
+  getExactManualEntry(
+    workspaceId: string,
+    athleteId: string,
+    logicalKey: string,
+    contentHash: string,
+  ): Promise<SportsWatchCandidate | null>;
+  listManualEntryDuplicates(
+    workspaceId: string,
+    athleteId: string,
+    eventDate: string,
+  ): Promise<Array<{
+    candidate: SportsWatchCandidate;
+    sourceKey: string;
+  }>>;
+  createManualEntry(input: {
+    workspaceId: string;
+    clerkUserId: string;
+    candidate: SportsWatchManualEntryCandidateInput;
+  }): Promise<SportsWatchCandidate | null>;
   listSwissBindings(workspaceId: string): Promise<SwissBadmintonBinding[]>;
   getActiveSwissBinding(workspaceId: string, athleteId: string): Promise<SwissBadmintonBinding | null>;
   saveSwissBinding(input: {
@@ -864,6 +930,141 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
       ORDER BY array_position($2::uuid[], candidate.id)
     `, [workspaceId, candidateIds]) as CandidateRow[];
     return rows.map(mapCandidate);
+  },
+
+  async getManualEntryByIdempotency(workspaceId, idempotencyKey) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}, content_hash
+      FROM sports_watch_candidates
+      WHERE workspace_id = $1
+        AND source_key = 'manual-entry'
+        AND idempotency_key = $2
+      LIMIT 1
+    `, [workspaceId, idempotencyKey]) as Array<CandidateRow & { content_hash: string }>;
+    return rows[0]
+      ? { candidate: mapCandidate(rows[0]), contentHash: rows[0].content_hash }
+      : null;
+  },
+
+  async getExactManualEntry(workspaceId, athleteId, logicalKey, contentHash) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates
+      WHERE workspace_id = $1
+        AND source_key = 'manual-entry'
+        AND athlete_id = $2
+        AND logical_key = $3
+        AND content_hash = $4
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, [workspaceId, athleteId, logicalKey, contentHash]) as CandidateRow[];
+    return rows[0] ? mapCandidate(rows[0]) : null;
+  },
+
+  async listManualEntryDuplicates(workspaceId, athleteId, eventDate) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}, source_key
+      FROM sports_watch_candidates AS candidate
+      WHERE workspace_id = $1
+        AND athlete_id = $2
+        AND event_date_from = $3::date
+        AND admin_status IN ('pending', 'validated', 'exploited')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates AS replacement
+          WHERE replacement.workspace_id = candidate.workspace_id
+            AND replacement.supersedes_candidate_id = candidate.id
+        )
+      ORDER BY collected_at DESC
+      LIMIT 20
+    `, [workspaceId, athleteId, eventDate]) as Array<CandidateRow & { source_key: string }>;
+    return rows.map((row) => ({
+      candidate: mapCandidate(row),
+      sourceKey: row.source_key,
+    }));
+  },
+
+  async createManualEntry(input) {
+    const sql = createContentStorageClient();
+    const candidate = input.candidate;
+    const reviewed = candidate.initialStatus === "validated";
+    const rows = await sql.query(`
+      WITH previous AS (
+        SELECT id
+        FROM sports_watch_candidates
+        WHERE workspace_id = $1
+          AND athlete_id = $2
+          AND logical_key = $3
+        ORDER BY created_at DESC
+        LIMIT 1
+      ),
+      inserted AS (
+        INSERT INTO sports_watch_candidates (
+          id, workspace_id, source_key, athlete_id, athlete_name_snapshot,
+          athlete_sport_snapshot, athlete_club_snapshot, source_name, source_url,
+          article_url, title, excerpt, result_kind, publication_date,
+          event_date_from, event_date_to, collected_at, attribution_status,
+          attribution_evidence_json, factual_verification_status, admin_status,
+          reviewed_by_clerk_user_id, reviewed_at, logical_key, content_hash,
+          supersedes_candidate_id, manual_entry_json, created_by_clerk_user_id,
+          idempotency_key
+        ) VALUES (
+          $4::uuid, $1, 'manual-entry', $2, $5,
+          $6, $7, $8, $9,
+          $10, $11, $12, $13, NULL,
+          $14::date, $14::date, $15::timestamptz, 'matched',
+          $16::jsonb, 'unverified', $17,
+          CASE WHEN $18 THEN $19 ELSE NULL END,
+          CASE WHEN $18 THEN $15::timestamptz ELSE NULL END,
+          $3, $20, (SELECT id FROM previous),
+          $21::jsonb, $19, $22
+        )
+        ON CONFLICT DO NOTHING
+        RETURNING *
+      ),
+      logged AS (
+        INSERT INTO sports_watch_candidate_events (
+          id, workspace_id, candidate_id, action, from_status, to_status,
+          actor_clerk_user_id, created_at
+        )
+        SELECT
+          $23::uuid, $1, id, 'manual_created', admin_status, admin_status,
+          $19, $15::timestamptz
+        FROM inserted
+        RETURNING candidate_id
+      )
+      SELECT ${candidateColumns}
+      FROM inserted
+      WHERE EXISTS (SELECT 1 FROM logged WHERE logged.candidate_id = inserted.id)
+    `, [
+      input.workspaceId,
+      candidate.athlete.id,
+      candidate.logicalKey,
+      candidate.id,
+      candidate.athlete.name,
+      candidate.athlete.sport,
+      candidate.athlete.club,
+      candidate.sourceName,
+      candidate.sourceUrl,
+      candidate.articleUrl,
+      candidate.title,
+      candidate.excerpt,
+      candidate.resultKind,
+      candidate.eventDate,
+      candidate.collectedAt,
+      JSON.stringify(candidate.attributionEvidence),
+      candidate.initialStatus,
+      reviewed,
+      input.clerkUserId,
+      candidate.contentHash,
+      JSON.stringify(candidate.metadata),
+      candidate.idempotencyKey,
+      randomUUID(),
+    ]) as CandidateRow[];
+    return rows[0] ? mapCandidate(rows[0]) : null;
   },
 
   async listSwissBindings(workspaceId) {
