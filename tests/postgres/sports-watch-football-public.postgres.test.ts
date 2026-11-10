@@ -345,6 +345,47 @@ describePostgres.sequential("public football pilot on Neon Test", () => {
       clerkUserId: "admin-fixture",
     });
     expect(repeated?.id).toBe(attached?.id);
+    const stateBeforeRepeatedCollection = await sql.query(`
+      SELECT
+        (SELECT count(*)::int
+         FROM sports_watch_candidates
+         WHERE workspace_id = $1) AS candidate_count,
+        (SELECT count(*)::int
+         FROM sports_watch_football_source_suggestions
+         WHERE workspace_id = $1) AS suggestion_count,
+        (SELECT count(*)::int
+         FROM sports_watch_football_completion_events
+         WHERE workspace_id = $1) AS completion_event_count
+    `, [workspaceId]) as Array<{
+      candidate_count: number;
+      suggestion_count: number;
+      completion_event_count: number;
+    }>;
+    expect(await FootballPublicRepository.saveCollectedCandidates(
+      workspaceId,
+      [automaticCandidate],
+    )).toBe(0);
+    expect(await FootballPublicRepository.saveCollectedCandidates(
+      workspaceId,
+      [automaticCandidate],
+    )).toBe(0);
+    const stateAfterRepeatedCollection = await sql.query(`
+      SELECT
+        (SELECT count(*)::int
+         FROM sports_watch_candidates
+         WHERE workspace_id = $1) AS candidate_count,
+        (SELECT count(*)::int
+         FROM sports_watch_football_source_suggestions
+         WHERE workspace_id = $1) AS suggestion_count,
+        (SELECT count(*)::int
+         FROM sports_watch_football_completion_events
+         WHERE workspace_id = $1) AS completion_event_count
+    `, [workspaceId]) as Array<{
+      candidate_count: number;
+      suggestion_count: number;
+      completion_event_count: number;
+    }>;
+    expect(stateAfterRepeatedCollection[0]).toEqual(stateBeforeRepeatedCollection[0]);
     expect(await PostgresSportsWatchRepository.getCandidate(workspaceId, manual!.id))
       .toEqual(manual);
     expect(await FootballPublicRepository.listSourceSuggestions(workspaceId)).toEqual([]);

@@ -324,6 +324,10 @@ export const FootballPublicRepository = {
       for (const row of manualRows) {
         const manual = await PostgresSportsWatchRepository.getCandidate(workspaceId, row.id);
         if (!manual) continue;
+        if (manual.footballEvidence?.matchKey === candidate.footballEvidence.matchKey) {
+          suggested = true;
+          continue;
+        }
         const comparison = compareManualToEvidence(
           manual,
           candidate.athlete.id,
