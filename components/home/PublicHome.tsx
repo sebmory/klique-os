@@ -159,7 +159,7 @@ export default function PublicHome({ featuredAthletes = [] }: PublicHomeProps) {
             <ul className={styles.featuredGrid}>
               {featuredAthletes.map((athlete) => (
                 <li key={athlete.slug}>
-                  <Link href={`/athletes/${athlete.slug}`}>
+                  <Link href={`/athletes/${athlete.slug}`} prefetch={false}>
                     <AthletePortrait
                       name={athlete.name}
                       sport={athlete.sport}

@@ -74,7 +74,7 @@ export default function AthleteDirectory({ athletes }: AthleteDirectoryProps) {
           <ul id="athlete-directory-results" className={styles.cardGrid}>
             {displayedAthletes.map((athlete) => (
               <li key={athlete.slug}>
-                <Link className={styles.card} href={`/athletes/${athlete.slug}`}>
+                <Link className={styles.card} href={`/athletes/${athlete.slug}`} prefetch={false}>
                   <AthletePortrait
                     name={athlete.name}
                     sport={athlete.sport}
