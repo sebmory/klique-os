@@ -8,6 +8,7 @@ import { AdminTodayCockpit } from "@/components/app-shell/AdminTodayCockpit";
 import { adminNavigationGroups } from "@/components/app-shell/data";
 import { resolveModuleGuide } from "@/components/app-shell/module-guide-config";
 import {
+  athleteMonthVoteStatusPresentation,
   athleteRequestStatusPresentation,
   creativeApplicationStatusPresentation,
   creativeMissionQueueStatusPresentation,
@@ -136,6 +137,7 @@ describe("cockpit Admin Aujourd’hui", () => {
       partnerIntroductionStatusPresentation,
       partnerIntroductionModerationStatusPresentation,
       sportsWatchStatusPresentation,
+      athleteMonthVoteStatusPresentation,
     ]) {
       expect(Object.keys(dictionary).length).toBeGreaterThan(0);
       expect(Object.values(dictionary).every((item) =>
@@ -152,6 +154,7 @@ describe("cockpit Admin Aujourd’hui", () => {
       root.render(<AdminTodayCockpit />);
       await flush();
     });
+
     const links = Array.from(container.querySelectorAll(".today-quick-links a"));
     expect(links.map((link) => ({
       label: link.querySelector("strong")?.textContent,
@@ -167,6 +170,42 @@ describe("cockpit Admin Aujourd’hui", () => {
       { label: "Production", href: "/production" },
     ]);
     expect(links.every((link) => Boolean(link.querySelector("span")?.textContent))).toBe(true);
+  });
+
+  it("affiche le rappel mensuel dans la zone existante avec son statut partagé", async () => {
+    const fetchMock = vi.fn<
+      (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+    >(async (input) =>
+        String(input).endsWith("/actions")
+          ? jsonResponse({
+            items: [{
+              id: "athlete-month-vote",
+              label: "Annoncer l’Athlète du mois d’octobre",
+              count: 1,
+              actionCount: 1,
+              priority: "urgente",
+              oldestAt: null,
+              ageLabel: null,
+              timingLabel: "À annoncer avant le 5 novembre",
+              href: "/ai-studio#athlete-of-the-month",
+              status: "overdue",
+            }],
+            errors: [],
+          })
+          : jsonResponse({ items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<AdminTodayCockpit />);
+      await flush();
+    });
+
+    expect(container.querySelectorAll("main > section")).toHaveLength(3);
+    expect(container.textContent).toContain("Annoncer l’Athlète du mois d’octobre");
+    expect(container.textContent).toContain("À annoncer avant le 5 novembre");
+    expect(container.textContent).toContain("En retard");
+    expect(container.querySelector('a[href="/ai-studio#athlete-of-the-month"]')).not.toBeNull();
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
   it("prévoit une grille mobile 390 px sans débordement et ne remonte plus l’ancien tableau", () => {

@@ -9,6 +9,7 @@ import type {
   PartnerAthleteIntroductionStatus,
 } from "@/lib/partner-athlete-introductions/contracts";
 import type { SportsWatchAdminStatus } from "@/types/sports-watch";
+import type { AthleteMonthReminderStatus } from "@/lib/athlete-month-reminder";
 
 export type StatusTone = "neutral" | "info" | "warning" | "success" | "danger";
 
@@ -73,4 +74,12 @@ export const sportsWatchStatusPresentation = definePresentations<SportsWatchAdmi
   exploited: { label: "Exploité", tone: "success", description: "Le résultat a été utilisé.", nextAction: "Aucune action", iconToken: "check" },
   rejected: { label: "Rejeté", tone: "neutral", description: "Le résultat a été refusé.", nextAction: "Aucune action", iconToken: "archive" },
   dismissed: { label: "Non exploitée", tone: "neutral", description: "Le résultat a été écarté.", nextAction: "Aucune action", iconToken: "archive" },
+});
+
+export const athleteMonthVoteStatusPresentation = definePresentations<AthleteMonthReminderStatus>({
+  prepare: { label: "À préparer", tone: "warning", description: "Le vote du mois récompensé doit être préparé.", nextAction: "Sélectionner les nominés", iconToken: "clock" },
+  draft: { label: "Brouillon", tone: "warning", description: "Le vote est commencé mais pas encore prêt.", nextAction: "Finaliser les nominations", iconToken: "alert" },
+  published: { label: "En cours", tone: "info", description: "Le vote est ouvert avec trois nominés.", nextAction: "Suivre le vote", iconToken: "play" },
+  announce: { label: "À annoncer", tone: "warning", description: "Le vainqueur du mois récompensé doit être annoncé.", nextAction: "Désigner le vainqueur", iconToken: "clock" },
+  overdue: { label: "En retard", tone: "danger", description: "La date cible d’annonce est dépassée.", nextAction: "Annoncer le vainqueur", iconToken: "alert" },
 });

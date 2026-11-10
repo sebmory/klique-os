@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { queryMock, applicationSummaryMock, sportsCountMock, sportsOldestMock } = vi.hoisted(() => ({
+const {
+  queryMock,
+  applicationSummaryMock,
+  sportsCountMock,
+  sportsOldestMock,
+  athleteMonthReminderMock,
+} = vi.hoisted(() => ({
   queryMock: vi.fn(),
   applicationSummaryMock: vi.fn(),
   sportsCountMock: vi.fn(),
   sportsOldestMock: vi.fn(),
+  athleteMonthReminderMock: vi.fn(),
 }));
 
 vi.mock("@/lib/content-storage/db", () => ({
@@ -21,6 +28,10 @@ vi.mock("@/lib/sports-watch/repository", () => ({
     countCandidates: sportsCountMock,
     getOldestActiveCandidateAt: sportsOldestMock,
   },
+}));
+
+vi.mock("@/lib/athlete-month-reminder", () => ({
+  loadAthleteMonthReminder: athleteMonthReminderMock,
 }));
 
 import {
@@ -46,6 +57,7 @@ describe("résumés du cockpit Admin", () => {
       supersededPending: 1,
       supersededValidated: 2,
     });
+    athleteMonthReminderMock.mockResolvedValue(null);
     queryMock.mockImplementation(async (query: string) => {
       if (query.includes("athlete_service_requests")) {
         return [{ count: 2, oldest_at: "2026-11-03T10:00:00.000Z" }];
@@ -110,5 +122,29 @@ describe("résumés du cockpit Admin", () => {
     expect(result).toHaveLength(5);
     expect(result.every((item) => item.date.endsWith("Z"))).toBe(true);
     expect(queryMock.mock.calls[0][1]).toEqual(["workspace-a"]);
+  });
+
+  it("ajoute au plus une carte de vote et transmet le workspace et la date", async () => {
+    athleteMonthReminderMock.mockResolvedValueOnce({
+      status: "overdue",
+      rewardMonth: 10,
+      rewardYear: 2026,
+      label: "Annoncer l’Athlète du mois d’octobre",
+      timingLabel: "À annoncer avant le 5 novembre",
+      priority: "urgente",
+      actionCount: 1,
+    });
+    const now = new Date("2026-11-06T00:00:00.000+01:00");
+
+    const result = await getTodayActionsSummary("workspace-a", now);
+    const reminders = result.items.filter((item) => item.id === "athlete-month-vote");
+
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]).toMatchObject({
+      count: 1,
+      status: "overdue",
+      href: "/ai-studio#athlete-of-the-month",
+    });
+    expect(athleteMonthReminderMock).toHaveBeenCalledWith("workspace-a", now);
   });
 });

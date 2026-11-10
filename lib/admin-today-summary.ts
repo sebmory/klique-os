@@ -2,9 +2,13 @@ import { getDefaultWorkspaceId, createContentStorageClient } from "@/lib/content
 import { summarizeCreativeApplicationsModeration } from "@/lib/creatives/applications-sheet";
 import { resolveIntroductionStaleDays } from "@/lib/partner-athlete-introductions/domain";
 import { PostgresSportsWatchRepository } from "@/lib/sports-watch/repository";
+import {
+  loadAthleteMonthReminder,
+  type AthleteMonthReminderStatus,
+} from "@/lib/athlete-month-reminder";
 
 export type TodayActionSummaryItem = {
-  id: "creative-applications" | "athlete-requests" | "session-reviews" | "creative-missions" | "introductions" | "sports-watch";
+  id: "creative-applications" | "athlete-requests" | "session-reviews" | "creative-missions" | "introductions" | "sports-watch" | "athlete-month-vote";
   label: string;
   count: number;
   actionCount?: number;
@@ -13,6 +17,8 @@ export type TodayActionSummaryItem = {
   ageLabel: string | null;
   href: string;
   details?: Array<{ label: string; count: number }>;
+  status?: AthleteMonthReminderStatus;
+  timingLabel?: string;
 };
 
 export type TodayDeadline = {
@@ -233,23 +239,53 @@ const countSportsWatch = async (workspaceId: string): Promise<TodayActionSummary
   };
 };
 
-const actionSources = [
-  ["Candidatures créatives", countCreativeApplications],
-  ["Demandes Athlètes", countAthleteRequests],
-  ["Séances", countSessionReviews],
-  ["Missions", countCreativeMissions],
-  ["Mises en relation", countIntroductions],
-  ["Sports Watch", countSportsWatch],
-] as const;
+const countAthleteMonthVote = async (
+  workspaceId: string,
+  now: Date,
+): Promise<TodayActionSummaryItem | null> => {
+  const reminder = await loadAthleteMonthReminder(workspaceId, now);
+  if (!reminder) return null;
 
-export const getTodayActionsSummary = async (workspaceId: string): Promise<TodayActionsSummary> => {
+  return {
+    id: "athlete-month-vote",
+    label: reminder.label,
+    count: 1,
+    actionCount: reminder.actionCount,
+    priority: reminder.priority,
+    oldestAt: null,
+    ageLabel: null,
+    timingLabel: reminder.timingLabel,
+    href: "/ai-studio#athlete-of-the-month",
+    status: reminder.status,
+  };
+};
+
+export const getTodayActionsSummary = async (
+  workspaceId: string,
+  now = new Date(),
+): Promise<TodayActionsSummary> => {
+  const actionSources: ReadonlyArray<readonly [
+    string,
+    (sourceWorkspaceId: string, sourceNow: Date) => Promise<TodayActionSummaryItem | null>,
+  ]> = [
+    ["Candidatures créatives", countCreativeApplications],
+    ["Demandes Athlètes", countAthleteRequests],
+    ["Séances", countSessionReviews],
+    ["Missions", countCreativeMissions],
+    ["Mises en relation", countIntroductions],
+    ["Sports Watch", countSportsWatch],
+    ["Vote de l’Athlète du mois", countAthleteMonthVote],
+  ];
   const settled = await Promise.allSettled(
-    actionSources.map(([, load]) => load(workspaceId)),
+    actionSources.map(([, load]) => load(workspaceId, now)),
   );
   return settled.reduce<TodayActionsSummary>(
     (summary, result, index) => {
-      if (result.status === "fulfilled") summary.items.push(result.value);
-      else summary.errors.push(sourceError(actionSources[index][0]));
+      if (result.status === "fulfilled") {
+        if (result.value) summary.items.push(result.value);
+      } else {
+        summary.errors.push(sourceError(actionSources[index][0]));
+      }
       return summary;
     },
     { items: [], errors: [] },

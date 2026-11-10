@@ -7,6 +7,7 @@ import type {
   TodayDeadline,
 } from "@/lib/admin-today-summary";
 import {
+  athleteMonthVoteStatusPresentation,
   creativeApplicationStatusPresentation,
   sportsWatchStatusPresentation,
 } from "@/lib/status-presentation";
@@ -152,6 +153,8 @@ export function AdminTodayCockpit() {
                     ? creativeApplicationStatusPresentation.pending.label
                     : item.id === "sports-watch"
                       ? sportsWatchStatusPresentation.pending.label
+                      : item.id === "athlete-month-vote" && item.status
+                        ? athleteMonthVoteStatusPresentation[item.status].label
                       : null;
                   return (
                     <Link href={item.href} className="today-action-card" key={item.id}>
@@ -160,7 +163,7 @@ export function AdminTodayCockpit() {
                       <span className={`today-action-priority is-${item.priority}`}>
                         Priorité {item.priority}
                       </span>
-                      {item.ageLabel ? (
+                      {item.timingLabel ? <small>{item.timingLabel}</small> : item.ageLabel ? (
                         <time dateTime={item.oldestAt ?? undefined}>{item.ageLabel}</time>
                       ) : <small>Aucune ancienneté disponible</small>}
                       {statusLabel ? <small>{statusLabel}</small> : null}

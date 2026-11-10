@@ -908,7 +908,7 @@ export function WorkspaceLanding({
         ) : null}
 
         {athletesAvailable ? (
-          <Card className="workspace-dashboard-card card-priorities dashboard-award-card">
+          <Card id="athlete-of-the-month" className="workspace-dashboard-card card-priorities dashboard-award-card">
             <header className="dashboard-card-head">
               <h2>Athlete KLIQUE du mois</h2>
               <div className="dashboard-card-head-right">
