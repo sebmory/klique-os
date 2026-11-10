@@ -79,6 +79,7 @@ export type CanonicalCreativeMission = {
     toState: CanonicalCreativeMissionState;
     actor: string;
     note: string | null;
+    details?: Record<string, unknown>;
     createdAt: string;
   }>;
   updatedAt: string;
@@ -334,6 +335,7 @@ export const createCanonicalCreativeMissionRepository = (): CanonicalCreativeMis
               'toState', event.to_state,
               'actor', event.actor,
               'note', event.note,
+              'details', event.details,
               'createdAt', event.created_at
             )
             ORDER BY event.created_at, event.id

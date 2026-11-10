@@ -1982,6 +1982,127 @@ button {
   padding-top: 10px;
 }
 
+.admin-mission-journey {
+  border-top: 1px solid #efebe5;
+  padding-top: 12px;
+}
+
+.admin-mission-journey > summary {
+  width: fit-content;
+  border: 1px solid #d6a900;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #ffd54a;
+  color: #252525;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.admin-mission-journey > summary:focus-visible {
+  outline: 2px solid #a98400;
+  outline-offset: 3px;
+}
+
+.mission-journey-summary {
+  margin-top: 14px;
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  background: #faf8f3;
+}
+
+.mission-journey-summary h3,
+.mission-journey-summary p {
+  margin: 0;
+}
+
+.mission-journey-summary > mark {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #eef5ff;
+  color: #294d76;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mission-journey-summary > mark[data-tone="success"] {
+  background: #effaf2;
+  color: #27623a;
+}
+
+.mission-journey-summary > mark[data-tone="warning"] {
+  background: #fff3bf;
+  color: #6b5400;
+}
+
+.mission-journey-summary > mark[data-tone="neutral"] {
+  background: #f1eee8;
+  color: #5f5a50;
+}
+
+.mission-journey-timeline {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.mission-journey-timeline li {
+  position: relative;
+  min-width: 0;
+  border-left: 3px solid #c8c2b8;
+  padding: 8px 10px 8px 13px;
+  display: grid;
+  gap: 2px;
+  background: #ffffff;
+}
+
+.mission-journey-timeline li[data-status="current"] {
+  border-left-color: #d6a900;
+  background: #fffaf0;
+}
+
+.mission-journey-timeline li[data-status="next"] {
+  border-left-style: dashed;
+  opacity: 0.72;
+}
+
+.mission-journey-timeline span {
+  color: #303030;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.mission-journey-timeline small,
+.mission-journey-timeline time {
+  color: #6b6b6b;
+  font-size: 0.76rem;
+}
+
+.mission-journey-warnings {
+  border: 1px solid #e2bf34;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff9df;
+  color: #5d4b00;
+}
+
+.mission-journey-warnings ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.mission-journey-source-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
 .admin-mission-details summary {
   width: fit-content;
   color: #665200;

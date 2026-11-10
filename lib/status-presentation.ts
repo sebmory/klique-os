@@ -21,6 +21,27 @@ export type StatusPresentation = {
   iconToken?: "clock" | "check" | "alert" | "play" | "archive";
 };
 
+export type MissionJourneyActor = "Admin" | "Athlète" | "Créatif" | null;
+
+export type MissionJourneyStatus =
+  | "request_review"
+  | "mission_to_organize"
+  | "proposal_sent"
+  | "creative_response"
+  | "creative_assigned"
+  | "mission_confirmed"
+  | "mission_in_progress"
+  | "delivery_received"
+  | "changes_requested"
+  | "completed"
+  | "refused"
+  | "cancelled"
+  | "closed_without_action";
+
+export type MissionJourneyStatusPresentation = StatusPresentation & {
+  expectedActor: MissionJourneyActor;
+};
+
 const definePresentations = <Status extends string>(
   values: Record<Status, StatusPresentation>,
 ): Record<Status, StatusPresentation> => values;
@@ -83,3 +104,113 @@ export const athleteMonthVoteStatusPresentation = definePresentations<AthleteMon
   announce: { label: "À annoncer", tone: "warning", description: "Le vainqueur du mois récompensé doit être annoncé.", nextAction: "Désigner le vainqueur", iconToken: "clock" },
   overdue: { label: "En retard", tone: "danger", description: "La date cible d’annonce est dépassée.", nextAction: "Annoncer le vainqueur", iconToken: "alert" },
 });
+
+export const missionJourneyStatusPresentation: Record<
+  MissionJourneyStatus,
+  MissionJourneyStatusPresentation
+> = {
+  request_review: {
+    label: "Demande à examiner",
+    tone: "warning",
+    description: "La demande attend une décision de KLIQUE.",
+    expectedActor: "Admin",
+    nextAction: "Examiner la demande",
+    iconToken: "clock",
+  },
+  mission_to_organize: {
+    label: "Mission à organiser",
+    tone: "warning",
+    description: "Les modalités et le Créatif doivent être préparés.",
+    expectedActor: "Admin",
+    nextAction: "Organiser la mission",
+    iconToken: "alert",
+  },
+  proposal_sent: {
+    label: "Proposition envoyée",
+    tone: "info",
+    description: "La proposition attend une réponse du réseau créatif.",
+    expectedActor: "Créatif",
+    nextAction: "Répondre à la proposition",
+    iconToken: "clock",
+  },
+  creative_response: {
+    label: "Réponse reçue",
+    tone: "warning",
+    description: "Une réponse créative attend la décision de KLIQUE.",
+    expectedActor: "Admin",
+    nextAction: "Choisir le Créatif",
+    iconToken: "alert",
+  },
+  creative_assigned: {
+    label: "Créatif affecté",
+    tone: "info",
+    description: "Le Créatif retenu doit confirmer les conditions.",
+    expectedActor: "Créatif",
+    nextAction: "Confirmer la prise en charge",
+    iconToken: "clock",
+  },
+  mission_confirmed: {
+    label: "Mission confirmée",
+    tone: "success",
+    description: "La mission est confirmée et peut être réalisée.",
+    expectedActor: "Créatif",
+    nextAction: "Réaliser la mission",
+    iconToken: "check",
+  },
+  mission_in_progress: {
+    label: "Mission en cours",
+    tone: "info",
+    description: "La réalisation ou la préparation des contenus est en cours.",
+    expectedActor: "Créatif",
+    nextAction: "Transmettre la livraison",
+    iconToken: "play",
+  },
+  delivery_received: {
+    label: "Livraison reçue",
+    tone: "warning",
+    description: "La livraison attend la validation de KLIQUE.",
+    expectedActor: "Admin",
+    nextAction: "Vérifier la livraison",
+    iconToken: "alert",
+  },
+  changes_requested: {
+    label: "Modifications demandées",
+    tone: "info",
+    description: "Une nouvelle version est attendue.",
+    expectedActor: "Créatif",
+    nextAction: "Transmettre une nouvelle version",
+    iconToken: "clock",
+  },
+  completed: {
+    label: "Terminée",
+    tone: "success",
+    description: "La mission est terminée.",
+    expectedActor: null,
+    nextAction: "Aucune action",
+    iconToken: "check",
+  },
+  refused: {
+    label: "Refusée",
+    tone: "neutral",
+    description: "La demande ou la proposition a été refusée.",
+    expectedActor: null,
+    nextAction: "Aucune action",
+    iconToken: "archive",
+  },
+  cancelled: {
+    label: "Annulée",
+    tone: "neutral",
+    description: "La mission a été annulée.",
+    expectedActor: null,
+    nextAction: "Aucune action",
+    iconToken: "archive",
+  },
+  closed_without_action: {
+    label: "Classée sans suite",
+    tone: "neutral",
+    description: "Le parcours est conservé dans l’historique sans réalisation.",
+    expectedActor: null,
+    nextAction: "Aucune action",
+    iconToken: "archive",
+  },
+};

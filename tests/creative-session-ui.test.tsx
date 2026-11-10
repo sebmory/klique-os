@@ -43,7 +43,11 @@ afterEach(async () => {
 
 describe("creative availability and session request UI", () => {
   it("renders the Athlete mobile-first request choice without Creative identities", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => json({ requests: [] })));
+    const fetchMock = vi.fn((
+      _input: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => json({ requests: [] }));
+    vi.stubGlobal("fetch", fetchMock);
     await act(async () => root.render(<AthleteSessionRequests />));
     await flush();
     const open = [...container.querySelectorAll("button")]
@@ -55,6 +59,7 @@ describe("creative availability and session request UI", () => {
     expect(container.textContent).toContain("ne réserve aucun créatif");
     expect(container.textContent).not.toContain("Créatif Test");
     expect(container.querySelector('input[type="date"]')).not.toBeNull();
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
   });
 
   it("uses the unified Athlete status without exposing internal costs", async () => {
@@ -109,6 +114,7 @@ describe("creative availability and session request UI", () => {
     expect(container.textContent).not.toContain("Préparation Production");
     expect(container.textContent).not.toContain("Droit ou coût");
     expect(container.textContent).not.toContain("450");
+    expect(container.textContent).toContain("Mission à organiser");
   });
 
   it("renders the Creative owner form, timezone and non-booking notice", async () => {
@@ -191,6 +197,9 @@ describe("creative availability and session request UI", () => {
     expect(container.textContent).toContain("20 photos");
     expect(container.textContent).toContain("Répondre avant");
     expect(container.textContent).toContain("1 déc. 2026");
+    expect(container.textContent).toContain("Proposition reçue");
+    expect(container.textContent).toContain("Répondre à la proposition");
+    expect(container.textContent).not.toContain("confirmationStatus");
   });
 
   it("renders the Admin counter, filters and empty queue", async () => {

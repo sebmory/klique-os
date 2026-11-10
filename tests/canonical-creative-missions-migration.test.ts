@@ -4,6 +4,7 @@ import {
   buildCreativeMissionRegularizationPayload,
   creativeMissionRegularizationFixtures,
 } from "@/fixtures/creative-mission-regularization";
+import { parseScriptMode } from "@/lib/production-script-safety";
 
 const migration = readFileSync(
   "db/migrations/20261113_canonical_creative_missions_v1.sql",
@@ -114,7 +115,8 @@ describe("approved historical regularization fixtures", () => {
   });
 
   it("keeps execution explicit and opt-in", () => {
-    expect(script).toContain('process.argv.includes("--apply")');
+    expect(parseScriptMode([])).toEqual({ apply: false, skipConfirmation: false });
+    expect(parseScriptMode(["--apply"])).toEqual({ apply: true, skipConfirmation: false });
     expect(script).toContain("Dry-run uniquement");
     expect(script).toContain("completedMissionServiceLinks");
     expect(script).toContain("closedEntryRequestLinks");

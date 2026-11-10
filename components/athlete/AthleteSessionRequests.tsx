@@ -5,6 +5,10 @@ import type {
   AthleteSessionRequest,
   AthleteSessionRequestType,
 } from "@/lib/athlete-session-requests";
+import {
+  projectAthleteSessionJourney,
+  type AthleteMissionJourney,
+} from "@/lib/mission-journey";
 
 type FormState = {
   requestType: AthleteSessionRequestType;
@@ -49,23 +53,6 @@ const emptyForm = (): FormState => ({
   ],
 });
 
-const statusLabels: Record<AthleteSessionRequest["workflowStatus"], string> = {
-  draft: "Brouillon",
-  submitted: "À examiner",
-  admin_review: "À examiner",
-  accepted: "À organiser",
-  refused: "Classée sans suite",
-  changes_requested: "À examiner — complément demandé",
-  production_linked: "À organiser",
-  proposed_to_creatives: "Proposition envoyée",
-  candidate_received: "Proposition envoyée",
-  assigned: "Confirmation en attente",
-  creative_agreed: "Confirmation en attente",
-  confirmed: "Confirmée",
-  completed: "Terminée",
-  cancelled: "Annulée",
-};
-
 const formatZurich = (value: string | null) => value
   ? new Intl.DateTimeFormat("fr-CH", {
       timeZone: "Europe/Zurich",
@@ -74,8 +61,13 @@ const formatZurich = (value: string | null) => value
     }).format(new Date(value))
   : "À convenir";
 
+const asAthleteJourney = (
+  request: AthleteMissionJourney | AthleteSessionRequest,
+): AthleteMissionJourney =>
+  "timeline" in request ? request : projectAthleteSessionJourney(request);
+
 export function AthleteSessionRequests() {
-  const [requests, setRequests] = useState<AthleteSessionRequest[]>([]);
+  const [requests, setRequests] = useState<AthleteMissionJourney[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -91,9 +83,12 @@ export function AthleteSessionRequests() {
       credentials: "include",
       cache: "no-store",
     });
-    const payload = await response.json() as { requests?: AthleteSessionRequest[]; error?: string };
+    const payload = await response.json() as {
+      requests?: Array<AthleteMissionJourney | AthleteSessionRequest>;
+      error?: string;
+    };
     if (!response.ok) throw new Error(payload.error || "Impossible de charger vos demandes.");
-    setRequests(payload.requests ?? []);
+    setRequests((payload.requests ?? []).map(asAthleteJourney));
   }, []);
 
   useEffect(() => {
@@ -147,12 +142,15 @@ export function AthleteSessionRequests() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = await response.json() as { request?: AthleteSessionRequest; error?: string };
+      const payload = await response.json() as {
+        request?: AthleteMissionJourney | AthleteSessionRequest;
+        error?: string;
+      };
       if (!response.ok || !payload.request) {
         throw new Error(payload.error || "Impossible d’envoyer la demande.");
       }
       setRequests((current) => [
-        payload.request!,
+        asAthleteJourney(payload.request!),
         ...current.filter((item) => item.id !== payload.request!.id),
       ]);
       submissionKey.current = crypto.randomUUID();
@@ -183,7 +181,7 @@ export function AthleteSessionRequests() {
         idempotencyKey: crypto.randomUUID(),
       }),
     });
-    const payload = await response.json() as { request?: AthleteSessionRequest; error?: string };
+    const payload = await response.json() as { request?: AthleteMissionJourney; error?: string };
     if (!response.ok) throw new Error(payload.error || "Action impossible.");
     await load();
     setComplements((current) => ({ ...current, [requestId]: "" }));
@@ -291,24 +289,32 @@ export function AthleteSessionRequests() {
           <article key={request.id}>
             <header>
               <div>
-                <strong>{request.requestType === "media_day" ? "Media Day" : `${request.eventType} · ${request.sport}`}</strong>
-                <span>{formatZurich(request.eventStartsAt ?? request.periods[0]?.startsAt ?? null)}</span>
+                <strong>{request.title}</strong>
+                <span>{formatZurich(request.scheduledAt)}</span>
               </div>
-              <mark>{statusLabels[request.workflowStatus]}</mark>
+              <mark>{request.label}</mark>
             </header>
             <p>{request.objective}</p>
             <dl>
               <div><dt>Région</dt><dd>{request.region}</dd></div>
               <div><dt>Prochaine étape</dt><dd>{request.nextAction}</dd></div>
             </dl>
-            {request.adminReason ? <p className="athlete-session-reason"><strong>Message de KLIQUE :</strong> {request.adminReason}</p> : null}
-            {request.workflowStatus === "changes_requested" ? (
+            <ol className="mission-journey-timeline" aria-label="Parcours de la demande">
+              {request.timeline.map((item) => (
+                <li key={item.id} data-status={item.status}>
+                  <span>{item.label}</span>
+                  {item.occurredAt ? <time dateTime={item.occurredAt}>{formatZurich(item.occurredAt)}</time> : null}
+                </li>
+              ))}
+            </ol>
+            {request.adminMessage ? <p className="athlete-session-reason"><strong>Message de KLIQUE :</strong> {request.adminMessage}</p> : null}
+            {request.complementRequired ? (
               <div className="athlete-session-complement">
                 <label>Votre complément<textarea value={complements[request.id] ?? ""} onChange={(event) => setComplements({ ...complements, [request.id]: event.target.value })} /></label>
                 <button type="button" className="primary-button" disabled={!complements[request.id]?.trim()} onClick={() => void mutate(request.id, "respond_complement").catch((failure) => setError(failure.message))}>Envoyer le complément</button>
               </div>
             ) : null}
-            {!["confirmed", "completed", "cancelled", "refused"].includes(request.workflowStatus) ? (
+            {request.canCancel ? (
               <button type="button" className="secondary-button" onClick={() => void mutate(request.id, "cancel").catch((failure) => setError(failure.message))}>Annuler ma demande</button>
             ) : null}
           </article>

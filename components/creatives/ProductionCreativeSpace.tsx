@@ -6,6 +6,7 @@ import {
   type ProductionCreativeBrief,
 } from "@/types/production-creative";
 import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
+import { projectCreativeMissionJourney } from "@/lib/mission-journey";
 
 type Tab = "proposals" | "applications" | "assigned" | "deliveries" | "availability" | "profile";
 type Profile = {
@@ -217,9 +218,24 @@ export function ProductionCreativeSpace() {
                     ? "Aucun projet attribué pour le moment."
                     : "Aucune livraison pour le moment."}
             </p>
-          ) : visibleProjects.map((project) => (
+          ) : visibleProjects.map((project) => {
+            const journey = projectCreativeMissionJourney(project);
+            return (
             <article key={project.id} className="crm-person-card-shell">
               <header><h2>{project.title}</h2><strong>{compensationLabel(project)}</strong></header>
+              <section className="mission-journey-summary" aria-label="État de la mission">
+                <mark data-tone={journey.tone}>{journey.label}</mark>
+                <p>{journey.description}</p>
+                <dl>
+                  <div><dt>Prochaine action</dt><dd>{journey.nextAction}</dd></div>
+                  <div><dt>Acteur attendu</dt><dd>{journey.expectedActor ?? "Aucun"}</dd></div>
+                </dl>
+                <ol className="mission-journey-timeline" aria-label="Parcours de la mission">
+                  {journey.timeline.map((item) => (
+                    <li key={item.id} data-status={item.status}><span>{item.label}</span></li>
+                  ))}
+                </ol>
+              </section>
               <p>{project.objective}</p>
               <dl className="crm-person-info-grid">
                 <div><dt>Date</dt><dd>{formatDate(project.scheduledDate)}</dd></div>
@@ -242,7 +258,6 @@ export function ProductionCreativeSpace() {
                 </div>
               ) : (
                 <div>
-                  <p><strong>Confirmation :</strong> {project.assignment.confirmationStatus}</p>
                   {project.assignment.confirmationStatus !== "confirmed" ? (
                     <button type="button" className="primary-button" onClick={() => void mutate("PATCH", { briefId: project.id, action: "confirm", conditionsVersion: project.conditionsVersion, links: [], comment: null }).catch((failure) => setError(failure.message))}>Confirmer la prise en charge</button>
                   ) : (
@@ -284,7 +299,8 @@ export function ProductionCreativeSpace() {
                 </div>
               )}
             </article>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>

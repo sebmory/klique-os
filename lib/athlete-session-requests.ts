@@ -75,6 +75,7 @@ export type AthleteSessionRequest = {
   assignedCreativeProfileId: string | null;
   assignedCreativeName: string | null;
   creativeConfirmationStatus: "pending" | "confirmed" | "confirmation_required" | null;
+  deliveryStatus: "pending" | "delivered" | "changes_requested" | "validated" | null;
   applications: Array<{
     creativeProfileId: string;
     displayName: string;
@@ -141,6 +142,7 @@ type RequestRow = {
   assigned_creative_profile_id: string | null;
   assigned_creative_name: string | null;
   creative_confirmation_status: AthleteSessionRequest["creativeConfirmationStatus"];
+  delivery_status: AthleteSessionRequest["deliveryStatus"];
   applications: AthleteSessionRequest["applications"];
   final_confirmed_at: string | Date | null;
   cancelled_at: string | Date | null;
@@ -399,6 +401,7 @@ const mapRequest = (row: RequestRow, athleteName: string | null = null): Athlete
   assignedCreativeProfileId: row.assigned_creative_profile_id,
   assignedCreativeName: row.assigned_creative_name,
   creativeConfirmationStatus: row.creative_confirmation_status,
+  deliveryStatus: row.delivery_status,
   applications: Array.isArray(row.applications) ? row.applications : [],
   finalConfirmedAt: row.final_confirmed_at ? new Date(row.final_confirmed_at).toISOString() : null,
   cancelledAt: row.cancelled_at ? new Date(row.cancelled_at).toISOString() : null,
@@ -415,6 +418,7 @@ const requestSelect = `
          brief.assigned_creative_profile_id,
          creative.display_name AS assigned_creative_name,
          assignment.confirmation_status AS creative_confirmation_status,
+         assignment.delivery_status,
          COALESCE(applications.items, '[]'::jsonb) AS applications,
          COALESCE(periods.items, '[]'::jsonb) AS periods,
          COALESCE(events.items, '[]'::jsonb) AS events

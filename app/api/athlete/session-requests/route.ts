@@ -6,6 +6,7 @@ import {
   mutateAthleteSessionRequest,
   parseAthleteSessionRequestInput,
 } from "@/lib/athlete-session-requests";
+import { projectAthleteSessionJourney } from "@/lib/mission-journey";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -58,7 +59,9 @@ export async function GET(request: Request) {
     const identity = await getIdentity(request);
     if (!identity) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     const requests = await listAthleteSessionRequests(identity);
-    return NextResponse.json({ requests }, {
+    return NextResponse.json({
+      requests: requests.map(projectAthleteSessionJourney),
+    }, {
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (error) {
@@ -72,7 +75,9 @@ export async function POST(request: Request) {
     if (!identity) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     const input = parseAthleteSessionRequestInput(await request.json());
     const sessionRequest = await createAthleteSessionRequest({ ...identity, input });
-    return NextResponse.json({ request: sessionRequest }, { status: 201 });
+    return NextResponse.json({
+      request: projectAthleteSessionJourney(sessionRequest),
+    }, { status: 201 });
   } catch (error) {
     return failure(error);
   }
@@ -104,8 +109,9 @@ export async function PATCH(request: Request) {
       );
     }
     const requests = await listAthleteSessionRequests(identity);
+    const updatedRequest = requests.find((item) => item.id === body.requestId);
     return NextResponse.json({
-      request: requests.find((item) => item.id === body.requestId) ?? null,
+      request: updatedRequest ? projectAthleteSessionJourney(updatedRequest) : null,
       unchanged: outcome === "unchanged",
     });
   } catch (error) {

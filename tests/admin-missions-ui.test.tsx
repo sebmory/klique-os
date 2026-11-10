@@ -190,6 +190,10 @@ describe("canonical Admin missions UI", () => {
     expect(container.textContent).toContain("Media Day — Armand Angha & Raphaël Monty");
     expect(container.textContent).toContain("Terminée — historique régularisé");
     expect(container.textContent).toContain("Sébastien Mory — créatif historique déclaré");
+    expect(container.textContent).toContain("Voir le parcours");
+    expect(container.textContent).toContain("Régularisation historique");
+    expect(container.textContent).toContain("Réalisation connue");
+    expect(container.textContent).toContain("Détails techniques");
     expect(container.querySelector('a[href="/crm/personnes/armand-angha"]')).not.toBeNull();
     expect(container.querySelector('a[href="/crm/personnes/raphael-monty"]')).not.toBeNull();
     expect(container.querySelector("details")).not.toBeNull();

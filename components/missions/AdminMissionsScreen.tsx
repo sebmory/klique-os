@@ -21,6 +21,7 @@ import type {
   OperationalMissionType,
 } from "@/lib/operational-creative-missions";
 import type { AthletesResponse } from "@/types/athlete";
+import { projectCanonicalMissionJourney } from "@/lib/mission-journey";
 
 type MissionsPayload = {
   missions?: CanonicalCreativeMission[];
@@ -530,6 +531,7 @@ export function AdminMissionsScreen() {
       ) : (
         <ul className="admin-missions-list">
           {visibleMissions.map((mission) => {
+            const journey = projectCanonicalMissionJourney(mission);
             const requestSource = mission.sources.find((source) => source.type === "athlete_session_request");
             const briefSource = mission.sources.find((source) => source.type === "production_brief");
             const selected = selectedRecipients[mission.id] ?? [];
@@ -557,7 +559,7 @@ export function AdminMissionsScreen() {
                     <h2>{mission.title}</h2>
                   </div>
                   <span className={`admin-mission-state-badge is-${mission.state}`}>
-                    {stateLabel(mission)}
+                    {mission.regularizationStatus === "none" ? journey.label : stateLabel(mission)}
                   </span>
                 </header>
 
@@ -569,13 +571,42 @@ export function AdminMissionsScreen() {
                       </Link>
                     )) : "Aucun athlète"}</dd></div>
                   <div><dt>Date</dt><dd>{formatDate(mission.scheduledAt ?? mission.occurredAt)}</dd></div>
-                  <div><dt>Lieu</dt><dd>{[mission.locationName, mission.region].filter(Boolean).join(" · ") || "À définir"}</dd></div>
-                  <div><dt>Type</dt><dd>{missionTypeLabels[mission.missionType]}</dd></div>
-                  <div><dt>Livrables</dt><dd>{mission.deliverables ?? (mission.services.map((service) => service.productName).join(" · ") || "À définir")}</dd></div>
                   <div><dt>Créatif</dt><dd>{mission.creative ? `${mission.creative.name} — ${mission.creative.kind === "historical" ? "créatif historique déclaré" : "créatif opérationnel"}` : "À définir"}</dd></div>
-                  <div><dt>Prochaine action</dt><dd>{mission.nextAction}{mission.nextActor ? ` · ${mission.nextActor}` : ""}</dd></div>
+                  <div><dt>Prochaine action</dt><dd>{journey.nextAction}</dd></div>
+                  <div><dt>Acteur attendu</dt><dd>{journey.expectedActor ?? "Aucun"}</dd></div>
                   {mission.blockingReason ? <div><dt>Blocage</dt><dd>{mission.blockingReason}</dd></div> : null}
                 </dl>
+
+                <details className="admin-mission-journey">
+                  <summary>Voir le parcours</summary>
+                  <section className="mission-journey-summary" aria-label="Résumé opérationnel">
+                    <h3>Résumé opérationnel</h3>
+                    <p>{journey.description}</p>
+                    <dl>
+                      <div><dt>Type</dt><dd>{missionTypeLabels[mission.missionType]}</dd></div>
+                      <div><dt>Lieu</dt><dd>{[mission.locationName, mission.region].filter(Boolean).join(" · ") || "À définir"}</dd></div>
+                      <div><dt>Livrables</dt><dd>{mission.deliverables ?? (mission.services.map((service) => service.productName).join(" · ") || "À définir")}</dd></div>
+                    </dl>
+                    <ol className="mission-journey-timeline" aria-label="Timeline métier">
+                      {journey.timeline.map((item) => (
+                        <li key={item.id} data-status={item.status}>
+                          <span>{item.label}</span>
+                          <small>{item.description}</small>
+                          {item.occurredAt ? <time dateTime={item.occurredAt}>{formatDate(item.occurredAt)}</time> : null}
+                        </li>
+                      ))}
+                    </ol>
+                    {journey.warnings.length > 0 ? (
+                      <aside className="mission-journey-warnings" aria-label="Incohérences détectées">
+                        <strong>Informations à vérifier</strong>
+                        <ul>{journey.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+                      </aside>
+                    ) : null}
+                    <nav className="mission-journey-source-links" aria-label="Objets sources">
+                      {requestSource ? <Link href="/today">Voir la demande source</Link> : null}
+                      {briefSource ? <Link href="/production">Voir le brief Production</Link> : null}
+                    </nav>
+                  </section>
 
                 {mission.state === "review" && requestSource ? (
                   <section className="admin-mission-actions">
@@ -636,7 +667,7 @@ export function AdminMissionsScreen() {
                 ) : null}
 
                 <details className="admin-mission-details">
-                  <summary>Identifiants, origines et journal</summary>
+                  <summary>Détails techniques</summary>
                   {mission.regularizationNote ? <section><h3>Régularisation</h3><p>{mission.regularizationNote}</p></section> : null}
                   <section><h3>Sources</h3><ul>{mission.sources.map((source) => (
                     <li key={`${source.type}:${source.id}`}><strong>{sourceLabels[source.type]}</strong><code>{source.id}</code><pre>{JSON.stringify(source.snapshot, null, 2)}</pre></li>
@@ -644,6 +675,7 @@ export function AdminMissionsScreen() {
                   <section><h3>Journal</h3><ol>{mission.events.map((event) => (
                     <li key={`${event.action}:${event.createdAt}`}><strong>{event.action}</strong><span>{formatDate(event.createdAt)}</span>{event.note ? <p>{event.note}</p> : null}</li>
                   ))}</ol></section>
+                </details>
                 </details>
               </li>
             );
