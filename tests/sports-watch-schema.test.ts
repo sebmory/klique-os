@@ -33,6 +33,10 @@ const manualEntryMigration = readFileSync(
   new URL("../db/migrations/20261113_sports_watch_manual_entry.sql", import.meta.url),
   "utf8",
 );
+const footballPublicPilotMigration = readFileSync(
+  new URL("../db/migrations/20261114_sports_watch_football_public_pilot.sql", import.meta.url),
+  "utf8",
+);
 
 describe("sports watch additive schema", () => {
   it("isolates workspaces, prevents concurrent runs and keeps content versions", () => {
@@ -110,5 +114,23 @@ describe("sports watch additive schema", () => {
     expect(manualEntryMigration).toContain("'manual_created'");
     expect(manualEntryMigration).toContain("factual_verification_status = 'unverified'");
     expect(manualEntryMigration).not.toMatch(/\bINSERT\s+INTO\s+sports_watch_candidates\b/i);
+  });
+
+  it("adds verified football bindings, structured proof and explicit reconciliation only", () => {
+    expect(footballPublicPilotMigration).toContain("sports_watch_football_bindings");
+    expect(footballPublicPilotMigration).toContain(
+      "status IN ('draft', 'verified', 'ambiguous', 'disabled')",
+    );
+    expect(footballPublicPilotMigration).toContain("football_evidence_json JSONB");
+    expect(footballPublicPilotMigration).toContain("sports_watch_candidate_reconciliations");
+    expect(footballPublicPilotMigration).toContain(
+      "sports_watch_candidate_reconciliation_events",
+    );
+    expect(footballPublicPilotMigration).toContain("BEFORE UPDATE OR DELETE");
+    expect(footballPublicPilotMigration).toContain("UNIQUE (workspace_id, athlete_id)");
+    expect(footballPublicPilotMigration)
+      .not.toMatch(/\bINSERT\s+INTO\s+sports_watch_candidates\b/i);
+    expect(footballPublicPilotMigration)
+      .not.toMatch(/\bINSERT\s+INTO\s+sports_watch_football_bindings\b/i);
   });
 });

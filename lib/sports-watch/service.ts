@@ -17,6 +17,7 @@ import {
 import {
   BC_BULLE_FEED_URL,
   BC_BULLE_SOURCE_NAME,
+  SportsWatchSourceError,
   collectBcBulleCandidates,
   type CollectedSportsWatchCandidate,
   type SportsWatchAthleteSnapshot,
@@ -41,6 +42,13 @@ import {
   type SafvTeamConfig,
 } from "@/lib/sports-watch/safv-collector";
 import {
+  FOOTBALL_PUBLIC_SOURCE_KEY,
+  FOOTSTATS_BASE_URL,
+  FOOTSTATS_SOURCE_NAME,
+  collectFootballPublicCandidates,
+} from "@/lib/sports-watch/football-public-collector";
+import { FootballPublicRepository } from "@/lib/sports-watch/football-public-repository";
+import {
   SWISS_BADMINTON_BASE_URL,
   SWISS_BADMINTON_SOURCE_NAME,
   collectSwissBadmintonCandidates,
@@ -62,6 +70,8 @@ import type {
   BeBasketBinding,
   BeBasketBindingVerification,
   BeBasketOfficialIdentity,
+  FootballCollectionReport,
+  FootballPublicBinding,
   IwwfBinding,
   IwwfIdentityVerification,
   SafvBinding,
@@ -247,6 +257,11 @@ const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
     url: BC_BULLE_FEED_URL,
     noRecentMessage: "Aucune publication BC Bulle des 30 derniers jours. Aucune archive n’a été remontée.",
   },
+  "football-public": {
+    name: FOOTSTATS_SOURCE_NAME,
+    url: FOOTSTATS_BASE_URL,
+    noRecentMessage: "Aucun résultat collectif Footstats terminé dans les 30 derniers jours.",
+  },
 
   "swiss-badminton": {
     name: SWISS_BADMINTON_SOURCE_NAME,
@@ -383,6 +398,7 @@ const requireSourceKey = (value: unknown): SportsWatchCollectionSourceKey => {
     && sourceKey !== "safv"
     && sourceKey !== "bebasket"
     && sourceKey !== "swiss-basketball"
+    && sourceKey !== FOOTBALL_PUBLIC_SOURCE_KEY
   ) {
     throw new SportsWatchError("validation", "Sélectionnez une source de veille valide.");
   }
@@ -433,12 +449,14 @@ type SportsWatchCollector = (
     safvTeam?: SafvTeamConfig;
     beBasketIdentity?: BeBasketOfficialIdentity;
     swissBasketballIdentity?: SwissBasketballOfficialIdentity;
+    footballBinding?: FootballPublicBinding;
   },
 ) => Promise<{
   candidates: CollectedSportsWatchCandidate[];
   scannedCount: number;
   recentCount: number;
   observations?: SportsWatchCollectionObservation[];
+  footballReport?: FootballCollectionReport;
 }>;
 
 type SportsWatchServiceDependencies = {
@@ -495,6 +513,21 @@ const defaultDependencies: SportsWatchServiceDependencies = {
         dependencies: options.dependencies,
         identity: options.swissBasketballIdentity,
       }),
+    "football-public": (athlete, options) => {
+      if (!options.footballBinding) {
+        throw new SportsWatchSourceError("Le rattachement football vérifié est absent.");
+      }
+      return collectFootballPublicCandidates(athlete, {
+        lookbackDays: options.lookbackDays,
+        dependencies: options.dependencies,
+        binding: options.footballBinding,
+      }).then((result) => ({
+        candidates: result.candidates,
+        scannedCount: result.scannedCount,
+        recentCount: result.recentCount,
+        footballReport: result.report,
+      }));
+    },
   },
   verifySwissProfile: verifySwissBadmintonProfile,
   verifyIwwfProfile,
@@ -1207,6 +1240,9 @@ export const createSportsWatchService = (
         athlete.id,
       )
       : [];
+    const footballBinding = sourceKey === FOOTBALL_PUBLIC_SOURCE_KEY
+      ? await FootballPublicRepository.getVerifiedBinding(identity.workspaceId, athlete.id)
+      : null;
     if (sourceKey === "swiss-badminton" && !swissBinding) {
       throw new SportsWatchError(
         "validation",
@@ -1237,6 +1273,12 @@ export const createSportsWatchService = (
         "Configurez et confirmez au moins une équipe Swiss Basketball avant de lancer la veille.",
       );
     }
+    if (sourceKey === FOOTBALL_PUBLIC_SOURCE_KEY && !footballBinding) {
+      throw new SportsWatchError(
+        "validation",
+        "Configurez et confirmez le rattachement Footstats de Matheus avant de lancer le pilote.",
+      );
+    }
     if (swissBasketballBindings.length > 8) {
       throw new SportsWatchError(
         "validation",
@@ -1258,7 +1300,8 @@ export const createSportsWatchService = (
     }
 
     try {
-      const collection = sourceKey === "swiss-basketball"
+      const collection: Awaited<ReturnType<SportsWatchCollector>> =
+        sourceKey === "swiss-basketball"
         ? await (async () => {
             const candidates: CollectedSportsWatchCandidate[] = [];
             const observations: SportsWatchCollectionObservation[] = [];
@@ -1311,18 +1354,36 @@ export const createSportsWatchService = (
             iwwfProfile: iwwfBinding?.officialIdentity,
             safvTeam: safvBinding?.officialTeam,
             beBasketIdentity: beBasketBinding?.officialIdentity,
+            footballBinding: footballBinding ?? undefined,
           });
-      const createdCount = await dependencies.repository.saveCandidates(
-        identity.workspaceId,
-        collection.candidates,
-      );
-      const message = runMessage(
-        sourceKey,
-        collection.recentCount,
-        createdCount,
-        collection.candidates.length,
-        collection.observations,
-      );
+      const createdCount = footballBinding
+        ? await FootballPublicRepository.saveCollectedCandidates(
+            identity.workspaceId,
+            collection.candidates,
+          )
+        : await dependencies.repository.saveCandidates(
+            identity.workspaceId,
+            collection.candidates,
+          );
+      const message = collection.footballReport
+        ? [
+            collection.footballReport.partialCoverage
+              ? "Couverture partielle."
+              : "Couverture complète des sources configurées.",
+            `${collection.footballReport.matchesExamined} match(s) examiné(s).`,
+            `${collection.footballReport.lineupsFound} feuille(s) trouvée(s).`,
+            `${collection.footballReport.namedPresenceFound} présence(s) nominative(s).`,
+            createdCount === 0
+              ? "Aucun nouveau candidat."
+              : `${createdCount} nouveau(x) candidat(s) soumis à la revue Admin.`,
+          ].join(" ")
+        : runMessage(
+            sourceKey,
+            collection.recentCount,
+            createdCount,
+            collection.candidates.length,
+            collection.observations,
+          );
       await dependencies.repository.completeRun({
         workspaceId: identity.workspaceId,
         runId,
@@ -1338,12 +1399,16 @@ export const createSportsWatchService = (
           ?? safvBinding?.officialTeam.scheduleUrl
           ?? beBasketBinding?.officialIdentity.calendarUrl
           ?? swissBasketballBindings[0]?.officialIdentity.scheduleUrl
+          ?? (footballBinding
+            ? `${FOOTSTATS_BASE_URL}de/teams/${footballBinding.footstatsTeamId}/matches/`
+            : null)
           ?? source.url,
         message,
         scannedCount: collection.scannedCount,
         recentCount: collection.recentCount,
         createdCount,
         observations: collection.observations,
+        footballReport: collection.footballReport,
         candidates: await dependencies.repository.listCandidates(identity.workspaceId),
       };
     } catch (error) {

@@ -313,7 +313,7 @@ describe("scheduled sports watch refresh", () => {
         if (activeSources.has(task.sourceKey)) duplicateSourceConcurrency = true;
         activeSources.add(task.sourceKey);
         await new Promise((resolve) =>
-          setTimeout(resolve, 20 + sources.indexOf(task.sourceKey) * 10));
+          setTimeout(resolve, 20 + Array.from<string>(sources).indexOf(task.sourceKey) * 10));
         activeSources.delete(task.sourceKey);
         active -= 1;
         return {

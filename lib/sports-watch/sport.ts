@@ -24,6 +24,11 @@ export const isSportCompatibleWithWatchSource = (
   if (sourceKey === "bebasket" || sourceKey === "swiss-basketball") {
     return normalized.includes("basket");
   }
+  if (sourceKey === "football-public") {
+    return normalized === "football"
+      || normalized.includes("football association")
+      || normalized.includes("football soccer");
+  }
   return [
     "football americain",
     "foot americain",

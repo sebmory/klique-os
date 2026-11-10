@@ -21,6 +21,8 @@ import type {
   SwissBasketballBinding,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
+import { FootballPublicRepository } from "@/lib/sports-watch/football-public-repository";
+import type { FootballPublicBinding } from "@/types/sports-watch";
 
 const SCHEDULED_ACTOR = "sports-watch-scheduled-refresh";
 
@@ -30,6 +32,7 @@ type BindingSnapshot = {
   safvBindings: SafvBinding[];
   beBasketBindings: BeBasketBinding[];
   swissBasketballBindings: SwissBasketballBinding[];
+  footballBindings?: FootballPublicBinding[];
 };
 
 type ScheduledRefreshDependencies = {
@@ -62,12 +65,14 @@ const defaultDependencies: ScheduledRefreshDependencies = {
       safvBindings,
       beBasketBindings,
       swissBasketballBindings,
+      footballBindings,
     ] = await Promise.all([
       SportsWatchService.listSwissBindings(identity),
       SportsWatchService.listIwwfBindings(identity),
       SportsWatchService.listSafvBindings(identity),
       SportsWatchService.listBeBasketBindings(identity),
       SportsWatchService.listSwissBasketballBindings(identity),
+      FootballPublicRepository.listBindings(identity.workspaceId),
     ]);
     return {
       swissBindings,
@@ -75,6 +80,7 @@ const defaultDependencies: ScheduledRefreshDependencies = {
       safvBindings,
       beBasketBindings,
       swissBasketballBindings,
+      footballBindings,
     };
   },
   executeTask: (task, identity) => SportsWatchService.run(

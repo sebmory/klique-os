@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  FootballCandidateEvidence,
   SportsWatchAttributionStatus,
   SportsWatchResultKind,
 } from "@/types/sports-watch";
@@ -52,6 +53,7 @@ export type CollectedSportsWatchCandidate = {
   attributionEvidence: string[];
   logicalKey: string;
   contentHash: string;
+  footballEvidence?: FootballCandidateEvidence;
 };
 
 export type BcBulleCollectionResult = {

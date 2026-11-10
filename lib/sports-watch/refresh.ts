@@ -14,7 +14,8 @@ export type SportsWatchRefreshAthlete = {
 
 type SportsWatchRefreshBinding = {
   athleteId: string;
-  active: boolean;
+  active?: boolean;
+  status?: string;
 };
 
 export type SportsWatchRefreshTask = {
@@ -30,6 +31,7 @@ export type SportsWatchRefreshPlanInput = {
   safvBindings: readonly SportsWatchRefreshBinding[];
   beBasketBindings: readonly SportsWatchRefreshBinding[];
   swissBasketballBindings: readonly SportsWatchRefreshBinding[];
+  footballBindings?: readonly SportsWatchRefreshBinding[];
 };
 
 export type SportsWatchRefreshExecution<T> = {
@@ -46,6 +48,7 @@ const sourceOrder: SportsWatchCollectionSourceKey[] = [
   "safv",
   "bebasket",
   "swiss-basketball",
+  "football-public",
 ];
 
 const normalize = (value: unknown): string => String(value ?? "")
@@ -89,7 +92,9 @@ export const buildSportsWatchRefreshTasks = (
     bindings: readonly SportsWatchRefreshBinding[],
   ) => {
     for (const binding of bindings) {
-      if (binding.active) addTask(sourceKey, binding.athleteId);
+      if (binding.active === true || binding.status === "verified") {
+        addTask(sourceKey, binding.athleteId);
+      }
     }
   };
   addActiveBindings("swiss-badminton", input.swissBindings);
@@ -97,6 +102,7 @@ export const buildSportsWatchRefreshTasks = (
   addActiveBindings("safv", input.safvBindings);
   addActiveBindings("bebasket", input.beBasketBindings);
   addActiveBindings("swiss-basketball", input.swissBasketballBindings);
+  addActiveBindings("football-public", input.footballBindings ?? []);
 
   return [...tasks.values()].sort((left, right) => {
     const sourceComparison = sourceOrder.indexOf(left.sourceKey) - sourceOrder.indexOf(right.sourceKey);

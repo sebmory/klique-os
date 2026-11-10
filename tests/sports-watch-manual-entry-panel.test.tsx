@@ -179,6 +179,122 @@ describe("sports watch manual entry panel", () => {
     expect(onCreated).toHaveBeenCalledWith(candidate, true);
   });
 
+    it("prefills and enriches a public football candidate without creating a second candidate", async () => {
+      const publicCandidate: SportsWatchCandidate = {
+        ...candidate,
+        sourceName: "Footstats — page publique, source tierce non officielle",
+        articleUrl: "https://www.footstats.ch/de/teams/xh89ete5/matches/",
+        footballEvidence: {
+          mode: "football_public",
+          matchKey: "2026-11-12|fc adverse|fc test",
+          eventDate: "2026-11-12",
+          publicReference: "https://www.footstats.ch/de/teams/xh89ete5/matches/",
+          competition: "Championnat test",
+          team: "FC Test",
+          opponent: "FC Adverse",
+          score: "2–1",
+          footstatsTeamId: "xh89ete5",
+          footstatsPlayerId: "player-test",
+          affTeamId: null,
+          affPlayerId: null,
+          lineupAvailable: false,
+          playerNamed: false,
+          starter: null,
+          substitute: null,
+          entered: null,
+          entryMinute: null,
+          exitMinute: null,
+          goals: null,
+          goalMinutes: [],
+          yellowCards: null,
+          redCards: null,
+          cardMinutes: [],
+          participationProved: false,
+          proofs: ["team_match"],
+          sourceFacts: [],
+        },
+      };
+      const enriched = {
+        ...publicCandidate,
+        id: "22222222-2222-4222-8222-222222222222",
+        supersedesCandidateId: publicCandidate.id,
+        manualEntry: {
+          mode: "manual_entry" as const,
+          newsType: "result_match" as const,
+          competition: "Championnat test",
+          opponent: "FC Adverse",
+          score: "2–1",
+          source: "Footstats Pro",
+          sourceReference: publicCandidate.articleUrl,
+          internalNote: null,
+          football: null,
+          basketball: null,
+          statistics: [],
+        },
+      };
+      const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => {
+        void _url;
+        void _init;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, candidate: enriched }),
+        };
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const onCreated = vi.fn();
+      await act(async () => {
+        root.render(
+          <SportsWatchManualEntryPanel
+            athletes={athletes}
+            completionCandidate={publicCandidate}
+            onCandidateCreated={onCreated}
+          />,
+        );
+        await flush();
+      });
+
+      expect(controlFor(container, "Athlète").value).toBe("footballer");
+      expect(controlFor(container, "Date de l’événement").value).toBe("2026-11-12");
+      expect(controlFor(container, "Club ou équipe").value).toBe("FC Test");
+      expect(controlFor(container, "Adversaire").value).toBe("FC Adverse");
+      expect(controlFor(container, "Score collectif").value).toBe("2–1");
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const starter = container.querySelector(
+        'input[name="manual-football-participation"][value="starter"]',
+      ) as HTMLInputElement;
+      await act(async () => starter.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      await setValue(controlFor(container, "Titre"), "Joueuse Football titulaire");
+      await setValue(controlFor(container, "Résumé factuel"), "Participation confirmée par l’Admin.");
+      await act(async () => {
+        container.querySelector("form")?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+        await flush();
+      });
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        `/api/admin/sports-watch/football-candidates/${publicCandidate.id}`,
+      );
+      const request = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(request).toMatchObject({
+        action: "complete",
+        expectedVersion: 1,
+        entry: {
+          athleteId: "footballer",
+          source: "Footstats Pro",
+          football: {
+            team: "FC Test",
+            opponent: "FC Adverse",
+            score: "2–1",
+            participationStatus: "starter",
+          },
+        },
+      });
+      expect(onCreated).toHaveBeenCalledWith(enriched, false, publicCandidate.id);
+    });
+
   it("preserves explicit zeroes and sends validated status separately from factual verification", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

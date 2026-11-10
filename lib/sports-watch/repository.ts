@@ -5,6 +5,9 @@ import type { CollectedSportsWatchCandidate } from "@/lib/sports-watch/bcbulle-c
 import type {
   BeBasketBinding,
   BeBasketBindingVerification,
+  FootballCandidateEvidence,
+  FootballCandidateResolution,
+  FootballManualCompletion,
   IwwfBinding,
   IwwfIdentityVerification,
   SafvBinding,
@@ -43,6 +46,9 @@ type CandidateRow = {
   supersedes_candidate_id: string | null;
   version: number | string;
   manual_entry_json: SportsWatchManualEntryMetadata | string | null;
+  football_evidence_json: FootballCandidateEvidence | string | null;
+  football_completion_json: FootballManualCompletion | string | null;
+  football_resolution: FootballCandidateResolution | null;
 };
 
 type CandidateCursor = {
@@ -183,6 +189,26 @@ const readManualEntry = (
     : null;
 };
 
+const readFootballEvidence = (
+  value: CandidateRow["football_evidence_json"],
+): FootballCandidateEvidence | null => {
+  if (value === null) return null;
+  const parsed = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  return parsed && typeof parsed === "object"
+    ? parsed as FootballCandidateEvidence
+    : null;
+};
+
+const readFootballCompletion = (
+  value: CandidateRow["football_completion_json"],
+): FootballManualCompletion | null => {
+  if (value === null) return null;
+  const parsed = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  return parsed && typeof parsed === "object"
+    ? parsed as FootballManualCompletion
+    : null;
+};
+
 const mapCandidate = (row: CandidateRow): SportsWatchCandidate => ({
   id: row.id,
   athleteId: row.athlete_id,
@@ -204,6 +230,9 @@ const mapCandidate = (row: CandidateRow): SportsWatchCandidate => ({
   supersedesCandidateId: row.supersedes_candidate_id,
   version: Number(row.version),
   manualEntry: readManualEntry(row.manual_entry_json),
+  footballEvidence: readFootballEvidence(row.football_evidence_json),
+  footballCompletion: readFootballCompletion(row.football_completion_json),
+  footballResolution: row.football_resolution,
 });
 
 const encodeCandidateCursor = (candidate: SportsWatchCandidate): string =>
@@ -321,7 +350,8 @@ const candidateColumns = `
   event_date_to::text AS event_date_to,
   collected_at, attribution_status, attribution_evidence_json,
   factual_verification_status, admin_status, supersedes_candidate_id, version,
-  manual_entry_json
+  manual_entry_json, football_evidence_json, football_completion_json,
+  football_resolution
 `;
 
 export type SportsWatchManualEntryCandidateInput = {
@@ -646,12 +676,13 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
           athlete_sport_snapshot, athlete_club_snapshot, source_name, source_url,
           article_url, title, excerpt, result_kind, publication_date,
           event_date_from, event_date_to, collected_at, attribution_status,
-          attribution_evidence_json, logical_key, content_hash, supersedes_candidate_id
+          attribution_evidence_json, logical_key, content_hash, supersedes_candidate_id,
+          football_evidence_json
         ) VALUES (
           $4::uuid, $1, $21, $2, $5, $6, $7, $8, $9,
           $10, $11, $12, $13, $14::timestamptz,
           $15::date, $16::date, $17::timestamptz, $18,
-          $19::jsonb, $3, $20, (SELECT id FROM previous)
+          $19::jsonb, $3, $20, (SELECT id FROM previous), $22::jsonb
         )
         ON CONFLICT (workspace_id, athlete_id, logical_key, content_hash)
         DO NOTHING
@@ -678,6 +709,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         JSON.stringify(candidate.attributionEvidence),
         candidate.contentHash,
         candidate.sourceKey,
+        candidate.footballEvidence ? JSON.stringify(candidate.footballEvidence) : null,
       ]) as Array<{ id: string }>;
       if (rows[0]) createdCount += 1;
     }

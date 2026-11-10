@@ -34,7 +34,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const FOOTSTATS_SOURCE = "Footstats Pro";
 export const FOOTSTATS_MANUAL_SOURCE_LABEL =
-  "Footstats Pro — saisie manuelle, source tierce non officielle";
+  "Footstats Pro — saisie manuelle Admin, source tierce non officielle";
 
 const newsTypes = new Set<SportsWatchManualNewsType>([
   "result_match",
@@ -706,6 +706,9 @@ export const createSportsWatchManualEntryService = (
 };
 
 export const SportsWatchManualEntryService = createSportsWatchManualEntryService();
+
+export const validateSportsWatchManualEntryInput = validateInput;
+export const buildSportsWatchManualEntryCandidate = candidatePayload;
 
 export const sportsWatchManualEntryTestUtils = {
   validateInput,

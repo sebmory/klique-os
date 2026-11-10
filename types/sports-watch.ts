@@ -16,6 +16,7 @@ export type SportsWatchSourceKey =
   | "iwwf-wakesurf"
   | "kenpokan"
   | "safv"
+  | "football-public"
   | "bebasket"
   | "swiss-basketball"
   | "manual-import"
@@ -25,6 +26,166 @@ export type SportsWatchCollectionSourceKey = Exclude<
   SportsWatchSourceKey,
   "manual-import" | "manual-entry"
 >;
+
+export type FootballBindingStatus = "draft" | "verified" | "ambiguous" | "disabled";
+
+export type FootballPublicPlayer = {
+  id: string;
+  name: string;
+  shirtNumber: string | null;
+  position: string | null;
+  profileUrl: string;
+};
+
+export type FootballManualCompletion = {
+  mode: "football_pro_completion" | "public_source_attached";
+  previousCandidateId: string;
+  completedByClerkUserId: string;
+  completedAt: string;
+  previousVersion: number;
+  newVersion: number;
+  fieldProvenance: Record<
+    string,
+    "footstats_public" | "footstats_pro_admin" | "existing_manual"
+  >;
+};
+
+export type FootballCandidateResolution =
+  | "participation_unverifiable"
+  | "not_exploitable"
+  | "incorrect";
+
+export type FootballPublicTeamDiscovery = {
+  footstatsTeamId: string;
+  teamName: string;
+  competition: string;
+  season: string;
+  teamUrl: string;
+  rosterUrl: string;
+  matchesUrl: string;
+  players: FootballPublicPlayer[];
+  discoveredAt: string;
+  warnings: string[];
+};
+
+export type FootballSourceSuggestion = {
+  id: string;
+  manualCandidateId: string;
+  matchKey: string;
+  evidence: FootballCandidateEvidence;
+  comparison: FootballReconciliationComparison;
+  status: "pending" | "attached" | "rejected";
+  decidedByClerkUserId: string | null;
+  decidedAt: string | null;
+  version: number;
+  manualCandidate: SportsWatchCandidate;
+};
+
+export type FootballPublicBinding = {
+  id: string;
+  athleteId: string;
+  footstatsTeamId: string;
+  footstatsTeamName: string;
+  footstatsPlayerId: string | null;
+  footstatsPlayerName: string | null;
+  affTeamId: string | null;
+  affPlayerId: string | null;
+  competition: string;
+  season: string;
+  status: FootballBindingStatus;
+  roster: FootballPublicPlayer[];
+  evidence: string[];
+  verifiedByClerkUserId: string | null;
+  verifiedAt: string | null;
+  version: number;
+  updatedAt: string;
+};
+
+export type FootballParticipationProof =
+  | "team_match"
+  | "lineup_available"
+  | "player_named"
+  | "starter"
+  | "substitute"
+  | "entered"
+  | "goal"
+  | "card";
+
+export type FootballCandidateEvidence = {
+  mode: "football_public";
+  matchKey: string;
+  eventDate: string;
+  publicReference: string;
+  competition: string | null;
+  team: string;
+  opponent: string;
+  score: string | null;
+  footstatsTeamId: string;
+  footstatsPlayerId: string | null;
+  affTeamId: string | null;
+  affPlayerId: string | null;
+  lineupAvailable: boolean;
+  playerNamed: boolean;
+  starter: boolean | null;
+  substitute: boolean | null;
+  entered: boolean | null;
+  entryMinute: number | null;
+  exitMinute: number | null;
+  goals: number | null;
+  goalMinutes: number[];
+  yellowCards: number | null;
+  redCards: number | null;
+  cardMinutes: number[];
+  participationProved: boolean;
+  proofs: FootballParticipationProof[];
+  sourceFacts: Array<{
+    source: "footstats" | "aff";
+    sourceName: string;
+    sourceUrl: string;
+    official: boolean;
+    facts: string[];
+  }>;
+};
+
+export type FootballCollectionReport = {
+  sourcesQueried: Array<{
+    source: "footstats" | "aff";
+    status: "available" | "unavailable" | "failed";
+    detail: string;
+  }>;
+  matchesExamined: number;
+  lineupsFound: number;
+  namedPresenceFound: number;
+  candidatesProposed: number;
+  duplicates: number;
+  errors: string[];
+  partialCoverage: boolean;
+};
+
+export type FootballReconciliationDecision =
+  | "pending"
+  | "keep_manual"
+  | "keep_automatic"
+  | "complete_manual"
+  | "different_events"
+  | "examine_later";
+
+export type FootballReconciliationComparison = {
+  identical: string[];
+  complementary: string[];
+  contradictions: string[];
+};
+
+export type FootballCandidateReconciliation = {
+  id: string;
+  manualCandidateId: string;
+  automaticCandidateId: string;
+  decision: FootballReconciliationDecision;
+  comparison: FootballReconciliationComparison;
+  decidedByClerkUserId: string | null;
+  decidedAt: string | null;
+  version: number;
+};
 
 export type SportsWatchManualNewsType =
   | "result_match"
@@ -309,6 +470,14 @@ export type SportsWatchCandidate = {
   supersedesCandidateId: string | null;
   version: number;
   manualEntry?: SportsWatchManualEntryMetadata | null;
+  footballEvidence?: FootballCandidateEvidence | null;
+  footballCompletion?: FootballManualCompletion | null;
+  footballResolution?: FootballCandidateResolution | null;
+};
+
+export type FootballCandidateReconciliationView = FootballCandidateReconciliation & {
+  manualCandidate: SportsWatchCandidate;
+  automaticCandidate: SportsWatchCandidate;
 };
 
 export type SportsWatchCandidateTotals = Record<SportsWatchAdminStatus, number> & {
@@ -346,6 +515,7 @@ export type SportsWatchRunResult = {
   recentCount: number;
   createdCount: number;
   observations?: SportsWatchCollectionObservation[];
+  footballReport?: FootballCollectionReport;
   candidates: SportsWatchCandidate[];
 };
 

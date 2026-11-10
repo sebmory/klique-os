@@ -16,6 +16,7 @@ import { isSportCompatibleWithWatchSource } from "@/lib/sports-watch/sport";
 import { TodayCollapsibleCard } from "@/components/app-shell/TodayCollapsibleCard";
 import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImportPanel";
 import { SportsWatchManualEntryPanel } from "@/components/app-shell/SportsWatchManualEntryPanel";
+import { FootballPublicPilotPanel } from "@/components/app-shell/FootballPublicPilotPanel";
 import { SportsWatchResultsPresentation } from "@/components/app-shell/sports-watch/SportsWatchResultsPresentation";
 import type {
   BeBasketBinding,
@@ -369,6 +370,8 @@ const scheduledStatusLabel = {
 export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] }) {
   const router = useRouter();
   const [candidates, setCandidates] = useState<SportsWatchCandidate[]>([]);
+  const [footballCompletionCandidate, setFootballCompletionCandidate] =
+    useState<SportsWatchCandidate | null>(null);
   const [candidateTotals, setCandidateTotals] =
     useState<SportsWatchCandidateTotals>(emptyCandidateTotals);
   const [athleteCandidateTotals, setAthleteCandidateTotals] =
@@ -1404,6 +1407,48 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     }
   };
 
+  const resolveFootballCandidate = async (
+    candidate: SportsWatchCandidate,
+    resolution: "participation_unverifiable" | "not_exploitable" | "incorrect",
+  ) => {
+    if (busyCandidateIdRef.current) return;
+    busyCandidateIdRef.current = candidate.id;
+    setBusyCandidateId(candidate.id);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/sports-watch/football-candidates/${encodeURIComponent(candidate.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "resolve",
+            expectedVersion: candidate.version,
+            resolution,
+          }),
+        },
+      );
+      const payload = await response.json() as {
+        candidate?: SportsWatchCandidate;
+        message?: string;
+      };
+      if (!response.ok || !payload.candidate) {
+        throw new Error(payload.message || "Impossible d’enregistrer la décision football.");
+      }
+      moveCandidateLocally(candidate, payload.candidate);
+      setMessage(resolution === "participation_unverifiable"
+        ? "Participation classée comme non vérifiable."
+        : resolution === "incorrect"
+          ? "Événement classé comme incorrect."
+          : "Événement classé comme non exploitable.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Décision impossible.");
+    } finally {
+      busyCandidateIdRef.current = null;
+      setBusyCandidateId(null);
+    }
+  };
+
   const prepareArticle = (candidate: SportsWatchCandidate) => {
     const query = new URLSearchParams({
       objective: "article",
@@ -1490,6 +1535,12 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const renderCandidateActions = (candidate: SportsWatchCandidate) => {
     const superseded = candidateViews.supersededIds.has(candidate.id);
+    const collectiveFootballCandidate = Boolean(
+      candidate.footballEvidence
+      && !candidate.manualEntry
+      && candidate.adminStatus === "pending"
+      && !superseded,
+    );
     return (
       <div className="sports-candidate-actions">
         {candidate.adminStatus === "validated" && !superseded ? (
@@ -1503,7 +1554,43 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             Sélectionner
           </label>
         ) : null}
-        {candidate.adminStatus === "pending" && !superseded ? (
+        {collectiveFootballCandidate ? (
+          <>
+            <button
+              type="button"
+              className="card-link-button sports-action is-primary"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => setFootballCompletionCandidate(candidate)}
+            >
+              Compléter avec Footstats Pro
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() =>
+                void resolveFootballCandidate(candidate, "participation_unverifiable")}
+            >
+              Participation non vérifiable
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => void resolveFootballCandidate(candidate, "not_exploitable")}
+            >
+              Ne pas exploiter
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => void resolveFootballCandidate(candidate, "incorrect")}
+            >
+              Événement incorrect
+            </button>
+          </>
+        ) : candidate.adminStatus === "pending" && !superseded ? (
           <>
             <button
               type="button"
@@ -1611,6 +1698,35 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             {candidate.manualEntry.sourceReference ? (
               <span>Référence : {candidate.manualEntry.sourceReference}</span>
             ) : null}
+            {candidate.footballEvidence ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "0.25rem",
+                  marginBottom: "0.5rem",
+                  padding: "0.55rem",
+                  borderRadius: "7px",
+                  background: "#fff7ed",
+                  fontSize: "0.76rem",
+                }}
+              >
+                <strong>Provenance du résultat collectif</strong>
+                <span>Footstats — page publique, source tierce non officielle</span>
+                <span>Référence : {candidate.footballEvidence.publicReference}</span>
+                <span>
+                  Feuille officielle AFF indisponible — participation à compléter manuellement.
+                </span>
+                {candidate.footballCompletion ? (
+                  <>
+                    <strong>Provenance des statistiques individuelles</strong>
+                    <span>Footstats Pro — saisie manuelle Admin, source tierce non officielle</span>
+                    <span>
+                      Complément enregistré le {formatDate(candidate.footballCompletion.completedAt)}.
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {candidate.manualEntry.football?.footstatsPlayerId ? (
               <span>Identifiant joueur Footstats : {candidate.manualEntry.football.footstatsPlayerId}</span>
             ) : null}
@@ -1629,6 +1745,8 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
                 ? "Ouvrir la référence"
                 : candidate.sourceName === "BeBasket — source tierce"
                   ? "Feuille BeBasket"
+                  : candidate.footballEvidence
+                    ? "Ouvrir la source publique"
                   : "Résultat officiel"}
             </a>
           ) : null}
@@ -1889,12 +2007,49 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
         ) : null}
       </section>
       <SportsWatchManualEntryPanel
+        key={footballCompletionCandidate?.id ?? "manual-entry"}
         athletes={athletes}
-        onCandidateCreated={(candidate, created) => {
+        completionCandidate={footballCompletionCandidate}
+        onCompletionCancelled={() => setFootballCompletionCandidate(null)}
+        onCandidateCreated={(candidate, created, replacedCandidateId) => {
           setCandidates((current) => [
             candidate,
-            ...current.filter((item) => item.id !== candidate.id),
+            ...current.filter((item) =>
+              item.id !== candidate.id && item.id !== replacedCandidateId),
           ]);
+          if (replacedCandidateId) {
+            const previous = candidates.find((item) => item.id === replacedCandidateId);
+            if (previous) {
+              setCandidateTotals((current) => ({
+                ...current,
+                [previous.adminStatus]: Math.max(0, current[previous.adminStatus] - 1),
+                [candidate.adminStatus]: current[candidate.adminStatus] + 1,
+                superseded: current.superseded + 1,
+                supersededPending: current.supersededPending + 1,
+              }));
+              if (previous.adminStatus !== candidate.adminStatus) {
+                setAthleteCandidateTotals((current) => current.map((total) =>
+                  total.athleteId === candidate.athleteId
+                    ? {
+                        ...total,
+                        pending: Math.max(
+                          0,
+                          total.pending
+                            - (previous.adminStatus === "pending" ? 1 : 0)
+                            + (candidate.adminStatus === "pending" ? 1 : 0),
+                        ),
+                        validated: Math.max(
+                          0,
+                          total.validated
+                            - (previous.adminStatus === "validated" ? 1 : 0)
+                            + (candidate.adminStatus === "validated" ? 1 : 0),
+                        ),
+                      }
+                    : total));
+              }
+            }
+            return;
+          }
           if (!created) return;
           setCandidateTotals((current) => ({
             ...current,
@@ -1921,6 +2076,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           });
         }}
       />
+      <FootballPublicPilotPanel athletes={athletes} />
       <details className="today-secondary-action">
         <summary>Configurer une source ou importer un résultat</summary>
         <p style={{ margin: "0.5rem 0", color: "#6b7280", fontSize: "0.82rem" }}>

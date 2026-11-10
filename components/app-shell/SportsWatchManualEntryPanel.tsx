@@ -152,9 +152,17 @@ const NumberField = ({
 export function SportsWatchManualEntryPanel({
   athletes,
   onCandidateCreated,
+  completionCandidate = null,
+  onCompletionCancelled,
 }: {
   athletes: AthleteSummary[];
-  onCandidateCreated: (candidate: SportsWatchCandidate, created: boolean) => void;
+  onCandidateCreated: (
+    candidate: SportsWatchCandidate,
+    created: boolean,
+    replacedCandidateId?: string,
+  ) => void;
+  completionCandidate?: SportsWatchCandidate | null;
+  onCompletionCancelled?: () => void;
 }) {
   const options = useMemo(
     () => athletes
@@ -168,25 +176,29 @@ export function SportsWatchManualEntryPanel({
       .sort((left, right) => left.name.localeCompare(right.name, "fr")),
     [athletes],
   );
-  const [athleteId, setAthleteId] = useState("");
-  const [eventDate, setEventDate] = useState("");
+  const completion = completionCandidate?.footballEvidence ?? null;
+  const [athleteId, setAthleteId] = useState(completionCandidate?.athleteId ?? "");
+  const [eventDate, setEventDate] = useState(completion?.eventDate ?? "");
   const [newsType, setNewsType] = useState<SportsWatchManualNewsType>("result_match");
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
-  const [competition, setCompetition] = useState("");
-  const [opponent, setOpponent] = useState("");
-  const [score, setScore] = useState("");
-  const [source, setSource] = useState("");
-  const [sourceReference, setSourceReference] = useState("");
+  const [competition, setCompetition] = useState(completion?.competition ?? "");
+  const [opponent, setOpponent] = useState(completion?.opponent ?? "");
+  const [score, setScore] = useState(completion?.score ?? "");
+  const [source, setSource] = useState(completion ? "Footstats Pro" : "");
+  const [sourceReference, setSourceReference] = useState(completion?.publicReference ?? "");
   const [internalNote, setInternalNote] = useState("");
   const [initialStatus, setInitialStatus] = useState<"pending" | "validated">("pending");
-  const [team, setTeam] = useState("");
+  const [team, setTeam] = useState(completion?.team ?? "");
   const [participationStatus, setParticipationStatus] =
     useState<SportsWatchParticipationStatus>("unknown");
   const [footballNumbers, setFootballNumbers] = useState(initialNumbers);
-  const [footstatsReference, setFootstatsReference] = useState("");
-  const [footstatsPlayerId, setFootstatsPlayerId] = useState("");
-  const [footstatsTeamId, setFootstatsTeamId] = useState("");
+  const [footstatsReference, setFootstatsReference] =
+    useState(completion?.publicReference ?? "");
+  const [footstatsPlayerId, setFootstatsPlayerId] =
+    useState(completion?.footstatsPlayerId ?? "");
+  const [footstatsTeamId, setFootstatsTeamId] =
+    useState(completion?.footstatsTeamId ?? "");
   const [basketball, setBasketball] = useState(initialBasketball);
   const [statistics, setStatistics] = useState<CustomStatistic[]>([]);
   const [titleEdited, setTitleEdited] = useState(false);
@@ -313,28 +325,37 @@ export function SportsWatchManualEntryPanel({
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch("/api/admin/sports-watch/manual-entry", {
-        method: "POST",
+      const entry = {
+        athleteId,
+        eventDate,
+        newsType,
+        title,
+        summary,
+        competition: isFootball ? null : competition || null,
+        opponent: isFootball ? null : opponent || null,
+        score: isFootball ? null : score || null,
+        source: source || null,
+        sourceReference: sourceReference || null,
+        internalNote: internalNote || null,
+        initialStatus,
+        idempotencyKey,
+        allowPotentialDuplicate,
+        football: manualFootball,
+        basketball: manualBasketball,
+        statistics: manualStatistics,
+      };
+      const response = await fetch(completionCandidate
+        ? `/api/admin/sports-watch/football-candidates/${completionCandidate.id}`
+        : "/api/admin/sports-watch/manual-entry", {
+        method: completionCandidate ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          athleteId,
-          eventDate,
-          newsType,
-          title,
-          summary,
-          competition: isFootball ? null : competition || null,
-          opponent: isFootball ? null : opponent || null,
-          score: isFootball ? null : score || null,
-          source: source || null,
-          sourceReference: sourceReference || null,
-          internalNote: internalNote || null,
-          initialStatus,
-          idempotencyKey,
-          allowPotentialDuplicate,
-          football: manualFootball,
-          basketball: manualBasketball,
-          statistics: manualStatistics,
-        }),
+        body: JSON.stringify(completionCandidate
+          ? {
+              action: "complete",
+              expectedVersion: completionCandidate.version,
+              entry,
+            }
+          : entry),
       });
       const payload = await response.json() as {
         ok?: boolean;
@@ -344,6 +365,7 @@ export function SportsWatchManualEntryPanel({
           message?: string;
           duplicates?: SportsWatchManualEntryDuplicate[];
         };
+        message?: string;
       };
       if (response.status === 409 && payload.error?.duplicates?.length) {
         setDuplicates(payload.error.duplicates);
@@ -351,15 +373,26 @@ export function SportsWatchManualEntryPanel({
         return;
       }
       if (!response.ok || !payload.candidate) {
-        throw new Error(payload.error?.message || "Impossible d’ajouter l’actualité.");
+        throw new Error(
+          payload.error?.message
+          || payload.message
+          || "Impossible d’ajouter l’actualité.",
+        );
       }
-      onCandidateCreated(payload.candidate, payload.created === true);
-      setMessage(payload.created
+      if (completionCandidate) {
+        onCandidateCreated(payload.candidate, false, completionCandidate.id);
+      } else {
+        onCandidateCreated(payload.candidate, payload.created === true);
+      }
+      setMessage(completionCandidate
+        ? "Le candidat a été enrichi sans créer de second événement visible."
+        : payload.created
         ? initialStatus === "pending"
           ? "Actualité ajoutée dans À vérifier."
           : "Actualité ajoutée dans Validée et à exploiter."
         : "Cette saisie existait déjà. Aucun doublon n’a été créé.");
-      reset();
+      if (completionCandidate) onCompletionCancelled?.();
+      else reset();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Impossible d’ajouter l’actualité.");
     } finally {
@@ -370,6 +403,7 @@ export function SportsWatchManualEntryPanel({
   return (
     <details
       data-sports-watch-manual-entry
+      open={completionCandidate ? true : undefined}
       style={{
         marginTop: "0.7rem",
         minWidth: 0,
@@ -380,7 +414,7 @@ export function SportsWatchManualEntryPanel({
       }}
     >
       <summary style={{ cursor: "pointer", fontSize: "0.84rem", fontWeight: 800 }}>
-        Ajouter une actualité
+        {completionCandidate ? "Compléter avec Footstats Pro" : "Ajouter une actualité"}
       </summary>
       <form
         style={{ display: "grid", gap: "0.8rem", marginTop: "0.75rem", minWidth: 0 }}
@@ -396,7 +430,7 @@ export function SportsWatchManualEntryPanel({
               aria-label="Athlète pour l’actualité manuelle"
               required
               value={athleteId}
-              disabled={busy}
+              disabled={busy || Boolean(completionCandidate)}
               onChange={(event) => {
                 setAthleteId(event.target.value);
                 setDuplicates([]);
@@ -416,7 +450,7 @@ export function SportsWatchManualEntryPanel({
               type="date"
               required
               value={eventDate}
-              disabled={busy}
+              disabled={busy || Boolean(completionCandidate)}
               onChange={(event) => setEventDate(event.target.value)}
             />
           </label>
@@ -425,7 +459,7 @@ export function SportsWatchManualEntryPanel({
             <select
               required
               value={newsType}
-              disabled={busy}
+              disabled={busy || Boolean(completionCandidate)}
               onChange={(event) =>
                 setNewsType(event.target.value as SportsWatchManualNewsType)}
             >
@@ -462,7 +496,7 @@ export function SportsWatchManualEntryPanel({
                 type="text"
                 maxLength={160}
                 value={competition}
-                disabled={busy}
+                disabled={busy || Boolean(completionCandidate)}
                 onChange={(event) => setCompetition(event.target.value)}
               />
             </label>
@@ -472,7 +506,7 @@ export function SportsWatchManualEntryPanel({
                 type="text"
                 maxLength={200}
                 value={opponent}
-                disabled={busy}
+                disabled={busy || Boolean(completionCandidate)}
                 onChange={(event) => setOpponent(event.target.value)}
               />
             </label>
@@ -482,7 +516,7 @@ export function SportsWatchManualEntryPanel({
                 type="text"
                 maxLength={80}
                 value={score}
-                disabled={busy}
+                disabled={busy || Boolean(completionCandidate)}
                 placeholder="Inconnu"
                 onChange={(event) => setScore(event.target.value)}
               />
@@ -497,7 +531,7 @@ export function SportsWatchManualEntryPanel({
               type="text"
               maxLength={160}
               value={source}
-              disabled={busy}
+              disabled={busy || Boolean(completionCandidate)}
               placeholder="Ex. Footstats Pro"
               onChange={(event) => setSource(event.target.value)}
             />
@@ -508,14 +542,14 @@ export function SportsWatchManualEntryPanel({
               type="text"
               maxLength={1000}
               value={sourceReference}
-              disabled={busy}
+              disabled={busy || Boolean(completionCandidate)}
               onChange={(event) => setSourceReference(event.target.value)}
             />
           </label>
         </div>
         {normalizeSportsWatchSport(source) === "footstats pro" ? (
           <p style={{ margin: 0, color: "#92400e", fontSize: "0.78rem" }}>
-            <strong>Footstats Pro — saisie manuelle, source tierce non officielle.</strong>
+            <strong>Footstats Pro — saisie manuelle Admin, source tierce non officielle.</strong>
             {" "}Le statut factuel restera « À vérifier », même si le candidat est directement validé.
           </p>
         ) : null}
@@ -528,7 +562,7 @@ export function SportsWatchManualEntryPanel({
         {isFootball ? (
           <fieldset style={{ minWidth: 0, border: "1px solid #bfdbfe", borderRadius: "8px" }}>
             <legend style={{ fontSize: "0.82rem", fontWeight: 750 }}>
-              Football · facultatif
+              {completionCandidate ? "Football · complément Footstats Pro" : "Football · facultatif"}
             </legend>
             <div style={{ display: "grid", gap: "0.7rem", minWidth: 0 }}>
               <div style={gridStyle}>
@@ -538,7 +572,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={160}
                     value={team}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setTeam(event.target.value)}
                   />
                 </label>
@@ -548,7 +582,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={160}
                     value={competition}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setCompetition(event.target.value)}
                   />
                 </label>
@@ -558,7 +592,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={200}
                     value={opponent}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setOpponent(event.target.value)}
                   />
                 </label>
@@ -568,7 +602,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={80}
                     value={score}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     placeholder="Inconnu"
                     onChange={(event) => setScore(event.target.value)}
                   />
@@ -638,7 +672,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={1000}
                     value={footstatsReference}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setFootstatsReference(event.target.value)}
                   />
                 </label>
@@ -648,7 +682,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={100}
                     value={footstatsPlayerId}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setFootstatsPlayerId(event.target.value)}
                   />
                 </label>
@@ -658,7 +692,7 @@ export function SportsWatchManualEntryPanel({
                     type="text"
                     maxLength={100}
                     value={footstatsTeamId}
-                    disabled={busy}
+                    disabled={busy || Boolean(completionCandidate)}
                     onChange={(event) => setFootstatsTeamId(event.target.value)}
                   />
                 </label>
@@ -924,8 +958,22 @@ export function SportsWatchManualEntryPanel({
           className="card-link-button sports-action is-primary"
           disabled={busy}
         >
-          {busy ? "Ajout…" : "Ajouter l’actualité"}
+          {busy
+            ? "Enregistrement…"
+            : completionCandidate
+              ? "Enrichir le candidat"
+              : "Ajouter l’actualité"}
         </button>
+        {completionCandidate ? (
+          <button
+            type="button"
+            className="card-link-button sports-action"
+            disabled={busy}
+            onClick={onCompletionCancelled}
+          >
+            Annuler
+          </button>
+        ) : null}
       </form>
     </details>
   );
