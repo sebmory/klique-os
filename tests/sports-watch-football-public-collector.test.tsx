@@ -238,6 +238,35 @@ describe("public football pilot", () => {
     expect(discovery.players[0].id).toBe("1e318qst");
   });
 
+  it("uses the team league link instead of an unrelated competition mention", async () => {
+    const mockFetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = url.endsWith("/players/")
+        ? `<meta property="og:title" content="FC Breitenrain - Kader 2026/27">
+           <a href="/de/players/1s5eh85j/"><span>14</span>
+           <span>Wenzi Aggee Wenzi</span><span>Zentrales Mittelfeld</span></a>`
+        : `<meta property="og:title" content="FC Breitenrain - Footstats">
+           <div>2. Liga interregional</div>
+           <a href="/de/leagues/pl-hoval-promotion-league/">
+             <span>Hoval Promotion League</span>
+           </a>`;
+      const result = response(body);
+      Object.defineProperty(result, "url", { value: url });
+      return result;
+    });
+
+    const discovery = await discoverFootstatsFootballTeam("wjsj6p08", {
+      fetch: mockFetch as typeof fetch,
+      now: () => new Date("2026-11-10T12:00:00.000Z"),
+    });
+
+    expect(discovery).toMatchObject({
+      teamName: "FC Breitenrain",
+      competition: "Hoval Promotion League",
+      season: "2026/27",
+    });
+  });
+
   it("parses completed matches and keeps future scores absent", () => {
     const matches = parseFootstatsMatches(matchesHtml(), "https://www.footstats.ch/matches");
     expect(matches[0]).toMatchObject({

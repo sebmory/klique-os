@@ -191,6 +191,13 @@ const metaContent = (html: string, attribute: "name" | "property", key: string):
   return decodeHtml(direct?.[1] ?? reverse?.[1] ?? "").trim() || null;
 };
 
+const leagueName = (html: string): string | null => {
+  const leagueLink = html.match(
+    /<a\b[^>]*href=["']\/(?:de|fr)\/leagues\/[^"']+["'][^>]*>([\s\S]*?)<\/a>/i,
+  );
+  return leagueLink ? htmlTextLines(leagueLink[1]).join(" ").trim() || null : null;
+};
+
 export const parseFootstatsRoster = (html: string): FootballPublicPlayer[] => {
   const players: FootballPublicPlayer[] = [];
   const anchors = html.matchAll(
@@ -317,8 +324,10 @@ export const discoverFootstatsFootballTeam = async (
     ?? metaContent(rosterHtml, "name", "description")
     ?? "";
   const season = rosterTitle.match(/\b20\d{2}\/\d{2}\b/)?.[0] ?? "saison non publiée";
-  const competition = htmlTextLines(teamHtml).find((line) =>
-    /\b(?:liga|ligue)\b/i.test(line) && line.length <= 80) ?? "compétition non publiée";
+  const competition = leagueName(teamHtml)
+    ?? htmlTextLines(teamHtml).find((line) =>
+      /\b(?:liga|ligue)\b/i.test(line) && line.length <= 80)
+    ?? "compétition non publiée";
   const players = parseFootstatsRoster(rosterHtml);
   if (!teamName || players.length === 0) {
     throw sourceError("le nom d’équipe ou l’effectif public est absent.");
