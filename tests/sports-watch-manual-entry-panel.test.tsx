@@ -133,6 +133,18 @@ describe("sports watch manual entry panel", () => {
     await setValue(controlFor(container, "Résumé factuel"), "Résumé factuel du match.");
   };
 
+  const fillFootballGenerationFacts = async () => {
+    await setValue(
+      container.querySelector('select[aria-label="Athlète pour l’actualité manuelle"]')!,
+      "footballer",
+    );
+    await setValue(controlFor(container, "Date de l’événement"), "2026-11-12");
+    await setValue(controlFor(container, "Club ou équipe"), "FC Test");
+    await setValue(controlFor(container, "Compétition"), "Championnat test");
+    await setValue(controlFor(container, "Adversaire"), "FC Adverse");
+    await setValue(controlFor(container, "Score collectif"), "2-1");
+  };
+
   it("submits required-only football fields with every numeric value left null", async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => ({
       ok: true,
@@ -236,6 +248,81 @@ describe("sports watch manual entry panel", () => {
       addStatistic?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(controlFor(container, "Libellé 1")).toBeInstanceOf(HTMLInputElement);
+  });
+
+  it("generates editable text locally without a request or candidate creation", async () => {
+    const fetchMock = vi.fn();
+    const onCreated = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await render(onCreated);
+    await fillFootballGenerationFacts();
+
+    expect((controlFor(container, "Titre") as HTMLInputElement).value).toBe("");
+    expect((controlFor(container, "Résumé factuel") as HTMLTextAreaElement).value).toBe("");
+    const generate = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Générer le titre et le résumé");
+    expect(generate?.disabled).toBe(false);
+    await act(async () => {
+      generate?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const title = controlFor(container, "Titre") as HTMLInputElement;
+    const summary = controlFor(container, "Résumé factuel") as HTMLTextAreaElement;
+    expect(title.value).toBe("Victoire 2–1 du FC Test face à FC Adverse");
+    expect(summary.value).toContain("La participation de Joueuse Football n’est pas renseignée.");
+    expect(summary.value).not.toContain("Footstats");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+
+    await setValue(title, "Titre modifié par l’Admin");
+    await setValue(summary, "Résumé modifié par l’Admin.");
+    expect(title.value).toBe("Titre modifié par l’Admin");
+    expect(summary.value).toBe("Résumé modifié par l’Admin.");
+  });
+
+  it("never overwrites edited text without confirmed regeneration", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await render();
+    await fillFootballGenerationFacts();
+    const generate = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Générer le titre et le résumé");
+    await act(async () => {
+      generate?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const title = controlFor(container, "Titre") as HTMLInputElement;
+    await setValue(title, "Titre éditorial conservé");
+
+    const regenerate = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Régénérer");
+    await act(async () => {
+      regenerate?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(title.value).toBe("Titre éditorial conservé");
+    expect(container.textContent).toContain("Remplacer le titre et le résumé modifiés ?");
+
+    const confirm = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent === "Confirmer la régénération");
+    await act(async () => {
+      confirm?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(title.value).toBe("Victoire 2–1 du FC Test face à FC Adverse");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("orders source and structured facts before generated editorial text", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    await render();
+    await setValue(
+      container.querySelector('select[aria-label="Athlète pour l’actualité manuelle"]')!,
+      "footballer",
+    );
+    const text = Array.from(container.querySelectorAll("form label"))
+      .map((label) => label.textContent?.trim() ?? "");
+    const indexOf = (label: string) => text.findIndex((value) => value.startsWith(label));
+    expect(indexOf("Source")).toBeLessThan(indexOf("Club ou équipe"));
+    expect(indexOf("Club ou équipe")).toBeLessThan(indexOf("Titre *"));
+    expect(indexOf("Titre *")).toBeLessThan(indexOf("Note interne Admin"));
   });
 
   it("presents probable duplicates and only retries after explicit Admin confirmation", async () => {

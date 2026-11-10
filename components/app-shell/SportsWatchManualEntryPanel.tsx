@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  canGenerateSportsWatchManualText,
+  generateSportsWatchManualText,
+  type SportsWatchManualTextGenerationInput,
+} from "@/lib/sports-watch/manual-entry-text-generator";
 import { normalizeSportsWatchSport } from "@/lib/sports-watch/sport";
 import type {
   SportsWatchCandidate,
@@ -184,6 +189,9 @@ export function SportsWatchManualEntryPanel({
   const [footstatsTeamId, setFootstatsTeamId] = useState("");
   const [basketball, setBasketball] = useState(initialBasketball);
   const [statistics, setStatistics] = useState<CustomStatistic[]>([]);
+  const [titleEdited, setTitleEdited] = useState(false);
+  const [summaryEdited, setSummaryEdited] = useState(false);
+  const [confirmRegeneration, setConfirmRegeneration] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const [duplicates, setDuplicates] = useState<SportsWatchManualEntryDuplicate[]>([]);
   const [busy, setBusy] = useState(false);
@@ -197,6 +205,51 @@ export function SportsWatchManualEntryPanel({
     && !normalizedSport.includes("foot us");
   const isBasketball = normalizedSport.includes("basket");
   const warning = conflictWarning(athlete);
+  const manualFootball = isFootball ? {
+    team: team || null,
+    participationStatus,
+    minutes: nullableNumber(footballNumbers.minutes),
+    goals: nullableNumber(footballNumbers.goals),
+    assists: nullableNumber(footballNumbers.assists),
+    yellowCards: nullableNumber(footballNumbers.yellowCards),
+    redCards: nullableNumber(footballNumbers.redCards),
+    opponent: opponent || null,
+    score: score || null,
+    competition: competition || null,
+    footstatsReference: footstatsReference || null,
+    footstatsPlayerId: footstatsPlayerId || null,
+    footstatsTeamId: footstatsTeamId || null,
+  } : null;
+  const manualBasketball = isBasketball ? {
+    starter: basketball.starter === "" ? null : basketball.starter === "yes",
+    minutes: nullableNumber(basketball.minutes),
+    points: nullableNumber(basketball.points),
+    rebounds: nullableNumber(basketball.rebounds),
+    assists: nullableNumber(basketball.assists),
+    steals: nullableNumber(basketball.steals),
+    blocks: nullableNumber(basketball.blocks),
+  } : null;
+  const manualStatistics = statistics.map((statistic) => ({
+    label: statistic.label,
+    value: statistic.value,
+    unit: statistic.unit || null,
+  }));
+  const generationInput: SportsWatchManualTextGenerationInput = {
+    athlete: {
+      name: athlete?.name ?? "",
+      sport: athlete?.sport ?? "",
+      club: athlete?.club ?? "",
+    },
+    eventDate,
+    newsType,
+    competition: competition || null,
+    opponent: opponent || null,
+    score: score || null,
+    football: manualFootball,
+    basketball: manualBasketball,
+    statistics: manualStatistics,
+  };
+  const generationAvailable = canGenerateSportsWatchManualText(generationInput);
 
   const reset = () => {
     setEventDate("");
@@ -218,6 +271,9 @@ export function SportsWatchManualEntryPanel({
     setFootstatsTeamId("");
     setBasketball(initialBasketball);
     setStatistics([]);
+    setTitleEdited(false);
+    setSummaryEdited(false);
+    setConfirmRegeneration(false);
     setDuplicates([]);
     setIdempotencyKey(newIdempotencyKey());
   };
@@ -228,6 +284,27 @@ export function SportsWatchManualEntryPanel({
 
   const updateBasketball = (field: keyof typeof initialBasketball, value: string) => {
     setBasketball((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyGeneratedText = () => {
+    const generated = generateSportsWatchManualText(generationInput);
+    if (!generated) return;
+    setTitle(generated.title);
+    setSummary(generated.summary);
+    setTitleEdited(false);
+    setSummaryEdited(false);
+    setConfirmRegeneration(false);
+    setError(null);
+    setMessage("Proposition générée. Le titre et le résumé restent modifiables.");
+  };
+
+  const requestTextGeneration = () => {
+    if (!generationAvailable) return;
+    if (titleEdited || summaryEdited) {
+      setConfirmRegeneration(true);
+      return;
+    }
+    applyGeneratedText();
   };
 
   const submit = async (allowPotentialDuplicate = false) => {
@@ -254,35 +331,9 @@ export function SportsWatchManualEntryPanel({
           initialStatus,
           idempotencyKey,
           allowPotentialDuplicate,
-          football: isFootball ? {
-            team: team || null,
-            participationStatus,
-            minutes: nullableNumber(footballNumbers.minutes),
-            goals: nullableNumber(footballNumbers.goals),
-            assists: nullableNumber(footballNumbers.assists),
-            yellowCards: nullableNumber(footballNumbers.yellowCards),
-            redCards: nullableNumber(footballNumbers.redCards),
-            opponent: opponent || null,
-            score: score || null,
-            competition: competition || null,
-            footstatsReference: footstatsReference || null,
-            footstatsPlayerId: footstatsPlayerId || null,
-            footstatsTeamId: footstatsTeamId || null,
-          } : null,
-          basketball: isBasketball ? {
-            starter: basketball.starter === "" ? null : basketball.starter === "yes",
-            minutes: nullableNumber(basketball.minutes),
-            points: nullableNumber(basketball.points),
-            rebounds: nullableNumber(basketball.rebounds),
-            assists: nullableNumber(basketball.assists),
-            steals: nullableNumber(basketball.steals),
-            blocks: nullableNumber(basketball.blocks),
-          } : null,
-          statistics: statistics.map((statistic) => ({
-            label: statistic.label,
-            value: statistic.value,
-            unit: statistic.unit || null,
-          })),
+          football: manualFootball,
+          basketball: manualBasketball,
+          statistics: manualStatistics,
         }),
       });
       const payload = await response.json() as {
@@ -402,29 +453,6 @@ export function SportsWatchManualEntryPanel({
             <strong>Configuration Sports Watch à revalider :</strong> {warning}
           </p>
         ) : null}
-
-        <label style={labelStyle}>
-          Titre *
-          <input
-            type="text"
-            required
-            maxLength={300}
-            value={title}
-            disabled={busy}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
-        <label style={labelStyle}>
-          Résumé factuel *
-          <textarea
-            required
-            maxLength={3000}
-            rows={4}
-            value={summary}
-            disabled={busy}
-            onChange={(event) => setSummary(event.target.value)}
-          />
-        </label>
 
         {!isFootball ? (
           <div style={gridStyle}>
@@ -755,6 +783,97 @@ export function SportsWatchManualEntryPanel({
             </button>
           </div>
         </fieldset>
+
+        <section
+          style={{
+            display: "grid",
+            gap: "0.55rem",
+            padding: "0.65rem",
+            border: "1px solid #bfdbfe",
+            borderRadius: "8px",
+            background: "#f8fbff",
+          }}
+        >
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="card-link-button"
+              disabled={busy || !generationAvailable}
+              onClick={requestTextGeneration}
+            >
+              {title.trim() || summary.trim()
+                ? "Régénérer"
+                : "Générer le titre et le résumé"}
+            </button>
+            {!generationAvailable ? (
+              <small>
+                Renseignez l’athlète, la date et au moins un fait sportif explicite.
+              </small>
+            ) : null}
+          </div>
+          {confirmRegeneration ? (
+            <div
+              role="alert"
+              style={{
+                display: "flex",
+                gap: "0.5rem",
+                alignItems: "center",
+                flexWrap: "wrap",
+                color: "#92400e",
+                fontSize: "0.78rem",
+              }}
+            >
+              <strong>Remplacer le titre et le résumé modifiés ?</strong>
+              <button
+                type="button"
+                className="card-link-button"
+                disabled={busy}
+                onClick={applyGeneratedText}
+              >
+                Confirmer la régénération
+              </button>
+              <button
+                type="button"
+                className="card-link-button"
+                disabled={busy}
+                onClick={() => setConfirmRegeneration(false)}
+              >
+                Annuler
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <label style={labelStyle}>
+          Titre *
+          <input
+            type="text"
+            required
+            maxLength={300}
+            value={title}
+            disabled={busy}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setTitleEdited(true);
+              setConfirmRegeneration(false);
+            }}
+          />
+        </label>
+        <label style={labelStyle}>
+          Résumé factuel *
+          <textarea
+            required
+            maxLength={3000}
+            rows={4}
+            value={summary}
+            disabled={busy}
+            onChange={(event) => {
+              setSummary(event.target.value);
+              setSummaryEdited(true);
+              setConfirmRegeneration(false);
+            }}
+          />
+        </label>
 
         <label style={labelStyle}>
           Note interne Admin
