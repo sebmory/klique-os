@@ -200,12 +200,14 @@ export default function AthleteSphere({
         );
         projectedNodesRef.current = projected;
 
-        drawingContext.lineWidth = 0.8;
         model.connections.forEach(({ from, to }) => {
           const start = projected[from];
           const end = projected[to];
           if (!start || !end) return;
-          drawingContext.globalAlpha = 0.08 + ((start.opacity + end.opacity) / 2) * 0.18;
+          const normalizedDepth = Math.max(-1, Math.min(1, (start.depth + end.depth) / 2));
+          const visibility = (normalizedDepth + 1) / 2;
+          drawingContext.lineWidth = 0.45 + visibility * 0.75;
+          drawingContext.globalAlpha = 0.06 + visibility * 0.2;
           drawingContext.strokeStyle = "#efe5cf";
           drawingContext.beginPath();
           drawingContext.moveTo(start.screenX, start.screenY);
@@ -498,6 +500,7 @@ export default function AthleteSphere({
                     sport={selectedAthlete.sport}
                     portrait={selectedAthlete.portrait}
                     colorCategory={selectedAthlete.colorCategory}
+                    fit="contain"
                   />
                 </div>
                 <div className={styles.selectedCopy}>

@@ -8,6 +8,7 @@ type AthletePortraitProps = {
   colorCategory: PublicSportColorCategory;
   decorative?: boolean;
   priority?: boolean;
+  fit?: "cover" | "contain";
 };
 
 const getInitials = (name: string): string =>
@@ -25,15 +26,17 @@ export default function AthletePortrait({
   colorCategory,
   decorative = false,
   priority = false,
+  fit = "cover",
 }: AthletePortraitProps) {
   if (portrait) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        className={styles.image}
+        className={`${styles.image} ${styles[fit]}`}
         src={portrait}
         alt={decorative ? "" : `Portrait de ${name}`}
         loading={priority ? "eager" : "lazy"}
+        data-portrait-fit={fit}
       />
     );
   }

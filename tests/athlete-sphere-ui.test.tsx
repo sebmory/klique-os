@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/link", () => ({
@@ -63,6 +64,14 @@ let canvasAvailable = true;
 let intersectionCallback: IntersectionObserverCallback | null = null;
 const requestAnimationFrameMock = vi.fn(() => 17);
 const cancelAnimationFrameMock = vi.fn();
+const portraitCss = readFileSync(
+  "components/public-athletes/athlete-portrait.module.css",
+  "utf8",
+);
+const sphereCss = readFileSync(
+  "components/home/athlete-sphere.module.css",
+  "utf8",
+);
 
 class ResizeObserverMock {
   constructor(private readonly callback: ResizeObserverCallback) {}
@@ -234,6 +243,37 @@ describe("AthleteSphere", () => {
     expect(container.textContent).toContain("Pause");
   });
 
+  it("keeps the selected full-body portrait contained without changing other portrait defaults", async () => {
+    const fullBodyAthletes = athletes.map((athlete, index) => ({
+      ...athlete,
+      portrait: `https://images.example/${index === 0 ? "tylian-full-body" : athlete.slug}.png`,
+    }));
+    await mount({ athletes: fullBodyAthletes });
+
+    const selectedPortrait = container.querySelector<HTMLImageElement>(
+      "article img[data-portrait-fit='contain']",
+    );
+    expect(selectedPortrait).not.toBeNull();
+    expect(selectedPortrait?.getAttribute("data-portrait-fit")).toBe("contain");
+    expect(portraitCss).toContain("object-fit: contain");
+    expect(portraitCss).toContain("object-position: center bottom");
+    expect(portraitCss).not.toContain("transform: scale");
+    expect(sphereCss).not.toMatch(/\.portrait\s*>\s*\*\s*\{[^}]*object-fit:\s*cover/);
+  });
+
+  it("keeps the initials placeholder when the selected athlete has no portrait", async () => {
+    await mount({
+      athletes: [{
+        ...athletes[0]!,
+        portrait: undefined,
+      }],
+    });
+
+    expect(container.querySelector("article img")).toBeNull();
+    expect(container.querySelector("article [role='img']")?.getAttribute("aria-label"))
+      .toContain("Portrait non publié");
+  });
+
   it("disables automatic rotation for reduced motion", async () => {
     reducedMotion = true;
     await mount();
@@ -269,6 +309,7 @@ describe("AthleteSphere", () => {
     expect(container.querySelector("canvas")).toBeNull();
     expect(container.textContent).toContain("La visualisation interactive n’est pas disponible");
     expect(container.querySelectorAll('.fallbackGrid a, a[href^="/athletes/"]')).toHaveLength(6);
+    expect(container.querySelector("img[data-portrait-fit='cover']")).not.toBeNull();
   });
 
   it("isolates loading errors and empty data from the rest of the homepage", async () => {
