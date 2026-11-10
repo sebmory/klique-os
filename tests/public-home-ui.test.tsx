@@ -25,9 +25,15 @@ import PublicHome from "@/components/home/PublicHome";
 import type { PublicAthleteCard } from "@/lib/public-athletes";
 
 const plans = [
-  { code: "essential", name: "Essentiel", annualPriceChf: 249, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
-  { code: "impact", name: "Impact", annualPriceChf: 549, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
-  { code: "signature", name: "Signature", annualPriceChf: 999, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
+  { code: "essential", name: "Essentiel", annualPriceChf: 249, normalAnnualPriceChf: 249, launchPromotionActive: false, durationMonths: 12, productionCredits: 1, customContentCredits: 2, videoAllowed: false },
+  { code: "impact", name: "Impact", annualPriceChf: 549, normalAnnualPriceChf: 549, launchPromotionActive: false, durationMonths: 12, productionCredits: 2, customContentCredits: 4, videoAllowed: true },
+  { code: "signature", name: "Signature", annualPriceChf: 999, normalAnnualPriceChf: 999, launchPromotionActive: false, durationMonths: 12, productionCredits: 3, customContentCredits: 6, videoAllowed: true },
+];
+
+const promotedPlans = [
+  { ...plans[0], annualPriceChf: 124.5, launchPromotionActive: true },
+  { ...plans[1], annualPriceChf: 274.5, launchPromotionActive: true },
+  { ...plans[2], annualPriceChf: 499.5, launchPromotionActive: true },
 ];
 
 const fetchMock = vi.fn();
@@ -95,12 +101,41 @@ describe("Public KLIQUE home", () => {
       expect(container.textContent).toContain(actor);
     }
     expect(container.textContent).toContain("Essentiel");
-    expect(container.textContent).toContain("CHF 549.00");
+    expect(container.textContent).toContain("CHF 549.–");
     expect(container.textContent).toContain("3 crédit(s) production photo/vidéo");
     const passLinkLabels = [...container.querySelectorAll('a[href="/pass"]')].map((link) => link.textContent);
     expect(passLinkLabels).toContain("Les Pass");
     expect(passLinkLabels.some((label) => label?.includes("Comparer les Pass"))).toBe(true);
     expect(container.querySelector('a[href="/athletes"]')?.textContent).toContain("Les athlètes");
+  });
+
+  it("affiche l’offre de lancement et les trois couples de prix fournis par l’API", async () => {
+    await mount(undefined, Promise.resolve(response({ plans: promotedPlans })));
+
+    expect(container.textContent).toContain("Offre de lancement : -50 % jusqu’au 31.12.2026");
+    expect([...container.querySelectorAll("del")].map((element) => element.textContent)).toEqual([
+      "CHF 249.–",
+      "CHF 549.–",
+      "CHF 999.–",
+    ]);
+    for (const price of ["CHF 124.50", "CHF 274.50", "CHF 499.50"]) {
+      expect(container.textContent).toContain(`${price} par an`);
+    }
+    expect(container.querySelector('a[href="/pass"]')?.textContent).toContain("Les Pass");
+    expect([...container.querySelectorAll('a[href="/pass"]')]
+      .some((link) => link.textContent?.includes("Comparer les Pass"))).toBe(true);
+  });
+
+  it("retire automatiquement la présentation promotionnelle quand l’API la désactive", async () => {
+    await mount(undefined, Promise.resolve(response({ plans })));
+
+    expect(container.textContent).not.toContain("Offre de lancement");
+    expect(container.querySelectorAll("del")).toHaveLength(0);
+    for (const price of ["CHF 249.–", "CHF 549.–", "CHF 999.–"]) {
+      expect(container.textContent).toContain(`${price} par an`);
+    }
+    expect([...container.querySelectorAll('a[href="/pass"]')]
+      .some((link) => link.textContent?.includes("Comparer les Pass"))).toBe(true);
   });
 
   it("renders the four real statistics in an accessible band", async () => {

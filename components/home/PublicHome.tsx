@@ -9,13 +9,15 @@ import type { PublicPassPlan } from "@/components/pass/PublicPassCatalog";
 import AthletePortrait from "@/components/public-athletes/AthletePortrait";
 import type { PublicAthleteCard } from "@/lib/public-athletes";
 import type { PublicKliqueStats } from "@/lib/public-klique-stats";
+import { KLIQUE_PASS_LAUNCH_PROMOTION_LABEL } from "@/lib/klique-pass-launch-promotion";
 import styles from "./public-home.module.css";
 
 type PublicHomeProps = {
   featuredAthletes?: readonly PublicAthleteCard[];
 };
 
-const formatPrice = (value: number): string => `CHF ${value.toFixed(2)}`;
+const formatPrice = (value: number): string =>
+  Number.isInteger(value) ? `CHF ${value}.–` : `CHF ${value.toFixed(2)}`;
 
 export default function PublicHome({ featuredAthletes = [] }: PublicHomeProps) {
   const { isLoaded, isSignedIn } = useUser();
@@ -194,13 +196,28 @@ export default function PublicHome({ featuredAthletes = [] }: PublicHomeProps) {
             <div><p className={styles.sectionLabel}>Les Pass KLIQUE</p><h2 id="offers-title">Choisir son niveau d’accompagnement.</h2></div>
             <p>Chaque Pass ouvre un niveau d’accompagnement pensé pour activer les ressources, les productions et les connexions utiles au bon moment.</p>
           </div>
+          {plans.some((plan) => plan.launchPromotionActive) ? (
+            <p className={styles.offerPromotion}>{KLIQUE_PASS_LAUNCH_PROMOTION_LABEL}</p>
+          ) : null}
           {plansLoading ? <p className={styles.catalogStatus} role="status">Chargement des offres…</p> : null}
           {!plansLoading && !plansError && plans.length ? (
             <div className={styles.offerList}>
               {plans.map((plan) => (
                 <article key={plan.code}>
                   <div><p>Pass</p><h3>{plan.name}</h3></div>
-                  <p className={styles.offerPrice}>{formatPrice(plan.annualPriceChf)} <span>par an</span></p>
+                  <div className={styles.offerPriceBlock}>
+                    {plan.launchPromotionActive ? (
+                      <del className={styles.offerNormalPrice}>
+                        {formatPrice(plan.normalAnnualPriceChf)}
+                      </del>
+                    ) : null}
+                    <p className={plan.launchPromotionActive
+                      ? `${styles.offerPrice} ${styles.offerPromotionalPrice}`
+                      : styles.offerPrice}
+                    >
+                      {formatPrice(plan.annualPriceChf)} <span>par an</span>
+                    </p>
+                  </div>
                   <ul aria-label={`Aperçu du Pass ${plan.name}`}>
                     <li><Check size={16} aria-hidden="true" /> {plan.productionCredits} crédit(s) production photo/vidéo</li>
                     <li><Check size={16} aria-hidden="true" /> {plan.customContentCredits} crédit(s) contenu personnalisé</li>

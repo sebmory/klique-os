@@ -505,8 +505,20 @@
   align-items: end;
 }
 
+.offerPromotion {
+  display: inline-flex;
+  margin: 1.5rem 0 0;
+  padding: .45rem .7rem;
+  border: 1px solid rgba(180, 76, 50, .35);
+  border-radius: 999px;
+  background: rgba(180, 76, 50, .08);
+  color: #8d3926;
+  font-size: .78rem;
+  font-weight: 850;
+}
+
 .offerList {
-  margin: 3rem 0 1.5rem;
+  margin: 1.75rem 0 1.5rem;
   border-top: 1px solid #bfc5be;
 }
 
@@ -525,7 +537,7 @@
   margin: 0;
 }
 
-.offerList article > div p {
+.offerList article > div:first-child p {
   color: #8a5b27;
   font-size: 0.7rem;
   font-weight: 850;
@@ -541,6 +553,23 @@
 .offerPrice {
   font-size: 1.1rem;
   font-weight: 850;
+}
+
+.offerPriceBlock {
+  display: grid;
+  gap: .2rem;
+  justify-items: start;
+}
+
+.offerNormalPrice {
+  color: #7d8581;
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.offerPromotionalPrice {
+  color: #b44c32;
+  font-size: 1.25rem;
 }
 
 .offerPrice span {
@@ -936,6 +965,11 @@
     grid-template-columns: 1fr auto;
     gap: 0.75rem 1rem;
     padding: .85rem 0;
+  }
+
+  .offerPriceBlock {
+    justify-items: end;
+    text-align: right;
   }
 
   .offerList ul {
