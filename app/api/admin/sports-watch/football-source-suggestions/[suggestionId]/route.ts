@@ -32,10 +32,28 @@ export async function PATCH(
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (error) {
+    const status = sportsWatchErrorStatus(error);
+    if (status === 500) {
+      const databaseError = error && typeof error === "object"
+        ? error as { code?: unknown; constraint?: unknown; name?: unknown }
+        : null;
+      console.error("[sports_watch][football_source_attachment_failed]", {
+        code: typeof databaseError?.code === "string" ? databaseError.code : null,
+        constraint: typeof databaseError?.constraint === "string"
+          ? databaseError.constraint
+          : null,
+        name: typeof databaseError?.name === "string" ? databaseError.name : null,
+      });
+    }
     return NextResponse.json(
-      { ok: false, message: error instanceof Error ? error.message : "Action impossible." },
       {
-        status: sportsWatchErrorStatus(error),
+        ok: false,
+        message: status !== 500 && error instanceof Error
+          ? error.message
+          : "Impossible de rattacher la source publique. Aucune modification n’a été enregistrée.",
+      },
+      {
+        status,
         headers: { "Cache-Control": "private, no-store" },
       },
     );

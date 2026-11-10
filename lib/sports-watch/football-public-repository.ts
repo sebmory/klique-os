@@ -401,10 +401,29 @@ export const FootballPublicRepository = {
              status, decided_by_clerk_user_id, decided_at, version
       FROM sports_watch_football_source_suggestions
       WHERE workspace_id = $1 AND id = $2::uuid
-        AND status = 'pending' AND version = $3
-    `, [input.workspaceId, input.suggestionId, input.expectedVersion]) as SourceSuggestionRow[];
+    `, [input.workspaceId, input.suggestionId]) as SourceSuggestionRow[];
     const suggestion = rows[0];
     if (!suggestion) return null;
+    if (
+      suggestion.status === "attached"
+      && input.decision === "attached"
+      && Number(suggestion.version) === input.expectedVersion + 1
+    ) {
+      const attachedRows = await sql.query(`
+        SELECT id
+        FROM sports_watch_candidates
+        WHERE workspace_id = $1
+          AND idempotency_key = $2::uuid
+          AND football_completion_json->>'mode' = 'public_source_attached'
+        LIMIT 1
+      `, [input.workspaceId, input.suggestionId]) as Array<{ id: string }>;
+      return attachedRows[0]
+        ? PostgresSportsWatchRepository.getCandidate(input.workspaceId, attachedRows[0].id)
+        : null;
+    }
+    if (suggestion.status !== "pending" || Number(suggestion.version) !== input.expectedVersion) {
+      return null;
+    }
     if (input.decision === "rejected") {
       await sql.query(`
         UPDATE sports_watch_football_source_suggestions
@@ -460,9 +479,10 @@ export const FootballPublicRepository = {
           event_date_from, event_date_to, collected_at, attribution_status,
           attribution_evidence_json, factual_verification_status, admin_status,
           reviewed_by_clerk_user_id, reviewed_at, logical_key, content_hash,
-          supersedes_candidate_id, version, manual_entry_json,
+          supersedes_candidate_id, version, dismissed_by_clerk_user_id,
+          dismissed_at, manual_entry_json,
           created_by_clerk_user_id, idempotency_key, football_evidence_json,
-          football_completion_json
+          football_completion_json, football_resolution
         )
         SELECT
           $4::uuid, workspace_id, source_key, athlete_id, athlete_name_snapshot,
@@ -472,11 +492,15 @@ export const FootballPublicRepository = {
           event_date_from, event_date_to, NOW(), attribution_status,
           attribution_evidence_json || $5::jsonb, factual_verification_status,
           admin_status, reviewed_by_clerk_user_id, reviewed_at, logical_key, $6,
-          id, version + 1, manual_entry_json, created_by_clerk_user_id,
-          $9::uuid, $7::jsonb, $8::jsonb
+          id, version + 1, dismissed_by_clerk_user_id, dismissed_at,
+          manual_entry_json, created_by_clerk_user_id,
+          $9::uuid, $7::jsonb, $8::jsonb, football_resolution
         FROM sports_watch_candidates
         WHERE workspace_id = $1 AND id = $2::uuid AND version = $3
           AND manual_entry_json IS NOT NULL
+        ON CONFLICT (workspace_id, idempotency_key)
+          WHERE football_completion_json IS NOT NULL AND idempotency_key IS NOT NULL
+          DO NOTHING
         RETURNING id
       `, [
         input.workspaceId,
@@ -489,7 +513,7 @@ export const FootballPublicRepository = {
         contentHash,
         JSON.stringify(evidence),
         JSON.stringify(completion),
-        randomUUID(),
+        input.suggestionId,
       ]),
       sql.query(`
         UPDATE sports_watch_football_source_suggestions
@@ -534,8 +558,19 @@ export const FootballPublicRepository = {
       ]),
     ]);
     const inserted = (transaction[0] as Array<{ id: string }>)[0]?.id;
-    return inserted
-      ? PostgresSportsWatchRepository.getCandidate(input.workspaceId, inserted)
+    if (inserted) {
+      return PostgresSportsWatchRepository.getCandidate(input.workspaceId, inserted);
+    }
+    const attachedRows = await sql.query(`
+      SELECT id
+      FROM sports_watch_candidates
+      WHERE workspace_id = $1
+        AND idempotency_key = $2::uuid
+        AND football_completion_json->>'mode' = 'public_source_attached'
+      LIMIT 1
+    `, [input.workspaceId, input.suggestionId]) as Array<{ id: string }>;
+    return attachedRows[0]
+      ? PostgresSportsWatchRepository.getCandidate(input.workspaceId, attachedRows[0].id)
       : null;
   },
 

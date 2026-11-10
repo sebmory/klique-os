@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   saveBinding: vi.fn(),
   disableBinding: vi.fn(),
   decideReconciliation: vi.fn(),
+  decideSourceSuggestion: vi.fn(),
 }));
 
 vi.mock("@/lib/sports-watch/activation", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/lib/sports-watch/football-public-service", () => ({
     saveBinding: mocks.saveBinding,
     disableBinding: mocks.disableBinding,
     decideReconciliation: mocks.decideReconciliation,
+    decideSourceSuggestion: mocks.decideSourceSuggestion,
   },
 }));
 
@@ -35,6 +37,7 @@ import {
   PUT,
 } from "@/app/api/admin/sports-watch/football-bindings/route";
 import { PUT as PUT_RECONCILIATION } from "@/app/api/admin/sports-watch/football-reconciliations/[reconciliationId]/route";
+import { PATCH as PATCH_SOURCE_SUGGESTION } from "@/app/api/admin/sports-watch/football-source-suggestions/[suggestionId]/route";
 
 const request = (method: string, body?: unknown) => new Request(
   "http://localhost/api/admin/sports-watch/football-bindings",
@@ -112,5 +115,35 @@ describe("public football pilot routes", () => {
       decision: "keep_manual",
       expectedVersion: 1,
     }, identity);
+  });
+
+  it("returns a safe JSON error when source attachment fails unexpectedly", async () => {
+    const identity = { workspaceId: "workspace-a", clerkUserId: "admin-a" };
+    mocks.requireAdmin.mockResolvedValue(identity);
+    mocks.errorStatus.mockReturnValue(500);
+    mocks.decideSourceSuggestion.mockRejectedValue(
+      new Error('new row violates check constraint "private_sql_constraint"'),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await PATCH_SOURCE_SUGGESTION(
+      request("PATCH", { decision: "attached", expectedVersion: 1 }),
+      {
+        params: Promise.resolve({
+          suggestionId: "00000000-0000-4000-8000-000000000001",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      message: "Impossible de rattacher la source publique. Aucune modification n’a été enregistrée.",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[sports_watch][football_source_attachment_failed]",
+      expect.objectContaining({ name: "Error" }),
+    );
+    consoleError.mockRestore();
   });
 });
