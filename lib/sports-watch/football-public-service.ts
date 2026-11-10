@@ -28,8 +28,11 @@ import type {
   SportsWatchCandidate,
 } from "@/types/sports-watch";
 
-const MATHEUS_NAME = "matheus monteiro";
-const PILOT_TEAM_ID = "xh89ete5";
+const FOOTBALL_BINDING_ALLOWLIST = [
+  { athleteName: "matheus monteiro", teamId: "xh89ete5" },
+  { athleteName: "aggee wenzi", teamId: "wjsj6p08" },
+  { athleteName: "abdou bobodi camara", teamId: "ddcznrjs" },
+] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
@@ -52,7 +55,7 @@ const getAthletes = (identity: SportsWatchAdminIdentity) =>
         accessStatus: "active",
       });
 
-const resolveMatheus = async (
+const resolveAllowedAthlete = async (
   athleteIdValue: unknown,
   identity: SportsWatchAdminIdentity,
 ): Promise<SportsWatchCrmAthlete> => {
@@ -62,24 +65,29 @@ const resolveMatheus = async (
     throw new SportsWatchError("not_found", "Athlète actif introuvable dans cet espace.");
   }
   if (
-    !normalizeName(athlete.name).includes(MATHEUS_NAME)
+    !FOOTBALL_BINDING_ALLOWLIST.some(
+      ({ athleteName: allowedName }) => normalizeName(athlete.name) === allowedName,
+    )
     || !normalizeName(athlete.sport).includes("football")
     || normalizeName(athlete.sport).includes("americain")
   ) {
     throw new SportsWatchError(
       "validation",
-      "Ce pilote est strictement limité à Matheus Monteiro.",
+      "Cet athlète ne fait pas partie des rattachements football autorisés.",
     );
   }
   return athlete;
 };
 
-const requireTeamId = (value: unknown): string => {
+const requireTeamId = (value: unknown, athlete: SportsWatchCrmAthlete): string => {
   const teamId = normalize(value);
-  if (teamId !== PILOT_TEAM_ID) {
+  const allowed = FOOTBALL_BINDING_ALLOWLIST.find(
+    ({ athleteName: allowedName }) => normalizeName(athlete.name) === allowedName,
+  );
+  if (!allowed || teamId !== allowed.teamId) {
     throw new SportsWatchError(
       "validation",
-      `Ce pilote est limité à l’équipe Footstats ${PILOT_TEAM_ID}.`,
+      "L’équipe Footstats ne correspond pas au rattachement autorisé pour cet athlète.",
     );
   }
   return teamId;
@@ -115,9 +123,9 @@ export const FootballPublicService = {
     teamIdValue: unknown,
     identity: SportsWatchAdminIdentity,
   ): Promise<FootballPublicTeamDiscovery> {
-    await resolveMatheus(athleteIdValue, identity);
+    const athlete = await resolveAllowedAthlete(athleteIdValue, identity);
     try {
-      return await discoverFootstatsFootballTeam(requireTeamId(teamIdValue));
+      return await discoverFootstatsFootballTeam(requireTeamId(teamIdValue, athlete));
     } catch (error) {
       throw new SportsWatchError(
         "source",
@@ -136,7 +144,7 @@ export const FootballPublicService = {
     identityMatchConfirmed: unknown;
     expectedVersion: unknown;
   }, identity: SportsWatchAdminIdentity): Promise<FootballPublicBinding> {
-    const athlete = await resolveMatheus(input.athleteId, identity);
+    const athlete = await resolveAllowedAthlete(input.athleteId, identity);
     const status = normalize(input.status);
     if (status !== "draft" && status !== "verified" && status !== "ambiguous") {
       throw new SportsWatchError("validation", "Le statut du rattachement est invalide.");
@@ -155,7 +163,7 @@ export const FootballPublicService = {
     if (status === "verified" && (!selectedPlayer || input.identityMatchConfirmed !== true)) {
       throw new SportsWatchError(
         "validation",
-        "Choisissez Matheus dans l’effectif et confirmez explicitement son identité.",
+        "Choisissez le joueur dans l’effectif et confirmez explicitement son identité.",
       );
     }
     const binding = await FootballPublicRepository.saveBinding({
@@ -194,7 +202,7 @@ export const FootballPublicService = {
     expectedVersionValue: unknown,
     identity: SportsWatchAdminIdentity,
   ): Promise<FootballPublicBinding> {
-    const athlete = await resolveMatheus(athleteIdValue, identity);
+    const athlete = await resolveAllowedAthlete(athleteIdValue, identity);
     const binding = await FootballPublicRepository.disableBinding({
       workspaceId: identity.workspaceId,
       athleteId: athleteId(athlete),
@@ -229,7 +237,7 @@ export const FootballPublicService = {
         "Le candidat collectif à compléter est introuvable.",
       );
     }
-    const athlete = await resolveMatheus(candidate.athleteId, identity);
+    const athlete = await resolveAllowedAthlete(candidate.athleteId, identity);
     const validated = validateSportsWatchManualEntryInput(value, athlete);
     const evidence = candidate.footballEvidence;
     const football = validated.metadata.football;
