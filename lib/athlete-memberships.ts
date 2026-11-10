@@ -8,6 +8,7 @@ import {
   type AthleteMembershipPlan,
 } from "@/lib/athlete-credits";
 import { buildMembershipState } from "@/lib/membership";
+import { resolvePostgresTarget } from "@/lib/postgres-config";
 
 export type AthleteMembershipKind = "founder" | "subscription" | "trial" | "manual";
 export type AthleteMembershipStatus = "active" | "scheduled" | "expired" | "cancelled" | "past_due";
@@ -240,9 +241,7 @@ const mapMembershipRow = (row: AthleteMembershipRow): AthleteMembership => ({
 });
 
 export const readAthleteMembershipsFromNeon: AthleteMembershipReader = async (workspaceId, athleteId) => {
-  const databaseUrl = process.env.POSTGRES_DATABASE_URL?.trim();
-  if (!databaseUrl) throw new Error("POSTGRES_DATABASE_URL absente.");
-
+  const { databaseUrl } = resolvePostgresTarget();
   const sql = neon(databaseUrl);
   const rows = await sql`
     SELECT
@@ -274,8 +273,7 @@ export const listAdminAthleteMemberships = async (
 ): Promise<AdminAthleteMembership[]> => {
   const normalizedWorkspaceId = workspaceId.trim();
   if (!normalizedWorkspaceId) throw new AthleteMembershipValidationError("workspaceId est requis.");
-  const databaseUrl = process.env.POSTGRES_DATABASE_URL?.trim();
-  if (!databaseUrl) throw new Error("POSTGRES_DATABASE_URL absente.");
+  const { databaseUrl } = resolvePostgresTarget();
   const sql = neon(databaseUrl);
   const rows = await sql`
     SELECT membership.*,
@@ -370,8 +368,7 @@ export const listAdminAthleteMemberships = async (
 };
 
 const createAdminRepository = (): AthleteMembershipAdminRepository => {
-  const databaseUrl = process.env.POSTGRES_DATABASE_URL?.trim();
-  if (!databaseUrl) throw new Error("POSTGRES_DATABASE_URL absente.");
+  const { databaseUrl } = resolvePostgresTarget();
   const sql = neon(databaseUrl);
 
   return {

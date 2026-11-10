@@ -8,6 +8,7 @@ import {
   type InviteAthleteResult,
 } from "@/lib/clerk-access/service";
 import { resolveActiveFounderAthleteId } from "@/lib/athlete-subscriptions/service";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -79,6 +80,9 @@ export const createAthleteInviteHandlers = (
 
       if (!athleteId) {
         return NextResponse.json({ error: "athleteId ou subscriptionId est obligatoire." }, { status: 400 });
+      }
+      if (isTestAthlete(athleteId)) {
+        return NextResponse.json({ error: "Ce profil de test ne peut pas recevoir d’invitation." }, { status: 403 });
       }
 
       const result = resend

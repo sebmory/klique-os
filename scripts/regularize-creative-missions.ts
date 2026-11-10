@@ -1,5 +1,7 @@
 import { runCreativeMissionRegularization } from "@/lib/creative-mission-regularization";
 import { buildCreativeMissionRegularizationPayload } from "@/fixtures/creative-mission-regularization";
+import { formatPostgresTargetSummary, resolvePostgresTarget } from "@/lib/postgres-config";
+import { confirmInteractiveApply, parseScriptMode } from "@/lib/production-script-safety";
 
 const buildDryRun = () => {
   const { records } = buildCreativeMissionRegularizationPayload();
@@ -25,10 +27,20 @@ const buildDryRun = () => {
 };
 
 const main = async () => {
-  if (!process.argv.includes("--apply")) {
-    console.log(JSON.stringify(buildDryRun(), null, 2));
+  const mode = parseScriptMode(process.argv.slice(2));
+  const target = resolvePostgresTarget();
+  console.log(`Cible PostgreSQL: ${formatPostgresTargetSummary(target.summary)}`);
+  const dryRun = buildDryRun();
+
+  if (!mode.apply) {
+    console.log(JSON.stringify(dryRun, null, 2));
     console.log("Dry-run uniquement. Ajoutez --apply pour exécuter la régularisation idempotente.");
     return;
+  }
+
+  console.log(`Résumé avant application: lignes_canoniques=${dryRun.events}`);
+  if (!(await confirmInteractiveApply(mode))) {
+    throw new Error("Confirmation refusée. Aucune donnée modifiée.");
   }
 
   const result = await runCreativeMissionRegularization();
@@ -36,6 +48,11 @@ const main = async () => {
 };
 
 void main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "Régularisation impossible.");
+  const operationalMessage = error instanceof Error
+    && (error.message.startsWith("Cible PostgreSQL refusee")
+      || error.message.startsWith("Confirmation refusée"))
+    ? error.message
+    : "Régularisation impossible. Consulter les journaux techniques protégés.";
+  console.error(operationalMessage);
   process.exitCode = 1;
 });

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LayoutGrid, LayoutList, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import type { Athlete, AthletesResponse } from "@/types/athlete";
 import { CrmModuleNav } from "@/components/crm/CrmModuleNav";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 type ContactType = "Athletes";
 type ContactStatus = "Actif" | "Prospect" | "Inactif";
@@ -359,6 +360,9 @@ export function PeopleCrmScreen() {
                       </span>
                       <span className="crm-name-stack">
                         <strong>{person.name}</strong>
+                        {isTestAthlete(person.id) ? (
+                          <small className="crm-status-badge is-prospect">Profil de test</small>
+                        ) : null}
                         <small>{person.type}</small>
                       </span>
                     </span>
@@ -413,6 +417,9 @@ export function PeopleCrmScreen() {
                   </span>
                   <div>
                     <h3>{person.name}</h3>
+                    {isTestAthlete(person.id) ? (
+                      <small className="crm-status-badge is-prospect">Profil de test</small>
+                    ) : null}
                     <p>{person.organization}</p>
                   </div>
                 </header>

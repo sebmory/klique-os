@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useClerk } from "@clerk/nextjs";
 import { ChevronDown, CircleUserRound } from "./icons";
 
-const mainMenuItems = ["Mon profil", "Préférences", "Changer de workspace"];
-
 type UserMenuProps = {
   userName?: string | null;
   userRole?: string | null;
@@ -81,15 +79,6 @@ export function UserMenu({ userName, userRole }: UserMenuProps) {
             </div>
           </div>
           <ul>
-            {mainMenuItems.map((item) => (
-              <li key={item}>
-                <button type="button" role="menuitem" className="menu-item-disabled" disabled aria-disabled="true">
-                  <span>{item}</span>
-                  <small>Bientôt disponible</small>
-                </button>
-              </li>
-            ))}
-            <li className="menu-separator" role="separator" aria-hidden />
             <li>
               <button
                 type="button"

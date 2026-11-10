@@ -51,4 +51,28 @@ describe("UserMenu", () => {
     expect(container.textContent).toContain("camille@example.com");
     expect(container.textContent).toContain("Média");
   });
+
+  it("hides unavailable actions and keeps sign-out", async () => {
+    await act(async () => {
+      root.render(createElement(UserMenu, { userName: "Camille Martin", userRole: "admin" }));
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".user-trigger")?.click();
+    });
+
+    expect(container.textContent).not.toContain("Bientôt disponible");
+    expect(container.textContent).not.toContain("Mon profil");
+    expect(container.textContent).not.toContain("Préférences");
+    expect(container.textContent).not.toContain("Changer de workspace");
+
+    const signOutButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Se déconnecter"));
+    expect(signOutButton).toBeDefined();
+
+    await act(async () => {
+      signOutButton?.click();
+    });
+    expect(signOutMock).toHaveBeenCalledWith({ redirectUrl: "/sign-in" });
+  });
 });

@@ -3,6 +3,8 @@ import { neon } from "@neondatabase/serverless";
 // @clerk/backend fonctionne hors Next.js, contrairement a @clerk/nextjs/server.
 import { createClerkClient } from "@clerk/backend";
 import { getAthletesFromGoogleSheets } from "../lib/google-sheets";
+import { formatPostgresTargetSummary, resolvePostgresTarget } from "../lib/postgres-config";
+import { confirmInteractiveApply, parseScriptMode } from "../lib/production-script-safety";
 
 const normalizeEmail = (value: unknown): string =>
   String(value ?? "")
@@ -10,14 +12,6 @@ const normalizeEmail = (value: unknown): string =>
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-
-// Masque l adresse pour ne jamais journaliser une donnee complete.
-const maskEmail = (email: string): string => {
-  const [local, domain] = email.split("@");
-  if (!domain) return "***";
-  const head = local.slice(0, 2);
-  return `${head}${"*".repeat(Math.max(local.length - 2, 1))}@${domain}`;
-};
 
 type UserAccessRow = {
   clerk_user_id: string;
@@ -27,26 +21,16 @@ type UserAccessRow = {
   athlete_id: string | null;
 };
 
-const resolveDatabaseUrl = (): string => {
-  const url =
-    process.env.POSTGRES_DATABASE_URL?.trim() ||
-    process.env.DATABASE_URL?.trim() ||
-    process.env.POSTGRES_URL?.trim() ||
-    "";
-  if (!url) {
-    throw new Error("Base non configuree: definir POSTGRES_DATABASE_URL, DATABASE_URL ou POSTGRES_URL.");
-  }
-  return url;
-};
-
 const main = async () => {
-  const applyMode = process.argv.includes("--apply");
+  const mode = parseScriptMode(process.argv.slice(2));
   const secretKey = process.env.CLERK_SECRET_KEY?.trim();
   if (!secretKey) {
     throw new Error("CLERK_SECRET_KEY manquant.");
   }
 
-  const sql = neon(resolveDatabaseUrl());
+  const target = resolvePostgresTarget();
+  console.log(`Cible PostgreSQL: ${formatPostgresTargetSummary(target.summary)}`);
+  const sql = neon(target.databaseUrl);
   const clerk = createClerkClient({ secretKey });
 
   const athletes = await getAthletesFromGoogleSheets();
@@ -67,9 +51,9 @@ const main = async () => {
   `) as UserAccessRow[];
   const accessByClerkUserId = new Map(accessRows.map((row) => [row.clerk_user_id, row]));
 
-  const matched: string[] = [];
-  const unmatched: string[] = [];
-  const ambiguous: string[] = [];
+  let matched = 0;
+  let unmatched = 0;
+  let ambiguous = 0;
   const insertable: Array<{ clerkUserId: string; email: string; athleteId: string }> = [];
 
   let offset = 0;
@@ -88,21 +72,18 @@ const main = async () => {
       const hit = verifiedEmails.map((email) => ({ email, entries: athletesByEmail.get(email) ?? [] })).find((row) => row.entries.length > 0);
 
       if (!hit) {
-        unmatched.push(`${user.id} | ${verifiedEmails.map(maskEmail).join(", ") || "aucun e-mail verifie"}`);
+        unmatched += 1;
         continue;
       }
 
       const access = accessByClerkUserId.get(user.id);
-      const accessLabel = access
-        ? `role=${access.role} status=${access.status} workspace=${access.workspace_id} athlete_id=${access.athlete_id ?? "-"}`
-        : "aucune ligne user_access";
 
       if (hit.entries.length > 1) {
-        ambiguous.push(`${user.id} | ${maskEmail(hit.email)} | ${hit.entries.length} athletes | ${accessLabel}`);
+        ambiguous += 1;
         continue;
       }
 
-      matched.push(`${user.id} | ${maskEmail(hit.email)} | athleteId=${hit.entries[0].athleteId || "-"} | ${accessLabel}`);
+      matched += 1;
 
       if (!access && hit.entries[0].athleteId) {
         const rawVerifiedEmail = user.emailAddresses.find(
@@ -118,18 +99,12 @@ const main = async () => {
     offset += limit;
   }
 
-  console.log(`\n=== Correspondances exactes (${matched.length}) ===`);
-  matched.forEach((line) => console.log(line));
+  console.log(
+    `Résumé: correspondances=${matched} ambigues=${ambiguous} sans_correspondance=${unmatched} lignes_candidates=${insertable.length}`,
+  );
 
-  console.log(`\n=== Correspondances ambigues (${ambiguous.length}) ===`);
-  ambiguous.forEach((line) => console.log(line));
-
-  console.log(`\n=== Utilisateurs sans correspondance (${unmatched.length}) ===`);
-  unmatched.forEach((line) => console.log(line));
-
-  if (!applyMode) {
-    console.log(`\nAcces creables avec --apply: ${insertable.length}`);
-    console.log("\nDiagnostic lecture seule termine. Aucune donnee modifiee.");
+  if (!mode.apply) {
+    console.log("Dry-run termine. Aucune donnee modifiee; utilisez --apply pour ecrire.");
     return;
   }
 
@@ -148,8 +123,11 @@ const main = async () => {
     throw new Error("Workspace cible introuvable dans user_access: creation annulee.");
   }
 
-  // Insertions uniquement, dans une seule transaction atomique.
-  await sql.transaction(
+  if (!(await confirmInteractiveApply(mode))) {
+    throw new Error("Confirmation refusee: aucune donnee modifiee.");
+  }
+
+  const transactionResults = await sql.transaction(
     insertable.map(
       (entry) => sql`
         INSERT INTO user_access (
@@ -158,16 +136,21 @@ const main = async () => {
           ${entry.clerkUserId}, ${entry.email}, 'athlete', ${workspaceId}, ${entry.athleteId}, NULL, NULL, 'active', NOW(), NOW()
         )
         ON CONFLICT (clerk_user_id) DO NOTHING
+        RETURNING clerk_user_id
       `
     )
   );
 
-  console.log(`\n=== Acces athletes crees (${insertable.length}) ===`);
-  insertable.forEach((entry) => console.log(`${entry.clerkUserId} | ${maskEmail(normalizeEmail(entry.email))} | athleteId=${entry.athleteId}`));
-  console.log(`\nTotal cree: ${insertable.length}. Aucun UPDATE ni DELETE effectue.`);
+  const inserted = transactionResults.reduce((count, rows) => count + rows.length, 0);
+  console.log(`Application terminee: lignes_inserees=${inserted}. Aucun UPDATE ni DELETE.`);
 };
 
 main().catch((error) => {
-  console.error("Diagnostic en echec:", error instanceof Error ? error.message : "erreur inconnue");
+  const operationalMessage = error instanceof Error
+    && (error.message.startsWith("Cible PostgreSQL refusee")
+      || error.message.startsWith("Confirmation refusee"))
+    ? error.message
+    : "Diagnostic en echec. Consulter les journaux techniques proteges.";
+  console.error(operationalMessage);
   process.exitCode = 1;
 });

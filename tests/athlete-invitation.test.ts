@@ -122,6 +122,17 @@ describe("athlete invitation authorization", () => {
     expect(createInvitationMock).not.toHaveBeenCalled();
   });
 
+  it("blocks the test profile before reading Sheets or calling Clerk", async () => {
+    const result = await inviteAthleteToKlique(
+      new Request("http://localhost"),
+      " SEB-MORY ",
+    );
+
+    expect(result).toEqual({ ok: false, reason: "forbidden" });
+    expect(getAthletesFromGoogleSheetsMock).not.toHaveBeenCalled();
+    expect(createInvitationMock).not.toHaveBeenCalled();
+  });
+
   it("rejects the invitation when the athlete record has no email", async () => {
     mockAuthenticatedUser({ userId: "user_admin", email: "admin@example.com", role: "admin" });
     getAthletesFromGoogleSheetsMock.mockResolvedValue([{ key: "athlete-42", email: "" } as never]);

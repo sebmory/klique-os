@@ -12,14 +12,14 @@ describe("content storage server config", () => {
     delete process.env.KLIQUE_DEFAULT_WORKSPACE_ID;
   });
 
-  it("uses POSTGRES_DATABASE_URL as primary connection url", () => {
+  it("uses DATABASE_URL as canonical connection url", () => {
     process.env.POSTGRES_DATABASE_URL = "postgres://postgres-database-url";
     process.env.POSTGRES_URL = "postgres://postgres-url";
     process.env.DATABASE_URL = "postgres://database-url";
     process.env.KLIQUE_DEFAULT_WORKSPACE_ID = "klique-main";
 
     expect(getContentStorageServerConfig()).toEqual({
-      databaseUrl: "postgres://postgres-database-url",
+      databaseUrl: "postgres://database-url",
       defaultWorkspaceId: "klique-main",
     });
   });
@@ -35,12 +35,12 @@ describe("content storage server config", () => {
     expect(isContentStorageConfigured()).toBe(true);
   });
 
-  it("falls back to DATABASE_URL when POSTGRES_URL is absent", () => {
-    process.env.DATABASE_URL = "postgres://database-url";
+  it("falls back to POSTGRES_DATABASE_URL when DATABASE_URL is absent", () => {
+    process.env.POSTGRES_DATABASE_URL = "postgres://postgres-database-url";
     process.env.KLIQUE_DEFAULT_WORKSPACE_ID = "klique-main";
 
     expect(getContentStorageServerConfig()).toEqual({
-      databaseUrl: "postgres://database-url",
+      databaseUrl: "postgres://postgres-database-url",
       defaultWorkspaceId: "klique-main",
     });
   });
@@ -49,7 +49,7 @@ describe("content storage server config", () => {
     process.env.KLIQUE_DEFAULT_WORKSPACE_ID = "klique-main";
 
     expect(() => getContentStorageServerConfig()).toThrow(
-      "Content storage DB non configuree: definir POSTGRES_DATABASE_URL, DATABASE_URL ou POSTGRES_URL."
+      "Base non configuree: definir DATABASE_URL (ou POSTGRES_DATABASE_URL/POSTGRES_URL)."
     );
     expect(isContentStorageConfigured()).toBe(false);
   });

@@ -23,6 +23,7 @@ import type {
 } from "@/types/sports-watch";
 import { FootballPublicRepository } from "@/lib/sports-watch/football-public-repository";
 import type { FootballPublicBinding } from "@/types/sports-watch";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 const SCHEDULED_ACTOR = "sports-watch-scheduled-refresh";
 
@@ -120,9 +121,11 @@ export const createScheduledSportsWatchRefresh = (
           athlete,
         ]));
         const tasks: SportsWatchRefreshTaskInput[] = buildSportsWatchRefreshTasks({
-          athletes,
+          athletes: athletes.filter((athlete) =>
+            !isTestAthlete(athlete.athleteId || athlete.key)),
           ...bindings,
         }).flatMap((task) => {
+          if (isTestAthlete(task.athleteId)) return [];
           const athlete = athleteById.get(task.athleteId);
           if (!athlete) return [];
           return [{

@@ -27,6 +27,7 @@ import type {
   FootballSourceSuggestion,
   SportsWatchCandidate,
 } from "@/types/sports-watch";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 const FOOTBALL_BINDING_ALLOWLIST = [
   { athleteName: "matheus monteiro", teamId: "xh89ete5" },
@@ -60,6 +61,9 @@ const resolveAllowedAthlete = async (
   identity: SportsWatchAdminIdentity,
 ): Promise<SportsWatchCrmAthlete> => {
   const selectedId = normalize(athleteIdValue);
+  if (isTestAthlete(selectedId)) {
+    throw new SportsWatchError("forbidden", "Ce profil de test est exclu de Sports Watch.");
+  }
   const athlete = (await getAthletes(identity)).find((item) => athleteId(item) === selectedId);
   if (!athlete) {
     throw new SportsWatchError("not_found", "Athlète actif introuvable dans cet espace.");

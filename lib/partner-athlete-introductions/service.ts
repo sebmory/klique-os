@@ -38,6 +38,7 @@ import {
   type IntroductionMutationResult,
   type PartnerAthleteIntroductionRepository,
 } from "@/lib/partner-athlete-introductions/repository";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 export class PartnerAthleteIntroductionValidationError extends Error {
   constructor(message: string) {
@@ -306,6 +307,11 @@ export const createPartnerAthleteIntroductionService = (
       assertServerActor(input.actor);
       const idempotencyKey = normalizeRequired(input.idempotencyKey, "idempotencyKey");
       const athleteId = normalizeRequired(input.payload.athleteId, "athleteId");
+      if (isTestAthlete(athleteId)) {
+        throw new PartnerAthleteIntroductionForbiddenError(
+          "Ce profil de test ne peut pas recevoir de demande de mise en relation.",
+        );
+      }
       const reason = normalizeRequired(input.payload.reason, "reason");
       const message = String(input.payload.message ?? "").trim();
       assertCreationTextLimits(reason, message);

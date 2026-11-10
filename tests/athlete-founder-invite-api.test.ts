@@ -118,4 +118,20 @@ describe("Founder athlete invitation API", () => {
     await expect(response.json()).resolves.toEqual({ error: "Abonnement Founder actif introuvable." });
     expect(mocks.inviteAthlete).not.toHaveBeenCalled();
   });
+
+  it("blocks automatic Founder invitation for the test profile", async () => {
+    const mocks = dependencies({
+      resolveFounderAthleteId: vi.fn().mockResolvedValue("seb-mory"),
+    });
+
+    const response = await createAthleteInviteHandlers(mocks).POST(postRequest({
+      subscriptionId: "49c345aa-fb6e-46e8-83ef-1e07d7b69192",
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Ce profil de test ne peut pas recevoir d’invitation.",
+    });
+    expect(mocks.inviteAthlete).not.toHaveBeenCalled();
+  });
 });

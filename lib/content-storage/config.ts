@@ -1,3 +1,5 @@
+import { resolvePostgresTarget } from "@/lib/postgres-config";
+
 export type ContentStorageServerConfig = {
   databaseUrl: string;
   defaultWorkspaceId: string;
@@ -11,19 +13,6 @@ const ensureServerRuntime = () => {
   }
 };
 
-const resolveDatabaseUrl = (): string => {
-  const postgresDatabaseUrl = normalize(process.env.POSTGRES_DATABASE_URL);
-  if (postgresDatabaseUrl) return postgresDatabaseUrl;
-
-  const databaseUrl = normalize(process.env.DATABASE_URL);
-  if (databaseUrl) return databaseUrl;
-
-  const postgresUrl = normalize(process.env.POSTGRES_URL);
-  if (postgresUrl) return postgresUrl;
-
-  throw new Error("Content storage DB non configuree: definir POSTGRES_DATABASE_URL, DATABASE_URL ou POSTGRES_URL.");
-};
-
 const resolveDefaultWorkspaceId = (): string => {
   const workspaceId = normalize(process.env.KLIQUE_DEFAULT_WORKSPACE_ID);
   if (!workspaceId) {
@@ -35,7 +24,7 @@ const resolveDefaultWorkspaceId = (): string => {
 export const getContentStorageServerConfig = (): ContentStorageServerConfig => {
   ensureServerRuntime();
   return {
-    databaseUrl: resolveDatabaseUrl(),
+    databaseUrl: resolvePostgresTarget().databaseUrl,
     defaultWorkspaceId: resolveDefaultWorkspaceId(),
   };
 };
@@ -43,8 +32,8 @@ export const getContentStorageServerConfig = (): ContentStorageServerConfig => {
 export const isContentStorageConfigured = (): boolean => {
   ensureServerRuntime();
   return Boolean(
-    normalize(process.env.POSTGRES_DATABASE_URL) ||
-      normalize(process.env.DATABASE_URL) ||
+    normalize(process.env.DATABASE_URL) ||
+      normalize(process.env.POSTGRES_DATABASE_URL) ||
       normalize(process.env.POSTGRES_URL)
   ) &&
     Boolean(normalize(process.env.KLIQUE_DEFAULT_WORKSPACE_ID));

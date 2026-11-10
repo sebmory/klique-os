@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { workspaces, type Workspace } from "./data";
+import { workspaces } from "./data";
 import { ChevronsUpDown, ChevronDown } from "./icons";
 
 type WorkspaceSwitcherProps = {
@@ -10,7 +10,7 @@ type WorkspaceSwitcherProps = {
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
   const [open, setOpen] = useState(false);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(workspaces[0]);
+  const activeWorkspace = workspaces[0];
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuId = "workspace-switcher-menu";
 
@@ -60,39 +60,15 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
 
       {open ? (
         <div className="workspace-menu" role="menu" id={menuId} aria-label="Liste des workspaces">
-          {workspaces.map((workspace) => (
-            <button
-              key={workspace.id}
-              type="button"
-              className={
-                workspace.id === activeWorkspace.id ? "workspace-item is-active" : "workspace-item"
-              }
-              role="menuitemradio"
-              aria-checked={workspace.id === activeWorkspace.id}
-              onClick={() => {
-                setActiveWorkspace(workspace);
-                setOpen(false);
-              }}
-            >
-              <span className="workspace-monogram" aria-hidden>
-                {workspace.monogram}
-              </span>
-              <span className="workspace-meta">
-                <strong>{workspace.name}</strong>
-                <small>{workspace.description}</small>
-              </span>
-            </button>
-          ))}
-          <div className="workspace-menu-separator" />
-          <button type="button" className="workspace-item workspace-create" role="menuitem" disabled>
+          <div className="workspace-item is-active" role="menuitemradio" aria-checked="true">
             <span className="workspace-monogram" aria-hidden>
-              +
+              {activeWorkspace.monogram}
             </span>
             <span className="workspace-meta">
-              <strong>Creer un workspace</strong>
-              <small>Bientot disponible</small>
+              <strong>{activeWorkspace.name}</strong>
+              <small>{activeWorkspace.description}</small>
             </span>
-          </button>
+          </div>
         </div>
       ) : null}
     </div>

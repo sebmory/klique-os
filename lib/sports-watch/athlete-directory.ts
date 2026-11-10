@@ -4,6 +4,7 @@ import {
   type SportsWatchCrmAthlete,
 } from "@/lib/google-sheets";
 import type { SportsWatchAdminIdentity } from "@/lib/sports-watch/service";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 export const SPORTS_WATCH_ATHLETE_CACHE_TTL_MS = 30_000;
 
@@ -52,8 +53,10 @@ export const createSportsWatchAthleteDirectory = (
 
       const request = options.load(context)
         .then((athletes) => {
-          cache.set(key, { athletes, expiresAt: now() + ttlMs });
-          return athletes;
+          const eligibleAthletes = athletes.filter((athlete) =>
+            !isTestAthlete(athlete.athleteId || athlete.key));
+          cache.set(key, { athletes: eligibleAthletes, expiresAt: now() + ttlMs });
+          return eligibleAthletes;
         })
         .finally(() => {
           inFlight.delete(key);

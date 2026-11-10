@@ -13,6 +13,7 @@ import {
   MediaOrganizationError,
 } from "@/lib/media-organizations/service";
 import type { CreativeOnboardingStatus } from "@/lib/creatives/onboarding";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 const getBootstrapAdminEmail = (): string | null => {
   const configuredEmail = process.env.KLIQUE_BOOTSTRAP_ADMIN_EMAIL?.trim();
@@ -2517,6 +2518,9 @@ export const inviteAthleteToKlique = async (
   const trimmedAthleteId = athleteId.trim();
   if (!trimmedAthleteId) {
     return { ok: false, reason: "athlete_not_found" };
+  }
+  if (isTestAthlete(trimmedAthleteId)) {
+    return { ok: false, reason: "forbidden" };
   }
 
   const accessCheck = await evaluateBusinessAccess(request, { action: "write:crm" });

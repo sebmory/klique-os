@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
 import { usePathname, useRouter } from "next/navigation";
 import { Header } from "@/components/app-shell/Header";
@@ -24,7 +24,7 @@ type ClerkUserAccessState = {
   isCreative: boolean;
 };
 
-type AccessLoadStatus = "loading" | "authorized" | "denied";
+type AccessLoadStatus = "loading" | "authorized" | "denied" | "error";
 
 const sidebarStorageKey = "klique-sidebar-collapsed";
 
@@ -59,7 +59,8 @@ export function AppShell({ children }: AppShellProps) {
     isCreative: false,
   });
   const [accessLoadStatus, setAccessLoadStatus] = useState<AccessLoadStatus>("loading");
-  const hasAuthorizedAccessRef = useRef(false);
+  const [accessLoadAttempt, setAccessLoadAttempt] = useState(0);
+  const [authorizedClerkUserId, setAuthorizedClerkUserId] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
@@ -73,13 +74,13 @@ export function AppShell({ children }: AppShellProps) {
     let cancelled = false;
 
     const loadUserAccess = async () => {
-      if (!hasAuthorizedAccessRef.current) {
-        setAccessLoadStatus("loading");
-      }
+      setAccessLoadStatus("loading");
+      setAuthorizedClerkUserId(null);
       setAuthenticatedContentStorageRole(null);
 
       const denyAccess = () => {
         if (cancelled) return;
+        setAuthorizedClerkUserId(null);
         setAccessLoadStatus("denied");
         router.replace("/access-pending");
       };
@@ -87,7 +88,10 @@ export function AppShell({ children }: AppShellProps) {
       try {
         const response = await fetch("/api/clerk/access", { credentials: "include", cache: "no-store" });
         if (!response.ok) {
-          denyAccess();
+          if (!cancelled) {
+            setAuthorizedClerkUserId(null);
+            setAccessLoadStatus("error");
+          }
           return;
         }
 
@@ -153,10 +157,13 @@ export function AppShell({ children }: AppShellProps) {
           partnerProfileLabel,
           isCreative: isActiveCreative,
         });
-        hasAuthorizedAccessRef.current = true;
+        setAuthorizedClerkUserId(user?.id ?? null);
         setAccessLoadStatus("authorized");
       } catch {
-        denyAccess();
+        if (!cancelled) {
+          setAuthorizedClerkUserId(null);
+          setAccessLoadStatus("error");
+        }
       }
     };
 
@@ -170,6 +177,7 @@ export function AppShell({ children }: AppShellProps) {
     isPassFlowRoute,
     isPublicAuthRoute,
     isPublicHomeRoute,
+    accessLoadAttempt,
     clerkDisplayName,
     router,
     user?.id,
@@ -188,6 +196,43 @@ export function AppShell({ children }: AppShellProps) {
 
   if (isPublicHomeRoute || isPublicAuthRoute || isAccessPendingRoute || isPassFlowRoute) {
     return <>{children}</>;
+  }
+
+  if (
+    accessLoadStatus === "loading"
+    || accessLoadStatus === "authorized" && authorizedClerkUserId !== (user?.id ?? null)
+  ) {
+    return (
+      <main
+        role="status"
+        aria-live="polite"
+        style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#6b7280" }}
+      >
+        Chargement…
+      </main>
+    );
+  }
+
+  if (accessLoadStatus === "error") {
+    return (
+      <main
+        role="alert"
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          padding: "24px",
+          textAlign: "center",
+        }}
+      >
+        <div>
+          <p>Impossible de charger l’application.</p>
+          <button type="button" onClick={() => setAccessLoadAttempt((attempt) => attempt + 1)}>
+            Réessayer
+          </button>
+        </div>
+      </main>
+    );
   }
 
   if (accessLoadStatus !== "authorized") {

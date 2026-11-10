@@ -45,6 +45,21 @@ const extraction: SportsWatchImportExtraction = {
 };
 
 describe("sports watch import service", () => {
+  it("rejects the test profile before uploading a document", async () => {
+    const uploadFile = vi.fn();
+    const service = createSportsWatchImportService({ uploadFile });
+
+    await expect(service.upload(
+      " SEB-MORY ",
+      new File(["fixture"], "fixture.pdf", { type: "application/pdf" }),
+      identity("workspace-a"),
+    )).rejects.toMatchObject({
+      code: "forbidden",
+      message: "Ce profil de test est exclu de Sports Watch.",
+    });
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
   it("isolates workspaces, requires human-safe attribution and confirms idempotently", async () => {
     type CreateInput = Parameters<typeof SportsWatchImportRepository.create>[0];
     type SaveExtractionInput = Parameters<typeof SportsWatchImportRepository.saveExtraction>[0];

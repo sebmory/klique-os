@@ -102,6 +102,26 @@ afterEach(async () => {
 });
 
 describe("PeopleCrmScreen adhesion synchronization", () => {
+  it("labels only the Admin CRM test profile", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      athletes: [
+        athlete("seb-mory", "Séb Mory"),
+        athlete("athlete-1", "Aline Martin"),
+      ],
+      source: "google-sheets",
+    }));
+
+    await mount();
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Séb Mory");
+    });
+    const badges = [...container.querySelectorAll(".crm-status-badge")]
+      .filter((badge) => badge.textContent === "Profil de test");
+    expect(badges).toHaveLength(2);
+    expect(container.textContent?.match(/Profil de test/g)).toHaveLength(2);
+  });
+
   it("never starts synchronization when the athlete list loads", async () => {
     await mount();
 

@@ -3,8 +3,14 @@ import {
   calculatePublicKliqueStats,
   loadPublicKliqueStats,
 } from "@/lib/public-klique-stats";
+import { isTestAthlete } from "@/lib/public-athletes";
 
 describe("public KLIQUE statistics", () => {
+  it("uses the canonical test-athlete registry", () => {
+    expect(isTestAthlete(" SEB-MORY ")).toBe(true);
+    expect(isTestAthlete("athlete-1")).toBe(false);
+  });
+
   it("counts only canonical public athletes and deduplicates normalized sports", () => {
     const stats = calculatePublicKliqueStats(
       [

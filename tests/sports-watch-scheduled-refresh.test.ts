@@ -151,9 +151,18 @@ describe("scheduled sports watch refresh", () => {
     const loadAthletes = vi.fn(async (identity: { workspaceId: string }) => [
       athlete(identity.workspaceId),
       athlete(`${identity.workspaceId}-inactive`, "Inactif"),
+      {
+        ...athlete(identity.workspaceId),
+        key: "seb-mory",
+        athleteId: "seb-mory",
+        name: "Séb Mory",
+      },
     ]);
     const loadBindings = vi.fn(async (identity: { workspaceId: string }) => ({
-      swissBindings: [activeSwissBinding(`${identity.workspaceId}-alice`)],
+      swissBindings: [
+        activeSwissBinding(`${identity.workspaceId}-alice`),
+        activeSwissBinding("seb-mory"),
+      ],
       iwwfBindings: [],
       safvBindings: [],
       beBasketBindings: [],
@@ -175,6 +184,7 @@ describe("scheduled sports watch refresh", () => {
       expect(batch.tasks).toHaveLength(2);
       expect(batch.tasks.every((task) => task.workspaceId === batch.workspaceId)).toBe(true);
       expect(batch.tasks.every((task) => !task.athlete.id.includes("inactive"))).toBe(true);
+      expect(batch.tasks.every((task) => task.athlete.id !== "seb-mory")).toBe(true);
     }
 
     await refresh.schedule();

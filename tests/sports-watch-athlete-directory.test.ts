@@ -77,4 +77,31 @@ describe("sports watch athlete directory", () => {
     );
     expect(message).not.toMatch(/google|quota|read requests|metric/i);
   });
+
+  it("removes the test profile from the shared Sports Watch directory", async () => {
+    const directory = createSportsWatchAthleteDirectory({
+      load: async () => [
+        {
+          athleteId: " seb-mory ",
+          key: "seb-mory",
+          name: "Séb Mory",
+          sport: "Basketball",
+          club: "KLIQUE",
+          status: "Actif",
+        },
+        {
+          athleteId: "athlete-1",
+          key: "athlete-1",
+          name: "Athlète Public",
+          sport: "Basketball",
+          club: "Club",
+          status: "Actif",
+        },
+      ],
+    });
+
+    await expect(directory.resolve(context("workspace-a"))).resolves.toEqual([
+      expect.objectContaining({ athleteId: "athlete-1" }),
+    ]);
+  });
 });

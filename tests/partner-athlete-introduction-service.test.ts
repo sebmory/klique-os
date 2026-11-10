@@ -219,6 +219,26 @@ describe("partner introduction server service", () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
+  it("blocks test-profile introductions before directory lookup and outbox persistence", async () => {
+    const service = createPartnerAthleteIntroductionService({
+      repository,
+      directory,
+      contactReferenceSecret: () => secret,
+    });
+
+    await expect(service.create({
+      actor: partnerActor,
+      payload: { athleteId: " SEB-MORY ", reason: "Sponsoring" },
+      idempotencyKey: "create-test-profile",
+    })).rejects.toMatchObject({
+      name: "PartnerAthleteIntroductionForbiddenError",
+      message: "Ce profil de test ne peut pas recevoir de demande de mise en relation.",
+    });
+    expect(directory.resolvePartnerProfile).not.toHaveBeenCalled();
+    expect(directory.resolveAthleteProfile).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
   it("lists only requests returned through the server-scoped partner repository", async () => {
     vi.mocked(repository.listForPartner).mockResolvedValue([
       request({ reason: "Sponsoring", message: "Bonjour" }),

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getAthletesFromGoogleSheets } from "@/lib/google-sheets";
+import { isTestAthlete } from "@/lib/public-athletes";
 import {
   localAdminFixtureAthletes,
   localIntroductionFixturesEnabled,
@@ -82,6 +83,9 @@ const resolveAthlete = async (
 ) => {
   const athleteId = normalize(athleteIdValue);
   if (!athleteId) throw new SportsWatchError("validation", "Sélectionnez un athlète CRM.");
+  if (isTestAthlete(athleteId)) {
+    throw new SportsWatchError("forbidden", "Ce profil de test est exclu de Sports Watch.");
+  }
   const athlete = (await dependencies.getAthletes()).find((item) =>
     normalize(item.athleteId) === athleteId || normalize(item.key) === athleteId);
   if (!athlete) throw new SportsWatchError("not_found", "L’athlète CRM est introuvable.");
