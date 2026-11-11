@@ -18,6 +18,8 @@ import { SportsWatchImportPanel } from "@/components/app-shell/SportsWatchImport
 import { SportsWatchManualEntryPanel } from "@/components/app-shell/SportsWatchManualEntryPanel";
 import { FootballPublicPilotPanel } from "@/components/app-shell/FootballPublicPilotPanel";
 import { SportsWatchResultsPresentation } from "@/components/app-shell/sports-watch/SportsWatchResultsPresentation";
+import { SportsWatchCanvaPreparationPanel } from "@/components/app-shell/sports-watch/SportsWatchCanvaPreparationPanel";
+import { isBasketballSportsWatchCandidate } from "@/lib/sports-watch/canva-preparation";
 import type {
   BeBasketBinding,
   BeBasketBindingVerification,
@@ -182,6 +184,9 @@ const verificationLabels = {
   verified: "Vérifié",
   disputed: "Contesté",
 } as const;
+
+const basketballCanvaTemplateUrl =
+  process.env.NEXT_PUBLIC_SPORTS_WATCH_BASKETBALL_CANVA_TEMPLATE_URL?.trim() || null;
 
 const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
 
@@ -439,6 +444,7 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     useState<SportsWatchArticlePrefill["potentialDuplicates"]>([]);
   const [dismissUndoCandidate, setDismissUndoCandidate] =
     useState<SportsWatchCandidate | null>(null);
+  const [canvaCandidate, setCanvaCandidate] = useState<SportsWatchCandidate | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const athleteOptions = useMemo(
@@ -1535,6 +1541,9 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
 
   const renderCandidateActions = (candidate: SportsWatchCandidate) => {
     const superseded = candidateViews.supersededIds.has(candidate.id);
+    const athlete = athletes.find((item) =>
+      (item.athleteId?.trim() || item.key.trim()) === candidate.athleteId);
+    const basketballCandidate = isBasketballSportsWatchCandidate(candidate, athlete?.sport);
     const collectiveFootballCandidate = Boolean(
       candidate.footballEvidence
       && !candidate.manualEntry
@@ -1651,6 +1660,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
             onClick={() => void review(candidate, "validated")}
           >
             Restaurer dans À exploiter
+          </button>
+        ) : null}
+        {candidate.adminStatus === "validated" && !superseded && basketballCandidate ? (
+          <button
+            type="button"
+            className="card-link-button sports-action"
+            disabled={busyCandidateId === candidate.id}
+            onClick={() => setCanvaCandidate(candidate)}
+          >
+            Préparer un visuel Canva
           </button>
         ) : null}
         {candidate.adminStatus === "validated" || candidate.adminStatus === "exploited" ? (
@@ -3162,6 +3181,16 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           );
         })}
       </div>
+      {canvaCandidate ? (
+        <SportsWatchCanvaPreparationPanel
+          candidate={canvaCandidate}
+          athleteClub={athletes.find((athlete) =>
+            (athlete.athleteId?.trim() || athlete.key.trim()) === canvaCandidate.athleteId
+          )?.club ?? null}
+          templateUrl={basketballCanvaTemplateUrl}
+          onClose={() => setCanvaCandidate(null)}
+        />
+      ) : null}
     </TodayCollapsibleCard>
   );
 }
