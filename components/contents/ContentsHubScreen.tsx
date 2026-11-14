@@ -3,20 +3,18 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import {
-  BookOpen,
   Clapperboard,
   FileText,
   Megaphone,
   MessageSquareQuote,
-  Mic,
+  Newspaper,
   Palette,
   Radio,
-  Search,
   Sparkles,
-  UserSquare2,
 } from "lucide-react";
-import { ContentsHubService, type ContentCreationContext, type ContentGenerator, type ContentTemplate } from "@/services/contents-hub";
+import { ContentsHubService, type ContentCreationContext } from "@/services/contents-hub";
 import { runContentsBackfill } from "@/services/content-backfill";
+import { isSportsBriefDocument } from "@/lib/sports-watch/brief-document";
 import type { ContentDocument } from "@/types/content-document";
 
 type ContentsHubScreenProps = {
@@ -29,12 +27,26 @@ const documentTypeLabels: Record<string, string> = {
   interview: "Interview",
   publication: "Publication",
   reel: "Reel",
+  story: "Story",
+  article: "Article",
+};
+
+const getDocumentFormatLabel = (document: ContentDocument): string => {
+  if (isSportsBriefDocument(document)) return "Brève sportive";
+  return documentTypeLabels[document.type] ?? document.type;
 };
 
 const getDocumentTitle = (document: ContentDocument): string => {
   const title = normalizeText(document.sections?.title);
   if (title) return title;
-  return documentTypeLabels[document.type] ? `${documentTypeLabels[document.type]} sans titre` : "Document sans titre";
+  return `${getDocumentFormatLabel(document)} sans titre`;
+};
+
+const getDocumentRoute = (document: ContentDocument): string => {
+  if (isSportsBriefDocument(document)) {
+    return `/contents/create/brief?documentId=${encodeURIComponent(document.id)}`;
+  }
+  return `/contents/create/result?documentId=${encodeURIComponent(document.id)}`;
 };
 
 const formatUpdatedAt = (value: string): string => {
@@ -49,26 +61,67 @@ const formatUpdatedAt = (value: string): string => {
   }).format(parsed);
 };
 
-const generatorIconById: Record<ContentGenerator["id"], ComponentType<{ size?: number; className?: string }>> = {
-  interview: MessageSquareQuote,
-  article: FileText,
-  publication: FileText,
-  reel: Clapperboard,
-  story: Radio,
-  podcast: Mic,
-  campaign: Megaphone,
+type StudioFormat = {
+  id: string;
+  title: string;
+  promise: string;
+  description: string;
+  route: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
 };
 
-const templateIconById: Record<ContentTemplate["id"], ComponentType<{ size?: number; className?: string }>> = {
-  "portrait-athlete": UserSquare2,
-  "after-match": Sparkles,
-  "behind-the-scenes": Clapperboard,
-  "fast-questions": MessageSquareQuote,
-  "partner-interview": MessageSquareQuote,
-};
+const studioFormats: StudioFormat[] = [
+  {
+    id: "interview",
+    title: "Interview",
+    promise: "Préparer mes questions",
+    description: "Un questionnaire structuré, prêt pour l’enregistrement.",
+    route: "/contents/create",
+    icon: MessageSquareQuote,
+  },
+  {
+    id: "brief",
+    title: "Brève sportive",
+    promise: "Rédiger une brève",
+    description: "Titre, chapô et corps factuel à partir d’une actualité vérifiée.",
+    route: "/contents/create/brief",
+    icon: Newspaper,
+  },
+  {
+    id: "article",
+    title: "Article",
+    promise: "Construire un article",
+    description: "Un contenu éditorial documenté, appuyé sur des sources.",
+    route: "/contents/create?objective=article",
+    icon: FileText,
+  },
+  {
+    id: "publication",
+    title: "Publication",
+    promise: "Préparer un post",
+    description: "Un message clair pour les réseaux sociaux.",
+    route: "/contents/create?objective=publication",
+    icon: Megaphone,
+  },
+  {
+    id: "reel",
+    title: "Reel",
+    promise: "Écrire un script court",
+    description: "Un déroulé scène par scène avec un angle créatif.",
+    route: "/contents/create?objective=reel&contentType=reel",
+    icon: Clapperboard,
+  },
+  {
+    id: "story",
+    title: "Story",
+    promise: "Cadrer une séquence",
+    description: "Un fil de cartes avec hook et call to action.",
+    route: "/contents/create?objective=story",
+    icon: Radio,
+  },
+];
 
 export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
-  const [query, setQuery] = useState("");
   const [drafts, setDrafts] = useState<ContentDocument[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(true);
   const [draftsError, setDraftsError] = useState<string | null>(null);
@@ -117,39 +170,7 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
     };
   }, [draftsRetryToken]);
 
-  const generators = useMemo(() => ContentsHubService.generators(), []);
-  const templates = useMemo(() => ContentsHubService.templates(), []);
-
-  const filteredGenerators = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return generators;
-
-    return generators.filter((item) => {
-      return `${item.title} ${item.description}`.toLowerCase().includes(normalizedQuery);
-    });
-  }, [generators, query]);
-
-  const filteredTemplates = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return templates;
-
-    return templates.filter((item) => {
-      return `${item.title} ${item.description}`.toLowerCase().includes(normalizedQuery);
-    });
-  }, [query, templates]);
-
-  const availableGenerators = useMemo(() => filteredGenerators.filter((generator) => generator.isAvailable), [filteredGenerators]);
-  const upcomingGenerators = useMemo(() => filteredGenerators.filter((generator) => !generator.isAvailable), [filteredGenerators]);
-  const availableTemplates = useMemo(
-    () => filteredTemplates.filter((template) => template.isAvailable && template.entryRoute),
-    [filteredTemplates]
-  );
-  const upcomingTemplates = useMemo(
-    () => filteredTemplates.filter((template) => !(template.isAvailable && template.entryRoute)),
-    [filteredTemplates]
-  );
-
-  const buildEntryRoute = (baseRoute: string): string => {
+  const buildEntryRoute = useMemo(() => (baseRoute: string): string => {
     if (context.mode !== "contextual" || !context.subjectName) return baseRoute;
 
     const [path, queryString = ""] = baseRoute.split("?");
@@ -160,65 +181,45 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
       params.set("subjectId", context.subjectId);
     }
     return `${path}?${params.toString()}`;
-  };
+  }, [context]);
+
+  const templates = useMemo(
+    () => ContentsHubService.templates().filter((template) =>
+      template.isAvailable && template.entryRoute),
+    [],
+  );
 
   return (
-    <section className="contents-hub-screen">
-      <header className="contents-hero-card">
-        <div className="contents-hero-layer" aria-hidden />
-        <div className="contents-hero-content">
-          {context.mode === "contextual" && context.subjectName ? (
-            <p className="contents-context-chip">Creation de contenu pour : {context.subjectName}</p>
-          ) : null}
-          <h1>Que souhaitez-vous creer aujourd hui ?</h1>
-          <p>
-            Creer rapidement des interviews, publications, reels, stories, podcasts ou campagnes.
-          </p>
-
-          <label className="contents-search" htmlFor="contents-hub-search">
-            <Search size={18} aria-hidden />
-            <input
-              id="contents-hub-search"
-              type="search"
-              placeholder="Rechercher un type de contenu ou un modele"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+    <section className="contents-hub-screen studio-home">
+      <header className="studio-hero">
+        {context.mode === "contextual" && context.subjectName ? (
+          <p className="contents-context-chip">Création de contenu pour : {context.subjectName}</p>
+        ) : null}
+        <h1>Studio</h1>
+        <p className="studio-hero-lead">
+          L’espace de travail de votre rédaction : partez d’une actualité ou ouvrez un format.
+        </p>
+        <div className="studio-hero-actions">
+          <Link href="/sports-watch" className="studio-primary-action">
+            <Newspaper size={17} aria-hidden />
+            <span>
+              <strong>Partir d’une actualité</strong>
+              <small>Ouvrir Sports Watch et transformer une actualité validée.</small>
+            </span>
+          </Link>
+          <a href="#studio-formats" className="studio-secondary-action">
+            <Sparkles size={17} aria-hidden />
+            <span>
+              <strong>Créer un contenu</strong>
+              <small>Choisir un format : interview, brève, article…</small>
+            </span>
+          </a>
         </div>
       </header>
 
-      <section className="contents-section" aria-labelledby="contents-generators-title">
+      <section className="contents-section studio-drafts" aria-labelledby="studio-drafts-title">
         <div className="contents-section-head">
-          <h2 id="contents-generators-title">Créer</h2>
-          <p>Choisissez un format et configurez librement votre contenu.</p>
-        </div>
-
-        <div className="contents-generators-grid">
-          {availableGenerators.map((generator) => {
-            const Icon = generatorIconById[generator.id];
-            return (
-              <article key={generator.id} className="contents-generator-card">
-                <span className="contents-generator-icon" aria-hidden>
-                  <Icon size={18} />
-                </span>
-                <div className="contents-generator-copy">
-                  <h3>{generator.title}</h3>
-                  <p>{generator.description}</p>
-                </div>
-                <Link href={buildEntryRoute(generator.entryRoute)} className="contents-ghost-button" aria-label={`Ouvrir l assistant de creation pour ${generator.title}`}>
-                  Creer
-                </Link>
-                <small>{generator.statusLabel}</small>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="contents-section" aria-labelledby="contents-resume-title">
-        <div className="contents-section-head">
-          <h2 id="contents-resume-title">Reprendre un brouillon</h2>
+          <h2 id="studio-drafts-title">Brouillons récents</h2>
         </div>
 
         {draftsLoading ? (
@@ -236,68 +237,98 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
         ) : drafts.length === 0 ? (
           <article className="contents-empty-card">
             <strong>Aucun brouillon pour le moment.</strong>
-            <p>Vos contenus commencés apparaîtront ici pour vous permettre de les reprendre rapidement.</p>
+            <p>Vos contenus commencés apparaîtront ici pour être repris en un clic.</p>
           </article>
         ) : (
-          <div className="contents-generators-grid">
+          <ul className="studio-draft-list">
             {drafts.map((document) => (
-              <article key={document.id} className="contents-generator-card">
-                <div className="contents-generator-copy">
-                  <h3>{getDocumentTitle(document)}</h3>
-                  <p>{documentTypeLabels[document.type] ?? document.type}</p>
+              <li key={document.id} className="studio-draft-row">
+                <div className="studio-draft-copy">
+                  <strong>{getDocumentTitle(document)}</strong>
+                  <small>
+                    {getDocumentFormatLabel(document)} · Modifié le{" "}
+                    {formatUpdatedAt(document.updatedAt || document.createdAt)}
+                  </small>
                 </div>
                 <Link
-                  href={`/contents/create/result?documentId=${encodeURIComponent(document.id)}`}
+                  href={getDocumentRoute(document)}
                   className="contents-ghost-button"
                   aria-label={`Ouvrir le brouillon ${getDocumentTitle(document)}`}
                 >
                   Ouvrir
                 </Link>
-                <small>Modifié le {formatUpdatedAt(document.updatedAt || document.createdAt)}</small>
-              </article>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </section>
 
-      {availableTemplates.length > 0 ? (
-        <section className="contents-section" aria-labelledby="contents-available-templates-title">
+      <section className="contents-section" id="studio-formats" aria-labelledby="studio-formats-title">
+        <div className="contents-section-head">
+          <h2 id="studio-formats-title">Créer un contenu</h2>
+          <p>Chaque format ouvre un parcours prêt à l’emploi.</p>
+        </div>
+
+        <div className="studio-format-grid">
+          {studioFormats.map((format) => {
+            const Icon = format.icon;
+            return (
+              <article key={format.id} className="studio-format-card">
+                <span className="contents-generator-icon" aria-hidden>
+                  <Icon size={18} />
+                </span>
+                <div className="contents-generator-copy">
+                  <h3>{format.title}</h3>
+                  <p>{format.description}</p>
+                </div>
+                <Link
+                  href={buildEntryRoute(format.route)}
+                  className="studio-format-action"
+                  aria-label={`${format.promise} — ${format.title}`}
+                >
+                  {format.promise}
+                </Link>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {templates.length > 0 ? (
+        <section className="contents-section" aria-labelledby="studio-templates-title">
           <div className="contents-section-head">
-            <h2 id="contents-available-templates-title">Modèles rapides — parcours guidés</h2>
-            <p>Partez d’un besoin précis avec des questions et paramètres déjà adaptés.</p>
+            <h2 id="studio-templates-title">Parcours guidés</h2>
+            <p>Partez d’un besoin précis avec des paramètres déjà adaptés.</p>
           </div>
 
           <div className="contents-templates-grid">
-            {availableTemplates.map((template) => {
-              const Icon = templateIconById[template.id];
-              return (
-                <Link
-                  key={template.id}
-                  href={buildEntryRoute(template.entryRoute as string)}
-                  className="contents-template-card"
-                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
-                >
-                  <span className="contents-template-icon" aria-hidden>
-                    <Icon size={16} />
-                  </span>
-                  <div className="contents-template-body">
-                    <div className="contents-template-heading">
-                      <h3>{template.title}</h3>
-                      <span className="contents-template-badge">Disponible</span>
-                    </div>
-                    <p>{template.description}</p>
+            {templates.map((template) => (
+              <Link
+                key={template.id}
+                href={buildEntryRoute(template.entryRoute as string)}
+                className="contents-template-card"
+                aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
+              >
+                <span className="contents-template-icon" aria-hidden>
+                  <Sparkles size={16} />
+                </span>
+                <div className="contents-template-body">
+                  <div className="contents-template-heading">
+                    <h3>{template.title}</h3>
+                    <span className="contents-template-badge">Disponible</span>
                   </div>
-                </Link>
-              );
-            })}
+                  <p>{template.description}</p>
+                </div>
+              </Link>
+            ))}
           </div>
         </section>
       ) : null}
 
-      <section className="contents-section" aria-labelledby="contents-story-studio-title">
+      <section className="contents-section studio-tools" aria-labelledby="studio-tools-title">
         <div className="contents-section-head">
-          <h2 id="contents-story-studio-title">Story Studio</h2>
-          <p>Gérez les identités visuelles utilisées pour vos Stories.</p>
+          <h2 id="studio-tools-title">Outils</h2>
+          <p>Ressources secondaires pour vos contenus.</p>
         </div>
 
         <div className="contents-templates-grid">
@@ -317,102 +348,6 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
               <p>Couleurs, logos, typographies et signatures de marque.</p>
             </div>
           </Link>
-        </div>
-      </section>
-
-      {upcomingGenerators.length > 0 || upcomingTemplates.length > 0 ? (
-        <section className="contents-section" aria-labelledby="contents-templates-title">
-          <div className="contents-section-head">
-            <h2 id="contents-templates-title">Prochains formats</h2>
-            <p>Points d entree reutilisables vers les futurs generateurs.</p>
-          </div>
-
-          <div className="contents-templates-grid">
-            {upcomingGenerators.map((generator) => {
-              const Icon = generatorIconById[generator.id];
-              return (
-                <article key={`generator-${generator.id}`} className="contents-template-card">
-                  <span className="contents-template-icon" aria-hidden>
-                    <Icon size={16} />
-                  </span>
-                  <div className="contents-template-body">
-                    <div className="contents-template-heading">
-                      <h3>{generator.title}</h3>
-                      <span className="contents-template-badge">Bientôt disponible</span>
-                    </div>
-                    <p>{generator.description}</p>
-                  </div>
-                </article>
-              );
-            })}
-
-            {upcomingTemplates.map((template) => {
-              const Icon = templateIconById[template.id];
-              return (
-                <article key={template.id} className="contents-template-card">
-                  <span className="contents-template-icon" aria-hidden>
-                    <Icon size={16} />
-                  </span>
-                  <div className="contents-template-body">
-                    <div className="contents-template-heading">
-                      <h3>{template.title}</h3>
-                      <span className="contents-template-badge">Bientôt disponible</span>
-                    </div>
-                    <p>{template.description}</p>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="contents-section" aria-labelledby="contents-library-title">
-        <div className="contents-section-head">
-          <h2 id="contents-library-title">Bibliotheque</h2>
-          <p>Zone de consultation des brouillons, publies, favoris et archives.</p>
-        </div>
-
-        <article className="contents-library-card">
-          <div>
-            <strong>Aucun contenu enregistre pour le moment.</strong>
-            <p>La bibliotheque sera activee lorsque les premiers contenus seront sauvegardes.</p>
-          </div>
-          <button type="button" className="contents-secondary-button" disabled>
-            Voir toute la bibliotheque
-          </button>
-        </article>
-      </section>
-
-      <section className="contents-section" aria-labelledby="contents-inspiration-title">
-        <div className="contents-section-head">
-          <div className="contents-section-heading-inline">
-            <h2 id="contents-inspiration-title">Inspirations</h2>
-            <span className="contents-template-badge">Bientôt disponible</span>
-          </div>
-          <p>Des opportunités de contenus suggérées selon vos athlètes, leur actualité et les moments importants à exploiter.</p>
-        </div>
-
-        <div className="contents-inspiration-grid">
-          {[
-            {
-              title: "Match important ce week-end",
-              example: "Un athlète KLIQUE joue une rencontre importante. Préparez un contenu avant-match.",
-            },
-            {
-              title: "Nouvelle étape dans sa carrière",
-              example: "Une signature ou un changement de club peut devenir une opportunité éditoriale.",
-            },
-            {
-              title: "Il est temps de reprendre la parole",
-              example: "Un athlète n’a pas été mis en avant récemment. KLIQUE pourra suggérer un nouvel angle de contenu.",
-            },
-          ].map((item) => (
-            <article key={item.title} className="contents-inspiration-card">
-              <strong>{item.title}</strong>
-              <span>{item.example}</span>
-            </article>
-          ))}
         </div>
       </section>
     </section>

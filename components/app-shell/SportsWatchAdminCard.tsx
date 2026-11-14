@@ -1479,6 +1479,11 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     router.push(`/contents/create?${query.toString()}`);
   };
 
+  const prepareBrief = (candidate: SportsWatchCandidate) => {
+    writeNavigationState(workspaceId, { view, selectedAthleteId, selectedSourceKey });
+    router.push(`/contents/create/brief?candidateId=${encodeURIComponent(candidate.id)}`);
+  };
+
   const toggleArticleSelection = (candidateId: string, selected: boolean) => {
     setSelectedCandidateIds((current) => {
       const next = new Set(current);
@@ -1693,6 +1698,14 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
               onClick={() => prepareInterview(candidate)}
             >
               Préparer une interview
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => prepareBrief(candidate)}
+            >
+              Rédiger une brève
             </button>
             <button
               type="button"

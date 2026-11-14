@@ -582,6 +582,20 @@ export type SportsWatchInterviewContext = {
   candidates: SportsWatchInterviewCandidate[];
 };
 
+export type SportsWatchVerifiedStatistic = {
+  label: string;
+  value: string;
+};
+
+export type SportsWatchBriefCandidate = SportsWatchInterviewCandidate & {
+  verifiedStatistics: SportsWatchVerifiedStatistic[];
+};
+
+export type SportsWatchBriefContext = {
+  selectedCandidateId: string | null;
+  candidates: SportsWatchBriefCandidate[];
+};
+
 export type SportsWatchPotentialDuplicate = {
   id: string;
   reason: string;

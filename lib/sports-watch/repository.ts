@@ -431,6 +431,10 @@ export type SportsWatchRepository = {
     athleteId: string,
     preferredCandidateId?: string,
   ): Promise<SportsWatchCandidate[]>;
+  getBriefCandidates(
+    workspaceId: string,
+    preferredCandidateId?: string,
+  ): Promise<SportsWatchCandidate[]>;
   getManualEntryByIdempotency(
     workspaceId: string,
     idempotencyKey: string,
@@ -1012,6 +1016,33 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         candidate.id DESC
       LIMIT 8
     `, [workspaceId, athleteId, preferredCandidateId || null]) as CandidateRow[];
+    return rows.map(mapCandidate);
+  },
+
+  async getBriefCandidates(workspaceId, preferredCandidateId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates candidate
+      WHERE candidate.workspace_id = $1
+        AND candidate.admin_status IN ('validated', 'exploited')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates replacement
+          WHERE replacement.workspace_id = candidate.workspace_id
+            AND replacement.supersedes_candidate_id = candidate.id
+        )
+      ORDER BY
+        CASE WHEN candidate.id = $2::uuid THEN 0 ELSE 1 END,
+        COALESCE(
+          candidate.event_date_from::timestamp,
+          candidate.publication_date::timestamp,
+          candidate.collected_at
+        ) DESC,
+        candidate.collected_at DESC,
+        candidate.id DESC
+      LIMIT 12
+    `, [workspaceId, preferredCandidateId || null]) as CandidateRow[];
     return rows.map(mapCandidate);
   },
 

@@ -421,6 +421,28 @@ const createMemoryRepository = (): SportsWatchRepository => {
         })
         .slice(0, 8);
     },
+    async getBriefCandidates(workspaceId, preferredCandidateId) {
+      const supersededIds = new Set(
+        records
+          .filter((record) => record.workspaceId === workspaceId)
+          .map((record) => record.candidate.supersedesCandidateId)
+          .filter((candidateId): candidateId is string => Boolean(candidateId)),
+      );
+      return records
+        .filter((record) =>
+          record.workspaceId === workspaceId
+          && ["validated", "exploited"].includes(record.candidate.adminStatus)
+          && !supersededIds.has(record.candidate.id))
+        .map((record) => record.candidate)
+        .sort((left, right) => {
+          if (left.id === preferredCandidateId) return -1;
+          if (right.id === preferredCandidateId) return 1;
+          const leftDate = left.eventDateFrom ?? left.publicationDate ?? left.collectedAt;
+          const rightDate = right.eventDateFrom ?? right.publicationDate ?? right.collectedAt;
+          return rightDate.localeCompare(leftDate);
+        })
+        .slice(0, 12);
+    },
     async listSwissBindings(workspaceId) {
       return bindings
         .filter((record) => record.workspaceId === workspaceId)
@@ -1557,6 +1579,116 @@ describe("sports watch service", () => {
       })],
     });
     expect(context.candidates.some((candidate) => candidate.title === "Autre espace")).toBe(false);
+  });
+
+  it("builds brief context with eligible news only, the explicit candidate first, and workspace isolation", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [
+      {
+        ...collectedCandidate("brief-pending", "Résultat en attente de revue."),
+        logicalKey: "brief-pending",
+        title: "Actualité en attente",
+        eventDateFrom: "2026-11-01",
+        eventDateTo: "2026-11-01",
+      },
+      {
+        ...collectedCandidate("brief-validated", "Victoire fictive 21-15."),
+        logicalKey: "brief-validated",
+        title: "Actualité validée",
+        eventDateFrom: "2026-10-20",
+        eventDateTo: "2026-10-20",
+      },
+      {
+        ...collectedCandidate("brief-exploited", "Récente actualité exploitée."),
+        logicalKey: "brief-exploited",
+        title: "Actualité exploitée",
+        eventDateFrom: "2026-11-05",
+        eventDateTo: "2026-11-05",
+      },
+    ]);
+    await repository.saveCandidates("workspace-b", [{
+      ...collectedCandidate("brief-other-workspace", "Ne doit jamais sortir."),
+      logicalKey: "brief-other-workspace",
+      title: "Autre espace",
+      eventDateFrom: "2026-11-06",
+      eventDateTo: "2026-11-06",
+    }]);
+    const candidates = await repository.listCandidates("workspace-a");
+    const pending = candidates.find((candidate) => candidate.title === "Actualité en attente");
+    const validated = candidates.find((candidate) => candidate.title === "Actualité validée");
+    const exploited = candidates.find((candidate) => candidate.title === "Actualité exploitée");
+    if (validated) validated.adminStatus = "validated";
+    if (exploited) exploited.adminStatus = "exploited";
+
+    const freeContext = await service.buildBriefContext(null, identity("workspace-a"));
+    expect(freeContext.selectedCandidateId).toBeNull();
+    expect(freeContext.candidates.map((candidate) => candidate.title)).toEqual([
+      "Actualité exploitée",
+      "Actualité validée",
+    ]);
+
+    const explicitContext = await service.buildBriefContext(
+      validated?.id,
+      identity("workspace-a"),
+    );
+    expect(explicitContext.selectedCandidateId).toBe(validated?.id);
+    expect(explicitContext.candidates[0]?.title).toBe("Actualité validée");
+
+    await expect(service.buildBriefContext(pending?.id, identity("workspace-a")))
+      .rejects.toMatchObject({ code: "not_found" });
+    await expect(service.buildBriefContext(validated?.id, identity("workspace-b")))
+      .rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("exposes verified statistics only for verified individual participation", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [
+      {
+        ...collectedCandidate(
+          "brief-individual",
+          "Résultat individuel explicitement attribué dans le document importé. Statistiques individuelles confirmées : Points : 18 ; Rebonds : 7.",
+        ),
+        logicalKey: "brief-individual",
+        title: "Performance individuelle vérifiée",
+        resultKind: "individual_result",
+        eventDateFrom: "2026-11-08",
+        eventDateTo: "2026-11-08",
+      },
+      {
+        ...collectedCandidate(
+          "brief-collective",
+          "Résultat collectif — participation individuelle non vérifiée. Propositions statistiques non attribuées : Points : 21.",
+        ),
+        logicalKey: "brief-collective",
+        title: "Résultat collectif avec piste",
+        resultKind: "collective_result",
+        eventDateFrom: "2026-11-07",
+        eventDateTo: "2026-11-07",
+      },
+    ]);
+    const candidates = await repository.listCandidates("workspace-a");
+    for (const candidate of candidates) {
+      candidate.adminStatus = "validated";
+      candidate.verificationStatus = "verified";
+    }
+
+    const context = await service.buildBriefContext(null, identity("workspace-a"));
+    const individual = context.candidates.find((candidate) =>
+      candidate.title === "Performance individuelle vérifiée");
+    const collective = context.candidates.find((candidate) =>
+      candidate.title === "Résultat collectif avec piste");
+
+    expect(individual?.provesIndividualParticipation).toBe(true);
+    expect(individual?.verifiedStatistics).toEqual([
+      { label: "Points", value: "18" },
+      { label: "Rebonds", value: "7" },
+    ]);
+    // Un résultat collectif ne prouve pas une participation individuelle :
+    // la proposition de 21 points reste une piste sans statistique vérifiée.
+    expect(collective?.provesIndividualParticipation).toBe(false);
+    expect(collective?.verifiedStatistics).toEqual([]);
   });
 
   it("keeps long Sports Watch sources valid while notes and unverified statistics remain editorial leads", async () => {

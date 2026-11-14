@@ -12353,3 +12353,606 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- Accueil Studio ------------------------------------------------- */
+
+.studio-home {
+  gap: 24px;
+}
+
+.studio-hero {
+  display: grid;
+  gap: 14px;
+  padding: 34px 30px;
+  border: 1px solid #ececec;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(255, 213, 74, 0.3), transparent 36%),
+    #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
+}
+
+.studio-hero h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 5vw, 3.1rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.studio-hero-lead {
+  margin: 0;
+  color: #5c5c5c;
+  font-size: 1rem;
+  max-width: 62ch;
+}
+
+.studio-hero-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.studio-primary-action,
+.studio-secondary-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 16px;
+  padding: 16px 18px;
+  text-decoration: none;
+  color: #141414;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.studio-primary-action {
+  background: #ffd54a;
+  border: 1px solid #f0c22e;
+  box-shadow: 0 8px 18px rgba(240, 194, 46, 0.3);
+}
+
+.studio-secondary-action {
+  background: #ffffff;
+  border: 1px solid #dcdcdc;
+}
+
+.studio-primary-action:hover,
+.studio-secondary-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.1);
+}
+
+.studio-primary-action span,
+.studio-secondary-action span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studio-primary-action strong,
+.studio-secondary-action strong {
+  font-size: 1rem;
+}
+
+.studio-primary-action small,
+.studio-secondary-action small {
+  color: rgba(20, 20, 20, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.studio-draft-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.studio-draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #ededed;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #ffffff;
+}
+
+.studio-draft-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studio-draft-copy strong {
+  font-size: 0.94rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-draft-copy small {
+  color: #7a7a7a;
+  font-size: 0.76rem;
+}
+
+.studio-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.studio-format-card {
+  border: 1px solid #ededed;
+  border-radius: 16px;
+  padding: 16px;
+  background: #ffffff;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.studio-format-action {
+  min-height: 38px;
+  border-radius: 10px;
+  background: #ffd54a;
+  border: 1px solid #f0c22e;
+  color: #141414;
+  font-weight: 700;
+  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  text-decoration: none;
+}
+
+.studio-format-action:hover {
+  filter: brightness(0.97);
+}
+
+@media (max-width: 960px) {
+  .studio-format-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .studio-hero {
+    padding: 24px 20px;
+  }
+
+  .studio-hero-actions,
+  .studio-format-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-draft-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* --- Brève sportive -------------------------------------------------- */
+
+.sports-brief-screen {
+  display: grid;
+  gap: 18px;
+}
+
+.sports-brief-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.sports-brief-header h1 {
+  margin: 6px 0 4px;
+  font-size: clamp(1.7rem, 3.4vw, 2.3rem);
+  line-height: 1.05;
+}
+
+.sports-brief-header p {
+  margin: 0;
+  color: #666666;
+  max-width: 66ch;
+}
+
+.sports-brief-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #6b6b6b;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sports-brief-back:hover {
+  color: #1f1f1f;
+}
+
+.sports-brief-saved-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid #cde7cd;
+  background: #effaef;
+  color: #1d6b2c;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.sports-brief-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.sports-brief-facts,
+.sports-brief-editor {
+  border: 1px solid #ececec;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.sports-brief-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sports-brief-panel-head h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sports-brief-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sports-brief-badge.is-verified {
+  background: #effaef;
+  color: #1d6b2c;
+  border: 1px solid #cde7cd;
+}
+
+.sports-brief-badge.is-unverified {
+  background: #fff6d8;
+  color: #92400e;
+  border: 1px solid #ecd9a0;
+}
+
+.sports-brief-badge.is-disputed {
+  background: #fdecec;
+  color: #a02424;
+  border: 1px solid #f2caca;
+}
+
+.sports-brief-source-card {
+  border: 1px solid #ededed;
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+  background: #fcfcfc;
+}
+
+.sports-brief-source-card strong {
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.sports-brief-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #1f4ed8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.sports-brief-source-link:hover {
+  text-decoration: underline;
+}
+
+.sports-brief-stats h3 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+
+.sports-brief-stats ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sports-brief-stats li {
+  border: 1px solid #e3f0e3;
+  background: #f4fbf4;
+  color: #1d6b2c;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+}
+
+.sports-brief-fact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sports-brief-fact-list li {
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid #ededed;
+}
+
+.sports-brief-fact-list li.is-verified {
+  border-left: 3px solid #2f9e44;
+}
+
+.sports-brief-fact-list li.is-unverified {
+  border-left: 3px solid #d9a800;
+  background: #fffdf4;
+}
+
+.sports-brief-fact-status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #6c6c6c;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sports-brief-fact-list li.is-unverified .sports-brief-fact-status {
+  color: #92400e;
+}
+
+.sports-brief-fact-list p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #333333;
+}
+
+.sports-brief-fact-list small {
+  color: #868686;
+  font-size: 0.72rem;
+}
+
+.sports-brief-candidate-meta {
+  margin: 0;
+  color: #777777;
+  font-size: 0.78rem;
+}
+
+.sports-brief-angles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sports-brief-angles-empty {
+  margin: 0;
+  color: #92400e;
+  background: #fff6d8;
+  border: 1px solid #ecd9a0;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+}
+
+.sports-brief-angle {
+  border: 1px solid #d8d8d8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #4b4b4b;
+  font-weight: 600;
+  font-size: 0.84rem;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.sports-brief-angle.is-active {
+  background: #141414;
+  border-color: #141414;
+  color: #ffd54a;
+}
+
+.sports-brief-generate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sports-brief-generate small {
+  color: #7a7a7a;
+  font-size: 0.75rem;
+}
+
+.sports-brief-primary-button {
+  min-height: 40px;
+  border-radius: 10px;
+  background: #ffd54a;
+  border: 1px solid #f0c22e;
+  color: #141414;
+  font-weight: 700;
+  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.sports-brief-primary-button:disabled {
+  background: #f3f3f3;
+  border-color: #e3e3e3;
+  color: #9a9a9a;
+  cursor: default;
+}
+
+.sports-brief-field {
+  display: grid;
+  gap: 6px;
+}
+
+.sports-brief-field span {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #3c3c3c;
+}
+
+.sports-brief-field input,
+.sports-brief-field textarea {
+  border: 1px solid #dcdcdc;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  background: #ffffff;
+}
+
+.sports-brief-field input:focus,
+.sports-brief-field textarea:focus {
+  outline: none;
+  border-color: #141414;
+}
+
+.sports-brief-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sports-brief-actions .contents-ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sports-brief-error {
+  margin: 0;
+  color: #a02424;
+  background: #fdecec;
+  border: 1px solid #f2caca;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.sports-brief-success {
+  margin: 0;
+  color: #1d6b2c;
+  background: #effaef;
+  border: 1px solid #cde7cd;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.sports-brief-empty {
+  border: 1px dashed #dfdfdf;
+  border-radius: 14px;
+  padding: 18px;
+  display: grid;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.sports-brief-picker {
+  border: 1px solid #ececec;
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.sports-brief-picker h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.sports-brief-picker > p {
+  margin: 0;
+  color: #757575;
+  font-size: 0.85rem;
+}
+
+.sports-brief-candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sports-brief-candidate {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #ededed;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px 14px;
+  display: grid;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.sports-brief-candidate:hover {
+  border-color: #141414;
+}
+
+.sports-brief-candidate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sports-brief-candidate-title {
+  font-size: 0.88rem;
+  color: #333333;
+}
+
+@media (max-width: 920px) {
+  .sports-brief-workspace {
+    grid-template-columns: 1fr;
+  }
+}

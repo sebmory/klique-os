@@ -86,6 +86,9 @@ import type {
   SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
   SportsWatchInterviewContext,
+  SportsWatchInterviewCandidate,
+  SportsWatchBriefContext,
+  SportsWatchVerifiedStatistic,
   SwissBasketballBinding,
   SwissBasketballBindingVerification,
   SwissBasketballOfficialIdentity,
@@ -269,6 +272,101 @@ const articleResultKindLabel: Record<SportsWatchCandidate["resultKind"], string>
   news_excerpt: "extrait éditorial attribué, sans performance individuelle déduite",
   participation: "présence ou participation selon les éléments explicites de la source",
 };
+
+const toInterviewCandidateView = (
+  candidate: SportsWatchCandidate,
+): SportsWatchInterviewCandidate => {
+  const sourceDate = candidate.eventDateFrom
+    ?? candidate.publicationDate?.slice(0, 10)
+    ?? candidate.collectedAt.slice(0, 10);
+  const text = [
+    `Athlète associé : ${candidate.athleteName}.`,
+    `Statut factuel : ${articleResultKindLabel[candidate.resultKind]}.`,
+    `Actualité : ${candidate.title}.`,
+    candidate.excerpt,
+  ].join(" ");
+  return {
+    id: candidate.id,
+    athleteId: candidate.athleteId,
+    athleteName: candidate.athleteName,
+    sourceName: candidate.sourceName,
+    articleUrl: candidate.articleUrl,
+    title: candidate.title,
+    excerpt: candidate.excerpt,
+    resultKind: candidate.resultKind,
+    publicationDate: candidate.publicationDate,
+    eventDateFrom: candidate.eventDateFrom,
+    eventDateTo: candidate.eventDateTo,
+    collectedAt: candidate.collectedAt,
+    verificationStatus: candidate.verificationStatus,
+    adminStatus: candidate.adminStatus,
+    provesIndividualParticipation:
+      candidate.verificationStatus === "verified"
+      && (candidate.resultKind === "individual_result"
+        || candidate.resultKind === "participation"),
+    materials: buildSportsWatchArticleMaterials(
+      candidate,
+      buildCandidateProvenance(candidate),
+      sourceDate,
+      text,
+    ),
+  };
+};
+
+// Seules les statistiques d’une participation individuelle vérifiée fondent l’angle « Performance individuelle ».
+export const extractVerifiedBriefStatistics = (
+  candidate: SportsWatchCandidate,
+): SportsWatchVerifiedStatistic[] => {
+  if (candidate.verificationStatus !== "verified") return [];
+  if (
+    candidate.resultKind !== "individual_result"
+    && candidate.resultKind !== "participation"
+  ) {
+    return [];
+  }
+  const statistics: SportsWatchVerifiedStatistic[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, value: string | number | null | undefined, unit?: string | null) => {
+    if (value === null || value === undefined) return;
+    const text = `${String(value).trim()}${unit ? ` ${unit.trim()}` : ""}`.trim();
+    if (!text || !label.trim()) return;
+    const key = `${label.trim().toLocaleLowerCase("fr")}|${text.toLocaleLowerCase("fr")}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    statistics.push({ label: label.trim(), value: text });
+  };
+  const manual = candidate.manualEntry;
+  if (manual) {
+    for (const statistic of manual.statistics) {
+      push(statistic.label, statistic.value, statistic.unit);
+    }
+    if (manual.basketball) {
+      push("Points", manual.basketball.points);
+      push("Rebonds", manual.basketball.rebounds);
+      push("Passes décisives", manual.basketball.assists);
+      push("Interceptions", manual.basketball.steals);
+      push("Contres", manual.basketball.blocks);
+      push("Minutes jouées", manual.basketball.minutes);
+    }
+    if (manual.football) {
+      push("Buts", manual.football.goals);
+      push("Passes décisives", manual.football.assists);
+      push("Minutes jouées", manual.football.minutes);
+    }
+  }
+  const confirmed = candidate.excerpt.match(
+    /Statistiques individuelles confirmées\s*:\s*([^.]*)\./i,
+  )?.[1];
+  if (confirmed) {
+    for (const fragment of confirmed.split(";")) {
+      const separatorIndex = fragment.indexOf(":");
+      if (separatorIndex === -1) continue;
+      push(fragment.slice(0, separatorIndex), fragment.slice(separatorIndex + 1).trim());
+    }
+  }
+  return statistics;
+};
+
 const sourceDefinitions: Record<SportsWatchCollectionSourceKey, {
   name: string;
   url: string;
@@ -1573,43 +1671,38 @@ export const createSportsWatchService = (
     return {
       athleteId,
       selectedCandidateId: candidates[0]?.id ?? null,
-      candidates: candidates.map((candidate) => {
-        const sourceDate = candidate.eventDateFrom
-          ?? candidate.publicationDate?.slice(0, 10)
-          ?? candidate.collectedAt.slice(0, 10);
-        const text = [
-          `Athlète associé : ${candidate.athleteName}.`,
-          `Statut factuel : ${articleResultKindLabel[candidate.resultKind]}.`,
-          `Actualité : ${candidate.title}.`,
-          candidate.excerpt,
-        ].join(" ");
-        return {
-          id: candidate.id,
-          athleteId: candidate.athleteId,
-          athleteName: candidate.athleteName,
-          sourceName: candidate.sourceName,
-          articleUrl: candidate.articleUrl,
-          title: candidate.title,
-          excerpt: candidate.excerpt,
-          resultKind: candidate.resultKind,
-          publicationDate: candidate.publicationDate,
-          eventDateFrom: candidate.eventDateFrom,
-          eventDateTo: candidate.eventDateTo,
-          collectedAt: candidate.collectedAt,
-          verificationStatus: candidate.verificationStatus,
-          adminStatus: candidate.adminStatus,
-          provesIndividualParticipation:
-            candidate.verificationStatus === "verified"
-            && (candidate.resultKind === "individual_result"
-              || candidate.resultKind === "participation"),
-          materials: buildSportsWatchArticleMaterials(
-            candidate,
-            buildCandidateProvenance(candidate),
-            sourceDate,
-            text,
-          ),
-        };
-      }),
+      candidates: candidates.map(toInterviewCandidateView),
+    };
+  },
+
+  async buildBriefContext(
+    preferredCandidateIdValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchBriefContext> {
+    const preferredCandidateId = normalize(preferredCandidateIdValue);
+    if (preferredCandidateId) requireUuid(preferredCandidateId);
+
+    const candidates = await dependencies.repository.getBriefCandidates(
+      identity.workspaceId,
+      preferredCandidateId || undefined,
+    );
+    if (
+      preferredCandidateId
+      && candidates[0]?.id !== preferredCandidateId
+    ) {
+      throw new SportsWatchError(
+        "not_found",
+        "L’actualité choisie n’est plus éligible à une brève dans cet espace.",
+      );
+    }
+
+    return {
+      // Seul un candidat explicite est présélectionné : depuis le Studio, le choix reste à la rédaction.
+      selectedCandidateId: preferredCandidateId || null,
+      candidates: candidates.map((candidate) => ({
+        ...toInterviewCandidateView(candidate),
+        verifiedStatistics: extractVerifiedBriefStatistics(candidate),
+      })),
     };
   },
 
