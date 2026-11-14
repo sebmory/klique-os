@@ -77,7 +77,9 @@ export const shouldRetryGenerationError = (error: ContentGenerationError): boole
 const buildCorrectionFeedback = (error: ContentGenerationError, questionCount: number): string => {
   return [
     "La sortie precedente ne respecte pas les contraintes requises.",
-    questionCount > 0 ? `Nombre de questions attendu: ${questionCount}.` : "Nombre de propositions attendu: 3.",
+    questionCount > 0
+      ? `Nombre de questions attendu: entre ${Math.min(3, questionCount)} et ${questionCount}.`
+      : "Nombre de propositions attendu: 3.",
     `Erreur detectee: ${error.message}`,
     "Corrige uniquement ces erreurs et renvoie strictement une sortie valide selon le schema fourni.",
   ].join(" ");

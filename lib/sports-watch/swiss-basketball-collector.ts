@@ -61,6 +61,11 @@ type GamePlayer = {
   starter: boolean | null;
 };
 
+type QuarterScore = {
+  home: number;
+  guest: number;
+};
+
 type GameOverview = {
   gameId: string;
   federationId: string;
@@ -68,6 +73,8 @@ type GameOverview = {
   date: string;
   homeTeam: ScheduleTeam;
   awayTeam: ScheduleTeam;
+  // Scores par quart-temps publiés dans la feuille officielle, dans l’ordre Q1 → Q4.
+  quarterScores: QuarterScore[];
   homePlayers: GamePlayer[];
   awayPlayers: GamePlayer[];
 };
@@ -240,6 +247,17 @@ const parsePlayers = (xml: string, containerName: "homeTeamRows" | "guestTeamRow
     }));
 };
 
+const parseQuarterScores = (item: Record<string, string>): QuarterScore[] => {
+  const quarters: QuarterScore[] = [];
+  for (let quarter = 1; quarter <= 4; quarter += 1) {
+    const home = nullableInteger(item[`homeTeamScoreLeg${quarter}`]);
+    const guest = nullableInteger(item[`guestTeamScoreLeg${quarter}`]);
+    if (home === null || guest === null) return [];
+    quarters.push({ home, guest });
+  }
+  return quarters;
+};
+
 const parseOverview = (xml: string): GameOverview => {
   const match = xml.match(/<GameOverView\b([^>]*)>/);
   if (!match) throw sourceError("la feuille officielle ne contient pas de match exploitable.");
@@ -275,6 +293,7 @@ const parseOverview = (xml: string): GameOverview => {
       name: item.guestTeamName,
       result: nullableInteger(item.guestResult),
     },
+    quarterScores: parseQuarterScores(item),
     homePlayers: parsePlayers(xml, "homeTeamRows"),
     awayPlayers: parsePlayers(xml, "guestTeamRows"),
   };
@@ -388,12 +407,20 @@ const buildCandidate = (
   const statistics = [
     player.points === null ? null : `PTS ${player.points}`,
   ].filter((value): value is string => value !== null);
+  const quarterLine = overview.quarterScores.length === 4
+    ? `Évolution par quart-temps selon la feuille officielle : ${
+        overview.quarterScores
+          .map((quarter, index) => `Q${index + 1} ${quarter.home}–${quarter.guest}`)
+          .join(", ")
+      }.`
+    : "Scores par quart-temps non publiés dans la feuille officielle.";
   const excerpt = [
     "Source : Swiss Basketball — source officielle.",
     `Compétition : ${identity.leagueName} · ${identity.seasonName}.`,
     `Équipe : ${identity.teamName}.`,
     `Match : ${overview.homeTeam.name} ${homeScore}–${awayScore} ${overview.awayTeam.name}.`,
     `Date : ${overview.date}.`,
+    quarterLine,
     `Présence nominative : ${player.playerName}, identifiant joueur ${player.playerId}${player.number ? `, numéro ${player.number}` : ""}.`,
     `Titularisation : ${player.starter === null ? "non renseignée" : player.starter ? "oui" : "non"}.`,
     participationEstablished
@@ -404,6 +431,9 @@ const buildCandidate = (
       : "Aucune statistique individuelle chiffrée explicite n’est présente.",
     "Minutes et autres statistiques absentes : aucune valeur n’est déduite.",
   ].join(" ");
+  // La vérification factuelle n’est accordée que lorsque la participation est établie
+  // par une donnée individuelle explicite de la ligne officielle relue par identifiant exact.
+  const verificationStatus = participationEstablished ? ("verified" as const) : undefined;
   return {
     sourceKey: SWISS_BASKETBALL_SOURCE_KEY,
     athlete,
@@ -423,6 +453,9 @@ const buildCandidate = (
       `Identifiant joueur officiel ${player.playerId} relu dans la composition de l’équipe ${identity.teamId}.`,
       `Match officiel ${match.id}${overview.gameNumber ? ` (${overview.gameNumber})` : ""}.`,
       "Résultat collectif, présence, titularisation et statistiques individuelles sont conservés séparément.",
+      ...(verificationStatus === "verified"
+        ? ["Vérification factuelle : rattachement confirmé par un Admin, feuille officielle relue par identifiant joueur exact et participation établie par une donnée individuelle explicite."]
+        : []),
     ],
     logicalKey: [
       SWISS_BASKETBALL_SOURCE_KEY,
@@ -439,9 +472,12 @@ const buildCandidate = (
       playerId: player.playerId,
       homeTeam: overview.homeTeam,
       awayTeam: overview.awayTeam,
+      quarterScores: overview.quarterScores,
       points: player.points,
       starter: player.starter,
+      verificationStatus: verificationStatus ?? "unverified",
     })),
+    verificationStatus,
   };
 };
 

@@ -686,13 +686,14 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
           athlete_sport_snapshot, athlete_club_snapshot, source_name, source_url,
           article_url, title, excerpt, result_kind, publication_date,
           event_date_from, event_date_to, collected_at, attribution_status,
-          attribution_evidence_json, logical_key, content_hash, supersedes_candidate_id,
+          attribution_evidence_json, factual_verification_status,
+          logical_key, content_hash, supersedes_candidate_id,
           football_evidence_json
         ) VALUES (
           $4::uuid, $1, $21, $2, $5, $6, $7, $8, $9,
           $10, $11, $12, $13, $14::timestamptz,
           $15::date, $16::date, $17::timestamptz, $18,
-          $19::jsonb, $3, $20, (SELECT id FROM previous), $22::jsonb
+          $19::jsonb, $23, $3, $20, (SELECT id FROM previous), $22::jsonb
         )
         ON CONFLICT (workspace_id, athlete_id, logical_key, content_hash)
         DO NOTHING
@@ -720,6 +721,7 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         candidate.contentHash,
         candidate.sourceKey,
         candidate.footballEvidence ? JSON.stringify(candidate.footballEvidence) : null,
+        candidate.verificationStatus ?? "unverified",
       ]) as Array<{ id: string }>;
       if (rows[0]) createdCount += 1;
     }

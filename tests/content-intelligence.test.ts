@@ -72,8 +72,17 @@ describe("content intelligence structured validation", () => {
     expect(shouldRetryGenerationError(typedError)).toBe(true);
   });
 
-  it("CAS C: rejette un ecart de compte de questions et permet une tentative corrective", () => {
-    const raw = buildValidRaw(14);
+  it("CAS C: accepte moins de questions que demande avec une note de matiere manquante", () => {
+    const result = runValidation(buildValidRaw(14), 15);
+
+    expect(result.questions).toHaveLength(14);
+    expect(result.metadata.questionCountRequested).toBe(15);
+    expect(result.metadata.questionCountGenerated).toBe(14);
+    expect(result.metadata.missingInformation.join(" ")).toContain("Matiere insuffisante pour 15 questions");
+  });
+
+  it("CAS C bis: rejette une sortie sous le minimum de 3 questions et permet une tentative corrective", () => {
+    const raw = buildValidRaw(2);
 
     let error: unknown;
     try {
@@ -85,6 +94,7 @@ describe("content intelligence structured validation", () => {
     expect(error).toBeInstanceOf(ContentGenerationError);
     const typedError = error as ContentGenerationError;
     expect(typedError.code).toBe("INVALID_PROVIDER_RESPONSE");
+    expect(typedError.message).toContain("attendu entre 3 et 15");
     expect(shouldRetryGenerationError(typedError)).toBe(true);
   });
 

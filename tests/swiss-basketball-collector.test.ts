@@ -290,7 +290,45 @@ describe("Swiss Basketball collector", () => {
     expect(result.candidates[0].excerpt).toContain("PTS 16");
     expect(result.candidates[0].excerpt).toContain("Minutes et autres statistiques absentes");
     expect(result.candidates[0].excerpt).not.toContain("MIN 0");
+    // Chaîne exacte (rattachement confirmé + feuille officielle + identifiant joueur) :
+    // la participation établie rend le candidat vérifié factuellement.
+    expect(result.candidates[0].verificationStatus).toBe("verified");
+    expect(result.candidates[0].attributionEvidence.join(" ")).toContain("Vérification factuelle");
+    expect(result.candidates[0].excerpt).toContain("Scores par quart-temps non publiés");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("captures the official quarter-by-quarter progression when the sheet publishes it", async () => {
+    const withQuarters = fixture("swiss-basketball-game-367576.xml").replace(
+      /<GameOverView\s/,
+      '<GameOverView homeTeamScoreLeg1="25" homeTeamScoreLeg2="12" homeTeamScoreLeg3="28" homeTeamScoreLeg4="17" guestTeamScoreLeg1="11" guestTeamScoreLeg2="17" guestTeamScoreLeg3="18" guestTeamScoreLeg4="28" ',
+    );
+    const identity = {
+      scheduleUrl: holdingsUrl,
+      federationId: "12",
+      seasonId: "31",
+      seasonName: "2026-2027",
+      leagueId: "7",
+      leagueName: "NLB Women",
+      teamId: "1269",
+      teamName: "Elfic Fribourg Génération",
+      clubId: "199",
+      playerId: "71375",
+      playerName: "Mila Benjak",
+    };
+    const result = await collectSwissBasketballCandidates(athlete, {
+      identity,
+      dependencies: {
+        fetch: fetchFrom(responses(withQuarters)),
+        now: () => new Date("2026-10-27T10:00:00.000Z"),
+      },
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].excerpt).toContain(
+      "Évolution par quart-temps selon la feuille officielle : Q1 25–11, Q2 12–17, Q3 28–18, Q4 17–28.",
+    );
+    expect(result.candidates[0].verificationStatus).toBe("verified");
   });
 
   it("does not infer participation from roster presence or turn an absent value into zero", async () => {
@@ -326,6 +364,8 @@ describe("Swiss Basketball collector", () => {
       "Aucune statistique individuelle chiffrée explicite n’est présente.",
     );
     expect(result.candidates[0].excerpt).not.toContain("PTS 0");
+    // Présence sur la feuille sans donnée individuelle explicite : jamais vérifié factuellement.
+    expect(result.candidates[0].verificationStatus).toBeUndefined();
     expect(result.observations).toEqual([
       expect.objectContaining({ status: "player_listed_without_participation" }),
     ]);

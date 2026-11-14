@@ -55,6 +55,27 @@ const formatContextItem = (item: ContextItem): string => {
   return suffix ? `${base} (${suffix})` : base;
 };
 
+// Signale au journaliste la matiere qui manque pour une interview apres-match,
+// et propose une observation de terrain identifiee comme note du journaliste.
+const afterMatchPreparationNotes = (
+  interviewType: string | undefined,
+  verifiedFacts: string[],
+): string[] => {
+  if (interviewType !== "after_match") return [];
+  if (verifiedFacts.length === 0) {
+    return [
+      "Aucun fait vérifié sur la rencontre : les questions resteront des invitations au récit. Ajouter une observation de terrain (note du journaliste) pour ancrer la trame.",
+    ];
+  }
+  const hasDocumentedSequence = verifiedFacts.some((text) =>
+    /quart-temps|mi-temps|période|évolution|minute/i.test(text));
+  return hasDocumentedSequence
+    ? []
+    : [
+        "Déroulé de la rencontre non documenté (aucun score intermédiaire ni séquence) : ajouter une observation de terrain (note du journaliste) pour permettre des questions sur un moment précis.",
+      ];
+};
+
 const buildContextBuckets = (items: ContextItem[]) => {
   const selected = items.filter((item) => item.isSelected);
   const excluded = items.filter((item) => !item.isSelected).map((item) => formatContextItem(item));
@@ -124,7 +145,15 @@ const buildContentContext = async (
           questionCount: payload.parameters.questionCount,
         },
       },
-      missingInformation: editorialContext.missingInformation,
+      missingInformation: [
+        ...editorialContext.missingInformation,
+        ...afterMatchPreparationNotes(
+          payload.objective.id === "interview" ? payload.objective.subtypeId : undefined,
+          editorialContext.facts
+            .filter((fact) => fact.verificationStatus === "verified")
+            .map((fact) => fact.text),
+        ),
+      ],
     };
   }
 
@@ -133,6 +162,10 @@ const buildContentContext = async (
   const templateKey = resolveTemplateKeyForObjective(payload.objective.id);
   const contextItems = payload.parameters.contextIntelligence.selectedContextItems;
   const buckets = buildContextBuckets(contextItems);
+  missingInformation.push(...afterMatchPreparationNotes(
+    interviewType,
+    [...buckets.internalFacts, ...buckets.externalVerifiedFacts],
+  ));
 
   if (payload.subject.source === "crm") {
     if (!payload.subject.id) {

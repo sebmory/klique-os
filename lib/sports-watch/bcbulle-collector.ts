@@ -54,6 +54,9 @@ export type CollectedSportsWatchCandidate = {
   logicalKey: string;
   contentHash: string;
   footballEvidence?: FootballCandidateEvidence;
+  // Réservé aux collecteurs dont la chaîne est exacte : rattachement confirmé par un Admin,
+  // feuille officielle et ligne relue par identifiant officiel (jamais par rapprochement de nom).
+  verificationStatus?: "verified";
 };
 
 export type BcBulleCollectionResult = {

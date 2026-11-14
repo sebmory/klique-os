@@ -249,7 +249,7 @@ const createMemoryRepository = (): SportsWatchRepository => {
             collectedAt: item.collectedAt,
             attributionStatus: item.attributionStatus,
             attributionEvidence: item.attributionEvidence,
-            verificationStatus: "unverified",
+            verificationStatus: item.verificationStatus ?? "unverified",
             adminStatus: "pending",
             supersedesCandidateId: previous?.candidate.id ?? null,
             version: 1,

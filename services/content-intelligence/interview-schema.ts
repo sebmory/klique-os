@@ -84,7 +84,9 @@ export const buildInterviewGenerationJsonSchema = (questionCount: number): JsonS
     introduction: nonEmptyStringSchema,
     questions: {
       type: "array",
-      minItems: questionCount,
+      // Mieux vaut moins de questions ancrees que des questions interchangeables :
+      // le modele peut livrer moins que le nombre demande, jamais moins de 3.
+      minItems: Math.min(3, questionCount),
       maxItems: questionCount,
       items: interviewQuestionSchema,
     },

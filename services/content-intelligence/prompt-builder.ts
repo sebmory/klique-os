@@ -1,4 +1,8 @@
 import { buildEditorialRulesBlock, editorialRulesVersion } from "@/services/content-intelligence/editorial-rules";
+import {
+  INTERVIEW_CRAFT_RULES,
+  buildInterviewPreparationBlock,
+} from "@/services/content-intelligence/interview-preparation";
 import { buildStoryPrompt } from "@/services/content-intelligence/story-prompt-builder";
 import type { AnyContentGenerationRequest, ContentTemplateDefinition } from "@/types/content-generation";
 
@@ -9,6 +13,10 @@ export const buildContentPrompt = (args: {
 }): string => {
   const templatePayload = args.template.buildPrompt(args.request);
   const selectedCount = args.request.selectedContextItems.length;
+  const interviewType = args.request.requestType === "interview"
+    ? args.request.brief.interviewType
+    : undefined;
+  const isAfterMatch = interviewType === "after_match";
   const contextRules = [
     `- Nombre d elements de contexte selectionnes: ${selectedCount}.`,
     "- Utiliser uniquement les faits selectionnes transmis dans le contexte.",
@@ -23,8 +31,13 @@ export const buildContentPrompt = (args: {
     "- Ne jamais inventer de detail absent.",
     "- Ne pas affirmer un resultat non fourni.",
     "- Relier les questions a l actualite seulement quand les faits selectionnes le permettent.",
-    "- Conserver un equilibre entre actualite et profondeur humaine.",
-    "- Eviter que toutes les questions portent sur un seul evenement recent.",
+    // Apres-match, la trame est centree sur la rencontre; les autres types gardent l equilibre.
+    ...(isAfterMatch
+      ? ["- Centrer la trame sur cette rencontre precise: equipes, score, sequences et faits fournis."]
+      : [
+          "- Conserver un equilibre entre actualite et profondeur humaine.",
+          "- Eviter que toutes les questions portent sur un seul evenement recent.",
+        ]),
     "- Utiliser les dates fournies pour eviter les formulations temporelles erronees.",
     "- Ne pas inclure d URL dans les questions sauf demande explicite.",
   ].join("\n");
@@ -198,6 +211,8 @@ export const buildContentPrompt = (args: {
     return buildStoryPrompt(args.request);
   }
 
+  const questionCount = args.request.brief.questionCount;
+  const minimumQuestionCount = Math.min(3, questionCount);
   return [
     "Mission: generer un contenu interview editorial utile, fiable et exploitable.",
     `Prompt version: ${args.promptVersion}`,
@@ -208,15 +223,21 @@ export const buildContentPrompt = (args: {
     "Regles editoriales:",
     buildEditorialRulesBlock(),
     "Contraintes de qualite:",
-    `- Generer exactement ${args.request.brief.questionCount} questions.`,
-    "- Produire des questions distinctes, non repetitives et adaptees au sujet, sport, type, ton, format et audience.",
-    "- Ne jamais inventer de faits, actualites, blessures, transferts, resultats, statistiques ou citations.",
-    "- Utiliser uniquement les informations fournies.",
-    "- Si une information manque, poser une question generique et prudente.",
-    "- Respecter strictement les sujets obligatoires et eviter strictement les sujets interdits.",
-    "- Pour chaque question, proposer des relances directement liees a la question.",
-    "- La forme de sortie est imposee par un schema JSON strict externe.",
-    "- Ne pas inclure de metadata sensible sur le provider ou la cle API.",
+    [
+      `- Generer ${questionCount} questions quand la matiere fournie le permet.`,
+      `- Si la matiere verifiee ne permet pas ${questionCount} questions ancrees, livrer moins de questions (minimum ${minimumQuestionCount}) plutot que des questions interchangeables.`,
+      "- Produire des questions distinctes, non repetitives et adaptees au sujet, sport, type, ton, format et audience.",
+      "- Ne jamais inventer de faits, actualites, blessures, transferts, resultats, statistiques ou citations.",
+      "- Utiliser uniquement les informations fournies.",
+      "- Si une information manque, la transformer en invitation au recit ancree sur le sujet, jamais en question generique.",
+      "- Respecter strictement les sujets obligatoires et eviter strictement les sujets interdits.",
+      "- Pour chaque question, proposer des relances directement liees a la question.",
+      "- La forme de sortie est imposee par un schema JSON strict externe.",
+      "- Ne pas inclure de metadata sensible sur le provider ou la cle API.",
+    ].join("\n"),
+    "Methode journaliste (commune a tous les types):",
+    INTERVIEW_CRAFT_RULES.join("\n"),
+    buildInterviewPreparationBlock(interviewType ?? "free"),
     "Contexte intelligent:",
     contextRules,
     "Contexte et demande:",

@@ -150,10 +150,11 @@ export const validateContentGenerationJson = (args: {
     .map((item, index) => normalizeQuestion(item, index))
     .filter((item): item is InterviewQuestion => item !== null);
 
-  if (questions.length !== args.questionCount) {
+  const minimumQuestionCount = Math.min(3, args.questionCount);
+  if (questions.length > args.questionCount || questions.length < minimumQuestionCount) {
     throw new ContentGenerationError(
       "INVALID_PROVIDER_RESPONSE",
-      `Nombre de questions invalide: attendu ${args.questionCount}, recu ${questions.length}`
+      `Nombre de questions invalide: attendu entre ${minimumQuestionCount} et ${args.questionCount}, recu ${questions.length}`
     );
   }
 
@@ -224,7 +225,12 @@ export const validateContentGenerationJson = (args: {
         "Utiliser uniquement les faits fournis.",
         "Ne pas presenter une supposition comme un fait.",
       ],
-      missingInformation: args.missingInformation,
+      missingInformation: questions.length < args.questionCount
+        ? [
+            ...args.missingInformation,
+            `Matiere insuffisante pour ${args.questionCount} questions ancrees: ${questions.length} livrees. Completer le dossier ou ajouter une observation de terrain (note du journaliste).`,
+          ]
+        : args.missingInformation,
       externalContextUsed: selectedContextItems.some((item) => item.connectorId === "external_news" && item.isSelected),
     },
   };
