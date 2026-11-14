@@ -179,15 +179,23 @@ export function SportsBriefScreen({
   );
 
   // L’angle effectif est dérivé au rendu : un choix invalide pour l’actualité
-  // sélectionnée retombe sur le premier angle disponible.
+  // sélectionnée retombe sur le premier angle disponible. Sans fait vérifié,
+  // la rédaction manuelle reste possible sous l’angle « Actualité » par défaut.
   const effectiveAngleId = useMemo(() => {
     if (angleId && angles.some((angle) => angle.id === angleId)) return angleId;
-    return angles[0]?.id ?? null;
-  }, [angleId, angles]);
+    if (angles.length > 0) return angles[0].id;
+    return selectedCandidate ? SPORTS_BRIEF_ANGLES.news.id : null;
+  }, [angleId, angles, selectedCandidate]);
 
   const selectedAngle = effectiveAngleId ? SPORTS_BRIEF_ANGLES[effectiveAngleId] : null;
   const hasText = Boolean(fields.title.trim() || fields.lead.trim() || fields.body.trim());
-  const canGenerate = Boolean(selectedCandidate && effectiveAngleId);
+  // La rédaction assistée exige un angle fondé sur des faits vérifiés ;
+  // l’angle manuel par défaut ne la réactive pas.
+  const canGenerate = Boolean(
+    selectedCandidate
+    && effectiveAngleId
+    && angles.some((angle) => angle.id === effectiveAngleId),
+  );
   const canSave = Boolean(
     selectedCandidate
     && selectedAngle
@@ -204,7 +212,7 @@ export function SportsBriefScreen({
     };
 
   const applyGeneration = () => {
-    if (!selectedCandidate || !effectiveAngleId) return;
+    if (!selectedCandidate || !effectiveAngleId || !canGenerate) return;
     if (hasText && !confirmGeneration) {
       setConfirmGeneration(true);
       return;
@@ -459,9 +467,21 @@ export function SportsBriefScreen({
 
             <div className="sports-brief-angles" role="radiogroup" aria-label="Angle éditorial">
               {angles.length === 0 ? (
-                <p className="sports-brief-angles-empty">
-                  Aucun fait vérifié : rédigez librement, la génération automatique est désactivée.
-                </p>
+                <>
+                  <p className="sports-brief-angles-empty">
+                    Aucun fait vérifié : rédigez librement sous l’angle « Actualité »,
+                    la génération automatique est désactivée.
+                  </p>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked
+                    className="sports-brief-angle is-active"
+                    title={SPORTS_BRIEF_ANGLES.news.intent}
+                  >
+                    {SPORTS_BRIEF_ANGLES.news.title}
+                  </button>
+                </>
               ) : (
                 angles.map((angle) => (
                   <button
