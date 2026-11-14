@@ -1467,6 +1467,18 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
     router.push(`/contents/create?${query.toString()}`);
   };
 
+  const prepareInterview = (candidate: SportsWatchCandidate) => {
+    const query = new URLSearchParams({
+      objective: "interview",
+      subject: candidate.athleteName,
+      subjectId: candidate.athleteId,
+      contextType: "athlete",
+      sportsWatchCandidateId: candidate.id,
+    });
+    writeNavigationState(workspaceId, { view, selectedAthleteId, selectedSourceKey });
+    router.push(`/contents/create?${query.toString()}`);
+  };
+
   const toggleArticleSelection = (candidateId: string, selected: boolean) => {
     setSelectedCandidateIds((current) => {
       const next = new Set(current);
@@ -1673,15 +1685,25 @@ export function SportsWatchAdminCard({ athletes }: { athletes: AthleteSummary[] 
           </button>
         ) : null}
         {candidate.adminStatus === "validated" || candidate.adminStatus === "exploited" ? (
-        <button
-          type="button"
-          className="card-link-button sports-action is-primary"
-          disabled={busyCandidateId === candidate.id}
-          onClick={() => prepareArticle(candidate)}
-        >
-          Préparer un article
-        </button>
-      ) : null}
+          <>
+            <button
+              type="button"
+              className="card-link-button sports-action"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => prepareInterview(candidate)}
+            >
+              Préparer une interview
+            </button>
+            <button
+              type="button"
+              className="card-link-button sports-action is-primary"
+              disabled={busyCandidateId === candidate.id}
+              onClick={() => prepareArticle(candidate)}
+            >
+              Préparer un article
+            </button>
+          </>
+        ) : null}
       {candidate.attributionStatus === "ambiguous" ? (
         <small style={{ color: "#92400e", alignSelf: "center" }}>
           Validation bloquée : attribution à confirmer.

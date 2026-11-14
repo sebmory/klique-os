@@ -101,6 +101,8 @@ export type CreationParametersDraft = {
   formatId: string;
   audienceId: string;
   customAudience: string;
+  interviewAngleId?: string;
+  interviewAngle?: string;
   additionalContext: string;
   manualEditorialMaterials: ManualEditorialMaterial[];
   manualInterviewSource: ManualInterviewSource | null;
@@ -408,6 +410,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
   const isContextual = context.mode === "contextual" && Boolean(context.subjectName);
   const isCrmContext = isContextual && Boolean(context.subjectId);
   const initialObjective = context.objective ?? "interview";
+  const isInterview = initialObjective === "interview";
   const isPublication = initialObjective === "publication";
   const isArticle = initialObjective === "article";
   const isReel = initialObjective === "reel";
@@ -431,13 +434,15 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: isPublication || isArticle || isReel || isStory ? "authentic" : "",
+      toneId: isPublication || isArticle || isReel || isStory || isInterview ? "authentic" : "",
       customTone: "",
-      questionCountId: "",
+      questionCountId: isInterview ? "q8" : "",
       customQuestionCount: "",
-      formatId: "",
-      audienceId: isPublication || isArticle || isReel || isStory ? "general" : "",
+      formatId: isInterview ? "written" : "",
+      audienceId: isPublication || isArticle || isReel || isStory || isInterview ? "general" : "",
       customAudience: "",
+      interviewAngleId: "",
+      interviewAngle: "",
       additionalContext: "",
       manualEditorialMaterials: [],
       manualInterviewSource: null,
@@ -449,7 +454,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       contextCustomTo: "",
       contextSourcePreference: "official_and_reliable",
       contextSearchDepth: "standard",
-      contextEnableExternalNews: true,
+      contextEnableExternalNews: isArticle,
       contextEnableProductions: true,
       contextEnableCrm: true,
       contextEnableManual: true,
@@ -610,7 +615,14 @@ export const ContentCreationAssistantService = {
             ]
               .filter(Boolean)
               .join("\n\n")
-          : normalize(args.draft.parameters.additionalContext),
+          : [
+              normalize(args.draft.parameters.additionalContext),
+              isInterview && normalize(args.draft.parameters.interviewAngle ?? "")
+                ? `Angle éditorial sélectionné : ${normalize(args.draft.parameters.interviewAngle ?? "")}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
         requiredTopics: isAfterMatch && args.draft.afterMatch
           ? mergeTopics(
               parseTopics(args.draft.parameters.requiredTopics),

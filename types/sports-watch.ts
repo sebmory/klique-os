@@ -555,6 +555,33 @@ export type SportsWatchArticlePrefill = {
   potentialDuplicates: SportsWatchPotentialDuplicate[];
 };
 
+export type SportsWatchInterviewCandidate = Pick<
+  SportsWatchCandidate,
+  | "id"
+  | "athleteId"
+  | "athleteName"
+  | "sourceName"
+  | "articleUrl"
+  | "title"
+  | "excerpt"
+  | "resultKind"
+  | "publicationDate"
+  | "eventDateFrom"
+  | "eventDateTo"
+  | "collectedAt"
+  | "verificationStatus"
+  | "adminStatus"
+> & {
+  provesIndividualParticipation: boolean;
+  materials: ManualEditorialMaterial[];
+};
+
+export type SportsWatchInterviewContext = {
+  athleteId: string;
+  selectedCandidateId: string | null;
+  candidates: SportsWatchInterviewCandidate[];
+};
+
 export type SportsWatchPotentialDuplicate = {
   id: string;
   reason: string;

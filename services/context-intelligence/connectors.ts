@@ -346,18 +346,19 @@ class ManualContextConnector implements ContextConnector {
       ...buildItem({
         id: `manual-material-${material.id}`,
         connectorId: this.id,
-        category: "user_note",
+        category: material.category || "user_note",
         title: material.kind === "verbatim_quote"
           ? `Citation de ${material.speaker}`
           : "Note journalistique",
         summary: material.text,
         factualStatement: material.text,
-        statementType: "editorial_lead",
-        sourceType: "user",
+        statementType: material.statementType || "editorial_lead",
+        sourceType: material.sourceType || "user",
         sourceName: material.provenance,
+        sourceUrl: material.sourceUrl,
         publishedAt: `${material.sourceDate}T00:00:00.000Z`,
         confidence: "unknown",
-        verificationStatus: "user_provided",
+        verificationStatus: material.verificationStatus || "user_provided",
         isEditable: false,
         preserveText: true,
         metadata: {

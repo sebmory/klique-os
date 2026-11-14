@@ -85,6 +85,7 @@ import type {
   SportsWatchCollectionObservation,
   SportsWatchCollectionSourceKey,
   SportsWatchRunResult,
+  SportsWatchInterviewContext,
   SwissBasketballBinding,
   SwissBasketballBindingVerification,
   SwissBasketballOfficialIdentity,
@@ -140,6 +141,19 @@ export const buildSportsWatchArticleMaterials = (
     text: chunk,
     provenance,
     sourceDate,
+    sourceType: "external",
+    verificationStatus: candidate.verificationStatus === "verified"
+      ? "verified"
+      : candidate.verificationStatus === "disputed"
+        ? "rejected"
+        : "unverified",
+    statementType: candidate.verificationStatus === "verified" ? "fact" : "editorial_lead",
+    category: candidate.resultKind === "news_excerpt"
+      ? "recent_news"
+      : candidate.resultKind === "participation"
+        ? "event"
+        : "result",
+    sourceUrl: candidate.articleUrl,
   }));
 
 const normalizeMatchEvidence = (value: string): string =>
@@ -226,7 +240,7 @@ const findPotentialDuplicates = (
   return duplicates;
 };
 
-const buildCandidateProvenance = (candidate: SportsWatchCandidate): string => {
+export const buildCandidateProvenance = (candidate: SportsWatchCandidate): string => {
   const verificationLabel = candidate.verificationStatus === "verified"
     ? "vérifiée"
     : candidate.verificationStatus === "disputed"
@@ -1518,6 +1532,76 @@ export const createSportsWatchService = (
         sourceDate,
       ),
       potentialDuplicates: [],
+    };
+  },
+
+  async buildInterviewContext(
+    athleteIdValue: unknown,
+    preferredCandidateIdValue: unknown,
+    identity: SportsWatchAdminIdentity,
+  ): Promise<SportsWatchInterviewContext> {
+    const athleteId = normalize(athleteIdValue);
+    if (!athleteId) {
+      throw new SportsWatchError("validation", "Le profil CRM est obligatoire pour rechercher un match.");
+    }
+    const preferredCandidateId = normalize(preferredCandidateIdValue);
+    if (preferredCandidateId) requireUuid(preferredCandidateId);
+
+    const candidates = await dependencies.repository.getInterviewCandidates(
+      identity.workspaceId,
+      athleteId,
+      preferredCandidateId || undefined,
+    );
+    if (
+      preferredCandidateId
+      && candidates[0]?.id !== preferredCandidateId
+    ) {
+      throw new SportsWatchError(
+        "not_found",
+        "Le match choisi n’est pas accessible pour ce profil CRM dans cet espace.",
+      );
+    }
+
+    return {
+      athleteId,
+      selectedCandidateId: candidates[0]?.id ?? null,
+      candidates: candidates.map((candidate) => {
+        const sourceDate = candidate.eventDateFrom
+          ?? candidate.publicationDate?.slice(0, 10)
+          ?? candidate.collectedAt.slice(0, 10);
+        const text = [
+          `Athlète associé : ${candidate.athleteName}.`,
+          `Statut factuel : ${articleResultKindLabel[candidate.resultKind]}.`,
+          `Actualité : ${candidate.title}.`,
+          candidate.excerpt,
+        ].join(" ");
+        return {
+          id: candidate.id,
+          athleteId: candidate.athleteId,
+          athleteName: candidate.athleteName,
+          sourceName: candidate.sourceName,
+          articleUrl: candidate.articleUrl,
+          title: candidate.title,
+          excerpt: candidate.excerpt,
+          resultKind: candidate.resultKind,
+          publicationDate: candidate.publicationDate,
+          eventDateFrom: candidate.eventDateFrom,
+          eventDateTo: candidate.eventDateTo,
+          collectedAt: candidate.collectedAt,
+          verificationStatus: candidate.verificationStatus,
+          adminStatus: candidate.adminStatus,
+          provesIndividualParticipation:
+            candidate.verificationStatus === "verified"
+            && (candidate.resultKind === "individual_result"
+              || candidate.resultKind === "participation"),
+          materials: buildSportsWatchArticleMaterials(
+            candidate,
+            buildCandidateProvenance(candidate),
+            sourceDate,
+            text,
+          ),
+        };
+      }),
     };
   },
 

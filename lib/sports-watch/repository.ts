@@ -426,6 +426,11 @@ export type SportsWatchRepository = {
   }): Promise<SportsWatchCandidate | null>;
   getValidatedCandidate(workspaceId: string, candidateId: string): Promise<SportsWatchCandidate | null>;
   getArticleCandidates(workspaceId: string, candidateIds: string[]): Promise<SportsWatchCandidate[]>;
+  getInterviewCandidates(
+    workspaceId: string,
+    athleteId: string,
+    preferredCandidateId?: string,
+  ): Promise<SportsWatchCandidate[]>;
   getManualEntryByIdempotency(
     workspaceId: string,
     idempotencyKey: string,
@@ -979,6 +984,34 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         )
       ORDER BY array_position($2::uuid[], candidate.id)
     `, [workspaceId, candidateIds]) as CandidateRow[];
+    return rows.map(mapCandidate);
+  },
+
+  async getInterviewCandidates(workspaceId, athleteId, preferredCandidateId) {
+    const sql = createContentStorageClient();
+    const rows = await sql.query(`
+      SELECT ${candidateColumns}
+      FROM sports_watch_candidates candidate
+      WHERE candidate.workspace_id = $1
+        AND candidate.athlete_id = $2
+        AND candidate.admin_status IN ('pending', 'validated', 'exploited')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM sports_watch_candidates replacement
+          WHERE replacement.workspace_id = candidate.workspace_id
+            AND replacement.supersedes_candidate_id = candidate.id
+        )
+      ORDER BY
+        CASE WHEN candidate.id = $3::uuid THEN 0 ELSE 1 END,
+        COALESCE(
+          candidate.event_date_from::timestamp,
+          candidate.publication_date::timestamp,
+          candidate.collected_at
+        ) DESC,
+        candidate.collected_at DESC,
+        candidate.id DESC
+      LIMIT 8
+    `, [workspaceId, athleteId, preferredCandidateId || null]) as CandidateRow[];
     return rows.map(mapCandidate);
   },
 

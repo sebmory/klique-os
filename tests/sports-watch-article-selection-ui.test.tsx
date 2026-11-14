@@ -158,6 +158,19 @@ describe("sports watch Article selection UI", () => {
       expect(target).toContain("Bilan+de+2+athl%C3%A8tes");
       expect(target).not.toContain("subjectId=");
       expect(target).toContain("sportsWatchCandidateIds=");
+
+      router.push.mockReset();
+      const interviewButton = Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Préparer une interview")!;
+      await act(async () => {
+        interviewButton.click();
+        await flush();
+      });
+      expect(router.push).toHaveBeenCalledOnce();
+      const interviewTarget = router.push.mock.calls[0][0] as string;
+      expect(interviewTarget).toContain("objective=interview");
+      expect(interviewTarget).toContain("subjectId=athlete-a");
+      expect(interviewTarget).toContain(`sportsWatchCandidateId=${candidates[0].id}`);
     },
   );
 

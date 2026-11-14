@@ -12328,3 +12328,28 @@ button {
     text-decoration: none;
   }
 }
+.creation-interview-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.creation-interview-match-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.creation-interview-match-list .creation-panel {
+  padding: 1rem;
+}
+
+.creation-interview-match-list .creation-panel.is-selected {
+  border-color: var(--color-primary, #2563eb);
+  box-shadow: 0 0 0 1px var(--color-primary, #2563eb);
+}
+
+@media (max-width: 720px) {
+  .creation-interview-workspace .creation-choice-grid,
+  .creation-interview-workspace .creation-fields-grid {
+    grid-template-columns: 1fr;
+  }
+}

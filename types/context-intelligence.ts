@@ -54,6 +54,11 @@ export type ManualEditorialMaterial = {
   provenance: string;
   sourceDate: string;
   speaker?: string;
+  sourceType?: ContextSourceType;
+  verificationStatus?: ContextVerificationStatus;
+  statementType?: ContextStatementType;
+  category?: ContextItemCategory;
+  sourceUrl?: string;
 };
 
 export const MANUAL_EDITORIAL_MATERIAL_LIMIT = 12;

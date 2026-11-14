@@ -397,6 +397,29 @@ const createMemoryRepository = (): SportsWatchRepository => {
         return candidate ? [candidate] : [];
       });
     },
+    async getInterviewCandidates(workspaceId, athleteId, preferredCandidateId) {
+      const supersededIds = new Set(
+        records
+          .filter((record) => record.workspaceId === workspaceId)
+          .map((record) => record.candidate.supersedesCandidateId)
+          .filter((candidateId): candidateId is string => Boolean(candidateId)),
+      );
+      return records
+        .filter((record) =>
+          record.workspaceId === workspaceId
+          && record.candidate.athleteId === athleteId
+          && ["pending", "validated", "exploited"].includes(record.candidate.adminStatus)
+          && !supersededIds.has(record.candidate.id))
+        .map((record) => record.candidate)
+        .sort((left, right) => {
+          if (left.id === preferredCandidateId) return -1;
+          if (right.id === preferredCandidateId) return 1;
+          const leftDate = left.eventDateFrom ?? left.publicationDate ?? left.collectedAt;
+          const rightDate = right.eventDateFrom ?? right.publicationDate ?? right.collectedAt;
+          return rightDate.localeCompare(leftDate);
+        })
+        .slice(0, 8);
+    },
     async listSwissBindings(workspaceId) {
       return bindings
         .filter((record) => record.workspaceId === workspaceId)
@@ -1463,9 +1486,77 @@ describe("sports watch service", () => {
     });
     expect(prefill.materials[0].provenance).toContain("https://bcbulle.ch/resultats-seen-turnier/");
     expect(prefill.materials[0].provenance).toContain("Vérification factuelle : non vérifiée");
+    expect(prefill.materials[0]).toMatchObject({
+      sourceType: "external",
+      verificationStatus: "unverified",
+      statementType: "editorial_lead",
+      sourceUrl: "https://bcbulle.ch/resultats-seen-turnier/",
+    });
 
     await expect(service.buildArticlePrefill(candidate.id, identity("workspace-b")))
       .rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("builds Interview context by CRM athlete and workspace with the explicit match first", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [
+      {
+        ...collectedCandidate("older-match", "Score collectif : 72-68."),
+        logicalKey: "older-match",
+        title: "Match explicitement choisi",
+        resultKind: "collective_result",
+        eventDateFrom: "2026-10-10",
+        eventDateTo: "2026-10-10",
+      },
+      {
+        ...collectedCandidate("latest-match", "Actualité plus récente."),
+        logicalKey: "latest-match",
+        title: "Match le plus récent",
+        eventDateFrom: "2026-10-24",
+        eventDateTo: "2026-10-24",
+      },
+    ]);
+    await repository.saveCandidates("workspace-b", [{
+      ...collectedCandidate("other-workspace", "Ne doit jamais sortir."),
+      logicalKey: "other-workspace",
+      title: "Autre espace",
+      eventDateFrom: "2026-10-25",
+      eventDateTo: "2026-10-25",
+    }]);
+    const candidates = await repository.listCandidates("workspace-a");
+    const explicit = candidates.find((candidate) => candidate.title === "Match explicitement choisi");
+    const verifiedLatest = candidates.find((candidate) => candidate.title === "Match le plus récent");
+    if (verifiedLatest) verifiedLatest.verificationStatus = "verified";
+
+    const context = await service.buildInterviewContext(
+      athlete.athleteId,
+      explicit?.id,
+      identity("workspace-a"),
+    );
+
+    expect(context.selectedCandidateId).toBe(explicit?.id);
+    expect(context.candidates.map((candidate) => candidate.title)).toEqual([
+      "Match explicitement choisi",
+      "Match le plus récent",
+    ]);
+    expect(context.candidates[0]).toMatchObject({
+      resultKind: "collective_result",
+      provesIndividualParticipation: false,
+      materials: [expect.objectContaining({
+        verificationStatus: "unverified",
+        statementType: "editorial_lead",
+        sourceDate: "2026-10-10",
+      })],
+    });
+    expect(context.candidates[1]).toMatchObject({
+      provesIndividualParticipation: true,
+      materials: [expect.objectContaining({
+        verificationStatus: "verified",
+        statementType: "fact",
+      })],
+    });
+    expect(context.candidates.some((candidate) => candidate.title === "Autre espace")).toBe(false);
   });
 
   it("prepares several faithful results without assigning multiple athletes to one person", async () => {

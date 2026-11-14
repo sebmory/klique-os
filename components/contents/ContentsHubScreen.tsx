@@ -188,35 +188,9 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
         </div>
       </header>
 
-      <section className="contents-section" aria-labelledby="contents-story-studio-title">
-        <div className="contents-section-head">
-          <h2 id="contents-story-studio-title">Story Studio</h2>
-          <p>Gérez les identités visuelles utilisées pour vos Stories.</p>
-        </div>
-
-        <div className="contents-templates-grid">
-          <Link
-            href="/contents/story-studio/brand-kits"
-            className="contents-template-card"
-            aria-label="Ouvrir les Brand Kits Story Studio"
-          >
-            <span className="contents-template-icon" aria-hidden>
-              <Palette size={16} />
-            </span>
-            <div className="contents-template-body">
-              <div className="contents-template-heading">
-                <h3>Brand Kits</h3>
-                <span className="contents-template-badge">Story Studio</span>
-              </div>
-              <p>Couleurs, logos, typographies et signatures de marque.</p>
-            </div>
-          </Link>
-        </div>
-      </section>
-
       <section className="contents-section" aria-labelledby="contents-generators-title">
         <div className="contents-section-head">
-          <h2 id="contents-generators-title">Générateurs — création libre</h2>
+          <h2 id="contents-generators-title">Créer</h2>
           <p>Choisissez un format et configurez librement votre contenu.</p>
         </div>
 
@@ -242,43 +216,9 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
         </div>
       </section>
 
-      {availableTemplates.length > 0 ? (
-        <section className="contents-section" aria-labelledby="contents-available-templates-title">
-          <div className="contents-section-head">
-            <h2 id="contents-available-templates-title">Modèles rapides — parcours guidés</h2>
-            <p>Partez d’un besoin précis avec des questions et paramètres déjà adaptés.</p>
-          </div>
-
-          <div className="contents-templates-grid">
-            {availableTemplates.map((template) => {
-              const Icon = templateIconById[template.id];
-              return (
-                <Link
-                  key={template.id}
-                  href={buildEntryRoute(template.entryRoute as string)}
-                  className="contents-template-card"
-                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
-                >
-                  <span className="contents-template-icon" aria-hidden>
-                    <Icon size={16} />
-                  </span>
-                  <div className="contents-template-body">
-                    <div className="contents-template-heading">
-                      <h3>{template.title}</h3>
-                      <span className="contents-template-badge">Disponible</span>
-                    </div>
-                    <p>{template.description}</p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
       <section className="contents-section" aria-labelledby="contents-resume-title">
         <div className="contents-section-head">
-          <h2 id="contents-resume-title">Brouillons</h2>
+          <h2 id="contents-resume-title">Reprendre un brouillon</h2>
         </div>
 
         {draftsLoading ? (
@@ -318,6 +258,66 @@ export function ContentsHubScreen({ context }: ContentsHubScreenProps) {
             ))}
           </div>
         )}
+      </section>
+
+      {availableTemplates.length > 0 ? (
+        <section className="contents-section" aria-labelledby="contents-available-templates-title">
+          <div className="contents-section-head">
+            <h2 id="contents-available-templates-title">Modèles rapides — parcours guidés</h2>
+            <p>Partez d’un besoin précis avec des questions et paramètres déjà adaptés.</p>
+          </div>
+
+          <div className="contents-templates-grid">
+            {availableTemplates.map((template) => {
+              const Icon = templateIconById[template.id];
+              return (
+                <Link
+                  key={template.id}
+                  href={buildEntryRoute(template.entryRoute as string)}
+                  className="contents-template-card"
+                  aria-label={`Ouvrir l assistant de creation pour ${template.title}`}
+                >
+                  <span className="contents-template-icon" aria-hidden>
+                    <Icon size={16} />
+                  </span>
+                  <div className="contents-template-body">
+                    <div className="contents-template-heading">
+                      <h3>{template.title}</h3>
+                      <span className="contents-template-badge">Disponible</span>
+                    </div>
+                    <p>{template.description}</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="contents-section" aria-labelledby="contents-story-studio-title">
+        <div className="contents-section-head">
+          <h2 id="contents-story-studio-title">Story Studio</h2>
+          <p>Gérez les identités visuelles utilisées pour vos Stories.</p>
+        </div>
+
+        <div className="contents-templates-grid">
+          <Link
+            href="/contents/story-studio/brand-kits"
+            className="contents-template-card"
+            aria-label="Ouvrir les Brand Kits Story Studio"
+          >
+            <span className="contents-template-icon" aria-hidden>
+              <Palette size={16} />
+            </span>
+            <div className="contents-template-body">
+              <div className="contents-template-heading">
+                <h3>Brand Kits</h3>
+                <span className="contents-template-badge">Story Studio</span>
+              </div>
+              <p>Couleurs, logos, typographies et signatures de marque.</p>
+            </div>
+          </Link>
+        </div>
       </section>
 
       {upcomingGenerators.length > 0 || upcomingTemplates.length > 0 ? (

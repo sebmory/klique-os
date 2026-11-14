@@ -65,6 +65,7 @@ import {
   type CreationAssistantDraft,
   type CreationObjectiveType,
   type CreationOption,
+  type CreationPreparationPayload,
   type CreationSubjectType,
 } from "@/services/content-creation-assistant";
 import { buildResultUrl, saveArticleResultSession, saveInterviewResultSession } from "@/services/content-result-sessions";
@@ -83,7 +84,11 @@ import type {
   ArticleCreationDraftStepId,
 } from "@/types/article-creation-draft";
 import type { AthleteNewsArticlePrefill } from "@/types/athlete-news-report";
-import type { SportsWatchArticlePrefill } from "@/types/sports-watch";
+import type {
+  SportsWatchArticlePrefill,
+  SportsWatchInterviewCandidate,
+  SportsWatchInterviewContext,
+} from "@/types/sports-watch";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
 
 type CreationAssistantScreenProps = {
@@ -131,6 +136,24 @@ type InterviewExcerptPreview = {
   text: string;
   speakerRole: ManualInterviewSpeakerRole | "";
 };
+
+const interviewAngles = [
+  {
+    id: "match-reading",
+    title: "Lire le match",
+    brief: "Faire raconter les moments clés, les choix et les sensations sans déduire une participation non établie.",
+  },
+  {
+    id: "learning",
+    title: "Décisions et apprentissages",
+    brief: "Explorer ce que ce rendez-vous change dans le travail, les priorités et la progression.",
+  },
+  {
+    id: "next-step",
+    title: "Se projeter",
+    brief: "Partir du contexte sourcé pour ouvrir sur la suite, les objectifs et le prochain rendez-vous.",
+  },
+] as const;
 
 type StepId = "subject" | "objective" | "match" | "angle" | "structure" | "parameters" | "context" | "summary";
 
@@ -509,13 +532,21 @@ export function CreationAssistantScreen({
   );
   const initialStepCount = initialSteps.length;
   const template = useMemo(() => ContentCreationAssistantService.template(), []);
-  const [draft, setDraft] = useState<CreationAssistantDraft>(() => createInitialAssistantDraft(context));
+  const createScreenInitialDraft = useCallback(() => {
+    const initialDraft = createInitialAssistantDraft(context);
+    if (context.objective === "interview" && initialSportsWatchCandidateId) {
+      initialDraft.objective.subtypeId = "after_match";
+    }
+    return initialDraft;
+  }, [context, initialSportsWatchCandidateId]);
+  const [draft, setDraft] = useState<CreationAssistantDraft>(createScreenInitialDraft);
   const draftRef = useRef(draft);
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
   const isPublicationFlow = draft.objective.objective === "publication";
   const isArticleFlow = draft.objective.objective === "article";
+  const isInterviewFlow = draft.objective.objective === "interview";
   const steps = useMemo(
     () => getStepsForObjective(draft.objective.objective, hasPreselectedObjective, draft.presetId),
     [draft.objective.objective, hasPreselectedObjective, draft.presetId]
@@ -559,12 +590,18 @@ export function CreationAssistantScreen({
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationInFlightRef = useRef(false);
   const resultNavigationStartedRef = useRef(false);
+  const pendingInterviewPayloadRef = useRef<CreationPreparationPayload | null>(null);
   const athleteNewsPrefillAppliedRef = useRef(false);
   const sportsWatchPrefillAppliedRef = useRef(false);
   const [athleteNewsPrefill, setAthleteNewsPrefill] = useState<AthleteNewsArticlePrefill | null>(null);
   const [athleteNewsPrefillError, setAthleteNewsPrefillError] = useState<string | null>(null);
   const [sportsWatchPrefill, setSportsWatchPrefill] = useState<SportsWatchArticlePrefill | null>(null);
   const [sportsWatchPrefillError, setSportsWatchPrefillError] = useState<string | null>(null);
+  const [interviewContext, setInterviewContext] = useState<SportsWatchInterviewContext | null>(null);
+  const [interviewContextError, setInterviewContextError] = useState<{
+    athleteId: string;
+    message: string;
+  } | null>(null);
   const sportsWatchCandidateIdsKey = initialSportsWatchCandidateIds.join(",");
 
   // Detecte le role media via la reponse de /api/ai-credits/balance, sans dependre d une autre source.
@@ -745,7 +782,7 @@ export function CreationAssistantScreen({
     setStepErrorMessage(null);
   }, [hasPreselectedObjective]);
   const resetArticleDraft = useCallback(() => {
-    const initialDraft = createInitialAssistantDraft(context);
+    const initialDraft = createScreenInitialDraft();
     previousFingerprintRef.current = buildContextFingerprint(initialDraft);
     setDraft(initialDraft);
     setStepIndex(0);
@@ -760,7 +797,7 @@ export function CreationAssistantScreen({
     });
     setArticleChoicesNeedReview(false);
     setStepErrorMessage(null);
-  }, [context]);
+  }, [createScreenInitialDraft]);
   const buildLegacyArticleDraftPayload = useCallback((raw: string): ArticleCreationDraftPayload | null => {
     try {
       const persisted = JSON.parse(raw) as PersistedCreationWorkflow;
@@ -952,6 +989,80 @@ export function CreationAssistantScreen({
     sportsWatchCandidateIdsKey,
   ]);
 
+  const selectInterviewCandidate = useCallback((candidate: SportsWatchInterviewCandidate) => {
+    setInterviewContext((current) => current
+      ? { ...current, selectedCandidateId: candidate.id }
+      : current);
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        useContextIntelligence: true,
+        contextEnableManual: true,
+        manualEditorialMaterials: [
+          ...(current.parameters.manualEditorialMaterials ?? []).filter(
+            (material) => !material.id.startsWith("sports-watch-"),
+          ),
+          ...candidate.materials,
+        ],
+      },
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (
+      !isInterviewFlow
+      || draft.objective.subtypeId !== "after_match"
+      || draft.subject.source !== "crm"
+      || !draft.subject.id
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({ athleteId: draft.subject.id });
+    if (initialSportsWatchCandidateId) {
+      params.set("candidateId", initialSportsWatchCandidateId);
+    }
+    void fetch(`/api/admin/sports-watch/interview-context?${params.toString()}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json() as {
+          context?: SportsWatchInterviewContext;
+          message?: string;
+        };
+        if (!response.ok || !payload.context) {
+          throw new Error(payload.message || "Impossible de charger le contexte Sports Watch.");
+        }
+        setInterviewContextError(null);
+        setInterviewContext(payload.context);
+        const selected = payload.context.candidates.find(
+          (candidate) => candidate.id === payload.context?.selectedCandidateId,
+        );
+        if (selected) selectInterviewCandidate(selected);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setInterviewContextError({
+          athleteId: draft.subject.id!,
+          message: error instanceof Error
+            ? error.message
+            : "Impossible de charger le contexte Sports Watch.",
+        });
+      });
+
+    return () => controller.abort();
+  }, [
+    draft.objective.subtypeId,
+    draft.subject.id,
+    draft.subject.source,
+    initialSportsWatchCandidateId,
+    isInterviewFlow,
+    selectInterviewCandidate,
+  ]);
+
   useEffect(() => {
     if (durableArticleDraftsEnabled && context.objective === "article") {
       return;
@@ -1031,11 +1142,11 @@ export function CreationAssistantScreen({
     previousContextKeyRef.current = currentContextKey;
     window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
     window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
-    setDraft(createInitialAssistantDraft(context));
+    setDraft(createScreenInitialDraft());
     setStepIndex(0);
     setContextState(emptyContextCollectState());
     setStepErrorMessage(null);
-  }, [context, currentContextKey, workflowHydrated]);
+  }, [createScreenInitialDraft, currentContextKey, workflowHydrated]);
 
   const loadPeople = async () => {
     setPeopleLoading(true);
@@ -1511,7 +1622,7 @@ export function CreationAssistantScreen({
     }
     window.sessionStorage.removeItem(WORKFLOW_STORAGE_KEY);
     window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
-    setDraft(createInitialAssistantDraft(context));
+    setDraft(createScreenInitialDraft());
     setStepIndex(0);
     setContextState(emptyContextCollectState());
     setStepErrorMessage(null);
@@ -1617,8 +1728,9 @@ export function CreationAssistantScreen({
     }));
   };
 
-  const runInterviewGeneration = async () => {
-    if (!preparedPayload || generationInFlightRef.current || resultNavigationStartedRef.current) return;
+  const runInterviewGeneration = async (payloadOverride?: CreationPreparationPayload | null) => {
+    const generationPayload = payloadOverride ?? preparedPayload;
+    if (!generationPayload || generationInFlightRef.current || resultNavigationStartedRef.current) return;
 
     generationInFlightRef.current = true;
     const controller = new AbortController();
@@ -1631,7 +1743,7 @@ export function CreationAssistantScreen({
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ requestId: crypto.randomUUID(), payload: preparedPayload }),
+        body: JSON.stringify({ requestId: crypto.randomUUID(), payload: generationPayload }),
         signal: controller.signal,
       });
 
@@ -1654,7 +1766,7 @@ export function CreationAssistantScreen({
       }
 
       const sessionRecord = await saveInterviewResultSession({
-        payload: preparedPayload,
+        payload: generationPayload,
         request: payload.request,
         result: payload.result,
         createdAt: new Date().toISOString(),
@@ -1663,7 +1775,7 @@ export function CreationAssistantScreen({
       window.sessionStorage.setItem(
         RESULT_STORAGE_KEY,
         JSON.stringify({
-          payload: preparedPayload,
+          payload: generationPayload,
           request: payload.request,
           result: payload.result,
           createdAt: sessionRecord.createdAt,
@@ -1882,7 +1994,7 @@ export function CreationAssistantScreen({
   };
 
   const collectContext = useCallback(async () => {
-    if (!draft.subject.type || !normalize(draft.subject.displayName)) return;
+    if (!draft.subject.type || !normalize(draft.subject.displayName)) return null;
     const previousContextItems = contextState.items;
     const renewingExpiredContext = articleContextExpired;
 
@@ -1903,6 +2015,14 @@ export function CreationAssistantScreen({
       draft.parameters.contextCustomFrom,
       draft.parameters.contextCustomTo
     );
+    const sportsWatchCandidateIds = [
+      ...new Set((draft.parameters.manualEditorialMaterials ?? []).flatMap((material) => {
+        const match = material.id.match(
+          /^sports-watch-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-/i,
+        );
+        return match ? [match[1]] : [];
+      })),
+    ];
 
     setContextState((previous) => ({
       ...previous,
@@ -1933,6 +2053,7 @@ export function CreationAssistantScreen({
           language: "fr-CH",
           manualContext: draft.parameters.additionalContext,
           manualEditorialMaterials: draft.parameters.manualEditorialMaterials,
+          sportsWatchCandidateIds,
           manualInterviewSources: draft.parameters.manualInterviewSource?.excerpts.length
             ? [draft.parameters.manualInterviewSource]
             : [],
@@ -1951,7 +2072,7 @@ export function CreationAssistantScreen({
           errorMessage: message,
           hasCollected: true,
         }));
-        return;
+        return null;
       }
 
       const previousById = new Map(previousContextItems.map((item) => [item.id, item]));
@@ -1986,6 +2107,7 @@ export function CreationAssistantScreen({
       if (selectedMatterChanged) {
         setArticleChoicesNeedReview(true);
       }
+      return payload;
     } catch {
       setContextState((previous) => ({
         ...previous,
@@ -1993,6 +2115,7 @@ export function CreationAssistantScreen({
         errorMessage: "Impossible de collecter le contexte.",
         hasCollected: true,
       }));
+      return null;
     } finally {
       void loadCreditBalance();
     }
@@ -2040,6 +2163,62 @@ export function CreationAssistantScreen({
       return;
     }
     void collectContext();
+  };
+
+  const prepareInterviewQuestions = async () => {
+    const subjectValidation = validateStep("subject");
+    const parametersValidation = validateStep("parameters");
+    const validation = !subjectValidation.ok ? subjectValidation : parametersValidation;
+    if (!validation.ok) {
+      setStepErrorMessage(validation.message || "Complétez les informations obligatoires.");
+      focusValidationTarget(validation.focusSelector);
+      return;
+    }
+    if (!normalize(draft.parameters.interviewAngle)) {
+      setStepErrorMessage("Sélectionnez un angle avant de préparer les questions.");
+      focusValidationTarget("[data-interview-angle='true']");
+      return;
+    }
+    if (
+      mediaCreditRole === "media"
+      && draft.parameters.contextEnableExternalNews
+      && !contextState.hasCollected
+    ) {
+      setCreditModal({ kind: "external_search", cost: 1 });
+      return;
+    }
+
+    let collectionId = contextState.collectionId;
+    let items = contextState.items;
+    let researchedAt = contextState.researchedAt;
+    let dateRange = contextState.dateRange;
+    if (!contextState.hasCollected) {
+      const collected = await collectContext();
+      if (!collected) return;
+      collectionId = collected.collectionId;
+      items = collected.items;
+      researchedAt = collected.summary.researchedAt;
+      dateRange = collected.summary.dateRange;
+    }
+    const payload = ContentCreationAssistantService.preparePayload({
+      context,
+      draft: draftRef.current,
+      contextCollectionId: collectionId,
+      selectedContextItems: items.filter((item) => item.isSelected),
+      contextResearchedAt: researchedAt,
+      contextDateRange: dateRange,
+    });
+    if (!payload) {
+      setStepErrorMessage("La préparation est incomplète. Vérifiez les réglages.");
+      return;
+    }
+    pendingInterviewPayloadRef.current = payload;
+    setStepErrorMessage(null);
+    if (mediaCreditRole === "media") {
+      setCreditModal({ kind: "generation", cost: getGenerationCreditCost() });
+      return;
+    }
+    await runInterviewGeneration(payload);
   };
 
   const requestPublicationAngles = () => {
@@ -2098,7 +2277,8 @@ export function CreationAssistantScreen({
       } else if (isArticleFlow) {
         await runArticleFinalGeneration();
       } else {
-        await runInterviewGeneration();
+        await runInterviewGeneration(pendingInterviewPayloadRef.current);
+        pendingInterviewPayloadRef.current = null;
       }
     } finally {
       setCreditModalBusy(false);
@@ -5235,6 +5415,278 @@ export function CreationAssistantScreen({
     );
   };
 
+  const renderInterviewWorkspace = () => {
+    const hasInterviewSubject =
+      draft.objective.subtypeId === "after_match"
+      && draft.subject.source === "crm"
+      && Boolean(draft.subject.id);
+    const activeInterviewContext =
+      hasInterviewSubject
+      && draft.subject.id === interviewContext?.athleteId
+        ? interviewContext
+        : null;
+    const selectedCandidate = activeInterviewContext?.candidates.find(
+      (candidate) => candidate.id === activeInterviewContext.selectedCandidateId,
+    ) ?? null;
+    const activeInterviewContextError =
+      interviewContextError && interviewContextError.athleteId === draft.subject.id
+        ? interviewContextError.message
+        : null;
+    const interviewContextLoading =
+      hasInterviewSubject
+      && !activeInterviewContext
+      && !activeInterviewContextError;
+    const selectedAngle = interviewAngles.find(
+      (angle) => angle.id === draft.parameters.interviewAngleId,
+    );
+    const updateInterviewParameter = (
+      key: "toneId" | "questionCountId" | "formatId" | "audienceId",
+      value: string,
+    ) => {
+      setDraft((current) => ({
+        ...current,
+        parameters: { ...current.parameters, [key]: value },
+      }));
+    };
+
+    return (
+      <div className="creation-interview-workspace">
+        {renderSubjectStep()}
+
+        <section className="creation-panel" aria-labelledby="interview-type-title">
+          <header>
+            <h2 id="interview-type-title">Interview</h2>
+            <p>Choisissez le contexte éditorial. Le match Sports Watch reste disponible sans recherche externe.</p>
+          </header>
+          <div className="creation-choice-grid">
+            {objectiveParameters?.subtypeOptions.filter((option) => option.enabled).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={draft.objective.subtypeId === option.id
+                  ? "creation-choice-card is-active"
+                  : "creation-choice-card"}
+                onClick={() => setDraft((current) => ({
+                  ...current,
+                  objective: { ...current.objective, subtypeId: option.id },
+                }))}
+              >
+                <strong>{option.label}</strong>
+                <p>{option.description}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {draft.objective.subtypeId === "after_match" ? (
+          <section className="creation-panel" aria-labelledby="interview-match-title">
+            <header>
+              <h2 id="interview-match-title">Match détecté</h2>
+              <p>Le match choisi est prioritaire, puis viennent les actualités récentes du même profil CRM dans cet espace.</p>
+            </header>
+            {interviewContextLoading ? (
+              <p className="creation-muted"><Loader2 size={15} className="is-spinning" /> Recherche dans Sports Watch…</p>
+            ) : null}
+            {activeInterviewContextError
+              ? <p className="creation-error" role="alert">{activeInterviewContextError}</p>
+              : null}
+            {!interviewContextLoading && !activeInterviewContextError && draft.subject.source !== "crm" ? (
+              <p className="creation-muted">Sélectionnez un profil CRM pour rattacher un match de façon fiable.</p>
+            ) : null}
+            {!interviewContextLoading && activeInterviewContext?.candidates.length === 0 ? (
+              <p className="creation-interview-feedback is-information">
+                Aucun match Sports Watch n’a été trouvé pour ce profil dans cet espace. Cette limite ne prouve pas qu’aucune statistique n’existe.
+              </p>
+            ) : null}
+            <div className="creation-interview-match-list">
+              {activeInterviewContext?.candidates.map((candidate) => {
+                const isSelected = candidate.id === activeInterviewContext.selectedCandidateId;
+                return (
+                  <article key={candidate.id} className={isSelected ? "creation-panel is-selected" : "creation-panel"}>
+                    <label className="creation-toggle-row">
+                      <input
+                        type="radio"
+                        name="interview-match"
+                        checked={isSelected}
+                        onChange={() => selectInterviewCandidate(candidate)}
+                      />
+                      <span>
+                        <strong>{candidate.title}</strong>
+                        <small>
+                          {candidate.eventDateFrom || candidate.publicationDate?.slice(0, 10) || candidate.collectedAt.slice(0, 10)}
+                          {" · "}{candidate.sourceName}
+                          {" · "}{candidate.verificationStatus === "verified" ? "Vérifié" : candidate.verificationStatus === "disputed" ? "Contesté" : "À vérifier"}
+                        </small>
+                      </span>
+                    </label>
+                    <p>{candidate.excerpt}</p>
+                    {!candidate.provesIndividualParticipation ? (
+                      <p className="creation-muted">
+                        Le résultat collectif ou l’actualité ne prouve pas une participation individuelle.
+                      </p>
+                    ) : null}
+                    <a href={candidate.articleUrl} target="_blank" rel="noreferrer">Ouvrir la source</a>
+                  </article>
+                );
+              })}
+            </div>
+            {selectedCandidate ? (
+              <p className="creation-muted">Sélection active : {selectedCandidate.title}</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        <section className="creation-panel" aria-labelledby="interview-angle-title">
+          <header>
+            <h2 id="interview-angle-title">Trois angles proposés</h2>
+          </header>
+          <div className="creation-choice-grid">
+            {interviewAngles.map((angle) => (
+              <button
+                key={angle.id}
+                type="button"
+                data-interview-angle="true"
+                className={draft.parameters.interviewAngleId === angle.id
+                  ? "creation-choice-card is-active"
+                  : "creation-choice-card"}
+                onClick={() => setDraft((current) => ({
+                  ...current,
+                  parameters: {
+                    ...current.parameters,
+                    interviewAngleId: angle.id,
+                    interviewAngle: `${angle.title}. ${angle.brief}`,
+                  },
+                }))}
+              >
+                <strong>{angle.title}</strong>
+                <p>{angle.brief}</p>
+              </button>
+            ))}
+          </div>
+          {selectedAngle ? (
+            <div className="creation-interview-feedback is-information">
+              <strong>Aperçu du brief</strong>
+              <p>{selectedAngle.brief}</p>
+              {selectedCandidate ? <p>Point de départ sourcé : {selectedCandidate.title}</p> : null}
+            </div>
+          ) : null}
+        </section>
+
+        <details className="creation-panel">
+          <summary><strong>Réglages</strong> — ton, questions, format, public, contraintes et sources</summary>
+          <div className="creation-fields-grid">
+            <label>
+              <span>Ton</span>
+              <select value={draft.parameters.toneId} onChange={(event) => updateInterviewParameter("toneId", event.target.value)}>
+                {objectiveParameters?.toneOptions.filter((option) => option.enabled).map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Nombre de questions</span>
+              <select value={draft.parameters.questionCountId} onChange={(event) => updateInterviewParameter("questionCountId", event.target.value)}>
+                {objectiveParameters?.questionCountOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Format</span>
+              <select value={draft.parameters.formatId} onChange={(event) => updateInterviewParameter("formatId", event.target.value)}>
+                {objectiveParameters?.formatOptions.filter((option) => option.enabled).map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Public</span>
+              <select value={draft.parameters.audienceId} onChange={(event) => updateInterviewParameter("audienceId", event.target.value)}>
+                {objectiveParameters?.audienceOptions.filter((option) => option.enabled).map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>À couvrir</span>
+              <textarea value={draft.parameters.requiredTopics} onChange={(event) => setDraft((current) => ({
+                ...current,
+                parameters: { ...current.parameters, requiredTopics: event.target.value },
+              }))} />
+            </label>
+            <label>
+              <span>À éviter / contraintes</span>
+              <textarea value={draft.parameters.avoidedTopics} onChange={(event) => setDraft((current) => ({
+                ...current,
+                parameters: { ...current.parameters, avoidedTopics: event.target.value },
+              }))} />
+            </label>
+          </div>
+          <fieldset>
+            <legend>Sources</legend>
+            <div className="creation-toggle-row">
+              {([
+                ["contextEnableCrm", "CRM"],
+                ["contextEnableProductions", "Productions"],
+                ["contextEnableManual", "Sports Watch et notes"],
+                ["contextEnableExternalNews", "Recherche externe facultative"],
+              ] as const).map(([key, label]) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={draft.parameters[key]}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: { ...current.parameters, [key]: event.target.checked },
+                    }))}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {draft.parameters.contextEnableExternalNews ? (
+            <div className="creation-interview-feedback is-information">
+              <p>
+                La recherche externe est optionnelle. Elle coûte au maximum 1 crédit pour un compte média.
+                Un résultat vide décrit seulement la limite de cette recherche, jamais l’absence de statistiques.
+              </p>
+              <button
+                type="button"
+                className="contents-secondary-button"
+                disabled={contextState.loading || isExternalSearchBlocked}
+                onClick={requestContextSearch}
+              >
+                {contextState.loading ? "Recherche en cours…" : "Lancer la recherche externe"}
+              </button>
+            </div>
+          ) : null}
+        </details>
+
+        {contextState.reports.some((report) => report.status === "empty" || report.status === "unavailable") ? (
+          <p className="creation-interview-feedback is-information">
+            Certaines sources n’ont renvoyé aucun résultat dans le périmètre recherché. Cela ne prouve pas qu’aucune information ou statistique n’existe.
+          </p>
+        ) : null}
+        {contextState.errorMessage ? <p className="creation-error" role="alert">{contextState.errorMessage}</p> : null}
+        {stepErrorMessage ? <p className="creation-error" role="alert">{stepErrorMessage}</p> : null}
+        {generateState.errorMessage ? <p className="creation-error" role="alert">{generateState.errorMessage}</p> : null}
+
+        <footer className="creation-footer-actions">
+          <Link href="/contents" className="contents-ghost-button" onClick={quitAssistant}>Quitter</Link>
+          <button
+            type="button"
+            className="crm-primary-action"
+            disabled={generateState.loading || contextState.loading || isGenerationBlocked}
+            onClick={() => void prepareInterviewQuestions()}
+          >
+            {generateState.loading ? "Préparation…" : "Préparer mes questions"}
+          </button>
+        </footer>
+      </div>
+    );
+  };
+
   if (!workflowHydrated) {
     return (
       <section className="creation-assistant-screen" aria-live="polite" aria-busy="true">
@@ -5259,7 +5711,7 @@ export function CreationAssistantScreen({
       <header className="creation-assistant-head">
         <div>
           <h1>Assistant de creation</h1>
-          <p>Configurez votre contenu en {steps.length} etapes.</p>
+          <p>{isInterviewFlow ? "Préparez votre interview sur un seul écran." : `Configurez votre contenu en ${steps.length} etapes.`}</p>
         </div>
         {mediaCreditRole === "media" && creditBalance ? (
           <p className="creation-muted" data-role="ai-credit-indicator">
@@ -5477,6 +5929,8 @@ export function CreationAssistantScreen({
         </section>
       ) : null}
 
+      {isInterviewFlow ? renderInterviewWorkspace() : (
+        <>
       <nav className="creation-steps-track" aria-label="Progression de l assistant">
         {steps.map((item, index) => {
           const isDone = index < effectiveStepIndex;
@@ -5523,6 +5977,8 @@ export function CreationAssistantScreen({
           </button>
         </div>
       </footer>
+        </>
+      )}
 
       {creditModal ? (
         <div
