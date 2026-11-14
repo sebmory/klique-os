@@ -3,6 +3,7 @@ import {
   ContextConnectorId,
   ContextDateRange,
   MANUAL_EDITORIAL_MATERIAL_LIMIT,
+  MANUAL_EDITORIAL_PROVENANCE_LIMIT,
   MANUAL_EDITORIAL_TEXT_LIMIT,
   MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT,
   ManualEditorialMaterial,
@@ -77,7 +78,12 @@ const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[
         `Type de matière journalistique invalide à la position ${index + 1}.`,
       );
     }
-    if (!text || text.length > MANUAL_EDITORIAL_TEXT_LIMIT || !provenance || provenance.length > 160) {
+    if (
+      !text
+      || text.length > MANUAL_EDITORIAL_TEXT_LIMIT
+      || !provenance
+      || provenance.length > MANUAL_EDITORIAL_PROVENANCE_LIMIT
+    ) {
       throw new ContextCollectionError(
         "INVALID_CONTEXT_REQUEST",
         `Texte ou provenance invalide à la position ${index + 1}.`,

@@ -17,6 +17,7 @@ import type {
   SwissBasketballBinding,
   SwissBadmintonBinding,
 } from "@/types/sports-watch";
+import { validateContextCollectionRequest } from "@/services/context-intelligence/request-validation";
 
 const identity = (workspaceId: string): SportsWatchAdminIdentity => ({
   workspaceId,
@@ -1484,7 +1485,6 @@ describe("sports watch service", () => {
         sourceDate: "2026-10-18",
       })],
     });
-    expect(prefill.materials[0].provenance).toContain("https://bcbulle.ch/resultats-seen-turnier/");
     expect(prefill.materials[0].provenance).toContain("Vérification factuelle : non vérifiée");
     expect(prefill.materials[0]).toMatchObject({
       sourceType: "external",
@@ -1557,6 +1557,55 @@ describe("sports watch service", () => {
       })],
     });
     expect(context.candidates.some((candidate) => candidate.title === "Autre espace")).toBe(false);
+  });
+
+  it("keeps long Sports Watch sources valid while notes and unverified statistics remain editorial leads", async () => {
+    const repository = createMemoryRepository();
+    const service = createSportsWatchService({ repository });
+    await repository.saveCandidates("workspace-a", [{
+      ...collectedCandidate(
+        "interview-long-source",
+        "Source fictive : résultat collectif 82–74. Piste non vérifiée : PTS 21.",
+      ),
+      logicalKey: "interview-long-source",
+      sourceName: "Swiss Basketball — source officielle fictive",
+      articleUrl: `https://example.test/match/${"source-longue-".repeat(18)}`,
+      title: "Sion fictif 82–74 Neuchâtel fictif",
+      resultKind: "collective_result",
+      eventDateFrom: "2026-11-13",
+      eventDateTo: "2026-11-13",
+    }]);
+    const [candidate] = await repository.listCandidates("workspace-a");
+    if (!candidate) throw new Error("Candidat Sports Watch fictif manquant.");
+
+    const context = await service.buildInterviewContext(
+      athlete.athleteId,
+      candidate.id,
+      identity("workspace-a"),
+    );
+    const material = context.candidates[0].materials[0];
+    const request = validateContextCollectionRequest({
+      subject: {
+        id: athlete.athleteId,
+        displayName: athlete.name,
+        source: "crm",
+        type: "person",
+      },
+      selectedConnectorIds: ["manual", "external_news"],
+      manualContext: "Demander comment l’athlète envisage la suite.",
+      manualEditorialMaterials: context.candidates[0].materials,
+      contentType: "interview",
+      interviewType: "after_match",
+    });
+
+    expect(material.provenance.length).toBeLessThanOrEqual(160);
+    expect(material.sourceUrl).toBe(candidate.articleUrl);
+    expect(material).toMatchObject({
+      verificationStatus: "unverified",
+      statementType: "editorial_lead",
+    });
+    expect(request.manualContext).toBe("Demander comment l’athlète envisage la suite.");
+    expect(request.selectedConnectorIds).toContain("external_news");
   });
 
   it("prepares several faithful results without assigning multiple athletes to one person", async () => {

@@ -93,6 +93,7 @@ import type {
   SwissBadmintonIdentityVerification,
   SportsWatchPotentialDuplicate,
 } from "@/types/sports-watch";
+import { MANUAL_EDITORIAL_PROVENANCE_LIMIT } from "@/types/context-intelligence";
 import {
   MANUAL_EDITORIAL_MATERIAL_LIMIT,
   MANUAL_EDITORIAL_TEXT_LIMIT,
@@ -246,13 +247,20 @@ export const buildCandidateProvenance = (candidate: SportsWatchCandidate): strin
     : candidate.verificationStatus === "disputed"
       ? "contestée"
       : "non vérifiée";
-  return [
-    `${candidate.sourceName} — ${candidate.articleUrl}`,
-    `Publication : ${dateLabel(candidate.publicationDate)}`,
-    `Événement : ${dateLabel(candidate.eventDateFrom)}${candidate.eventDateTo && candidate.eventDateTo !== candidate.eventDateFrom ? ` au ${dateLabel(candidate.eventDateTo)}` : ""}`,
-    `Collecte : ${dateLabel(candidate.collectedAt)}`,
-    `Vérification factuelle : ${verificationLabel}`,
-  ].join(" · ");
+  const eventLabel = `${dateLabel(candidate.eventDateFrom)}${
+    candidate.eventDateTo && candidate.eventDateTo !== candidate.eventDateFrom
+      ? ` au ${dateLabel(candidate.eventDateTo)}`
+      : ""
+  }`;
+  const suffix = ` · Événement : ${eventLabel} · Vérification factuelle : ${verificationLabel}`;
+  const availableSourceLength = Math.max(
+    1,
+    MANUAL_EDITORIAL_PROVENANCE_LIMIT - suffix.length,
+  );
+  const sourceName = candidate.sourceName.length > availableSourceLength
+    ? `${candidate.sourceName.slice(0, Math.max(1, availableSourceLength - 1)).trimEnd()}…`
+    : candidate.sourceName;
+  return `${sourceName}${suffix}`;
 };
 
 const articleResultKindLabel: Record<SportsWatchCandidate["resultKind"], string> = {

@@ -22,6 +22,7 @@ import type {
   StoryPlatformId,
 } from "@/types/content-generation";
 import { buildDateRange } from "@/services/context-intelligence/utils";
+import { getInterviewAngle, serializeInterviewAngle } from "@/services/interview-angles";
 
 export type CreationSubjectType = "person" | "team" | "club" | "organization" | "partner" | "event" | "free_topic";
 
@@ -524,6 +525,12 @@ export const ContentCreationAssistantService = {
     const isReel = objectiveId === "reel";
     const isStory = objectiveId === "story";
     const isAfterMatch = isPublication && args.draft.presetId === "after-match";
+    const canonicalInterviewAngle = isInterview
+      ? getInterviewAngle(
+          args.draft.objective.subtypeId,
+          args.draft.parameters.interviewAngleId,
+        )
+      : undefined;
 
     let questionCount = 0;
     let storyFrameCount = 0;
@@ -617,8 +624,8 @@ export const ContentCreationAssistantService = {
               .join("\n\n")
           : [
               normalize(args.draft.parameters.additionalContext),
-              isInterview && normalize(args.draft.parameters.interviewAngle ?? "")
-                ? `Angle éditorial sélectionné : ${normalize(args.draft.parameters.interviewAngle ?? "")}`
+              canonicalInterviewAngle
+                ? `Angle éditorial sélectionné : ${serializeInterviewAngle(canonicalInterviewAngle)}`
                 : "",
             ]
               .filter(Boolean)

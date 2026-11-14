@@ -90,6 +90,11 @@ import type {
   SportsWatchInterviewContext,
 } from "@/types/sports-watch";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
+import {
+  getInterviewAngle,
+  getInterviewAngles,
+  serializeInterviewAngle,
+} from "@/services/interview-angles";
 
 type CreationAssistantScreenProps = {
   context: ContentCreationContext;
@@ -136,24 +141,6 @@ type InterviewExcerptPreview = {
   text: string;
   speakerRole: ManualInterviewSpeakerRole | "";
 };
-
-const interviewAngles = [
-  {
-    id: "match-reading",
-    title: "Lire le match",
-    brief: "Faire raconter les moments clés, les choix et les sensations sans déduire une participation non établie.",
-  },
-  {
-    id: "learning",
-    title: "Décisions et apprentissages",
-    brief: "Explorer ce que ce rendez-vous change dans le travail, les priorités et la progression.",
-  },
-  {
-    id: "next-step",
-    title: "Se projeter",
-    brief: "Partir du contexte sourcé pour ouvrir sur la suite, les objectifs et le prochain rendez-vous.",
-  },
-] as const;
 
 type StepId = "subject" | "objective" | "match" | "angle" | "structure" | "parameters" | "context" | "summary";
 
@@ -2065,7 +2052,12 @@ export function CreationAssistantScreen({
       const payload = (await response.json()) as ContextCollectionResponse;
 
       if (!response.ok || !payload.ok) {
-        const message = payload.ok ? "Collecte du contexte indisponible." : payload.message;
+        const message = payload.ok
+          ? "Collecte du contexte indisponible."
+          : payload.code === "INVALID_CONTEXT_REQUEST"
+            && payload.message.includes("Texte ou provenance invalide")
+              ? "Une source ou une note est incomplète. Vérifiez son texte et sa provenance dans les réglages, puis réessayez. Vos réglages sont conservés."
+              : payload.message;
         setContextState((previous) => ({
           ...previous,
           loading: false,
@@ -2174,7 +2166,10 @@ export function CreationAssistantScreen({
       focusValidationTarget(validation.focusSelector);
       return;
     }
-    if (!normalize(draft.parameters.interviewAngle)) {
+    if (!getInterviewAngle(
+      draft.objective.subtypeId,
+      draft.parameters.interviewAngleId,
+    )) {
       setStepErrorMessage("Sélectionnez un angle avant de préparer les questions.");
       focusValidationTarget("[data-interview-angle='true']");
       return;
@@ -5436,8 +5431,10 @@ export function CreationAssistantScreen({
       hasInterviewSubject
       && !activeInterviewContext
       && !activeInterviewContextError;
-    const selectedAngle = interviewAngles.find(
-      (angle) => angle.id === draft.parameters.interviewAngleId,
+    const interviewAngles = getInterviewAngles(draft.objective.subtypeId);
+    const selectedAngle = getInterviewAngle(
+      draft.objective.subtypeId,
+      draft.parameters.interviewAngleId,
     );
     const updateInterviewParameter = (
       key: "toneId" | "questionCountId" | "formatId" | "audienceId",
@@ -5466,10 +5463,23 @@ export function CreationAssistantScreen({
                 className={draft.objective.subtypeId === option.id
                   ? "creation-choice-card is-active"
                   : "creation-choice-card"}
-                onClick={() => setDraft((current) => ({
-                  ...current,
-                  objective: { ...current.objective, subtypeId: option.id },
-                }))}
+                onClick={() => setDraft((current) => {
+                  const keepsSelectedAngle = Boolean(getInterviewAngle(
+                    option.id,
+                    current.parameters.interviewAngleId,
+                  ));
+                  return {
+                    ...current,
+                    objective: { ...current.objective, subtypeId: option.id },
+                    parameters: keepsSelectedAngle
+                      ? current.parameters
+                      : {
+                          ...current.parameters,
+                          interviewAngleId: "",
+                          interviewAngle: "",
+                        },
+                  };
+                })}
               >
                 <strong>{option.label}</strong>
                 <p>{option.description}</p>
@@ -5554,20 +5564,23 @@ export function CreationAssistantScreen({
                   parameters: {
                     ...current.parameters,
                     interviewAngleId: angle.id,
-                    interviewAngle: `${angle.title}. ${angle.brief}`,
+                    interviewAngle: serializeInterviewAngle(angle),
                   },
                 }))}
               >
                 <strong>{angle.title}</strong>
-                <p>{angle.brief}</p>
+                <p>{angle.intention}</p>
               </button>
             ))}
           </div>
           {selectedAngle ? (
             <div className="creation-interview-feedback is-information">
               <strong>Aperçu du brief</strong>
-              <p>{selectedAngle.brief}</p>
-              {selectedCandidate ? <p>Point de départ sourcé : {selectedCandidate.title}</p> : null}
+              <p>{selectedAngle.intention}</p>
+              <p>Consigne : {selectedAngle.generationInstruction}</p>
+              {selectedCandidate && draft.objective.subtypeId === "after_match"
+                ? <p>Point de départ sourcé : {selectedCandidate.title}</p>
+                : null}
             </div>
           ) : null}
         </section>

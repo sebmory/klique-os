@@ -63,6 +63,7 @@ export type ManualEditorialMaterial = {
 
 export const MANUAL_EDITORIAL_MATERIAL_LIMIT = 12;
 export const MANUAL_EDITORIAL_TEXT_LIMIT = 680;
+export const MANUAL_EDITORIAL_PROVENANCE_LIMIT = 160;
 export const MANUAL_INTERVIEW_SOURCE_TEXT_LIMIT = 30_000;
 
 export type ManualInterviewSpeakerRole = "interviewer" | "interviewee";
