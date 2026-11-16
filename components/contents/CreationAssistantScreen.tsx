@@ -75,6 +75,7 @@ import {
   buildArticleAngleSuggestionsRequest,
   buildArticleGenerationRequest,
 } from "@/services/content-intelligence/article-ui-request";
+import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
 import { CONTENT_AUDIENCE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
@@ -1494,6 +1495,31 @@ export function CreationAssistantScreen({
       contextDateRange: contextState.dateRange,
     });
   }, [context, contextState.collectionId, contextState.dateRange, contextState.items, contextState.researchedAt, draft]);
+  const afterMatchVerifiedAnchorCount = useMemo(() => {
+    if (
+      draft.objective.objective !== "interview"
+      || draft.objective.subtypeId !== "after_match"
+    ) {
+      return null;
+    }
+    const selectedItems = contextState.items.filter((item) => item.isSelected);
+    const selectedFactKeys = new Set(
+      selectedItems.flatMap((item) =>
+        typeof item.metadata.factKey === "string" ? [item.metadata.factKey] : []),
+    );
+    const collectedAnchorCount = assessInterviewBriefReadiness({
+      interviewType: "after_match",
+      questionCount: preparedPayload?.parameters.questionCount ?? 0,
+      selectedContextItems: selectedItems,
+    }).verifiedAnchorCount;
+    const pendingWriterAnchorCount = buildAfterMatchWriterMaterials(draft)
+      .filter((material) =>
+        material.statementType === "fact"
+        && material.verificationStatus === "verified"
+        && (!material.factKey || !selectedFactKeys.has(material.factKey)))
+      .length;
+    return collectedAnchorCount + pendingWriterAnchorCount;
+  }, [contextState.items, draft, preparedPayload?.parameters.questionCount]);
 
   const selectedObjectiveTitle = useMemo(() => {
     const target = template.objectives.find((objective) => objective.id === draft.objective.objective);
@@ -5643,6 +5669,11 @@ export function CreationAssistantScreen({
         {contextState.errorMessage ? <p className="creation-error" role="alert">{contextState.errorMessage}</p> : null}
         {stepErrorMessage ? <p className="creation-error" role="alert">{stepErrorMessage}</p> : null}
         {generateState.errorMessage ? <p className="creation-error" role="alert">{generateState.errorMessage}</p> : null}
+        {afterMatchVerifiedAnchorCount !== null ? (
+          <p className="creation-muted" data-after-match-anchor-count="true">
+            {afterMatchVerifiedAnchorCount} ancrage{afterMatchVerifiedAnchorCount === 1 ? "" : "s"} vérifié{afterMatchVerifiedAnchorCount === 1 ? "" : "s"} avant génération
+          </p>
+        ) : null}
 
         <footer className="creation-footer-actions">
           <Link href="/contents" className="contents-ghost-button" onClick={quitAssistant}>Quitter</Link>

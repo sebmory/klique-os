@@ -209,4 +209,33 @@ describe("Interview angle switching", () => {
     expect(body.payload.parameters.contextIntelligence.selectedConnectorIds)
       .toContain("external_news");
   });
+
+  it("counts Camara's pending writer match fact before generation", async () => {
+    const stored = JSON.parse(
+      window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY) ?? "{}",
+    ) as { draft: ReturnType<typeof createInitialAssistantDraft> };
+    stored.draft.subject = {
+      ...stored.draft.subject,
+      type: "person",
+      source: "crm",
+      id: "abdou-bobodi-camara",
+      displayName: "Abdou Böbödi CAMARA",
+      sport: "Football",
+    };
+    stored.draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu contre Naters";
+    window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(stored));
+
+    await act(async () => {
+      root.render(<CreationAssistantScreen context={context} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const counter = container.querySelector("[data-after-match-anchor-count='true']");
+    expect(counter?.textContent).toContain("1 ancrage vérifié avant génération");
+    expect(fetchMock.mock.calls.some(([input]) =>
+      String(input) === "/api/content/generate")).toBe(false);
+  });
+
 });
