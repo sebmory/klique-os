@@ -357,7 +357,11 @@ class ManualContextConnector implements ContextConnector {
         sourceName: material.provenance,
         sourceUrl: material.sourceUrl,
         publishedAt: `${material.sourceDate}T00:00:00.000Z`,
-        confidence: "unknown",
+        confidence:
+          material.statementType === "fact"
+          && material.verificationStatus === "verified"
+            ? "high"
+            : "unknown",
         verificationStatus: material.verificationStatus || "user_provided",
         isEditable: false,
         preserveText: true,

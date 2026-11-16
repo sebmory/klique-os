@@ -9,6 +9,10 @@ import {
   editorialDossierSubject,
 } from "@/tests/fixtures/editorial-dossier";
 import type { ContentAccessContext } from "@/lib/content-storage/access";
+import { resolveConnector } from "@/services/context-intelligence/connectors";
+import { buildSportsWatchArticleMaterials } from "@/lib/sports-watch/service";
+import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
+import type { SportsWatchCandidate } from "@/types/sports-watch";
 
 const access: ContentAccessContext = {
   clerkUserId: "admin-1",
@@ -50,6 +54,115 @@ const store = (value: typeof collection | null): EditorialContextCollectionStore
 });
 
 describe("server EditorialDossier preparation", () => {
+  it("keeps a verified Sports Watch candidate factual through the 8-question preflight", async () => {
+    const candidateId = "11111111-1111-4111-8111-111111111111";
+    const candidate: SportsWatchCandidate = {
+      id: candidateId,
+      athleteId: "liban-maxamed",
+      athleteName: "Liban Maxamed",
+      sourceName: "Swiss Basketball — source officielle",
+      sourceUrl: "https://swiss.basketball/schedule",
+      articleUrl: "https://swiss.basketball/basketplan/showGameOverview.do?gameId=371504",
+      title: "Sion Basket 82–74 Académie Union Neuchâtel Basket U23 — Cadbullahi Maxamed Liban",
+      excerpt: [
+        "Source : Swiss Basketball — source officielle.",
+        "Match : Sion Basket 82–74 Académie Union Neuchâtel Basket U23.",
+        "Évolution par quart-temps selon la feuille officielle : Q1 25–11, Q2 12–17, Q3 28–18, Q4 17–28.",
+        "Présence nominative : Cadbullahi Maxamed Liban, identifiant joueur 76411.",
+        "Titularisation : non.",
+        "Participation établie par une donnée individuelle explicite.",
+        "Statistiques individuelles explicitement présentes : PTS 21.",
+      ].join(" "),
+      resultKind: "individual_result",
+      publicationDate: null,
+      eventDateFrom: "2026-11-13",
+      eventDateTo: "2026-11-13",
+      collectedAt: "2026-11-16T07:00:00.000Z",
+      attributionStatus: "matched",
+      attributionEvidence: ["Identifiant officiel 76411 relu dans la feuille 371504."],
+      verificationStatus: "verified",
+      adminStatus: "validated",
+      supersedesCandidateId: null,
+      version: 1,
+    };
+    const [material] = buildSportsWatchArticleMaterials(
+      candidate,
+      "Swiss Basketball — source officielle · Vérification factuelle : vérifiée",
+      "2026-11-13",
+      candidate.excerpt,
+    );
+    const connectorResult = await resolveConnector("manual")!.collect({
+      workspaceId: access.workspaceId,
+      subject: {
+        id: candidate.athleteId,
+        source: "crm",
+        type: "person",
+        displayName: candidate.athleteName,
+        sport: "Basketball",
+      },
+      selectedConnectorIds: ["manual"],
+      dateRange: { preset: "last_30_days", from: "2026-10-17", to: "2026-11-16" },
+      sourcePreference: "official_and_reliable",
+      searchDepth: "standard",
+      language: "fr-CH",
+      manualEditorialMaterials: [material],
+      contentType: "interview",
+      interviewType: "after_match",
+    });
+    const sportsWatchItem = connectorResult.items[0];
+    expect(sportsWatchItem).toMatchObject({
+      id: `manual-material-sports-watch-${candidateId}-1`,
+      statementType: "fact",
+      verificationStatus: "verified",
+      confidence: "high",
+      isSelected: true,
+    });
+
+    const sportsWatchCollection = {
+      ...collection,
+      items: [sportsWatchItem],
+      summary: {
+        ...collection.summary,
+        totalItemsFound: 1,
+        selectedItemsCount: 1,
+        researchedAt: "2026-11-16T07:00:00.000Z",
+        dateRange: { preset: "last_30_days" as const, from: "2026-10-17", to: "2026-11-16" },
+      },
+      createdAt: "2026-11-16T07:00:00.000Z",
+      expiresAt: "2026-11-16T08:00:00.000Z",
+    };
+    const prepared = await prepareEditorialGeneration({
+      contextSelection: {
+        collectionId: sportsWatchCollection.id,
+        selectedItemIds: [sportsWatchItem.id],
+        manualEdits: [],
+      },
+      subject: {
+        id: candidate.athleteId,
+        source: "crm",
+        type: "person",
+        displayName: candidate.athleteName,
+        sport: "Basketball",
+      },
+      target: { type: "interview", interviewType: "after_match" },
+      access,
+      store: store(sportsWatchCollection),
+      now: new Date("2026-11-16T07:10:00.000Z"),
+    });
+    const transmittedFacts = prepared.selectedItems.map((item) => item.factualStatement).join(" ");
+    const readiness = assessInterviewBriefReadiness({
+      interviewType: "after_match",
+      questionCount: 8,
+      selectedContextItems: prepared.selectedItems,
+    });
+
+    expect(transmittedFacts).toContain("82–74");
+    expect(transmittedFacts).toContain("PTS 21");
+    expect(transmittedFacts).toContain("Q1 25–11");
+    expect(transmittedFacts).toContain("Q4 17–28");
+    expect(readiness).toMatchObject({ ready: true, verifiedAnchorCount: 8 });
+  });
+
   it("rebuilds a compatible 8B2 dossier from an authorized 8B1 collection", async () => {
     const prepared = await prepareEditorialGeneration({
       contextSelection: {
