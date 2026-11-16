@@ -2176,10 +2176,14 @@ export function CreationAssistantScreen({
       focusValidationTarget("[data-interview-angle='true']");
       return;
     }
+    const hasReusableContextCollection = contextState.hasCollected
+      && Boolean(contextState.collectionId)
+      && Boolean(contextState.expiresAt)
+      && new Date(contextState.expiresAt!).getTime() > Date.now();
     if (
       mediaCreditRole === "media"
       && draft.parameters.contextEnableExternalNews
-      && !contextState.hasCollected
+      && !hasReusableContextCollection
     ) {
       setCreditModal({ kind: "external_search", cost: 1 });
       return;
@@ -2189,7 +2193,7 @@ export function CreationAssistantScreen({
     let items = contextState.items;
     let researchedAt = contextState.researchedAt;
     let dateRange = contextState.dateRange;
-    if (!contextState.hasCollected) {
+    if (!hasReusableContextCollection) {
       const collected = await collectContext();
       if (!collected) return;
       collectionId = collected.collectionId;
