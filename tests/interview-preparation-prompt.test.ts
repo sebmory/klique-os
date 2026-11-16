@@ -112,8 +112,8 @@ describe("interview preparation prompt", () => {
     const matchLead = contextItem({
       id: "camara-match",
       category: "result",
-      summary: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2.",
-      factualStatement: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2.",
+      summary: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2. Défaite 0–2 face à FC Naters Oberwallis.",
+      factualStatement: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2. Défaite 0–2 face à FC Naters Oberwallis.",
       statementType: "editorial_lead",
       sourceType: "external",
       sourceName: "Footstats Pro",
@@ -212,7 +212,7 @@ describe("interview preparation prompt", () => {
         verificationStatus: "verified",
       },
     });
-    expect(prompt).toContain("Prompt version: cie-interview-v10");
+    expect(prompt).toContain("Prompt version: cie-interview-v11");
     expect(prompt).toContain('"value": "Football"');
     expect(prompt).toContain('"value": "Attaquant"');
     expect(prompt).toContain('"value": "Vevey-Sports"');
@@ -223,6 +223,14 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain('"value": "16e et dernier"');
     expect(prompt).toContain("construire silencieusement une tension editoriale");
     expect(prompt).toContain("le resultat, le score et l adversaire de la fiche de match explicitement selectionnee");
+    expect(prompt).toContain("Une piste editoriale ou une donnee manuelle non verifiee reste une hypothese");
+    expect(prompt).toContain("Exception strictement limitee au resultat selectionne par le redacteur");
+    expect(prompt).toContain("les champs opponent, score et outcome de afterMatchSituation peuvent servir de contexte journalistique");
+    expect(prompt).toContain("meme lorsque verificationStatus vaut unverified");
+    expect(prompt).toContain("ne transforme jamais opponent, score ou outcome en donnees verified");
+    expect(prompt).toContain("n autorise aucune deduction de participation individuelle");
+    expect(prompt).toContain("ne s applique a aucun autre editorial_lead");
+    expect(prompt).toContain("presenter le resultat collectif comme contexte de question");
     expect(prompt).toContain("Maximum deux questions principales autour d un meme fait ou evenement");
     expect(prompt).toContain("Une entree en jeu ne doit jamais produire une serie de variantes distinctes");
     expect(prompt).toContain("Quand une action precise est documentee, la citer dans la question et demander au joueur de l expliquer");
@@ -233,6 +241,7 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("Quand une defaite et une derniere place sont disponibles");
     expect(prompt).toContain("privilegier la reaction, les difficultes, le moral, les solutions, la confiance, le role du joueur et la suite");
     expect(prompt).toContain("une question principale doit exploiter clairement ces trois elements");
+    expect(prompt).toContain("nommer l adversaire et le resultat dans la question plutot que d employer une formulation vague comme 'cette rencontre'");
     expect(prompt).toContain("une question principale doit utiliser ce role pour apporter un angle sportif concret");
     expect(prompt).toContain("au maximum une seule question principale sur le classement");
     expect(prompt).toContain("constat du classement / vecu du classement");
