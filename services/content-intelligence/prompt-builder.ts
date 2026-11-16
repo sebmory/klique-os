@@ -218,11 +218,15 @@ export const buildContentPrompt = (args: {
   const afterMatchSituationRules = isAfterMatch
     ? [
         "- Avant de rediger, utiliser afterMatchSituation pour construire silencieusement une tension editoriale propre a cette rencontre. Ne jamais afficher ce raisonnement.",
-        "- Distinguer strictement les donnees verified, reported et unverified: une piste non verifiee peut orienter la comprehension, jamais devenir une affirmation officielle.",
-        "- Exemple de raisonnement, a adapter aux seuls faits disponibles et non a recopier comme un plan fixe: reaction au resultat; difficultes recurrentes documentees de l equipe; vecu et moral lies au classement; solutions actuellement mises en place; confiance personnelle; mission et apport lors d une entree en jeu documentee; analyse liee au poste; ouverture humaine sur les supporters ou la suite.",
+      "- Utiliser toute la situation Apres-match disponible, notamment le resultat, le score et l adversaire de la fiche de match explicitement selectionnee. Conserver leur provenance et leur statut dans les informations de fiabilite et ne jamais les promouvoir silencieusement en faits officiels.",
+      "- Distinguer strictement les donnees verified, reported et unverified. Les donnees de la fiche explicitement selectionnee peuvent structurer l entretien, mais leur statut doit rester explicite dans les informations de fiabilite.",
+      "- Maximum deux questions principales autour d un meme fait ou evenement.",
+      "- Une entree en jeu ne doit jamais produire une serie de variantes distinctes sur l observation, les consignes, la lecture, la mission et l apport. Regrouper ces pistes en une ou deux questions principales au maximum.",
+      "- Quand une defaite et une derniere place sont disponibles dans afterMatchSituation, elles structurent la tension et la progression de l entretien.",
+      "- Exemple de huit angles distincts pour une situation comme Camara, a adapter aux seuls faits disponibles et non a recopier comme des phrases fixes: 1. reaction a la defaite; 2. difficultes actuelles ou repetitives de l equipe; 3. moral du groupe face a la derniere place; 4. solutions mises en place pour sortir de cette situation; 5. vecu ou confiance personnels; 6. mission et apport lors de l entree en jeu; 7. regard lie au poste du joueur; 8. ouverture sur la suite ou les supporters.",
         "- Adapter librement l ordre et les angles a la tension reelle du match, au profil du joueur et aux faits transmis. Ne jamais forcer une etape absente de la situation.",
         "- Chaque question doit etre naturelle, directe et humaine, employer le vocabulaire du sport et chercher une reponse differente.",
-        "- Exploiter le poste seulement lorsqu il apporte un angle sportif pertinent.",
+      "- Utiliser le poste CRM lorsqu il est disponible et qu il apporte un angle sportif pertinent.",
         "- Replacer les chiffres dans une situation sportive et emotionnelle sans dicter l emotion attendue.",
         "- Eviter le ton questionnaire ou IA.",
         "- Interdire les questions de remplissage et leurs variantes: 'quelle etait votre priorite ?', 'qu aviez-vous observe ?', 'qu est-ce qui vous a sollicite physiquement ?', 'quelle decision aimeriez-vous expliquer ?'. Les utiliser uniquement si un fait precis leur donne un veritable interet journalistique.",
