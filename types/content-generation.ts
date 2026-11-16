@@ -125,6 +125,7 @@ export type InterviewTypeId =
   | "portrait"
   | "before_match"
   | "after_match"
+  | "tournament_review"
   | "fast_questions"
   | "journey"
   | "performance"
@@ -226,6 +227,24 @@ export type ContentContext = {
 
 export type ContentSubjectContext = ContentContext;
 
+export type AfterMatchSituationDatum = {
+  value: string;
+  provenance: string;
+  verificationStatus: ContextItem["verificationStatus"];
+};
+
+export type AfterMatchSituation = {
+  sport?: AfterMatchSituationDatum;
+  position?: AfterMatchSituationDatum;
+  club?: AfterMatchSituationDatum;
+  opponent?: AfterMatchSituationDatum;
+  score?: AfterMatchSituationDatum;
+  outcome?: AfterMatchSituationDatum;
+  writerFacts: AfterMatchSituationDatum[];
+  ranking?: AfterMatchSituationDatum;
+  nextFixture?: AfterMatchSituationDatum;
+};
+
 export type InterviewBrief = {
   interviewType: InterviewTypeId;
   objective: string;
@@ -236,6 +255,7 @@ export type InterviewBrief = {
   requiredTopics: string[];
   avoidedTopics: string[];
   additionalContext: string;
+  afterMatchSituation?: AfterMatchSituation;
   afterMatchClosingFacts?: {
     ranking?: {
       value: string;

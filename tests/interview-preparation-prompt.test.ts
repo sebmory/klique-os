@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { buildContentPrompt } from "@/services/content-intelligence/prompt-builder";
 import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
+import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
 import { interviewTemplateV1 } from "@/services/content-intelligence/templates";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import type { InterviewGenerationRequest } from "@/types/content-generation";
@@ -107,6 +108,132 @@ const collectiveItems = [
 ];
 
 describe("interview preparation prompt", () => {
+  it("builds Camara's structured after-match situation before the final prompt", async () => {
+    const matchLead = contextItem({
+      id: "camara-match",
+      category: "result",
+      summary: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2.",
+      factualStatement: "Adversaire : FC Naters Oberwallis. Score déclaré : 0–2.",
+      statementType: "editorial_lead",
+      sourceType: "external",
+      sourceName: "Footstats Pro",
+      verificationStatus: "unverified",
+      confidence: "low",
+    });
+    const writerFact = contextItem({
+      id: "camara-writer-fact",
+      summary: "Camara est entré en jeu à la 65e minute.",
+      factualStatement: "Camara est entré en jeu à la 65e minute.",
+      sourceType: "internal",
+      sourceName: "Saisie du rédacteur",
+      verificationStatus: "verified",
+    });
+    const payload = payloadFor("after_match", [matchLead, writerFact], 8);
+    payload.subject = {
+      ...payload.subject,
+      id: "abdou-bobodi-camara",
+      source: "crm",
+      displayName: "Abdou Böbödi CAMARA",
+      sport: "Football",
+      clubOrOrganization: "Vevey-Sports",
+    };
+    payload.parameters.afterMatchClosingFacts = {
+      ranking: {
+        value: "16e et dernier",
+        asOfDate: "2026-11-16",
+        source: "Saisie du rédacteur",
+        verificationStatus: "verified",
+      },
+    };
+    const editorialContext = {
+      generationMode: "ready" as const,
+      subject: {
+        type: "person",
+        displayName: "Abdou Böbödi CAMARA",
+        sport: "Football",
+        clubOrOrganization: "Vevey-Sports",
+        publicRoleOrPosition: "Attaquant",
+        identityBasis: "canonical" as const,
+      },
+      facts: [],
+      chronology: [],
+      citations: [],
+      editorialLeads: [],
+      missingInformation: [],
+      unresolvedContradictions: [],
+    };
+
+    const { request } = await buildContentGenerationRequest(payload, access, editorialContext);
+    const prompt = buildContentPrompt({
+      request,
+      template: interviewTemplateV1,
+      promptVersion: contentIntelligenceConfig.interviewPromptVersion,
+    });
+
+    expect((request as InterviewGenerationRequest).brief.afterMatchSituation).toEqual({
+      sport: {
+        value: "Football",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      position: {
+        value: "Attaquant",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      club: {
+        value: "Vevey-Sports",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      opponent: {
+        value: "FC Naters Oberwallis",
+        provenance: "Footstats Pro",
+        verificationStatus: "unverified",
+      },
+      score: {
+        value: "0–2",
+        provenance: "Footstats Pro",
+        verificationStatus: "unverified",
+      },
+      outcome: {
+        value: "défaite",
+        provenance: "Footstats Pro",
+        verificationStatus: "unverified",
+      },
+      writerFacts: [{
+        value: "Camara est entré en jeu à la 65e minute.",
+        provenance: "Saisie du rédacteur",
+        verificationStatus: "verified",
+      }],
+      ranking: {
+        value: "16e et dernier",
+        provenance: "Saisie du rédacteur",
+        verificationStatus: "verified",
+      },
+    });
+    expect(prompt).toContain("Prompt version: cie-interview-v7");
+    expect(prompt).toContain('"value": "Football"');
+    expect(prompt).toContain('"value": "Attaquant"');
+    expect(prompt).toContain('"value": "Vevey-Sports"');
+    expect(prompt).toContain('"value": "FC Naters Oberwallis"');
+    expect(prompt).toContain('"value": "0–2"');
+    expect(prompt).toContain('"value": "défaite"');
+    expect(prompt).toContain('"value": "Camara est entré en jeu à la 65e minute."');
+    expect(prompt).toContain('"value": "16e et dernier"');
+    expect(prompt).toContain("construire silencieusement une tension editoriale");
+    expect(prompt).toContain("reaction au resultat; difficultes recurrentes documentees de l equipe");
+    expect(prompt).toContain("Exemple de raisonnement, a adapter aux seuls faits disponibles et non a recopier comme un plan fixe");
+    expect(prompt).toContain("Chaque question doit etre naturelle, directe et humaine");
+    expect(prompt).toContain("Exploiter le poste seulement lorsqu il apporte un angle sportif pertinent");
+    expect(prompt).toContain("Replacer les chiffres dans une situation sportive et emotionnelle");
+    expect(prompt).toContain("Eviter le ton questionnaire ou IA");
+    expect(prompt).toContain("'quelle etait votre priorite ?'");
+    expect(prompt).toContain("'qu aviez-vous observe ?'");
+    expect(prompt).toContain("'qu est-ce qui vous a sollicite physiquement ?'");
+    expect(prompt).toContain("'quelle decision aimeriez-vous expliquer ?'");
+  });
+
   it("routes verified match facts and unverified leads into separate buckets for after-match", async () => {
     const { request, prompt } = await buildPrompt(payloadFor("after_match", collectiveItems));
 

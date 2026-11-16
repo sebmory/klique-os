@@ -4,6 +4,8 @@ import { ContentGenerationError } from "@/services/content-generation/errors";
 import { activeTemplateByFamily } from "@/services/content-intelligence/templates";
 import type {
   AnyContentGenerationRequest,
+  AfterMatchSituation,
+  AfterMatchSituationDatum,
   ContentContext,
   InterviewGenerationRequest,
   PublicationGenerationRequest,
@@ -170,6 +172,122 @@ const resolveAfterMatchClosingFacts = (
                 requiredMention: submitted.nextFixture.opponent,
                 resolutionNote: "Saisie manuelle retenue comme information fournie par l utilisateur; sa source ne constitue pas une vérification indépendante.",
               },
+        }
+      : {}),
+  };
+};
+
+const situationDatum = (
+  value: string | undefined,
+  provenance: string,
+  verificationStatus: AfterMatchSituationDatum["verificationStatus"],
+): AfterMatchSituationDatum | undefined => {
+  const normalized = normalize(value);
+  return normalized ? { value: normalized, provenance, verificationStatus } : undefined;
+};
+
+const matchSituationItem = (items: ContextItem[]): ContextItem | undefined => items.find((item) =>
+  item.isSelected
+  && item.category === "result"
+  && item.sourceName !== "Saisie du rédacteur"
+  && (
+    /\b(?:adversaire|score déclaré|score final)\s*:/i.test(`${item.factualStatement} ${item.summary}`)
+    || /\bface [àa]\b/i.test(`${item.factualStatement} ${item.summary}`)
+  ));
+
+const extractMatchOpponent = (text: string): string | undefined => {
+  const labeled = text.match(/\badversaire\s*:\s*([^.;]+)/i)?.[1];
+  if (labeled) return normalize(labeled);
+  return normalize(text.match(/\bface [àa]\s+([^,.;]+)/i)?.[1]) || undefined;
+};
+
+const extractMatchScore = (text: string): { score: string; home: number; away: number } | undefined => {
+  const match = text.match(/\b(?:score(?:\s+(?:déclaré|final))?\s*:\s*)?(\d{1,3})\s*[–—-]\s*(\d{1,3})\b/i);
+  if (!match) return undefined;
+  return {
+    score: `${match[1]}–${match[2]}`,
+    home: Number(match[1]),
+    away: Number(match[2]),
+  };
+};
+
+const buildAfterMatchSituation = (
+  payload: CreationPreparationPayload,
+  context: ContentContext,
+  closingFacts: InterviewGenerationRequest["brief"]["afterMatchClosingFacts"],
+): AfterMatchSituation | undefined => {
+  if (payload.objective.id !== "interview" || payload.objective.subtypeId !== "after_match") {
+    return undefined;
+  }
+
+  const profileProvenance = "Projection éditoriale Athlete";
+  const matchItem = matchSituationItem(payload.parameters.contextIntelligence.selectedContextItems);
+  const matchText = matchItem
+    ? `${matchItem.factualStatement} ${matchItem.summary}`
+    : "";
+  const score = extractMatchScore(matchText);
+  const matchProvenance = normalize(matchItem?.sourceName) || "Fiche de match sélectionnée";
+  const matchVerificationStatus = matchItem?.verificationStatus ?? "unverified";
+  const writerFacts = payload.parameters.contextIntelligence.selectedContextItems
+    .filter((item) =>
+      item.isSelected
+      && item.statementType === "fact"
+      && item.sourceName === "Saisie du rédacteur")
+    .map((item) => ({
+      value: normalize(item.factualStatement) || normalize(item.summary),
+      provenance: item.sourceName,
+      verificationStatus: item.verificationStatus,
+    }))
+    .filter((item) => item.value);
+
+  return {
+    ...(context.source === "crm" && situationDatum(context.sport, profileProvenance, "reported")
+      ? { sport: situationDatum(context.sport, profileProvenance, "reported") }
+      : {}),
+    ...(context.source === "crm" && situationDatum(context.disciplineOrPosition, profileProvenance, "reported")
+      ? { position: situationDatum(context.disciplineOrPosition, profileProvenance, "reported") }
+      : {}),
+    ...(context.source === "crm" && situationDatum(context.clubOrOrganization, profileProvenance, "reported")
+      ? { club: situationDatum(context.clubOrOrganization, profileProvenance, "reported") }
+      : {}),
+    ...(matchItem && situationDatum(extractMatchOpponent(matchText), matchProvenance, matchVerificationStatus)
+      ? { opponent: situationDatum(extractMatchOpponent(matchText), matchProvenance, matchVerificationStatus) }
+      : {}),
+    ...(matchItem && score
+      ? {
+          score: {
+            value: score.score,
+            provenance: matchProvenance,
+            verificationStatus: matchVerificationStatus,
+          },
+          outcome: {
+            value: score.home === score.away ? "nul" : score.home > score.away ? "victoire" : "défaite",
+            provenance: matchProvenance,
+            verificationStatus: matchVerificationStatus,
+          },
+        }
+      : {}),
+    writerFacts,
+    ...(closingFacts?.ranking
+      ? {
+          ranking: {
+            value: closingFacts.ranking.value,
+            provenance: closingFacts.ranking.source,
+            verificationStatus: closingFacts.ranking.verificationStatus,
+          },
+        }
+      : {}),
+    ...(closingFacts?.nextFixture
+      ? {
+          nextFixture: {
+            value: [
+              closingFacts.nextFixture.opponent,
+              closingFacts.nextFixture.date,
+              closingFacts.nextFixture.competition,
+            ].filter(Boolean).join(" · "),
+            provenance: closingFacts.nextFixture.source,
+            verificationStatus: closingFacts.nextFixture.verificationStatus,
+          },
         }
       : {}),
   };
@@ -381,6 +499,7 @@ export const buildContentGenerationRequest = async (
 ): Promise<{ request: AnyContentGenerationRequest; missingInformation: string[] }> => {
   const { context, missingInformation } = await buildContentContext(payload, access, editorialContext);
   const afterMatchClosingFacts = resolveAfterMatchClosingFacts(payload);
+  const afterMatchSituation = buildAfterMatchSituation(payload, context, afterMatchClosingFacts);
 
   if (payload.objective.id === "publication") {
     const publication = payload.parameters.publication;
@@ -530,6 +649,7 @@ export const buildContentGenerationRequest = async (
       requiredTopics: payload.parameters.requiredTopics,
       avoidedTopics: payload.parameters.avoidedTopics,
       additionalContext: editorialContext ? "" : payload.parameters.additionalContext,
+      afterMatchSituation,
       afterMatchClosingFacts,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),

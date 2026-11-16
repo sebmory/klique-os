@@ -17,6 +17,7 @@ export const buildContentPrompt = (args: {
     ? args.request.brief.interviewType
     : undefined;
   const isAfterMatch = interviewType === "after_match";
+  const isTournamentReview = interviewType === "tournament_review";
   const contextRules = [
     `- Nombre d elements de contexte selectionnes: ${selectedCount}.`,
     "- Utiliser uniquement les faits selectionnes transmis dans le contexte.",
@@ -34,6 +35,8 @@ export const buildContentPrompt = (args: {
     // Apres-match, la trame est centree sur la rencontre; les autres types gardent l equilibre.
     ...(isAfterMatch
       ? ["- Centrer la trame sur cette rencontre precise: equipes, score, sequences et faits fournis."]
+      : isTournamentReview
+        ? ["- Centrer la trame sur l edition de tournoi transmise, couvrir les disciplines representees et ne pas derouler les matchs un par un."]
       : [
           "- Conserver un equilibre entre actualite et profondeur humaine.",
           "- Eviter que toutes les questions portent sur un seul evenement recent.",
@@ -212,6 +215,19 @@ export const buildContentPrompt = (args: {
   }
 
   const questionCount = args.request.brief.questionCount;
+  const afterMatchSituationRules = isAfterMatch
+    ? [
+        "- Avant de rediger, utiliser afterMatchSituation pour construire silencieusement une tension editoriale propre a cette rencontre. Ne jamais afficher ce raisonnement.",
+        "- Distinguer strictement les donnees verified, reported et unverified: une piste non verifiee peut orienter la comprehension, jamais devenir une affirmation officielle.",
+        "- Exemple de raisonnement, a adapter aux seuls faits disponibles et non a recopier comme un plan fixe: reaction au resultat; difficultes recurrentes documentees de l equipe; vecu et moral lies au classement; solutions actuellement mises en place; confiance personnelle; mission et apport lors d une entree en jeu documentee; analyse liee au poste; ouverture humaine sur les supporters ou la suite.",
+        "- Adapter librement l ordre et les angles a la tension reelle du match, au profil du joueur et aux faits transmis. Ne jamais forcer une etape absente de la situation.",
+        "- Chaque question doit etre naturelle, directe et humaine, employer le vocabulaire du sport et chercher une reponse differente.",
+        "- Exploiter le poste seulement lorsqu il apporte un angle sportif pertinent.",
+        "- Replacer les chiffres dans une situation sportive et emotionnelle sans dicter l emotion attendue.",
+        "- Eviter le ton questionnaire ou IA.",
+        "- Interdire les questions de remplissage et leurs variantes: 'quelle etait votre priorite ?', 'qu aviez-vous observe ?', 'qu est-ce qui vous a sollicite physiquement ?', 'quelle decision aimeriez-vous expliquer ?'. Les utiliser uniquement si un fait precis leur donne un veritable interet journalistique.",
+      ].join("\n")
+    : "";
   return [
     "Mission: generer un contenu interview editorial utile, fiable et exploitable.",
     `Prompt version: ${args.promptVersion}`,
@@ -236,6 +252,9 @@ export const buildContentPrompt = (args: {
     ].join("\n"),
     "Methode journaliste (commune a tous les types):",
     INTERVIEW_CRAFT_RULES.join("\n"),
+    ...(afterMatchSituationRules
+      ? ["Tension editoriale Apres-match:", afterMatchSituationRules]
+      : []),
     buildInterviewPreparationBlock(interviewType ?? "free"),
     "Contexte intelligent:",
     contextRules,
