@@ -196,7 +196,7 @@ export const assessInterviewBriefReadiness = (args: {
     return { ready: true, verifiedAnchorCount: args.questionCount, message: null };
   }
   const verifiedAnchorCount = countAfterMatchAnchors(args.selectedContextItems);
-  if (verifiedAnchorCount >= args.questionCount) {
+  if (verifiedAnchorCount > 0) {
     return { ready: true, verifiedAnchorCount, message: null };
   }
   return {
@@ -204,7 +204,7 @@ export const assessInterviewBriefReadiness = (args: {
     verifiedAnchorCount,
     message: [
       `Le brief contient ${verifiedAnchorCount} ancrage${verifiedAnchorCount === 1 ? "" : "s"} verifie${verifiedAnchorCount === 1 ? "" : "s"} pour ${args.questionCount} questions demandees.`,
-      "Completez le brief avec des faits verifies ou choisissez un format plus court avant de lancer la generation.",
+      "La fiche selectionnee ne fournit aucun fait verifie. Selectionnez une fiche verifiee ou ajoutez un Fait de match verifie par le redacteur avant de lancer la generation.",
     ].join(" "),
   };
 };

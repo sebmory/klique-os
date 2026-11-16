@@ -2207,10 +2207,10 @@ export function CreationAssistantScreen({
     if (
       draft.objective.subtypeId === "after_match"
       && afterMatchVerifiedAnchorCount !== null
-      && afterMatchVerifiedAnchorCount < payload.parameters.questionCount
+      && afterMatchVerifiedAnchorCount === 0
     ) {
       setStepErrorMessage(
-        `Le brief contient ${afterMatchVerifiedAnchorCount} ancrage${afterMatchVerifiedAnchorCount === 1 ? "" : "s"} vérifié${afterMatchVerifiedAnchorCount === 1 ? "" : "s"} pour ${payload.parameters.questionCount} questions demandées.`,
+        `Le brief contient ${afterMatchVerifiedAnchorCount} ancrages vérifiés pour ${payload.parameters.questionCount} questions demandées.`,
       );
       return;
     }

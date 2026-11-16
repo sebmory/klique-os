@@ -18,6 +18,7 @@ vi.mock("@/services/content-backfill", () => ({
 
 import { CreationAssistantScreen } from "@/components/contents/CreationAssistantScreen";
 import { createInitialAssistantDraft } from "@/services/content-creation-assistant";
+import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
 import { getInterviewAngles, serializeInterviewAngle } from "@/services/interview-angles";
 import type { ContentCreationContext } from "@/services/contents-hub";
 
@@ -210,7 +211,7 @@ describe("Interview angle switching", () => {
       .toContain("external_news");
   });
 
-  it("uses Camara's displayed writer-anchor total in the preflight message", async () => {
+  it("generates 8 Camara questions from one writer-verified match fact", async () => {
     const stored = JSON.parse(
       window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY) ?? "{}",
     ) as {
@@ -225,14 +226,18 @@ describe("Interview angle switching", () => {
       displayName: "Abdou Böbödi CAMARA",
       sport: "Football",
     };
-    stored.draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu contre Naters";
-    stored.contextState.items = [{
+    stored.draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu à la 65ème";
+    stored.contextState.items = [];
+    stored.contextState.hasCollected = false;
+    window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(stored));
+
+    const writerItem = {
       id: "writer-camara-collected",
       connectorId: "manual",
       category: "result",
       title: "Note journalistique",
-      summary: "Camara est entré en jeu contre Naters",
-      factualStatement: "Camara est entré en jeu contre Naters",
+      summary: "Camara est entré en jeu à la 65ème",
+      factualStatement: "Camara est entré en jeu à la 65ème",
       statementType: "fact",
       sourceType: "internal",
       sourceName: "Saisie du rédacteur",
@@ -243,9 +248,65 @@ describe("Interview angle switching", () => {
       isSelected: true,
       isEditable: false,
       metadata: {},
-    }];
-    stored.contextState.hasCollected = true;
-    window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(stored));
+    } as const;
+    expect(assessInterviewBriefReadiness({
+      interviewType: "after_match",
+      questionCount: 8,
+      selectedContextItems: [writerItem],
+    })).toMatchObject({
+      ready: true,
+      verifiedAnchorCount: 1,
+      message: null,
+    });
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      if (url === "/api/ai-credits/balance") return response({ ok: false }, 403);
+      if (url === "/api/media-subscriptions") return response({ ok: false }, 404);
+      if (url === "/api/athletes") return response({ source: "fixture", athletes: [] });
+      if (url.startsWith("/api/admin/sports-watch/interview-context?")) {
+        return response({
+          ok: true,
+          context: {
+            athleteId: "abdou-bobodi-camara",
+            selectedCandidateId: null,
+            candidates: [],
+            selectedTournamentId: null,
+            tournaments: [],
+          },
+        });
+      }
+      if (url === "/api/context/collect" && method === "POST") {
+        return response({
+          ok: true,
+          collectionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          expiresAt: "2026-11-16T14:30:00.000Z",
+          items: [writerItem],
+          reports: [{ connectorId: "manual", status: "completed", itemCount: 1 }],
+          summary: {
+            totalItemsFound: 1,
+            selectedItemsCount: 1,
+            externalSourcesCount: 0,
+            researchedAt: "2026-11-16T14:00:00.000Z",
+            dateRange: {
+              preset: "last_30_days",
+              from: "2026-10-17",
+              to: "2026-11-16",
+            },
+            warnings: [],
+          },
+        });
+      }
+      if (url === "/api/content/generate" && method === "POST") {
+        return response({
+          ok: false,
+          code: "GENERATION_FAILED",
+          message: "Génération simulée pour le test.",
+        }, 502);
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
 
     await act(async () => {
       root.render(<CreationAssistantScreen context={context} />);
@@ -254,17 +315,21 @@ describe("Interview angle switching", () => {
       await Promise.resolve();
     });
 
-    const counter = container.querySelector("[data-after-match-anchor-count='true']");
-    expect(counter?.textContent).toContain("2 ancrages vérifiés avant génération");
-
     await clickButton(container, "Préparer mes questions");
 
-    expect(container.textContent).toContain(
-      "Le brief contient 2 ancrages vérifiés pour 8 questions demandées.",
-    );
-    expect(container.textContent).not.toContain("0 ancrage");
-    expect(fetchMock.mock.calls.some(([input]) =>
-      String(input) === "/api/content/generate")).toBe(false);
+    const generationCall = fetchMock.mock.calls.find(([input]) =>
+      String(input) === "/api/content/generate");
+    expect(generationCall).toBeDefined();
+    const generationBody = JSON.parse(
+      String((generationCall?.[1] as RequestInit | undefined)?.body),
+    ) as { payload: { parameters: { questionCount: number } } };
+    expect(generationBody.payload.parameters.questionCount).toBe(8);
+    const errorMessages = Array.from(container.querySelectorAll(".creation-error"))
+      .map((element) => element.textContent ?? "")
+      .join(" ");
+    expect(errorMessages).not.toContain("ancrage");
+    expect(errorMessages).not.toContain("aucun fait vérifié");
+    expect(container.textContent).not.toContain("format plus court");
   });
 
 });
