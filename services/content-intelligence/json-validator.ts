@@ -2,6 +2,7 @@ import { ContentGenerationError } from "@/services/content-generation/errors";
 import type {
   ContentGenerationResult,
   ContentTemplateKey,
+  InterviewBrief,
   InterviewQuestion,
   PublicationIdea,
   ReelIdea,
@@ -112,10 +113,51 @@ const validateAfterMatchQuestionCoverage = (
   questions: InterviewQuestion[],
   interviewType: string | undefined,
   selectedContextItems: ContextItem[],
+  afterMatchClosingFacts?: InterviewBrief["afterMatchClosingFacts"],
 ): void => {
   if (interviewType !== "after_match") return;
 
   const mainQuestions = normalizeForCoverage(questions.map((question) => question.text).join(" "));
+  const questionTexts = questions.map((question) => normalizeForCoverage(question.text));
+  const rankingMention = normalizeForCoverage(
+    afterMatchClosingFacts?.ranking?.requiredMention
+      || afterMatchClosingFacts?.ranking?.value
+      || "",
+  );
+  const opponentMention = normalizeForCoverage(
+    afterMatchClosingFacts?.nextFixture?.requiredMention
+      || afterMatchClosingFacts?.nextFixture?.opponent
+      || "",
+  );
+  const rankingQuestionIndex = rankingMention
+    ? questionTexts.findIndex((text) => text.includes(rankingMention))
+    : -1;
+  const opponentQuestionIndex = opponentMention
+    ? questionTexts.findIndex((text) => text.includes(opponentMention))
+    : -1;
+
+  if (rankingMention && rankingQuestionIndex < 0) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      `Le classement obligatoire doit citer ${afterMatchClosingFacts?.ranking?.requiredMention || afterMatchClosingFacts?.ranking?.value} dans une question principale`,
+    );
+  }
+  if (opponentMention && opponentQuestionIndex < 0) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      `Le prochain rendez-vous obligatoire doit citer ${afterMatchClosingFacts?.nextFixture?.requiredMention || afterMatchClosingFacts?.nextFixture?.opponent} dans une question principale`,
+    );
+  }
+  if (
+    rankingMention
+    && opponentMention
+    && rankingQuestionIndex === opponentQuestionIndex
+  ) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      "Le classement et le prochain rendez-vous doivent etre traites dans deux questions principales distinctes",
+    );
+  }
   const verifiedSelectedItems = selectedContextItems.filter((item) =>
     item.isSelected && item.verificationStatus === "verified"
   );
@@ -207,6 +249,7 @@ export const validateContentGenerationJson = (args: {
   interviewType?: string;
   missingInformation: string[];
   selectedContextItems?: ContextItem[];
+  afterMatchClosingFacts?: InterviewBrief["afterMatchClosingFacts"];
   contextResearchedAt?: string;
   contextDateRange?: ContextDateRange;
 }): ContentGenerationResult => {
@@ -255,6 +298,7 @@ export const validateContentGenerationJson = (args: {
     questions,
     args.interviewType,
     args.selectedContextItems ?? [],
+    args.afterMatchClosingFacts,
   );
 
   const reelIdeas = (Array.isArray(rawResult.reelIdeas) ? rawResult.reelIdeas : [])

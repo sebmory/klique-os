@@ -5424,7 +5424,7 @@ export function CreationAssistantScreen({
             <fieldset>
               <legend>Perspective facultative</legend>
               <p className="creation-muted">
-                Les faits officiels déjà présents dans le contexte restent prioritaires. Complétez seulement les éléments absents, avec leur source.
+                Facultatif. Si vous renseignez ces informations, elles seront abordées dans les questions de fin d’entretien.
               </p>
               <div className="creation-fields-grid">
                 <label>

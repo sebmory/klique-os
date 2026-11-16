@@ -3,6 +3,7 @@ import { ContentGenerationError } from "@/services/content-generation/errors";
 import { shouldRetryGenerationError } from "@/services/content-intelligence/engine";
 import { validateContentGenerationJson } from "@/services/content-intelligence/json-validator";
 import type { InterviewGenerationResultRaw } from "@/services/content-intelligence/interview-schema";
+import type { InterviewBrief } from "@/types/content-generation";
 import type { ContextItem } from "@/types/context-intelligence";
 
 const buildQuestion = (index: number) => ({
@@ -239,6 +240,60 @@ describe("content intelligence structured validation", () => {
     expect(result.questions).toHaveLength(8);
     expect(result.metadata.questionCountRequested).toBe(8);
     expect(result.metadata.questionCountGenerated).toBe(8);
+  });
+
+  it("impose les deux sujets de fin renseignes uniquement dans les questions principales", () => {
+    const closingFacts: InterviewBrief["afterMatchClosingFacts"] = {
+      ranking: {
+        value: "3e de NL1 Men",
+        asOfDate: "2026-11-16",
+        source: "Classement fourni",
+        verificationStatus: "unverified",
+        retainedFrom: "manual_brief",
+        requiredMention: "3e",
+      },
+      nextFixture: {
+        opponent: "Lausanne Basket",
+        date: "2026-11-22",
+        competition: "NL1 Men",
+        source: "Calendrier fourni",
+        verificationStatus: "unverified",
+        retainedFrom: "manual_brief",
+        requiredMention: "Lausanne Basket",
+      },
+    };
+    const validateEight = (
+      raw: InterviewGenerationResultRaw,
+      afterMatchClosingFacts?: InterviewBrief["afterMatchClosingFacts"],
+    ) => validateContentGenerationJson({
+      parsedContent: raw,
+      requestStartedAt: Date.now() - 15,
+      provider: "openai",
+      model: "test-model",
+      templateKey: "interview:v1",
+      templateVersion: "v1",
+      promptVersion: "cie-interview-v6",
+      questionCount: 8,
+      interviewType: "after_match",
+      selectedContextItems: libanSelectedFacts,
+      afterMatchClosingFacts,
+      missingInformation: [],
+    });
+
+    const accepted = buildValidRaw(8);
+    accepted.questions[0].text = "Comment avez-vous construit vos 21 points ?";
+    accepted.questions[1].text = "De plus 19 avant le dernier quart a plus 8 au final, comment avez-vous vecu cette fin de match ?";
+    accepted.questions[6].text = "Sion est 3e de NL1 Men : qu est-ce que cette place change dans vos ambitions ?";
+    accepted.questions[7].text = "Vous affrontez Lausanne Basket au prochain match : quel sera l enjeu principal ?";
+    expect(validateEight(accepted, closingFacts).questions).toHaveLength(8);
+
+    const omitted = buildValidRaw(8);
+    omitted.questions[0].text = "Comment avez-vous construit vos 21 points ?";
+    omitted.questions[1].text = "De plus 19 avant le dernier quart a plus 8 au final, comment avez-vous vecu cette fin de match ?";
+    omitted.questions[7].text = "Quelle priorite retenez-vous pour la suite ?";
+    expect(() => validateEight(omitted, closingFacts))
+      .toThrow(/classement obligatoire doit citer 3e dans une question principale/);
+    expect(validateEight(omitted).questions).toHaveLength(8);
   });
 
   it("rejette les reserves conditionnelles dans les questions principales", () => {

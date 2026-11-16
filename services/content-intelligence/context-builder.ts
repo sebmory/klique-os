@@ -55,6 +55,126 @@ const formatContextItem = (item: ContextItem): string => {
   return suffix ? `${base} (${suffix})` : base;
 };
 
+type ClosingFactCandidate = {
+  category: string;
+  text: string;
+  source: string;
+  date?: string;
+};
+
+const normalizeForMatching = (value: string): string => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
+
+const extractRankingMention = (value: string): string | null => {
+  const normalized = normalizeForMatching(value);
+  const ordinal = normalized.match(/\b(\d{1,3})\s*(er|re|e|eme)\b/);
+  if (ordinal) return `${ordinal[1]}${ordinal[2]}`;
+  const numberedPlace = normalized.match(/\b(?:classement|classe|position|place)\D{0,24}(\d{1,3})\b/);
+  return numberedPlace?.[1] ?? null;
+};
+
+const extractOpponentMention = (value: string): string | null => {
+  const normalized = value
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = normalized.match(
+    /\b(?:contre|face a|face à|affrontera?|recevra?|chez)\s+([^,.;]+?)(?=\s+(?:le|en|dans)\b|[,.;]|$)/i,
+  );
+  return match?.[1]?.trim() ?? null;
+};
+
+const buildVerifiedClosingCandidates = (
+  items: ContextItem[],
+): ClosingFactCandidate[] => {
+  return items
+    .filter((item) =>
+      item.isSelected
+      && item.statementType === "fact"
+      && item.sourceType === "official"
+      && item.verificationStatus === "verified")
+    .map((item) => ({
+      category: item.category,
+      text: normalize(item.factualStatement) || normalize(item.summary),
+      source: normalize(item.sourceName) || "Contexte officiel vérifié",
+      date: normalize(item.publishedAt) || undefined,
+    }));
+};
+
+const resolveAfterMatchClosingFacts = (
+  payload: CreationPreparationPayload,
+): InterviewGenerationRequest["brief"]["afterMatchClosingFacts"] => {
+  const submitted = payload.parameters.afterMatchClosingFacts;
+  if (payload.objective.subtypeId !== "after_match" || !submitted) return undefined;
+
+  const candidates = buildVerifiedClosingCandidates(
+    payload.parameters.contextIntelligence.selectedContextItems,
+  );
+  const officialRanking = submitted.ranking
+    ? candidates
+        .map((candidate) => ({ candidate, mention: extractRankingMention(candidate.text) }))
+        .find(({ candidate, mention }) =>
+          Boolean(mention)
+          && /\b(?:classement|classe|position|place)\b/.test(normalizeForMatching(candidate.text)))
+    : undefined;
+  const officialNextFixture = submitted.nextFixture
+    ? candidates
+        .filter((candidate) =>
+          candidate.category === "schedule"
+          || /\b(?:prochain match|prochaine rencontre|prochain rendez-vous|calendrier)\b/.test(
+            normalizeForMatching(candidate.text),
+          ))
+        .map((candidate) => ({ candidate, mention: extractOpponentMention(candidate.text) }))
+        .find(({ mention }) => Boolean(mention))
+    : undefined;
+
+  return {
+    ...(submitted.ranking
+      ? {
+          ranking: officialRanking?.mention
+            ? {
+                value: officialRanking.mention,
+                asOfDate: officialRanking.candidate.date || submitted.ranking.asOfDate,
+                source: officialRanking.candidate.source,
+                verificationStatus: "verified" as const,
+                retainedFrom: "verified_context" as const,
+                requiredMention: officialRanking.mention,
+                resolutionNote: `Valeur officielle vérifiée retenue: ${officialRanking.mention}. Saisie manuelle écartée: ${submitted.ranking.value}.`,
+              }
+            : {
+                ...submitted.ranking,
+                retainedFrom: "manual_brief" as const,
+                requiredMention: extractRankingMention(submitted.ranking.value) || submitted.ranking.value,
+                resolutionNote: "Saisie manuelle retenue comme information fournie par l utilisateur; sa source ne constitue pas une vérification indépendante.",
+              },
+        }
+      : {}),
+    ...(submitted.nextFixture
+      ? {
+          nextFixture: officialNextFixture?.mention
+            ? {
+                opponent: officialNextFixture.mention,
+                date: officialNextFixture.candidate.date || submitted.nextFixture.date,
+                competition: submitted.nextFixture.competition,
+                source: officialNextFixture.candidate.source,
+                verificationStatus: "verified" as const,
+                retainedFrom: "verified_context" as const,
+                requiredMention: officialNextFixture.mention,
+                resolutionNote: `Valeur officielle vérifiée retenue: ${officialNextFixture.mention}. Saisie manuelle écartée: ${submitted.nextFixture.opponent}.`,
+              }
+            : {
+                ...submitted.nextFixture,
+                retainedFrom: "manual_brief" as const,
+                requiredMention: submitted.nextFixture.opponent,
+                resolutionNote: "Saisie manuelle retenue comme information fournie par l utilisateur; sa source ne constitue pas une vérification indépendante.",
+              },
+        }
+      : {}),
+  };
+};
+
 // Signale au journaliste la matiere qui manque pour une interview apres-match,
 // et propose une observation de terrain identifiee comme note du journaliste.
 const afterMatchPreparationNotes = (
@@ -260,6 +380,7 @@ export const buildContentGenerationRequest = async (
   editorialContext?: EditorialModelContext,
 ): Promise<{ request: AnyContentGenerationRequest; missingInformation: string[] }> => {
   const { context, missingInformation } = await buildContentContext(payload, access, editorialContext);
+  const afterMatchClosingFacts = resolveAfterMatchClosingFacts(payload);
 
   if (payload.objective.id === "publication") {
     const publication = payload.parameters.publication;
@@ -409,7 +530,7 @@ export const buildContentGenerationRequest = async (
       requiredTopics: payload.parameters.requiredTopics,
       avoidedTopics: payload.parameters.avoidedTopics,
       additionalContext: editorialContext ? "" : payload.parameters.additionalContext,
-      afterMatchClosingFacts: payload.parameters.afterMatchClosingFacts,
+      afterMatchClosingFacts,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
     contextSelection: buildContextSelection(payload),

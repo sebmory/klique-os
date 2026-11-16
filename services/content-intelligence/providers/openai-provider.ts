@@ -458,6 +458,7 @@ export class OpenAIProvider implements ContentGenerationProvider {
             promptVersion: contentIntelligenceConfig.interviewPromptVersion,
             questionCount: args.request.brief.questionCount,
             interviewType: args.request.brief.interviewType,
+            afterMatchClosingFacts: args.request.brief.afterMatchClosingFacts,
             missingInformation: [],
             selectedContextItems: args.request.selectedContextItems,
             contextResearchedAt: args.request.contextSelection.researchedAt,

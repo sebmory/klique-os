@@ -241,14 +241,20 @@ export type InterviewBrief = {
       value: string;
       asOfDate: string;
       source: string;
-      verificationStatus: "unverified";
+      verificationStatus: "verified" | "unverified";
+      retainedFrom?: "manual_brief" | "verified_context";
+      requiredMention?: string;
+      resolutionNote?: string;
     };
     nextFixture?: {
       opponent: string;
       date: string;
       competition: string;
       source: string;
-      verificationStatus: "unverified";
+      verificationStatus: "verified" | "unverified";
+      retainedFrom?: "manual_brief" | "verified_context";
+      requiredMention?: string;
+      resolutionNote?: string;
     };
   };
 };

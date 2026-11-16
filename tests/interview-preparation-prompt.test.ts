@@ -165,9 +165,8 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("Ne pas repeter le score complet dans plusieurs questions");
     expect(prompt).toContain("sans position fixe valable pour tous les matchs");
     expect(prompt).toContain("placer d abord la question sur le moment collectif documente");
-    expect(prompt).toContain("saisi manuellement dans les faits facultatifs du brief reste une piste non verifiee");
-    expect(prompt).toContain("meme avec une source");
-    expect(prompt).toContain("question ouverte sur la suite sans inventer de rang");
+    expect(prompt).toContain("Chaque bloc afterMatchClosingFacts present dans le brief est un sujet obligatoire");
+    expect(prompt).toContain("une valeur manual_brief reste une information fournie par l utilisateur");
     expect(prompt).toContain("Chaque question doit chercher une reponse differente des autres");
     expect(prompt).toContain("Attribuer explicitement a l equipe les scores");
     expect(prompt).toContain("Ne jamais supposer que le joueur etait sur le terrain");
@@ -209,7 +208,23 @@ describe("interview preparation prompt", () => {
   });
 
   it("passes complete optional closing facts to the same interview prompt", async () => {
-    const payload = payloadFor("after_match", collectiveItems);
+    const payload = payloadFor("after_match", [
+      ...collectiveItems,
+      contextItem({
+        id: "official-ranking",
+        category: "other",
+        sourceType: "official",
+        summary: "Classement officiel au 16 novembre : Sion Basket occupe la 2e place.",
+        factualStatement: "Classement officiel au 16 novembre : Sion Basket occupe la 2e place.",
+      }),
+      contextItem({
+        id: "official-schedule",
+        category: "schedule",
+        sourceType: "official",
+        summary: "Prochain match contre Lausanne Basket le 22 novembre en NL1 Men.",
+        factualStatement: "Prochain match contre Lausanne Basket le 22 novembre en NL1 Men.",
+      }),
+    ]);
     payload.parameters.afterMatchClosingFacts = {
       ranking: {
         value: "3e de NL1 Men",
@@ -228,11 +243,25 @@ describe("interview preparation prompt", () => {
 
     const { request, prompt } = await buildPrompt(payload);
 
-    expect(request.brief.afterMatchClosingFacts).toEqual(payload.parameters.afterMatchClosingFacts);
-    expect(prompt).toContain('"value": "3e de NL1 Men"');
-    expect(prompt).toContain('"opponent": "Adversaire fictif"');
-    expect(prompt).toContain('"verificationStatus": "unverified"');
-    expect(prompt).toContain("utiliser le classement date ou le prochain rendez-vous comme premisse seulement");
+    expect(request.brief.afterMatchClosingFacts).toEqual({
+      ranking: expect.objectContaining({
+        value: "2e",
+        requiredMention: "2e",
+        retainedFrom: "verified_context",
+        verificationStatus: "verified",
+        resolutionNote: expect.stringContaining("Saisie manuelle écartée: 3e de NL1 Men"),
+      }),
+      nextFixture: expect.objectContaining({
+        opponent: "Lausanne Basket",
+        requiredMention: "Lausanne Basket",
+        retainedFrom: "verified_context",
+        verificationStatus: "verified",
+        resolutionNote: expect.stringContaining("Saisie manuelle écartée: Adversaire fictif"),
+      }),
+    });
+    expect(prompt).toContain('"requiredMention": "2e"');
+    expect(prompt).toContain('"requiredMention": "Lausanne Basket"');
+    expect(prompt).toContain("une valeur verified_context remplace la saisie manuelle contradictoire");
   });
 
   it("gives each interview type its own preparation frame and shared craft rules", async () => {
