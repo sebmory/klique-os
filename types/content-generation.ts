@@ -236,6 +236,21 @@ export type InterviewBrief = {
   requiredTopics: string[];
   avoidedTopics: string[];
   additionalContext: string;
+  afterMatchClosingFacts?: {
+    ranking?: {
+      value: string;
+      asOfDate: string;
+      source: string;
+      verificationStatus: "unverified";
+    };
+    nextFixture?: {
+      opponent: string;
+      date: string;
+      competition: string;
+      source: string;
+      verificationStatus: "unverified";
+    };
+  };
 };
 
 export type PublicationBrief = {

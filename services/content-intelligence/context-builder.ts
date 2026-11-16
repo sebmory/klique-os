@@ -409,6 +409,7 @@ export const buildContentGenerationRequest = async (
       requiredTopics: payload.parameters.requiredTopics,
       avoidedTopics: payload.parameters.avoidedTopics,
       additionalContext: editorialContext ? "" : payload.parameters.additionalContext,
+      afterMatchClosingFacts: payload.parameters.afterMatchClosingFacts,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
     contextSelection: buildContextSelection(payload),

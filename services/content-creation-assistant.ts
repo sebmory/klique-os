@@ -103,6 +103,17 @@ export type CreationParametersDraft = {
   customAudience: string;
   interviewAngleId?: string;
   interviewAngle?: string;
+  afterMatchRanking?: {
+    value: string;
+    asOfDate: string;
+    source: string;
+  };
+  afterMatchNextFixture?: {
+    opponent: string;
+    date: string;
+    competition: string;
+    source: string;
+  };
   additionalContext: string;
   manualEditorialMaterials: ManualEditorialMaterial[];
   manualInterviewSource: ManualInterviewSource | null;
@@ -172,6 +183,21 @@ export type CreationPreparationPayload = {
     questionCount: number;
     formatId: string;
     audienceId: string;
+    afterMatchClosingFacts?: {
+      ranking?: {
+        value: string;
+        asOfDate: string;
+        source: string;
+        verificationStatus: "unverified";
+      };
+      nextFixture?: {
+        opponent: string;
+        date: string;
+        competition: string;
+        source: string;
+        verificationStatus: "unverified";
+      };
+    };
     additionalContext: string;
     requiredTopics: string[];
     avoidedTopics: string[];
@@ -467,6 +493,17 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       customAudience: "",
       interviewAngleId: "",
       interviewAngle: "",
+      afterMatchRanking: {
+        value: "",
+        asOfDate: "",
+        source: "",
+      },
+      afterMatchNextFixture: {
+        opponent: "",
+        date: "",
+        competition: "",
+        source: "",
+      },
       additionalContext: "",
       manualEditorialMaterials: [],
       manualInterviewSource: null,
@@ -662,6 +699,27 @@ export const ContentCreationAssistantService = {
         questionCount: isInterview ? questionCount : 3,
         formatId: generationFormat,
         audienceId: audience,
+        afterMatchClosingFacts: isInterview && args.draft.objective.subtypeId === "after_match"
+          ? {
+              ranking: args.draft.parameters.afterMatchRanking
+                ? {
+                    value: normalize(args.draft.parameters.afterMatchRanking.value),
+                    asOfDate: normalize(args.draft.parameters.afterMatchRanking.asOfDate),
+                    source: normalize(args.draft.parameters.afterMatchRanking.source),
+                    verificationStatus: "unverified",
+                  }
+                : undefined,
+              nextFixture: args.draft.parameters.afterMatchNextFixture
+                ? {
+                    opponent: normalize(args.draft.parameters.afterMatchNextFixture.opponent),
+                    date: normalize(args.draft.parameters.afterMatchNextFixture.date),
+                    competition: normalize(args.draft.parameters.afterMatchNextFixture.competition),
+                    source: normalize(args.draft.parameters.afterMatchNextFixture.source),
+                    verificationStatus: "unverified",
+                  }
+                : undefined,
+            }
+          : undefined,
         additionalContext: isAfterMatch && args.draft.afterMatch
           ? [
               normalize(args.draft.parameters.additionalContext),

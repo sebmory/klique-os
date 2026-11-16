@@ -113,4 +113,76 @@ describe("automatic creation style", () => {
       expect(payload?.parameters.toneId).toContain(testCase.angle);
     }
   });
+
+  it("keeps complete sourced after-match perspectives and rejects partial ones", () => {
+    const draft = createInitialAssistantDraft({ mode: "free", objective: "interview" });
+    draft.subject = {
+      ...draft.subject,
+      type: "person",
+      source: "temporary",
+      displayName: "Athlète Exemple",
+    };
+    draft.objective.subtypeId = "after_match";
+    draft.parameters.afterMatchRanking = {
+      value: "3e de NL1 Men",
+      asOfDate: "2026-11-16",
+      source: "Classement officiel fictif",
+    };
+    draft.parameters.afterMatchNextFixture = {
+      opponent: "Adversaire fictif",
+      date: "2026-11-22",
+      competition: "NL1 Men",
+      source: "Calendrier officiel fictif",
+    };
+
+    const payload = ContentCreationAssistantService.preparePayload({
+      context: { mode: "free", objective: "interview" },
+      draft,
+    });
+    if (!payload) throw new Error("Payload interview attendu");
+    expect(payload?.parameters.afterMatchClosingFacts).toEqual({
+      ranking: {
+        ...draft.parameters.afterMatchRanking,
+        verificationStatus: "unverified",
+      },
+      nextFixture: {
+        ...draft.parameters.afterMatchNextFixture,
+        verificationStatus: "unverified",
+      },
+    });
+    expect(validateCreationPayload(payload).parameters.afterMatchClosingFacts)
+      .toEqual(payload?.parameters.afterMatchClosingFacts);
+
+    const forgedVerification = validateCreationPayload({
+      ...payload,
+      parameters: {
+        ...payload?.parameters,
+        afterMatchClosingFacts: {
+          ranking: {
+            value: "3e de NL1 Men",
+            asOfDate: "2026-11-16",
+            source: "Classement officiel fictif",
+            verificationStatus: "verified",
+          },
+        },
+      },
+    });
+    expect(forgedVerification.parameters.afterMatchClosingFacts?.ranking?.verificationStatus)
+      .toBe("unverified");
+
+    expect(() => validateCreationPayload({
+      ...payload,
+      parameters: {
+        ...payload?.parameters,
+        afterMatchClosingFacts: {
+          ranking: {
+            value: "3e de NL1 Men",
+            asOfDate: "",
+            source: "",
+            verificationStatus: "unverified",
+          },
+        },
+      },
+    })).toThrow("Le classement facultatif exige le rang, la date et la source");
+  });
 });

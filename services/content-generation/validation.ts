@@ -100,6 +100,59 @@ const sanitizeManualEdits = (value: unknown): Array<{ itemId: string; text: stri
     .slice(0, 40);
 };
 
+const sanitizeAfterMatchClosingFacts = (
+  value: CreationPreparationPayload["parameters"]["afterMatchClosingFacts"],
+): CreationPreparationPayload["parameters"]["afterMatchClosingFacts"] => {
+  const ranking = value?.ranking
+    ? {
+        value: normalize(value.ranking.value),
+        asOfDate: normalize(value.ranking.asOfDate),
+        source: normalize(value.ranking.source),
+        verificationStatus: "unverified" as const,
+      }
+    : undefined;
+  const nextFixture = value?.nextFixture
+    ? {
+        opponent: normalize(value.nextFixture.opponent),
+        date: normalize(value.nextFixture.date),
+        competition: normalize(value.nextFixture.competition),
+        source: normalize(value.nextFixture.source),
+        verificationStatus: "unverified" as const,
+      }
+    : undefined;
+
+  const hasRankingValue = Boolean(ranking && (ranking.value || ranking.asOfDate || ranking.source));
+  if (
+    hasRankingValue
+    && !(ranking?.value && ranking.asOfDate && ranking.source)
+  ) {
+    throw new ContentGenerationError(
+      "INVALID_REQUEST",
+      "Le classement facultatif exige le rang, la date et la source",
+    );
+  }
+
+  const hasNextFixtureValue = Boolean(
+    nextFixture
+    && (nextFixture.opponent || nextFixture.date || nextFixture.competition || nextFixture.source),
+  );
+  if (
+    hasNextFixtureValue
+    && !(nextFixture?.opponent && nextFixture.date && nextFixture.competition && nextFixture.source)
+  ) {
+    throw new ContentGenerationError(
+      "INVALID_REQUEST",
+      "Le prochain rendez-vous facultatif exige l adversaire, la date, la competition et la source",
+    );
+  }
+
+  if (!hasRankingValue && !hasNextFixtureValue) return undefined;
+  return {
+    ...(hasRankingValue ? { ranking } : {}),
+    ...(hasNextFixtureValue ? { nextFixture } : {}),
+  };
+};
+
 export const validateCreationPayload = (value: unknown): CreationPreparationPayload => {
   if (!value || typeof value !== "object") {
     throw new ContentGenerationError("INVALID_REQUEST", "Requete invalide");
@@ -164,6 +217,9 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
   const collectionId = normalize(payload.parameters.contextIntelligence?.collectionId);
   const selectedItemIds = sanitizeSelectedItemIds(payload.parameters.contextIntelligence?.selectedItemIds);
   const manualEdits = sanitizeManualEdits(payload.parameters.contextIntelligence?.manualEdits);
+  const afterMatchClosingFacts = isInterview && normalize(payload.objective.subtypeId) === "after_match"
+    ? sanitizeAfterMatchClosingFacts(payload.parameters.afterMatchClosingFacts)
+    : undefined;
 
   const publication = payload.parameters.publication
     ? {
@@ -253,6 +309,7 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
       }),
       formatId,
       audienceId,
+      afterMatchClosingFacts,
       additionalContext,
       requiredTopics,
       avoidedTopics,

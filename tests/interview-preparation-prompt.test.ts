@@ -159,9 +159,15 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("le role en sortie de banc peut faire partie du fil");
     expect(prompt).toContain("Traiter la feuille de match comme des notes");
     expect(prompt).toContain("jamais fabriquer une question par quart-temps");
+    expect(prompt).toContain("Ne pas demander le premier ballon, le premier tir, la premiere possession");
     expect(prompt).toContain("une relance courte peut chercher un souvenir, un choix ou un ressenti sans repeter la statistique");
     expect(prompt).toContain("Ne pas poser plusieurs variantes sur la meme fin de match");
     expect(prompt).toContain("Ne pas repeter le score complet dans plusieurs questions");
+    expect(prompt).toContain("sans position fixe valable pour tous les matchs");
+    expect(prompt).toContain("placer d abord la question sur le moment collectif documente");
+    expect(prompt).toContain("saisi manuellement dans les faits facultatifs du brief reste une piste non verifiee");
+    expect(prompt).toContain("meme avec une source");
+    expect(prompt).toContain("question ouverte sur la suite sans inventer de rang");
     expect(prompt).toContain("Chaque question doit chercher une reponse differente des autres");
     expect(prompt).toContain("Attribuer explicitement a l equipe les scores");
     expect(prompt).toContain("Ne jamais supposer que le joueur etait sur le terrain");
@@ -200,6 +206,33 @@ describe("interview preparation prompt", () => {
     expect(readiness).toMatchObject({ ready: true, verifiedAnchorCount: 8 });
     expect(prompt).toContain("Generer exactement 8 questions principales, ni plus ni moins.");
     expect(prompt).toContain("Les reserves et pistes non verifiees restent dans Fiabilite et sources");
+  });
+
+  it("passes complete optional closing facts to the same interview prompt", async () => {
+    const payload = payloadFor("after_match", collectiveItems);
+    payload.parameters.afterMatchClosingFacts = {
+      ranking: {
+        value: "3e de NL1 Men",
+        asOfDate: "2026-11-16",
+        source: "Classement officiel fictif",
+        verificationStatus: "unverified",
+      },
+      nextFixture: {
+        opponent: "Adversaire fictif",
+        date: "2026-11-22",
+        competition: "NL1 Men",
+        source: "Calendrier officiel fictif",
+        verificationStatus: "unverified",
+      },
+    };
+
+    const { request, prompt } = await buildPrompt(payload);
+
+    expect(request.brief.afterMatchClosingFacts).toEqual(payload.parameters.afterMatchClosingFacts);
+    expect(prompt).toContain('"value": "3e de NL1 Men"');
+    expect(prompt).toContain('"opponent": "Adversaire fictif"');
+    expect(prompt).toContain('"verificationStatus": "unverified"');
+    expect(prompt).toContain("utiliser le classement date ou le prochain rendez-vous comme premisse seulement");
   });
 
   it("gives each interview type its own preparation frame and shared craft rules", async () => {

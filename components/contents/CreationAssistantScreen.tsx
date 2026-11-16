@@ -5420,6 +5420,144 @@ export function CreationAssistantScreen({
               }))} />
             </label>
           </div>
+          {draft.objective.subtypeId === "after_match" ? (
+            <fieldset>
+              <legend>Perspective facultative</legend>
+              <p className="creation-muted">
+                Les faits officiels déjà présents dans le contexte restent prioritaires. Complétez seulement les éléments absents, avec leur source.
+              </p>
+              <div className="creation-fields-grid">
+                <label>
+                  <span>Classement</span>
+                  <input
+                    value={draft.parameters.afterMatchRanking?.value ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchRanking: {
+                          value: event.target.value,
+                          asOfDate: current.parameters.afterMatchRanking?.asOfDate ?? "",
+                          source: current.parameters.afterMatchRanking?.source ?? "",
+                        },
+                      },
+                    }))}
+                    placeholder="Ex. 3e de NL1 Men"
+                  />
+                </label>
+                <label>
+                  <span>Classement daté au</span>
+                  <input
+                    type="date"
+                    value={draft.parameters.afterMatchRanking?.asOfDate ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchRanking: {
+                          value: current.parameters.afterMatchRanking?.value ?? "",
+                          asOfDate: event.target.value,
+                          source: current.parameters.afterMatchRanking?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Source du classement</span>
+                  <input
+                    value={draft.parameters.afterMatchRanking?.source ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchRanking: {
+                          value: current.parameters.afterMatchRanking?.value ?? "",
+                          asOfDate: current.parameters.afterMatchRanking?.asOfDate ?? "",
+                          source: event.target.value,
+                        },
+                      },
+                    }))}
+                    placeholder="URL ou référence officielle"
+                  />
+                </label>
+                <label>
+                  <span>Prochain adversaire</span>
+                  <input
+                    value={draft.parameters.afterMatchNextFixture?.opponent ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchNextFixture: {
+                          opponent: event.target.value,
+                          date: current.parameters.afterMatchNextFixture?.date ?? "",
+                          competition: current.parameters.afterMatchNextFixture?.competition ?? "",
+                          source: current.parameters.afterMatchNextFixture?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Date du prochain rendez-vous</span>
+                  <input
+                    type="date"
+                    value={draft.parameters.afterMatchNextFixture?.date ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchNextFixture: {
+                          opponent: current.parameters.afterMatchNextFixture?.opponent ?? "",
+                          date: event.target.value,
+                          competition: current.parameters.afterMatchNextFixture?.competition ?? "",
+                          source: current.parameters.afterMatchNextFixture?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Compétition du prochain rendez-vous</span>
+                  <input
+                    value={draft.parameters.afterMatchNextFixture?.competition ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchNextFixture: {
+                          opponent: current.parameters.afterMatchNextFixture?.opponent ?? "",
+                          date: current.parameters.afterMatchNextFixture?.date ?? "",
+                          competition: event.target.value,
+                          source: current.parameters.afterMatchNextFixture?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Source du prochain rendez-vous</span>
+                  <input
+                    value={draft.parameters.afterMatchNextFixture?.source ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        afterMatchNextFixture: {
+                          opponent: current.parameters.afterMatchNextFixture?.opponent ?? "",
+                          date: current.parameters.afterMatchNextFixture?.date ?? "",
+                          competition: current.parameters.afterMatchNextFixture?.competition ?? "",
+                          source: event.target.value,
+                        },
+                      },
+                    }))}
+                    placeholder="URL ou référence officielle"
+                  />
+                </label>
+              </div>
+            </fieldset>
+          ) : null}
           <fieldset>
             <legend>Sources</legend>
             <div className="creation-toggle-row">
