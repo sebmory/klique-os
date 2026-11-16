@@ -3,9 +3,9 @@ type JsonSchema = Record<string, unknown>;
 export type InterviewQuestionRaw = {
   text: string;
   purpose: string;
-  topic: string;
   optional: false;
   followUps: string[];
+  topic?: string;
 };
 
 export type InterviewIdeaRaw = {
@@ -50,11 +50,10 @@ const interviewIdeaSchema: JsonSchema = {
 const interviewQuestionSchema: JsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["text", "purpose", "topic", "optional", "followUps"],
+  required: ["text", "purpose", "optional", "followUps"],
   properties: {
     text: nonEmptyStringSchema,
     purpose: nonEmptyStringSchema,
-    topic: nonEmptyStringSchema,
     optional: { type: "boolean", enum: [false] },
     followUps: {
       type: "array",

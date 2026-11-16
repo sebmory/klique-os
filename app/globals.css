@@ -5310,14 +5310,6 @@ button {
   line-height: 1;
 }
 
-.document-question-topic {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #7d7d7d;
-}
-
 .document-lock-chip {
   margin-top: 5px;
   display: inline-flex;
@@ -5344,6 +5336,26 @@ button {
   color: #1b1b1b;
   font-size: 1.08rem;
   line-height: 1.62;
+}
+
+.document-question-details {
+  border-top: 1px solid #eeeeee;
+  padding-top: 8px;
+}
+
+.document-question-details > summary {
+  width: fit-content;
+  list-style: none;
+}
+
+.document-question-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.document-question-details-content {
+  display: grid;
+  gap: 12px;
+  padding-top: 10px;
 }
 
 .document-question-purpose-wrap {

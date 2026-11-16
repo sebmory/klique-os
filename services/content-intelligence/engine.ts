@@ -56,7 +56,9 @@ const attemptGenerate = async (
   const prompt = buildContentPrompt({
     request,
     template,
-    promptVersion: contentIntelligenceConfig.promptVersion,
+    promptVersion: request.requestType === "interview"
+      ? contentIntelligenceConfig.interviewPromptVersion
+      : contentIntelligenceConfig.promptVersion,
   });
 
   const result = await provider.generateJson({

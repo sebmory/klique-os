@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -104,7 +104,15 @@ const interviewDocument: InterviewDocument = {
     title: "Interview",
     editorialAngle: "Angle",
     introduction: "Introduction",
-    questions: [],
+    questions: [{
+      id: "question-1",
+      text: "Comment avez-vous vecu cette fin de match ?",
+      purpose: "Comprendre la gestion de la fin de match.",
+      topic: "Defense",
+      followUps: ["A quel moment l ecart vous a-t-il alerte ?"],
+      locked: false,
+      privateNotes: "",
+    }],
     conclusion: "Conclusion",
   },
 };
@@ -313,6 +321,24 @@ afterEach(async () => {
 });
 
 describe("After-match Pack editor UI", () => {
+  it("shows only the interview number and question by default, with details behind Plus", async () => {
+    await act(async () => {
+      root.render(<ContentDocumentEditor initialDocument={interviewDocument} onSaveDraft={vi.fn()} isPersistedInCloud />);
+    });
+    await flush();
+
+    const details = Array.from(container.querySelectorAll("details"))
+      .find((node) => node.querySelector("summary")?.textContent === "Plus");
+
+    expect(container.textContent).toContain("01");
+    expect(container.textContent).toContain("Comment avez-vous vecu cette fin de match ?");
+    expect(details).toBeDefined();
+    expect(details?.open).toBe(false);
+    expect(container.textContent).not.toContain("Defense");
+    expect(details?.textContent).toContain("Objectif editorial");
+    expect(details?.textContent).toContain("Relances");
+  });
+
   it.each([
     ["Interview", interviewDocument],
     ["Reel", reelDocument],

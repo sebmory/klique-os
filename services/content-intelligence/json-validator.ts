@@ -25,7 +25,7 @@ const normalizeQuestion = (value: unknown, index: number): InterviewQuestion | n
   const topic = normalize(obj.topic);
   const followUps = toStringArray(obj.followUps);
   if (!text) return null;
-  if (!purpose || !topic) return null;
+  if (!purpose) return null;
   if (!followUps.length) return null;
 
   return {
@@ -96,6 +96,84 @@ const hasExactDuplicateQuestions = (questions: InterviewQuestion[]): boolean => 
   return false;
 };
 
+const normalizeForCoverage = (value: string): string => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[–—]/g, "-")
+  .toLowerCase();
+
+const validateAfterMatchQuestionCoverage = (
+  questions: InterviewQuestion[],
+  interviewType: string | undefined,
+  selectedContextItems: ContextItem[],
+): void => {
+  if (interviewType !== "after_match") return;
+
+  const mainQuestions = normalizeForCoverage(questions.map((question) => question.text).join(" "));
+  const verifiedSelectedItems = selectedContextItems.filter((item) =>
+    item.isSelected && item.verificationStatus === "verified"
+  );
+  const verifiedFacts = verifiedSelectedItems.map((item) =>
+    normalizeForCoverage(item.factualStatement || item.summary)
+  );
+  const performanceFacts = verifiedSelectedItems.filter((item) => item.category === "performance");
+  for (const performanceFact of performanceFacts) {
+    const performanceValues = Array.from(
+      normalizeForCoverage(performanceFact.factualStatement || performanceFact.summary).matchAll(/\b(\d{1,3})\b/g),
+      (match) => match[1],
+    );
+    if (
+      performanceValues.length > 0
+      && !performanceValues.some((value) => new RegExp(`\\b${value}\\b`).test(mainQuestions))
+    ) {
+      throw new ContentGenerationError(
+        "INVALID_PROVIDER_RESPONSE",
+        "Le fait de performance individuel verifie doit apparaitre dans une question principale",
+      );
+    }
+  }
+
+  const facts = verifiedFacts.join(" ");
+  const quarters = Array.from(
+    facts.matchAll(/\bq([1-4])\s*(\d{1,3})\s*-\s*(\d{1,3})\b/g),
+    (match) => ({
+      quarter: Number(match[1]),
+      home: Number(match[2]),
+      away: Number(match[3]),
+    }),
+  );
+  const byQuarter = new Map(quarters.map((quarter) => [quarter.quarter, quarter]));
+  if (byQuarter.size !== 4) return;
+
+  const beforeFinal = [1, 2, 3].reduce((totals, quarterNumber) => {
+    const quarter = byQuarter.get(quarterNumber);
+    return {
+      home: totals.home + (quarter?.home ?? 0),
+      away: totals.away + (quarter?.away ?? 0),
+    };
+  }, { home: 0, away: 0 });
+  const final = [1, 2, 3, 4].reduce((totals, quarterNumber) => {
+    const quarter = byQuarter.get(quarterNumber);
+    return {
+      home: totals.home + (quarter?.home ?? 0),
+      away: totals.away + (quarter?.away ?? 0),
+    };
+  }, { home: 0, away: 0 });
+  const beforeFinalGap = Math.abs(beforeFinal.home - beforeFinal.away);
+  const finalGap = Math.abs(final.home - final.away);
+  if (beforeFinalGap <= finalGap) return;
+
+  const hasEndGameAnchor = /(dernier quart|quatrieme quart|fin de match|fin de rencontre)/.test(mainQuestions);
+  const hasBothGaps = new RegExp(`\\b${beforeFinalGap}\\b`).test(mainQuestions)
+    && new RegExp(`\\b${finalGap}\\b`).test(mainQuestions);
+  if (!hasEndGameAnchor || !hasBothGaps) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      `Une question principale sur la fin de match doit citer l avance de ${beforeFinalGap} points avant le dernier quart et l ecart final de ${finalGap} points`,
+    );
+  }
+};
+
 const extractMissingFieldsSummary = (obj: Record<string, unknown>): string[] => {
   const missing: string[] = [];
   if (!normalize(obj.title)) missing.push("title");
@@ -120,6 +198,7 @@ export const validateContentGenerationJson = (args: {
   templateVersion: string;
   promptVersion: string;
   questionCount: number;
+  interviewType?: string;
   missingInformation: string[];
   selectedContextItems?: ContextItem[];
   contextResearchedAt?: string;
@@ -161,6 +240,11 @@ export const validateContentGenerationJson = (args: {
   if (hasExactDuplicateQuestions(questions)) {
     throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Questions dupliquees detectees");
   }
+  validateAfterMatchQuestionCoverage(
+    questions,
+    args.interviewType,
+    args.selectedContextItems ?? [],
+  );
 
   const reelIdeas = (Array.isArray(rawResult.reelIdeas) ? rawResult.reelIdeas : [])
     .map((item, index) => normalizeReelIdea(item, index))

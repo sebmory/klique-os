@@ -3,6 +3,7 @@ import { ContentGenerationError } from "@/services/content-generation/errors";
 import { shouldRetryGenerationError } from "@/services/content-intelligence/engine";
 import { validateContentGenerationJson } from "@/services/content-intelligence/json-validator";
 import type { InterviewGenerationResultRaw } from "@/services/content-intelligence/interview-schema";
+import type { ContextItem } from "@/types/context-intelligence";
 
 const buildQuestion = (index: number) => ({
   text: `Question ${index + 1}`,
@@ -46,6 +47,58 @@ const runValidation = (parsedContent: unknown, questionCount: number) => {
     missingInformation: [],
   });
 };
+
+const selectedFact = (overrides: Partial<ContextItem>): ContextItem => ({
+  id: "fact",
+  connectorId: "manual",
+  category: "result",
+  title: "Fait vérifié",
+  summary: "Fait vérifié",
+  factualStatement: "Fait vérifié",
+  statementType: "fact",
+  sourceType: "official",
+  sourceName: "Source officielle fictive",
+  retrievedAt: "2026-11-16T08:00:00.000Z",
+  confidence: "high",
+  verificationStatus: "verified",
+  isSelected: true,
+  isEditable: false,
+  metadata: {},
+  ...overrides,
+});
+
+const libanSelectedFacts = [
+  selectedFact({
+    id: "match-result",
+    factualStatement: "Sion fictif 82-74 Neuchâtel fictif.",
+  }),
+  selectedFact({
+    id: "match-quarters",
+    factualStatement: "Q1 25-11, Q2 12-17, Q3 28-18, Q4 17-28.",
+  }),
+  selectedFact({
+    id: "individual-performance",
+    category: "performance",
+    factualStatement: "Liban Maxamed a inscrit 21 points.",
+  }),
+];
+
+const runAfterMatchValidation = (
+  parsedContent: unknown,
+  selectedContextItems: ContextItem[] = libanSelectedFacts,
+) => validateContentGenerationJson({
+  parsedContent,
+  requestStartedAt: Date.now() - 15,
+  provider: "openai",
+  model: "test-model",
+  templateKey: "interview:v1",
+  templateVersion: "v1",
+  promptVersion: "cie-interview-v2",
+  questionCount: 3,
+  interviewType: "after_match",
+  selectedContextItems,
+  missingInformation: [],
+});
 
 describe("content intelligence structured validation", () => {
   it("CAS A: accepte une sortie structuree valide avec 15 questions", () => {
@@ -135,5 +188,56 @@ describe("content intelligence structured validation", () => {
     const result = runValidation(raw, 3);
     expect(result.questions).toHaveLength(3);
     expect(result.storyIdeas[0]?.concept.length).toBeGreaterThan(0);
+  });
+
+  it("accepte le schema sans categorie et conserve une categorie historique si elle existe", () => {
+    const raw = buildValidRaw(3);
+    delete raw.questions[0].topic;
+
+    const result = runValidation(raw, 3);
+
+    expect(result.questions[0]?.topic).toBe("");
+    expect(result.questions[1]?.topic).toBe("Theme 2");
+  });
+
+  it("valide la reception Liban quand les 21 points et la fin de match sont dans les questions principales", () => {
+    const raw = buildValidRaw(3);
+    raw.questions[0].text = "A chaud, comment avez-vous construit cette performance a 21 points ?";
+    raw.questions[1].text = "Vous aviez 19 points d avance avant le dernier quart, puis 8 a la fin : comment avez-vous vecu cette fin de match ?";
+    raw.questions[2].text = "Quel enseignement gardez-vous de cette victoire 82-74 ?";
+    raw.conclusion = "Un mot pour conclure ?";
+
+    expect(runAfterMatchValidation(raw).questions).toHaveLength(3);
+  });
+
+  it("refuse la reception Liban si les faits transmis restent absents des questions principales", () => {
+    const raw = buildValidRaw(3);
+    raw.questions[0].followUps = ["Vous avez marque 21 points : comment ?"];
+    raw.questions[1].followUps = ["Pourquoi l ecart est-il passe de 19 a 8 points ?"];
+
+    expect(() => runAfterMatchValidation(raw)).toThrow(/fait de performance individuel verifie doit apparaitre dans une question principale/);
+
+    raw.questions[0].text = "A chaud, comment avez-vous construit cette performance a 21 points ?";
+    expect(() => runAfterMatchValidation(raw)).toThrow(/avance de 19 points.*ecart final de 8 points/);
+  });
+
+  it("suit un autre fait de performance sans imposer une question sur le dernier quart", () => {
+    const raw = buildValidRaw(3);
+    raw.questions[0].text = "Vos 12 rebonds ont pese dans ce match : qu avez-vous cherche a imposer ?";
+    raw.questions[1].text = "A quel moment avez-vous senti le collectif prendre le dessus ?";
+    raw.questions[2].text = "Que retenez-vous de cette victoire ?";
+    const otherMatchFacts = [
+      selectedFact({
+        id: "other-performance",
+        category: "performance",
+        factualStatement: "Athlete Fictif a capte 12 rebonds.",
+      }),
+      selectedFact({
+        id: "other-quarters",
+        factualStatement: "Q1 20-20, Q2 20-20, Q3 20-20, Q4 25-10.",
+      }),
+    ];
+
+    expect(runAfterMatchValidation(raw, otherMatchFacts).questions).toHaveLength(3);
   });
 });

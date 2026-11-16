@@ -1802,7 +1802,6 @@ export function ContentDocumentEditor({
                       <div className="document-question-index-wrap">
                         <span className="document-question-number">{String(index + 1).padStart(2, "0")}</span>
                         <div>
-                          <p className="document-question-topic">{question.topic || "Theme libre"}</p>
                           {question.locked ? <span className="document-lock-chip"><Lock size={13} aria-hidden /> Verrouillee</span> : null}
                         </div>
                       </div>
@@ -1827,8 +1826,8 @@ export function ContentDocumentEditor({
                         ) : null}
 
                         <details className="document-inline-menu">
-                          <summary className="contents-ghost-button" aria-label={`Menu question ${index + 1}`}>
-                            <MoreHorizontal size={15} aria-hidden /> Plus
+                          <summary className="contents-ghost-button" aria-label={`Actions question ${index + 1}`}>
+                            <MoreHorizontal size={15} aria-hidden /> Actions
                           </summary>
                           <div className="document-inline-menu-panel">
                             {isEditing ? (
@@ -1909,83 +1908,71 @@ export function ContentDocumentEditor({
                       </p>
                     )}
 
-                    <div className="document-question-purpose-wrap">
-                      <span>Objectif editorial</span>
-                      {isEditing ? (
-                        <textarea
-                          id={`question-purpose-${question.id}`}
-                          className="document-question-sub-editor"
-                          rows={2}
-                          value={question.purpose}
-                          onChange={(event) =>
-                            updateQuestion(question.id, (current) => ({
-                              ...current,
-                              purpose: event.target.value,
-                            }))
-                          }
-                        />
-                      ) : (
-                        <p>{question.purpose || "Aucun objectif editorial"}</p>
-                      )}
-                    </div>
-
-                    {isEditing ? (
-                      <label className="document-inline-label" htmlFor={`question-topic-${question.id}`}>
-                        Theme
-                        <input
-                          id={`question-topic-${question.id}`}
-                          className="document-inline-input"
-                          value={question.topic}
-                          onChange={(event) =>
-                            updateQuestion(question.id, (current) => ({
-                              ...current,
-                              topic: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    ) : null}
-
-                    <div className="document-followups-wrap">
-                      <span>Relances</span>
-                      {isEditing ? (
-                        <ul className="document-followups-edit-list">
-                          {question.followUps.map((followUp, followUpIndex) => (
-                            <li key={`${question.id}-followup-${followUpIndex}`}>
-                              <input
-                                className="document-inline-input"
-                                value={followUp}
-                                onChange={(event) => updateFollowUp(question.id, followUpIndex, event.target.value)}
-                                aria-label={`Relance ${followUpIndex + 1}`}
-                              />
-                              <button
-                                type="button"
-                                className="contents-ghost-button is-danger"
-                                onClick={() => removeFollowUp(question.id, followUpIndex)}
-                                aria-label={`Supprimer la relance ${followUpIndex + 1}`}
-                              >
-                                <Trash2 size={13} aria-hidden />
-                              </button>
-                            </li>
-                          ))}
-                          <li>
-                            <button type="button" className="contents-ghost-button" onClick={() => addFollowUp(question.id)}>
-                              <Plus size={14} aria-hidden /> Ajouter une relance
-                            </button>
-                          </li>
-                        </ul>
-                      ) : (
-                        <ul className="document-followups-read-list">
-                          {question.followUps.filter((item) => item.trim().length > 0).length ? (
-                            question.followUps
-                              .filter((item) => item.trim().length > 0)
-                              .map((item, followUpIndex) => <li key={`${question.id}-read-followup-${followUpIndex}`}>{item}</li>)
+                    <details className="document-question-details">
+                      <summary className="contents-ghost-button">Plus</summary>
+                      <div className="document-question-details-content">
+                        <div className="document-question-purpose-wrap">
+                          <span>Objectif editorial</span>
+                          {isEditing ? (
+                            <textarea
+                              id={`question-purpose-${question.id}`}
+                              className="document-question-sub-editor"
+                              rows={2}
+                              value={question.purpose}
+                              onChange={(event) =>
+                                updateQuestion(question.id, (current) => ({
+                                  ...current,
+                                  purpose: event.target.value,
+                                }))
+                              }
+                            />
                           ) : (
-                            <li>Aucune relance</li>
+                            <p>{question.purpose || "Aucun objectif editorial"}</p>
                           )}
-                        </ul>
-                      )}
-                    </div>
+                        </div>
+
+                        <div className="document-followups-wrap">
+                          <span>Relances</span>
+                          {isEditing ? (
+                            <ul className="document-followups-edit-list">
+                              {question.followUps.map((followUp, followUpIndex) => (
+                                <li key={`${question.id}-followup-${followUpIndex}`}>
+                                  <input
+                                    className="document-inline-input"
+                                    value={followUp}
+                                    onChange={(event) => updateFollowUp(question.id, followUpIndex, event.target.value)}
+                                    aria-label={`Relance ${followUpIndex + 1}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="contents-ghost-button is-danger"
+                                    onClick={() => removeFollowUp(question.id, followUpIndex)}
+                                    aria-label={`Supprimer la relance ${followUpIndex + 1}`}
+                                  >
+                                    <Trash2 size={13} aria-hidden />
+                                  </button>
+                                </li>
+                              ))}
+                              <li>
+                                <button type="button" className="contents-ghost-button" onClick={() => addFollowUp(question.id)}>
+                                  <Plus size={14} aria-hidden /> Ajouter une relance
+                                </button>
+                              </li>
+                            </ul>
+                          ) : (
+                            <ul className="document-followups-read-list">
+                              {question.followUps.filter((item) => item.trim().length > 0).length ? (
+                                question.followUps
+                                  .filter((item) => item.trim().length > 0)
+                                  .map((item, followUpIndex) => <li key={`${question.id}-read-followup-${followUpIndex}`}>{item}</li>)
+                              ) : (
+                                <li>Aucune relance</li>
+                              )}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    </details>
 
                     {isEditing ? (
                       <details className="document-private-note-panel" open={openedNotes[question.id]}>

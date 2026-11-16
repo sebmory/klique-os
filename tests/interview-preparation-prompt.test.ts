@@ -39,7 +39,7 @@ const payloadFor = (
     type: "person",
     source: "temporary",
     id: undefined,
-    displayName: "Athlète Fictif",
+    displayName: "Liban Maxamed",
     description: "",
     sport: "Basketball",
     clubOrOrganization: "Club Fictif",
@@ -88,8 +88,8 @@ const buildPrompt = async (payload: CreationPreparationPayload) => {
 const collectiveItems = [
   contextItem({
     id: "fact-score",
-    summary: "Club Fictif 82–74 Rival Fictif, le 13 novembre, NL1 fictive.",
-    factualStatement: "Club Fictif 82–74 Rival Fictif, le 13 novembre, NL1 fictive.",
+    summary: "Sion fictif 82–74 Neuchâtel fictif, le 13 novembre, compétition fictive.",
+    factualStatement: "Sion fictif 82–74 Neuchâtel fictif, le 13 novembre, compétition fictive.",
   }),
   contextItem({
     id: "fact-quarters",
@@ -129,15 +129,25 @@ describe("interview preparation prompt", () => {
       contextItem({
         id: "fact-points",
         category: "performance",
-        summary: "Statistique vérifiée : Athlète Fictif a inscrit 21 points (feuille officielle).",
-        factualStatement: "Statistique vérifiée : Athlète Fictif a inscrit 21 points (feuille officielle).",
+        summary: "Statistique vérifiée : Liban Maxamed a inscrit 21 points (feuille officielle).",
+        factualStatement: "Statistique vérifiée : Liban Maxamed a inscrit 21 points (feuille officielle).",
       }),
     ];
     const { request, prompt } = await buildPrompt(payloadFor("after_match", richItems));
 
-    expect(request.context.externalVerifiedFacts.join(" ")).toContain("21 points");
+    expect(request.context.externalVerifiedFacts).toEqual([
+      "Sion fictif 82–74 Neuchâtel fictif, le 13 novembre, compétition fictive. (Source: Source officielle fictive)",
+      "Évolution par quart-temps selon la feuille officielle : Q1 25–11, Q2 12–17, Q3 28–18, Q4 17–28. (Source: Source officielle fictive)",
+      "Statistique vérifiée : Liban Maxamed a inscrit 21 points (feuille officielle). (Source: Source officielle fictive)",
+    ]);
     expect(request.context.editorialLeads).toEqual([]);
     expect(prompt).toContain("interroger la maniere (comment le joueur a trouve ses tirs");
+    expect(prompt).toContain("la citer dans une question principale");
+    expect(prompt).toContain("avance avant le dernier quart puis un ecart final plus faible");
+    expect(prompt).toContain("Les faits cles demandes doivent apparaitre dans le texte des questions principales");
+    expect(prompt).toContain("Quelle sequence choisiriez-vous");
+    expect(prompt).toContain("une conclusion courte");
+    expect(prompt).not.toContain("\"topic\"");
   });
 
   it("gives each interview type its own preparation frame and shared craft rules", async () => {
