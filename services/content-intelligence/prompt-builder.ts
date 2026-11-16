@@ -212,7 +212,6 @@ export const buildContentPrompt = (args: {
   }
 
   const questionCount = args.request.brief.questionCount;
-  const minimumQuestionCount = Math.min(3, questionCount);
   return [
     "Mission: generer un contenu interview editorial utile, fiable et exploitable.",
     `Prompt version: ${args.promptVersion}`,
@@ -224,12 +223,12 @@ export const buildContentPrompt = (args: {
     buildEditorialRulesBlock(),
     "Contraintes de qualite:",
     [
-      `- Generer ${questionCount} questions quand la matiere fournie le permet.`,
-      `- Si la matiere verifiee ne permet pas ${questionCount} questions ancrees, livrer moins de questions (minimum ${minimumQuestionCount}) plutot que des questions interchangeables.`,
+      `- Generer exactement ${questionCount} questions principales, ni plus ni moins.`,
+      "- Si la matiere verifiee est insuffisante, ne jamais compenser avec des pistes non verifiees ni reduire silencieusement le nombre.",
       "- Produire des questions distinctes, non repetitives et adaptees au sujet, sport, type, ton, format et audience.",
       "- Ne jamais inventer de faits, actualites, blessures, transferts, resultats, statistiques ou citations.",
       "- Utiliser uniquement les informations fournies.",
-      "- Si une information manque, la transformer en invitation au recit ancree sur le sujet, jamais en question generique.",
+      "- Si une information manque, ne pas en faire une premisse de question. Les reserves restent dans Fiabilite et sources.",
       "- Respecter strictement les sujets obligatoires et eviter strictement les sujets interdits.",
       "- Pour chaque question, proposer des relances directement liees a la question.",
       "- La forme de sortie est imposee par un schema JSON strict externe.",

@@ -96,6 +96,12 @@ const hasExactDuplicateQuestions = (questions: InterviewQuestion[]): boolean => 
   return false;
 };
 
+const hasConditionalConfirmationPremise = (questions: InterviewQuestion[]): boolean =>
+  questions.some((question) => {
+    const text = normalizeForCoverage(question.text);
+    return /^si\b.{0,160}\b(?:confirm|avere|valide)/.test(text);
+  });
+
 const normalizeForCoverage = (value: string): string => value
   .normalize("NFD")
   .replace(/[\u0300-\u036f]/g, "")
@@ -229,16 +235,21 @@ export const validateContentGenerationJson = (args: {
     .map((item, index) => normalizeQuestion(item, index))
     .filter((item): item is InterviewQuestion => item !== null);
 
-  const minimumQuestionCount = Math.min(3, args.questionCount);
-  if (questions.length > args.questionCount || questions.length < minimumQuestionCount) {
+  if (questions.length !== args.questionCount) {
     throw new ContentGenerationError(
       "INVALID_PROVIDER_RESPONSE",
-      `Nombre de questions invalide: attendu entre ${minimumQuestionCount} et ${args.questionCount}, recu ${questions.length}`
+      `Nombre de questions invalide: ${args.questionCount} attendu, ${questions.length} recu`
     );
   }
 
   if (hasExactDuplicateQuestions(questions)) {
     throw new ContentGenerationError("INVALID_PROVIDER_RESPONSE", "Questions dupliquees detectees");
+  }
+  if (hasConditionalConfirmationPremise(questions)) {
+    throw new ContentGenerationError(
+      "INVALID_PROVIDER_RESPONSE",
+      "Une question principale ne peut pas commencer par une reserve conditionnelle sur un fait a confirmer",
+    );
   }
   validateAfterMatchQuestionCoverage(
     questions,
@@ -309,12 +320,7 @@ export const validateContentGenerationJson = (args: {
         "Utiliser uniquement les faits fournis.",
         "Ne pas presenter une supposition comme un fait.",
       ],
-      missingInformation: questions.length < args.questionCount
-        ? [
-            ...args.missingInformation,
-            `Matiere insuffisante pour ${args.questionCount} questions ancrees: ${questions.length} livrees. Completer le dossier ou ajouter une observation de terrain (note du journaliste).`,
-          ]
-        : args.missingInformation,
+      missingInformation: args.missingInformation,
       externalContextUsed: selectedContextItems.some((item) => item.connectorId === "external_news" && item.isSelected),
     },
   };

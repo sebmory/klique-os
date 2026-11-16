@@ -125,16 +125,12 @@ describe("content intelligence structured validation", () => {
     expect(shouldRetryGenerationError(typedError)).toBe(true);
   });
 
-  it("CAS C: accepte moins de questions que demande avec une note de matiere manquante", () => {
-    const result = runValidation(buildValidRaw(14), 15);
-
-    expect(result.questions).toHaveLength(14);
-    expect(result.metadata.questionCountRequested).toBe(15);
-    expect(result.metadata.questionCountGenerated).toBe(14);
-    expect(result.metadata.missingInformation.join(" ")).toContain("Matiere insuffisante pour 15 questions");
+  it("CAS C: rejette toute sortie plus courte que le nombre demande", () => {
+    expect(() => runValidation(buildValidRaw(14), 15))
+      .toThrow(/15 attendu, 14 recu/);
   });
 
-  it("CAS C bis: rejette une sortie sous le minimum de 3 questions et permet une tentative corrective", () => {
+  it("CAS C bis: rejette une sortie tres courte et permet une tentative corrective", () => {
     const raw = buildValidRaw(2);
 
     let error: unknown;
@@ -147,7 +143,7 @@ describe("content intelligence structured validation", () => {
     expect(error).toBeInstanceOf(ContentGenerationError);
     const typedError = error as ContentGenerationError;
     expect(typedError.code).toBe("INVALID_PROVIDER_RESPONSE");
-    expect(typedError.message).toContain("attendu entre 3 et 15");
+    expect(typedError.message).toContain("15 attendu, 2 recu");
     expect(shouldRetryGenerationError(typedError)).toBe(true);
   });
 
@@ -219,6 +215,38 @@ describe("content intelligence structured validation", () => {
 
     raw.questions[0].text = "A chaud, comment avez-vous construit cette performance a 21 points ?";
     expect(() => runAfterMatchValidation(raw)).toThrow(/avance de 19 points.*ecart final de 8 points/);
+  });
+
+  it("livre exactement 8 questions quand 8 sont demandees", () => {
+    const raw = buildValidRaw(8);
+    raw.questions[0].text = "Comment avez-vous construit vos 21 points ?";
+    raw.questions[1].text = "De plus 19 avant le dernier quart a plus 8 au final, comment avez-vous gere cette fin de match ?";
+
+    const result = validateContentGenerationJson({
+      parsedContent: raw,
+      requestStartedAt: Date.now() - 15,
+      provider: "openai",
+      model: "test-model",
+      templateKey: "interview:v1",
+      templateVersion: "v1",
+      promptVersion: "cie-interview-v3",
+      questionCount: 8,
+      interviewType: "after_match",
+      selectedContextItems: libanSelectedFacts,
+      missingInformation: [],
+    });
+
+    expect(result.questions).toHaveLength(8);
+    expect(result.metadata.questionCountRequested).toBe(8);
+    expect(result.metadata.questionCountGenerated).toBe(8);
+  });
+
+  it("rejette les reserves conditionnelles dans les questions principales", () => {
+    const raw = buildValidRaw(3);
+    raw.questions[0].text = "Si le succes est confirme, qu est-ce que cette victoire change ?";
+
+    expect(() => runValidation(raw, 3))
+      .toThrow(/reserve conditionnelle/);
   });
 
   it("suit un autre fait de performance sans imposer une question sur le dernier quart", () => {

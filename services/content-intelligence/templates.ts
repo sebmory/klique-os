@@ -8,10 +8,13 @@ export const interviewTemplateV1: ContentTemplateDefinition = {
   version: "v1",
   description: "Generation d une fiche interview editoriale structuree.",
   buildPrompt: (request: AnyContentGenerationRequest) => {
+    const context = request.editorialContext
+      ? { ...request.editorialContext, editorialLeads: [] }
+      : { ...request.context, editorialLeads: [] };
     return JSON.stringify({
       requestType: request.requestType,
       template: request.template,
-      context: request.editorialContext ?? request.context,
+      context,
       brief: request.brief,
     }, null, 2);
   },

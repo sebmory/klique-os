@@ -3,6 +3,7 @@ import { ContentGenerationError, toContentGenerationError } from "@/services/con
 import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { buildContentPrompt } from "@/services/content-intelligence/prompt-builder";
+import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
 import { OpenAIProvider } from "@/services/content-intelligence/providers/openai-provider";
 import type { ContentGenerationProvider } from "@/services/content-intelligence/provider";
 import { resolveTemplate } from "@/services/content-intelligence/templates";
@@ -80,7 +81,7 @@ const buildCorrectionFeedback = (error: ContentGenerationError, questionCount: n
   return [
     "La sortie precedente ne respecte pas les contraintes requises.",
     questionCount > 0
-      ? `Nombre de questions attendu: entre ${Math.min(3, questionCount)} et ${questionCount}.`
+      ? `Nombre de questions attendu: exactement ${questionCount}.`
       : "Nombre de propositions attendu: 3.",
     `Erreur detectee: ${error.message}`,
     "Corrige uniquement ces erreurs et renvoie strictement une sortie valide selon le schema fourni.",
@@ -131,6 +132,19 @@ export async function runContentIntelligenceEngine(
     if (preparedEditorial) {
       request.selectedContextItems = preparedEditorial.selectedItems;
       request.editorialGeneration = preparedEditorial.selection.metadata;
+    }
+    if (request.requestType === "interview") {
+      const readiness = assessInterviewBriefReadiness({
+        interviewType: request.brief.interviewType,
+        questionCount: request.brief.questionCount,
+        selectedContextItems: request.selectedContextItems,
+      });
+      if (!readiness.ready) {
+        throw new ContentGenerationError(
+          "INVALID_REQUEST",
+          readiness.message ?? "Le brief verifie est insuffisant pour preparer cette interview.",
+        );
+      }
     }
     const provider = resolveProvider();
 

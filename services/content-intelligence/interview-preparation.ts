@@ -1,4 +1,5 @@
 import type { InterviewTypeId } from "@/types/content-generation";
+import type { ContextItem } from "@/types/context-intelligence";
 
 // Cadre de preparation journalistique par type d interview.
 // Chaque cadre decrit la matiere attendue, l ouverture et les relances utiles.
@@ -132,6 +133,8 @@ export const INTERVIEW_CRAFT_RULES: readonly string[] = [
   "- Chaque question cherche une reponse precise: un choix, un episode, une situation de jeu, une decision, une reaction.",
   "- Pour une question tactique, partir d une situation de jeu precise et documentee, jamais d un concept abstrait.",
   "- Les faits cles demandes doivent apparaitre dans le texte des questions principales, jamais seulement dans les relances ou l objectif editorial.",
+  "- Les reserves et pistes non verifiees restent dans Fiabilite et sources: ne jamais les transformer en premisse d une question au micro.",
+  "- Ne jamais commencer une question par une reserve conditionnelle comme 'si le succes est confirme', 'si le match est confirme' ou 'si les points sont confirmes'.",
   "- Les relances sont conditionnelles, dependent d une reponse possible et apportent une information nouvelle; jamais de reformulation de la question ni de relance de remplissage.",
   "- Interdire les formules abstraites ou passe-partout et leurs variantes: 'Qu est-ce que le score ne raconte pas', 'Quel passage aide a comprendre le match', 'Qu est-ce que le public n a pas vu', 'Quelle sequence choisiriez-vous'.",
   "- Interdire les tournures negatives abstraites et les questions a deux etages.",
@@ -140,6 +143,55 @@ export const INTERVIEW_CRAFT_RULES: readonly string[] = [
   "- Test de relecture obligatoire avant de livrer: une question qui pourrait etre posee telle quelle apres n importe quel match ou pour n importe quel sujet doit etre retravaillee avec un fait precis, ou au besoin retrogradee en relance de secours.",
   "- Une trame ne doit jamais pouvoir passer d un type d interview a un autre en changeant trois mots.",
 ];
+
+const countAfterMatchAnchors = (items: ContextItem[]): number => items
+  .filter((item) =>
+    item.isSelected
+    && item.statementType === "fact"
+    && item.verificationStatus === "verified"
+  )
+  .reduce((count, item) => {
+    const text = `${item.factualStatement} ${item.summary}`
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    const quarterCount = new Set(
+      Array.from(text.matchAll(/\bq([1-4])\s*\d{1,3}\s*[–—-]\s*\d{1,3}\b/g), (match) => match[1]),
+    ).size;
+    const hasIndividualStatistic = /\b(?:pts?\s*\d{1,3}|\d{1,3}\s+points?|statistiques? individuelles?)\b/.test(text);
+    const hasNamedPresence = /\bpresence nominative\b/.test(text);
+    const hasKnownStarterStatus = /\btitularisation\s*:\s*(?:oui|non)\b/.test(text);
+    const hasRankingOrSchedule = /\b(?:classement|prochain match|prochaine rencontre|calendrier)\b/.test(text);
+    return count
+      + 1
+      + quarterCount
+      + Number(hasIndividualStatistic)
+      + Number(hasNamedPresence)
+      + Number(hasKnownStarterStatus)
+      + Number(hasRankingOrSchedule);
+  }, 0);
+
+export const assessInterviewBriefReadiness = (args: {
+  interviewType: string;
+  questionCount: number;
+  selectedContextItems: ContextItem[];
+}): { ready: boolean; verifiedAnchorCount: number; message: string | null } => {
+  if (args.interviewType !== "after_match") {
+    return { ready: true, verifiedAnchorCount: args.questionCount, message: null };
+  }
+  const verifiedAnchorCount = countAfterMatchAnchors(args.selectedContextItems);
+  if (verifiedAnchorCount >= args.questionCount) {
+    return { ready: true, verifiedAnchorCount, message: null };
+  }
+  return {
+    ready: false,
+    verifiedAnchorCount,
+    message: [
+      `Le brief contient ${verifiedAnchorCount} ancrage${verifiedAnchorCount === 1 ? "" : "s"} verifie${verifiedAnchorCount === 1 ? "" : "s"} pour ${args.questionCount} questions demandees.`,
+      "Completez le brief avec des faits verifies ou choisissez un format plus court avant de lancer la generation.",
+    ].join(" "),
+  };
+};
 
 export const buildInterviewPreparationBlock = (interviewType: string): string => {
   const frame = getInterviewPreparationFrame(interviewType);

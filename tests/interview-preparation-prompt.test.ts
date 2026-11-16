@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { buildContentPrompt } from "@/services/content-intelligence/prompt-builder";
+import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
 import { interviewTemplateV1 } from "@/services/content-intelligence/templates";
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import type { InterviewGenerationRequest } from "@/types/content-generation";
@@ -121,6 +122,7 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("Une piste editoriale ou une donnee manuelle non verifiee reste une hypothese.");
     expect(prompt).toContain("Centrer la trame sur cette rencontre precise");
     expect(prompt).not.toContain("Eviter que toutes les questions portent sur un seul evenement recent.");
+    expect(prompt).not.toContain("Piste non vérifiée : l’athlète aurait inscrit 21 points.");
   });
 
   it("transmits a verified individual statistic as fact in the rich after-match brief", async () => {
@@ -150,6 +152,40 @@ describe("interview preparation prompt", () => {
     expect(prompt).not.toContain("\"topic\"");
   });
 
+  it("blocks an 8-question after-match brief before generation when verified material is insufficient", async () => {
+    const { request } = await buildPrompt(payloadFor("after_match", collectiveItems, 8));
+    const readiness = assessInterviewBriefReadiness({
+      interviewType: request.brief.interviewType,
+      questionCount: request.brief.questionCount,
+      selectedContextItems: request.selectedContextItems,
+    });
+
+    expect(readiness.ready).toBe(false);
+    expect(readiness.message).toContain("Completez le brief avec des faits verifies ou choisissez un format plus court");
+  });
+
+  it("accepts 8 questions when the verified match brief supplies 8 factual anchors", async () => {
+    const richItems = [
+      ...collectiveItems.filter((item) => item.id !== "lead-points"),
+      contextItem({
+        id: "fact-points",
+        category: "performance",
+        summary: "Statistique vérifiée : Liban Maxamed a inscrit 21 points (feuille officielle).",
+        factualStatement: "Statistique vérifiée : Liban Maxamed a inscrit 21 points (feuille officielle).",
+      }),
+    ];
+    const { request, prompt } = await buildPrompt(payloadFor("after_match", richItems, 8));
+    const readiness = assessInterviewBriefReadiness({
+      interviewType: request.brief.interviewType,
+      questionCount: request.brief.questionCount,
+      selectedContextItems: request.selectedContextItems,
+    });
+
+    expect(readiness).toMatchObject({ ready: true, verifiedAnchorCount: 8 });
+    expect(prompt).toContain("Generer exactement 8 questions principales, ni plus ni moins.");
+    expect(prompt).toContain("Les reserves et pistes non verifiees restent dans Fiabilite et sources");
+  });
+
   it("gives each interview type its own preparation frame and shared craft rules", async () => {
     const { prompt: afterMatch } = await buildPrompt(payloadFor("after_match", collectiveItems));
     const { prompt: beforeMatch } = await buildPrompt(payloadFor("before_match", []));
@@ -171,7 +207,7 @@ describe("interview preparation prompt", () => {
       expect(prompt).toContain("Construire un fil d interview qui se suit naturellement");
       expect(prompt).toContain("Qu est-ce que le score ne raconte pas");
       expect(prompt).toContain("Une trame ne doit jamais pouvoir passer d un type d interview a un autre");
-      expect(prompt).toContain("livrer moins de questions (minimum 3) plutot que des questions interchangeables");
+      expect(prompt).toContain("Generer exactement 6 questions principales, ni plus ni moins.");
     }
   });
 
