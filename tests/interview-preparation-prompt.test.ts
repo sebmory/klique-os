@@ -212,7 +212,7 @@ describe("interview preparation prompt", () => {
         verificationStatus: "verified",
       },
     });
-    expect(prompt).toContain("Prompt version: cie-interview-v8");
+    expect(prompt).toContain("Prompt version: cie-interview-v9");
     expect(prompt).toContain('"value": "Football"');
     expect(prompt).toContain('"value": "Attaquant"');
     expect(prompt).toContain('"value": "Vevey-Sports"');
@@ -225,7 +225,13 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("le resultat, le score et l adversaire de la fiche de match explicitement selectionnee");
     expect(prompt).toContain("Maximum deux questions principales autour d un meme fait ou evenement");
     expect(prompt).toContain("Une entree en jeu ne doit jamais produire une serie de variantes distinctes");
+    expect(prompt).toContain("Quand une action precise est documentee, la citer dans la question et demander au joueur de l expliquer");
+    expect(prompt).toContain("Ne jamais demander au joueur de choisir, retrouver ou identifier lui-meme une action ou un souvenir precis");
+    expect(prompt).toContain("Si seule la minute d entree est connue, poser exactement une seule question principale sur cette entree");
+    expect(prompt).toContain("Ne jamais inventer d occasion, d action, de consigne, d emotion ni de probleme physique");
+    expect(prompt).toContain("resultat, dynamique, classement, poste, role collectif, moral, solutions et suite");
     expect(prompt).toContain("Quand une defaite et une derniere place sont disponibles");
+    expect(prompt).toContain("privilegier la reaction, les difficultes, le moral, les solutions, la confiance, le role du joueur et la suite");
     [
       "1. reaction a la defaite",
       "2. difficultes actuelles ou repetitives de l equipe",
@@ -236,8 +242,9 @@ describe("interview preparation prompt", () => {
       "7. regard lie au poste du joueur",
       "8. ouverture sur la suite ou les supporters",
     ].forEach((angle) => expect(prompt).toContain(angle));
-    expect(prompt).toContain("Chaque question doit etre naturelle, directe et humaine");
-    expect(prompt).toContain("Utiliser le poste CRM lorsqu il est disponible");
+    expect(prompt).toContain("chercher une reponse differente et former avec les autres une conversation naturelle");
+    expect(prompt).toContain("Employer le vocabulaire propre au sport et utiliser le poste CRM");
+    expect(prompt).toContain("Generer exactement 8 questions principales, ni plus ni moins");
     expect(prompt).toContain("Replacer les chiffres dans une situation sportive et emotionnelle");
     expect(prompt).toContain("Eviter le ton questionnaire ou IA");
     expect(prompt).toContain("'quelle etait votre priorite ?'");
