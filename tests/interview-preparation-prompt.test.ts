@@ -212,7 +212,7 @@ describe("interview preparation prompt", () => {
         verificationStatus: "verified",
       },
     });
-    expect(prompt).toContain("Prompt version: cie-interview-v9");
+    expect(prompt).toContain("Prompt version: cie-interview-v10");
     expect(prompt).toContain('"value": "Football"');
     expect(prompt).toContain('"value": "Attaquant"');
     expect(prompt).toContain('"value": "Vevey-Sports"');
@@ -232,15 +232,20 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("resultat, dynamique, classement, poste, role collectif, moral, solutions et suite");
     expect(prompt).toContain("Quand une defaite et une derniere place sont disponibles");
     expect(prompt).toContain("privilegier la reaction, les difficultes, le moral, les solutions, la confiance, le role du joueur et la suite");
+    expect(prompt).toContain("une question principale doit exploiter clairement ces trois elements");
+    expect(prompt).toContain("une question principale doit utiliser ce role pour apporter un angle sportif concret");
+    expect(prompt).toContain("au maximum une seule question principale sur le classement");
+    expect(prompt).toContain("constat du classement / vecu du classement");
+    expect(prompt).toContain("difficulte collective / changement urgent");
     [
-      "1. reaction a la defaite",
-      "2. difficultes actuelles ou repetitives de l equipe",
-      "3. moral du groupe face a la derniere place",
-      "4. solutions mises en place pour sortir de cette situation",
-      "5. vecu ou confiance personnels",
-      "6. mission et apport lors de l entree en jeu",
-      "7. regard lie au poste du joueur",
-      "8. ouverture sur la suite ou les supporters",
+      "1. reaction au resultat en nommant issue, score et adversaire",
+      "2. difficulte collective observee",
+      "3. point positif ou point d appui",
+      "4. entree en jeu, une seule question",
+      "5. confiance personnelle",
+      "6. role ou attentes lies au poste CRM",
+      "7. solutions pour sortir de la derniere place",
+      "8. supporters ou prochaine echeance",
     ].forEach((angle) => expect(prompt).toContain(angle));
     expect(prompt).toContain("chercher une reponse differente et former avec les autres une conversation naturelle");
     expect(prompt).toContain("Employer le vocabulaire propre au sport et utiliser le poste CRM");

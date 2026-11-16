@@ -5,7 +5,7 @@ export const contentIntelligenceConfig = {
   defaultModel: process.env.OPENAI_MODEL || "gpt-5.5",
   articleStructureModel: process.env.OPENAI_ARTICLE_STRUCTURE_MODEL?.trim() || "gpt-4.1-mini",
   promptVersion: "cie-interview-v1",
-  interviewPromptVersion: "cie-interview-v9",
+  interviewPromptVersion: "cie-interview-v10",
   temperature: 0.35,
   maxTokens: 2400,
   requestTimeoutMs: 45000,
