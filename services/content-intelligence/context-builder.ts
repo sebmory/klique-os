@@ -402,7 +402,7 @@ export const buildContentGenerationRequest = async (
     brief: {
       interviewType: payload.objective.subtypeId as InterviewGenerationRequest["brief"]["interviewType"],
       objective: payload.objective.id,
-      tone: payload.parameters.toneId as InterviewGenerationRequest["brief"]["tone"],
+      tone: payload.parameters.toneId,
       questionCount: payload.parameters.questionCount,
       format: payload.parameters.formatId as InterviewGenerationRequest["brief"]["format"],
       audience: payload.parameters.audienceId as InterviewGenerationRequest["brief"]["audience"],

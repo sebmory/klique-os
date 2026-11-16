@@ -225,7 +225,7 @@ export const buildContentPrompt = (args: {
     [
       `- Generer exactement ${questionCount} questions principales, ni plus ni moins.`,
       "- Si la matiere verifiee est insuffisante, ne jamais compenser avec des pistes non verifiees ni reduire silencieusement le nombre.",
-      "- Produire des questions distinctes, non repetitives et adaptees au sujet, sport, type, ton, format et audience.",
+      "- Produire des questions distinctes, non repetitives et adaptees au sujet, sport, type, format, audience et angle editorial.",
       "- Ne jamais inventer de faits, actualites, blessures, transferts, resultats, statistiques ou citations.",
       "- Utiliser uniquement les informations fournies.",
       "- Si une information manque, ne pas en faire une premisse de question. Les reserves restent dans Fiabilite et sources.",

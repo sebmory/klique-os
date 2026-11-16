@@ -1,6 +1,7 @@
 import {
   CREATION_MAX_QUESTION_COUNT,
   CREATION_MIN_QUESTION_COUNT,
+  deriveGenerationStyle,
   type CreationPreparationPayload,
 } from "@/services/content-creation-assistant";
 import { ContentGenerationError } from "@/services/content-generation/errors";
@@ -123,7 +124,7 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
     throw new ContentGenerationError("INVALID_REQUEST", "Objectif de contenu manquant");
   }
 
-  if (!normalize(payload.parameters.toneId) || !normalize(payload.parameters.formatId) || !normalize(payload.parameters.audienceId)) {
+  if (!normalize(payload.parameters.formatId) || !normalize(payload.parameters.audienceId)) {
     throw new ContentGenerationError("INVALID_REQUEST", "Configuration incomplete");
   }
 
@@ -131,6 +132,8 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
   const isPublication = objectiveId === "publication";
   const isInterview = objectiveId === "interview";
   const isReel = objectiveId === "reel";
+  const isStory = objectiveId === "story";
+  const isArticle = objectiveId === "article";
 
   if (isInterview && !normalize(payload.objective.subtypeId)) {
     throw new ContentGenerationError("INVALID_REQUEST", "Type d interview manquant");
@@ -200,6 +203,26 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
     }
   }
 
+  const formatId = normalize(payload.parameters.formatId);
+  const audienceId = normalize(payload.parameters.audienceId);
+  const interviewAngle = additionalContext
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("Angle éditorial sélectionné :"))
+    ?.slice("Angle éditorial sélectionné :".length)
+    .trim();
+  const editorialAngle = isInterview
+    ? interviewAngle || normalize(payload.objective.subtypeId)
+    : isPublication
+      ? publication?.selectedAngle
+      : isReel
+        ? reel?.selectedAngle
+        : isStory
+          ? normalize(payload.parameters.story?.selectedAngle)
+          : isArticle
+            ? normalize(payload.parameters.article?.selectedAngle)
+            : "";
+
   return {
     ...payload,
     subject: {
@@ -221,9 +244,15 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
       ...payload.parameters,
       language: sanitizeLanguage(payload.parameters.language),
       questionCount,
-      toneId: normalize(payload.parameters.toneId),
-      formatId: normalize(payload.parameters.formatId),
-      audienceId: normalize(payload.parameters.audienceId),
+      toneId: deriveGenerationStyle({
+        objectiveId: objectiveId as CreationPreparationPayload["objective"]["id"],
+        subtypeId: normalize(payload.objective.subtypeId),
+        format: formatId,
+        audience: audienceId,
+        editorialAngle,
+      }),
+      formatId,
+      audienceId,
       additionalContext,
       requiredTopics,
       avoidedTopics,

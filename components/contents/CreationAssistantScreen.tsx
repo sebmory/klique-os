@@ -74,7 +74,7 @@ import {
   buildArticleAngleSuggestionsRequest,
   buildArticleGenerationRequest,
 } from "@/services/content-intelligence/article-ui-request";
-import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
+import { CONTENT_AUDIENCE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
 import { buildDateRange, formatDateRangeLabel, formatDateTimeLabel } from "@/services/context-intelligence/utils";
 import { runContentsBackfill } from "@/services/content-backfill";
@@ -271,11 +271,6 @@ const objectiveIconById: Record<CreationObjectiveType, ComponentType<{ size?: nu
 };
 
 const normalize = (value: unknown): string => String(value ?? "").trim();
-
-const resolveSelectedToneLabel = (toneId: string, customTone: string): string => {
-  if (toneId === "free") return normalize(customTone) || "Libre";
-  return getSharedOptionLabel(CONTENT_TONE_OPTIONS, toneId);
-};
 
 const resolveSelectedAudienceLabel = (audienceId: string, customAudience: string): string => {
   if (audienceId === "free") return normalize(customAudience) || "Libre";
@@ -1294,14 +1289,8 @@ export function CreationAssistantScreen({
         if (!draft.objective.subtypeId) {
           return { ok: false, message: "Selectionnez un type d article." };
         }
-        if (!draft.parameters.toneId) {
-          return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-article-tone='true']" };
-        }
         if (!draft.parameters.audienceId) {
           return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-article-audience='true']" };
-        }
-        if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
-          return { ok: false, message: "Renseignez le ton libre." };
         }
         if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
           return { ok: false, message: "Renseignez le public libre." };
@@ -1392,15 +1381,9 @@ export function CreationAssistantScreen({
         if (!draft.parameters.publicationPlatform) {
           return { ok: false, message: "Selectionnez une plateforme.", focusSelector: "[data-publication-platform='true']" };
         }
-        if (!draft.parameters.toneId) {
-          return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-publication-tone='true']" };
-        }
         if (!draft.parameters.audienceId) {
           return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-publication-audience='true']" };
         }
-          if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
-            return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-publication-tone-free='true']" };
-          }
           if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
             return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-publication-audience-free='true']" };
           }
@@ -1417,14 +1400,8 @@ export function CreationAssistantScreen({
           if (!draft.parameters.reelFormat) {
             return { ok: false, message: "Selectionnez un format Reel.", focusSelector: "[data-reel-format='true']" };
           }
-          if (!draft.parameters.toneId) {
-            return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-reel-tone='true']" };
-          }
           if (!draft.parameters.audienceId) {
             return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-reel-audience='true']" };
-          }
-          if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
-            return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-reel-tone-free='true']" };
           }
           if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
             return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-reel-audience-free='true']" };
@@ -1440,14 +1417,8 @@ export function CreationAssistantScreen({
           if (!Number.isFinite(frameCount) || frameCount <= 0) {
             return { ok: false, message: "Renseignez un nombre de frames valide.", focusSelector: "[data-story-frame-count='true']" };
           }
-          if (!draft.parameters.toneId) {
-            return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-story-tone='true']" };
-          }
           if (!draft.parameters.audienceId) {
             return { ok: false, message: "Selectionnez une audience.", focusSelector: "[data-story-audience='true']" };
-          }
-          if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
-            return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-story-tone-free='true']" };
           }
           if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
             return { ok: false, message: "Renseignez le public libre.", focusSelector: "[data-story-audience-free='true']" };
@@ -1461,10 +1432,6 @@ export function CreationAssistantScreen({
 
       if (!draft.objective.subtypeId) {
         return { ok: false, message: "Selectionnez d abord un type d interview.", focusSelector: "[data-param-group='subtype'] .creation-option-card" };
-      }
-
-      if (!draft.parameters.toneId) {
-        return { ok: false, message: "Selectionnez un ton.", focusSelector: "[data-param-group='tone'] .creation-option-card" };
       }
 
       if (!draft.parameters.questionCountId) {
@@ -1489,10 +1456,6 @@ export function CreationAssistantScreen({
 
       if (!draft.parameters.audienceId) {
         return { ok: false, message: "Selectionnez un public cible.", focusSelector: "[data-param-group='audience'] .creation-option-card" };
-      }
-
-      if (draft.parameters.toneId === "free" && !normalize(draft.parameters.customTone)) {
-        return { ok: false, message: "Renseignez le ton libre.", focusSelector: "[data-interview-tone-free='true']" };
       }
 
       if (draft.parameters.audienceId === "free" && !normalize(draft.parameters.customAudience)) {
@@ -1703,7 +1666,8 @@ export function CreationAssistantScreen({
       },
       parameters: {
         ...current.parameters,
-        toneId: id === "publication" || id === "article" || id === "reel" ? current.parameters.toneId || "authentic" : "",
+        toneId: "",
+        customTone: "",
         questionCountId: "",
         customQuestionCount: "",
         formatId: id === "publication" ? current.parameters.publicationPlatform : id === "reel" ? current.parameters.reelFormat : "",
@@ -3475,23 +3439,6 @@ export function CreationAssistantScreen({
                 </select>
               </label>
               <label>
-                <span>Ton</span>
-                <select
-                  data-article-tone="true"
-                  value={draft.parameters.toneId}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, toneId: event.target.value },
-                    }))
-                  }
-                >
-                  {CONTENT_TONE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 <span>Audience</span>
                 <select
                   data-article-audience="true"
@@ -3510,21 +3457,6 @@ export function CreationAssistantScreen({
               </label>
             </div>
 
-            {draft.parameters.toneId === "free" ? (
-              <label className="creation-inline-field">
-                <span>Ton libre</span>
-                <input
-                  type="text"
-                  value={draft.parameters.customTone}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, customTone: event.target.value },
-                    }))
-                  }
-                />
-              </label>
-            ) : null}
             {draft.parameters.audienceId === "free" ? (
               <label className="creation-inline-field">
                 <span>Audience libre</span>
@@ -4021,24 +3953,6 @@ export function CreationAssistantScreen({
               </label>
 
               <label>
-                <span>Ton</span>
-                <select
-                  data-reel-tone="true"
-                  value={draft.parameters.toneId}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, toneId: event.target.value },
-                    }))
-                  }
-                >
-                  {CONTENT_TONE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
                 <span>Audience</span>
                 <select
                   data-reel-audience="true"
@@ -4056,23 +3970,6 @@ export function CreationAssistantScreen({
                 </select>
               </label>
             </div>
-
-            {draft.parameters.toneId === "free" ? (
-              <label className="creation-inline-field">
-                <span>Ton libre</span>
-                <input
-                  type="text"
-                  data-reel-tone-free="true"
-                  value={draft.parameters.customTone}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, customTone: event.target.value },
-                    }))
-                  }
-                />
-              </label>
-            ) : null}
 
             {draft.parameters.audienceId === "free" ? (
               <label className="creation-inline-field">
@@ -4173,24 +4070,6 @@ export function CreationAssistantScreen({
               </label>
 
               <label>
-                <span>Ton</span>
-                <select
-                  data-story-tone="true"
-                  value={draft.parameters.toneId}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, toneId: event.target.value },
-                    }))
-                  }
-                >
-                  {CONTENT_TONE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
                 <span>Audience</span>
                 <select
                   data-story-audience="true"
@@ -4208,23 +4087,6 @@ export function CreationAssistantScreen({
                 </select>
               </label>
             </div>
-
-            {draft.parameters.toneId === "free" ? (
-              <label className="creation-inline-field">
-                <span>Ton libre</span>
-                <input
-                  type="text"
-                  data-story-tone-free="true"
-                  value={draft.parameters.customTone}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, customTone: event.target.value },
-                    }))
-                  }
-                />
-              </label>
-            ) : null}
 
             {draft.parameters.audienceId === "free" ? (
               <label className="creation-inline-field">
@@ -4314,24 +4176,6 @@ export function CreationAssistantScreen({
               </label>
 
               <label>
-                <span>Ton</span>
-                <select
-                  data-publication-tone="true"
-                  value={draft.parameters.toneId}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, toneId: event.target.value },
-                    }))
-                  }
-                >
-                  {CONTENT_TONE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
                 <span>Longueur</span>
                 <select
                   value={draft.parameters.publicationLength}
@@ -4370,23 +4214,6 @@ export function CreationAssistantScreen({
                 </select>
               </label>
             </div>
-
-            {draft.parameters.toneId === "free" ? (
-              <label className="creation-inline-field">
-                <span>Ton libre</span>
-                <input
-                  type="text"
-                  data-publication-tone-free="true"
-                  value={draft.parameters.customTone}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      parameters: { ...current.parameters, customTone: event.target.value },
-                    }))
-                  }
-                />
-              </label>
-            ) : null}
 
             {draft.parameters.audienceId === "free" ? (
               <label className="creation-inline-field">
@@ -4538,31 +4365,6 @@ export function CreationAssistantScreen({
         <header className="creation-step-head">
           <h2 id="creation-params-title">{objectiveParameters.configurationTitle}</h2>
         </header>
-
-        {renderChoiceOptions({
-          title: "Ton",
-          options: objectiveParameters.toneOptions,
-          value: draft.parameters.toneId,
-          groupName: "tone",
-          onSelect: (id) => setDraft((current) => ({ ...current, parameters: { ...current.parameters, toneId: id } })),
-        })}
-
-        {draft.parameters.toneId === "free" ? (
-          <label className="creation-inline-field">
-            <span>Ton libre</span>
-            <input
-              type="text"
-              data-interview-tone-free="true"
-              value={draft.parameters.customTone}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  parameters: { ...current.parameters, customTone: event.target.value },
-                }))
-              }
-            />
-          </label>
-        ) : null}
 
         <section className="creation-panel">
           <header>
@@ -5150,7 +4952,6 @@ export function CreationAssistantScreen({
             ) : null}
             <div><dt>Angle</dt><dd>{draft.parameters.publicationSelectedAngle || "Non defini"}</dd></div>
             <div><dt>Plateforme</dt><dd>{draft.parameters.publicationPlatform}</dd></div>
-            <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
             <div><dt>Longueur</dt><dd>{draft.parameters.publicationLength}</dd></div>
             <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
             <div><dt>CTA</dt><dd>{draft.parameters.publicationCta || "Aucun"}</dd></div>
@@ -5210,7 +5011,6 @@ export function CreationAssistantScreen({
             <div><dt>Plateforme</dt><dd>{draft.parameters.reelPlatform}</dd></div>
             <div><dt>Duree</dt><dd>{draft.parameters.reelDuration}</dd></div>
             <div><dt>Format</dt><dd>{draft.parameters.reelFormat}</dd></div>
-            <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
             <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
             <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun contexte supplementaire"}</dd></div>
             <div><dt>Contexte intelligent</dt><dd>{draft.parameters.useContextIntelligence ? "Active" : "Desactive"}</dd></div>
@@ -5263,7 +5063,6 @@ export function CreationAssistantScreen({
             <div><dt>Angle editorial</dt><dd>{draft.parameters.storySelectedAngle || "Non defini"}</dd></div>
             <div><dt>Plateforme</dt><dd>{draft.parameters.storyPlatform}</dd></div>
             <div><dt>Nombre de frames</dt><dd>{draft.parameters.storyFrameCount}</dd></div>
-            <div><dt>Ton</dt><dd>{resolveSelectedToneLabel(draft.parameters.toneId, draft.parameters.customTone) || "Non defini"}</dd></div>
             <div><dt>Audience</dt><dd>{resolveSelectedAudienceLabel(draft.parameters.audienceId, draft.parameters.customAudience) || "Non definie"}</dd></div>
             <div><dt>Contexte</dt><dd>{draft.parameters.additionalContext || "Aucun contexte supplementaire"}</dd></div>
             <div><dt>Contexte intelligent</dt><dd>{draft.parameters.useContextIntelligence ? "Active" : "Desactive"}</dd></div>
@@ -5295,11 +5094,6 @@ export function CreationAssistantScreen({
     }
 
     const params = objectiveParameters;
-    const toneLabel = params
-      ? draft.parameters.toneId === "free"
-        ? normalize(draft.parameters.customTone) || "Libre"
-        : findOption(params.toneOptions, draft.parameters.toneId)?.label
-      : "";
     const formatLabel = isArticleFlow
       ? "Article"
       : params
@@ -5337,7 +5131,6 @@ export function CreationAssistantScreen({
           <div><dt>Type de sujet</dt><dd>{formatSubjectType(draft.subject.type)}</dd></div>
           <div><dt>Objectif</dt><dd>{selectedObjectiveTitle}</dd></div>
           <div><dt>Type</dt><dd>{subtypeLabel || "Non defini"}</dd></div>
-          <div><dt>Ton</dt><dd>{toneLabel || "Non defini"}</dd></div>
           <div>
             <dt>Longueur</dt>
             <dd>
@@ -5437,7 +5230,7 @@ export function CreationAssistantScreen({
       draft.parameters.interviewAngleId,
     );
     const updateInterviewParameter = (
-      key: "toneId" | "questionCountId" | "formatId" | "audienceId",
+      key: "questionCountId" | "formatId" | "audienceId",
       value: string,
     ) => {
       setDraft((current) => ({
@@ -5586,16 +5379,8 @@ export function CreationAssistantScreen({
         </section>
 
         <details className="creation-panel">
-          <summary><strong>Réglages</strong> — ton, questions, format, public, contraintes et sources</summary>
+          <summary><strong>Réglages</strong> — questions, format, public, contraintes et sources</summary>
           <div className="creation-fields-grid">
-            <label>
-              <span>Ton</span>
-              <select value={draft.parameters.toneId} onChange={(event) => updateInterviewParameter("toneId", event.target.value)}>
-                {objectiveParameters?.toneOptions.filter((option) => option.enabled).map((option) => (
-                  <option key={option.id} value={option.id}>{option.label}</option>
-                ))}
-              </select>
-            </label>
             <label>
               <span>Nombre de questions</span>
               <select value={draft.parameters.questionCountId} onChange={(event) => updateInterviewParameter("questionCountId", event.target.value)}>

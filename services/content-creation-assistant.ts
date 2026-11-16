@@ -1,5 +1,5 @@
 import type { ContentCreationContext, ContentPresetId } from "@/services/contents-hub";
-import { CONTENT_AUDIENCE_OPTIONS, CONTENT_TONE_OPTIONS } from "@/services/content-shared-options";
+import { CONTENT_AUDIENCE_OPTIONS, getSharedOptionLabel } from "@/services/content-shared-options";
 import type {
   ContentSubject,
   ContextConnectorId,
@@ -63,7 +63,6 @@ export type CreationObjectiveParametersTemplate = {
   configurationTitle: string;
   subtypeLabel: string;
   subtypeOptions: CreationOption[];
-  toneOptions: CreationOption[];
   questionCountOptions: CreationCountOption[];
   formatOptions: CreationOption[];
   audienceOptions: CreationOption[];
@@ -290,7 +289,6 @@ const interviewParametersTemplate: CreationObjectiveParametersTemplate = {
     { id: "new_club", label: "Nouveau club", description: "Integration et projection dans un nouvel environnement.", enabled: true },
     { id: "free", label: "Libre", description: "Structure ouverte adaptee a votre besoin.", enabled: true },
   ],
-  toneOptions: CONTENT_TONE_OPTIONS.map((option) => ({ ...option, enabled: true })),
   questionCountOptions: [
     { id: "q5", label: "5", value: 5 },
     { id: "q8", label: "8", value: 8 },
@@ -317,7 +315,6 @@ const articleParametersTemplate: CreationObjectiveParametersTemplate = {
     { id: "analyse", label: "Analyse", description: "Mettre les faits en perspective sans invention.", enabled: true },
     { id: "reportage", label: "Reportage", description: "Construire un recit documente autour du sujet.", enabled: true },
   ],
-  toneOptions: CONTENT_TONE_OPTIONS.map((option) => ({ ...option, enabled: true })),
   questionCountOptions: [],
   formatOptions: [],
   audienceOptions: CONTENT_AUDIENCE_OPTIONS.map((option) => ({ ...option, enabled: true })),
@@ -339,6 +336,32 @@ const normalize = (value: string): string => value.trim();
 const resolveFreeOptionValue = (id: string, customValue: string): string => {
   if (id !== "free") return id;
   return normalize(customValue);
+};
+
+export const deriveGenerationStyle = (args: {
+  objectiveId: CreationObjectiveType;
+  subtypeId?: string;
+  format: string;
+  audience: string;
+  editorialAngle?: string;
+}): string => {
+  const format = normalize(args.format) || args.objectiveId;
+  const audience = getSharedOptionLabel(CONTENT_AUDIENCE_OPTIONS, args.audience)
+    || normalize(args.audience)
+    || "public non precise";
+  const editorialAngle = normalize(args.editorialAngle ?? "");
+  const basis = [
+    `Style deduit automatiquement du format ${format}`,
+    `du public ${audience}`,
+    editorialAngle ? `et de l angle editorial ${editorialAngle}` : "",
+  ].filter(Boolean).join(", ");
+  if (args.objectiveId === "interview" && args.subtypeId === "after_match") {
+    return [
+      `${basis}.`,
+      "Voix de journaliste sportif, naturelle a l oral: une idee par question, un fil qui suit ce que le joueur a vecu, avec un rythme varie.",
+    ].join(" ");
+  }
+  return `${basis}. Adapter le rythme, le vocabulaire et la densite a ces reperes sans appliquer de ton choisi separement.`;
 };
 
 const parseTopics = (value: string): string[] => {
@@ -435,7 +458,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       subtypeId: "",
     },
     parameters: {
-      toneId: isPublication || isArticle || isReel || isStory || isInterview ? "authentic" : "",
+      toneId: "",
       customTone: "",
       questionCountId: isInterview ? "q8" : "",
       customQuestionCount: "",
@@ -547,9 +570,9 @@ export const ContentCreationAssistantService = {
 
       if (!questionCount) return null;
       if (questionCount < CREATION_MIN_QUESTION_COUNT || questionCount > CREATION_MAX_QUESTION_COUNT) return null;
-      if (!args.draft.parameters.toneId || !args.draft.parameters.formatId || !args.draft.parameters.audienceId) return null;
+      if (!args.draft.parameters.formatId || !args.draft.parameters.audienceId) return null;
     } else if (isPublication || isArticle || isReel || isStory) {
-      if (!args.draft.parameters.toneId.trim() || !args.draft.parameters.audienceId.trim()) return null;
+      if (!args.draft.parameters.audienceId.trim()) return null;
       if (isArticle && !args.draft.objective.subtypeId) return null;
       if (isReel && !normalize(args.draft.parameters.reelSelectedAngle)) return null;
       if (isStory) {
@@ -563,7 +586,6 @@ export const ContentCreationAssistantService = {
       return null;
     }
 
-    if (args.draft.parameters.toneId === "free" && !normalize(args.draft.parameters.customTone)) return null;
     if (args.draft.parameters.audienceId === "free" && !normalize(args.draft.parameters.customAudience)) return null;
 
     const selectedConnectorIds: ContextConnectorId[] = [];
@@ -571,6 +593,33 @@ export const ContentCreationAssistantService = {
     if (args.draft.parameters.contextEnableProductions) selectedConnectorIds.push("productions");
     if (args.draft.parameters.contextEnableManual) selectedConnectorIds.push("manual");
     if (args.draft.parameters.contextEnableExternalNews) selectedConnectorIds.push("external_news");
+
+    const generationFormat = isPublication
+      ? args.draft.parameters.publicationPlatform
+      : isReel
+        ? args.draft.parameters.reelFormat
+        : isStory
+          ? args.draft.parameters.storyPlatform
+          : isArticle
+            ? args.draft.objective.subtypeId
+            : args.draft.parameters.formatId;
+    const audience = resolveFreeOptionValue(
+      args.draft.parameters.audienceId,
+      args.draft.parameters.customAudience,
+    );
+    const editorialAngle = isInterview
+      ? canonicalInterviewAngle
+        ? serializeInterviewAngle(canonicalInterviewAngle)
+        : args.draft.objective.subtypeId
+      : isPublication
+        ? args.draft.parameters.publicationSelectedAngle
+        : isReel
+          ? args.draft.parameters.reelSelectedAngle
+          : isStory
+            ? args.draft.parameters.storySelectedAngle
+            : isArticle
+              ? args.draft.parameters.articleSelectedAngle
+              : "";
 
     return {
       templateId: assistantTemplate.id,
@@ -603,18 +652,16 @@ export const ContentCreationAssistantService = {
         : undefined,
       parameters: {
         language: "fr-CH",
-        toneId: resolveFreeOptionValue(args.draft.parameters.toneId, args.draft.parameters.customTone),
+        toneId: deriveGenerationStyle({
+          objectiveId,
+          subtypeId: args.draft.objective.subtypeId,
+          format: generationFormat,
+          audience,
+          editorialAngle,
+        }),
         questionCount: isInterview ? questionCount : 3,
-        formatId: isPublication
-          ? args.draft.parameters.publicationPlatform
-          : isReel
-            ? args.draft.parameters.reelFormat
-            : isStory
-              ? args.draft.parameters.storyPlatform
-              : isArticle
-                ? args.draft.objective.subtypeId
-                : args.draft.parameters.formatId,
-        audienceId: resolveFreeOptionValue(args.draft.parameters.audienceId, args.draft.parameters.customAudience),
+        formatId: generationFormat,
+        audienceId: audience,
         additionalContext: isAfterMatch && args.draft.afterMatch
           ? [
               normalize(args.draft.parameters.additionalContext),

@@ -4,7 +4,10 @@ import {
   validateArticleCreationDraftPayload,
   validateCreateArticleCreationDraftBody,
 } from "@/lib/article-creation-drafts/validation";
-import { createInitialAssistantDraft } from "@/services/content-creation-assistant";
+import {
+  ContentCreationAssistantService,
+  createInitialAssistantDraft,
+} from "@/services/content-creation-assistant";
 import type { ArticleCreationDraftPayload } from "@/types/article-creation-draft";
 
 const createPayload = (): ArticleCreationDraftPayload => {
@@ -102,6 +105,25 @@ describe("Article creation draft validation", () => {
     };
 
     expect(validateArticleCreationDraftPayload(payload)).toEqual(payload);
+  });
+
+  it("reopens a legacy tone without migration but ignores it for a new generation", () => {
+    const payload = createPayload();
+    payload.draft.objective.subtypeId = "portrait";
+    payload.draft.parameters.articleSelectedAngle = "Le parcours documenté";
+    payload.draft.parameters.toneId = "free";
+    payload.draft.parameters.customTone = "Ancien ton dramatique";
+
+    expect(validateArticleCreationDraftPayload(payload)).toEqual(payload);
+
+    const generationPayload = ContentCreationAssistantService.preparePayload({
+      context: { mode: "free", objective: "article" },
+      draft: payload.draft,
+    });
+    expect(generationPayload).not.toBeNull();
+    expect(generationPayload?.parameters.toneId).toContain("format portrait");
+    expect(generationPayload?.parameters.toneId).toContain("Le parcours documenté");
+    expect(generationPayload?.parameters.toneId).not.toContain("Ancien ton dramatique");
   });
 
   it("rejects the total payload when it exceeds the private draft limit", () => {

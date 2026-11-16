@@ -149,6 +149,11 @@ describe("interview preparation prompt", () => {
     expect(prompt).toContain("Les faits cles demandes doivent apparaitre dans le texte des questions principales");
     expect(prompt).toContain("Quelle sequence choisiriez-vous");
     expect(prompt).toContain("une conclusion courte");
+    expect(prompt).toContain("voix de journaliste sportif");
+    expect(prompt).toContain("une idee a la fois");
+    expect(prompt).toContain("ne pas aligner des formulations du type 'statistique: comment expliquez-vous...'");
+    expect(prompt).toContain("Attribuer explicitement a l equipe les scores");
+    expect(prompt).toContain("Ne jamais supposer que le joueur etait sur le terrain");
     expect(prompt).not.toContain("\"topic\"");
   });
 

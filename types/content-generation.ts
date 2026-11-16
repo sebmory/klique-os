@@ -229,7 +229,7 @@ export type ContentSubjectContext = ContentContext;
 export type InterviewBrief = {
   interviewType: InterviewTypeId;
   objective: string;
-  tone: InterviewToneId;
+  tone: string;
   questionCount: number;
   format: InterviewFormatId;
   audience: InterviewAudienceId;
