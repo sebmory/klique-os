@@ -202,7 +202,8 @@ const extractMatchOpponent = (text: string): string | undefined => {
 };
 
 const extractMatchScore = (text: string): { score: string; home: number; away: number } | undefined => {
-  const match = text.match(/\b(?:score(?:\s+(?:déclaré|final))?\s*:\s*)?(\d{1,3})\s*[–—-]\s*(\d{1,3})\b/i);
+  const match = text.match(/\bscore(?:\s+(?:déclaré|final))?\s*:\s*(\d{1,3})\s*[–—-]\s*(\d{1,3})\b/i)
+    ?? text.match(/\b(?:victoire|défaite|match nul|nul)\s+(?:sur le score de\s+)?(\d{1,3})\s*[–—-]\s*(\d{1,3})\b/i);
   if (!match) return undefined;
   return {
     score: `${match[1]}–${match[2]}`,

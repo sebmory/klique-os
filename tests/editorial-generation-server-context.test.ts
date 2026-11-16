@@ -240,6 +240,7 @@ describe("server EditorialDossier preparation", () => {
       id: "selected-match-camara-naters",
       kind: "note",
       text: [
+        "Date de l'événement : 2026-11-14.",
         "Adversaire : FC Naters Oberwallis.",
         "Vevey sport s'est incliné lors de la défaite 0–2 face à FC Naters Oberwallis.",
       ].join(" "),
