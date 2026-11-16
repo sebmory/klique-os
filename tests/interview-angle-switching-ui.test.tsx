@@ -210,10 +210,13 @@ describe("Interview angle switching", () => {
       .toContain("external_news");
   });
 
-  it("counts Camara's pending writer match fact before generation", async () => {
+  it("uses Camara's displayed writer-anchor total in the preflight message", async () => {
     const stored = JSON.parse(
       window.sessionStorage.getItem(WORKFLOW_STORAGE_KEY) ?? "{}",
-    ) as { draft: ReturnType<typeof createInitialAssistantDraft> };
+    ) as {
+      draft: ReturnType<typeof createInitialAssistantDraft>;
+      contextState: { items: unknown[]; hasCollected: boolean };
+    };
     stored.draft.subject = {
       ...stored.draft.subject,
       type: "person",
@@ -223,6 +226,25 @@ describe("Interview angle switching", () => {
       sport: "Football",
     };
     stored.draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu contre Naters";
+    stored.contextState.items = [{
+      id: "writer-camara-collected",
+      connectorId: "manual",
+      category: "result",
+      title: "Note journalistique",
+      summary: "Camara est entré en jeu contre Naters",
+      factualStatement: "Camara est entré en jeu contre Naters",
+      statementType: "fact",
+      sourceType: "internal",
+      sourceName: "Saisie du rédacteur",
+      publishedAt: "2026-11-16T00:00:00.000Z",
+      retrievedAt: "2026-11-16T12:00:00.000Z",
+      confidence: "high",
+      verificationStatus: "verified",
+      isSelected: true,
+      isEditable: false,
+      metadata: {},
+    }];
+    stored.contextState.hasCollected = true;
     window.sessionStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify(stored));
 
     await act(async () => {
@@ -233,7 +255,14 @@ describe("Interview angle switching", () => {
     });
 
     const counter = container.querySelector("[data-after-match-anchor-count='true']");
-    expect(counter?.textContent).toContain("1 ancrage vérifié avant génération");
+    expect(counter?.textContent).toContain("2 ancrages vérifiés avant génération");
+
+    await clickButton(container, "Préparer mes questions");
+
+    expect(container.textContent).toContain(
+      "Le brief contient 2 ancrages vérifiés pour 8 questions demandées.",
+    );
+    expect(container.textContent).not.toContain("0 ancrage");
     expect(fetchMock.mock.calls.some(([input]) =>
       String(input) === "/api/content/generate")).toBe(false);
   });

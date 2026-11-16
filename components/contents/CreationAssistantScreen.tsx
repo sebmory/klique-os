@@ -2204,6 +2204,16 @@ export function CreationAssistantScreen({
       setStepErrorMessage("La préparation est incomplète. Vérifiez les réglages.");
       return;
     }
+    if (
+      draft.objective.subtypeId === "after_match"
+      && afterMatchVerifiedAnchorCount !== null
+      && afterMatchVerifiedAnchorCount < payload.parameters.questionCount
+    ) {
+      setStepErrorMessage(
+        `Le brief contient ${afterMatchVerifiedAnchorCount} ancrage${afterMatchVerifiedAnchorCount === 1 ? "" : "s"} vérifié${afterMatchVerifiedAnchorCount === 1 ? "" : "s"} pour ${payload.parameters.questionCount} questions demandées.`,
+      );
+      return;
+    }
     pendingInterviewPayloadRef.current = payload;
     setStepErrorMessage(null);
     if (mediaCreditRole === "media") {
