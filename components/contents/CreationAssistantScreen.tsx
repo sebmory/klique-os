@@ -426,6 +426,7 @@ type PersonSelectorItem = {
   id: string;
   displayName: string;
   sport: string;
+  position: string;
   organization: string;
   status: string;
   initials: string;
@@ -1160,6 +1161,7 @@ export function CreationAssistantScreen({
             id: fullAthlete.key,
             displayName: normalize(fullAthlete.name) || "Sans nom",
             sport: normalize(fullAthlete.sport),
+            position: normalize(fullAthlete.position),
             organization: normalize(fullAthlete.club),
             status: normalize(fullAthlete.status),
             initials: normalize(fullAthlete.initials) || getInitials(fullAthlete.name),
@@ -1170,6 +1172,7 @@ export function CreationAssistantScreen({
           id: athlete.athleteId,
           displayName: normalize(athlete.name) || "Sans nom",
           sport: normalize(athlete.sport),
+          position: "",
           organization: normalize(athlete.club),
           status: "Public",
           initials: getInitials(athlete.name),
@@ -1662,6 +1665,7 @@ export function CreationAssistantScreen({
         id: person.id,
         displayName: person.displayName,
         sport: person.sport,
+        disciplineOrPosition: person.position,
         clubOrOrganization: person.organization,
         photoUrl: undefined,
         photoAvailable: person.hasPhoto,
@@ -2027,6 +2031,7 @@ export function CreationAssistantScreen({
             type: draft.subject.type,
             displayName: draft.subject.displayName,
             sport: draft.subject.sport,
+            disciplineOrPosition: draft.subject.disciplineOrPosition,
             clubOrOrganization: draft.subject.clubOrOrganization,
             description: draft.subject.description,
           },

@@ -83,6 +83,7 @@ export type CreationSubjectDraft = {
   displayName: string;
   description: string;
   sport: string;
+  disciplineOrPosition: string;
   clubOrOrganization: string;
   photoUrl?: string;
   photoAvailable: boolean;
@@ -542,6 +543,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       displayName: isContextual ? normalize(context.subjectName ?? "") : "",
       description: "",
       sport: "",
+      disciplineOrPosition: "",
       clubOrOrganization: "",
       photoAvailable: false,
     },
@@ -736,7 +738,7 @@ export const ContentCreationAssistantService = {
         description: normalize(args.draft.subject.description),
         sport: normalize(args.draft.subject.sport),
         clubOrOrganization: normalize(args.draft.subject.clubOrOrganization),
-        disciplineOrPosition: "",
+        disciplineOrPosition: normalize(args.draft.subject.disciplineOrPosition),
         photoUrl: args.draft.subject.photoUrl,
         photoAvailable: args.draft.subject.photoAvailable,
       },

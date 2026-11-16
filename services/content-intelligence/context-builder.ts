@@ -211,6 +211,18 @@ const extractMatchScore = (text: string): { score: string; home: number; away: n
   };
 };
 
+const extractMatchOutcome = (
+  text: string,
+  score: { home: number; away: number },
+): "victoire" | "défaite" | "nul" | undefined => {
+  const scorePattern = `${score.home}\\s*[–—-]\\s*${score.away}`;
+  const explicitOutcome = text.match(
+    new RegExp(`\\b(victoire|défaite|match nul|nul)\\s+(?:sur le score de\\s+)?${scorePattern}\\b`, "i"),
+  )?.[1]?.toLocaleLowerCase("fr");
+  if (explicitOutcome === "victoire" || explicitOutcome === "défaite") return explicitOutcome;
+  return explicitOutcome === "match nul" || explicitOutcome === "nul" ? "nul" : undefined;
+};
+
 const buildAfterMatchSituation = (
   payload: CreationPreparationPayload,
   context: ContentContext,
@@ -226,6 +238,7 @@ const buildAfterMatchSituation = (
     ? `${matchItem.factualStatement} ${matchItem.summary}`
     : "";
   const score = extractMatchScore(matchText);
+  const outcome = score ? extractMatchOutcome(matchText, score) : undefined;
   const matchProvenance = normalize(matchItem?.sourceName) || "Fiche de match sélectionnée";
   const matchVerificationStatus = matchItem?.verificationStatus ?? "unverified";
   const writerFacts = payload.parameters.contextIntelligence.selectedContextItems
@@ -260,8 +273,12 @@ const buildAfterMatchSituation = (
             provenance: matchProvenance,
             verificationStatus: matchVerificationStatus,
           },
+        }
+      : {}),
+    ...(matchItem && outcome
+      ? {
           outcome: {
-            value: score.home === score.away ? "nul" : score.home > score.away ? "victoire" : "défaite",
+            value: outcome,
             provenance: matchProvenance,
             verificationStatus: matchVerificationStatus,
           },

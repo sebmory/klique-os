@@ -15,9 +15,15 @@ import { assessInterviewBriefReadiness } from "@/services/content-intelligence/i
 import type { SportsWatchCandidate } from "@/types/sports-watch";
 import {
   buildAfterMatchWriterMaterials,
+  ContentCreationAssistantService,
   createInitialAssistantDraft,
 } from "@/services/content-creation-assistant";
 import { validateContextCollectionRequest } from "@/services/context-intelligence/request-validation";
+import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
+import { buildContentPrompt } from "@/services/content-intelligence/prompt-builder";
+import { interviewTemplateV1 } from "@/services/content-intelligence/templates";
+import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
+import type { ManualEditorialMaterial } from "@/types/context-intelligence";
 
 const access: ContentAccessContext = {
   clerkUserId: "admin-1",
@@ -202,7 +208,7 @@ describe("server EditorialDossier preparation", () => {
         "Compétition : 1. Liga.",
         "Adversaire : FC Naters Oberwallis.",
         "Score déclaré : 0–2.",
-        "Abdou Böbödi CAMARA est entré en jeu et a disputé 25 minutes.",
+        "Abdou Böbödi CAMARA est entré en jeu avec Vevey sport lors de la défaite 0–2 et a disputé 25 minutes.",
         "Le score collectif ne constitue pas une preuve de participation individuelle.",
         "Source déclarée : Footstats Pro — saisie manuelle Admin, source tierce non officielle.",
         "Statut factuel initial : non vérifié.",
@@ -230,6 +236,22 @@ describe("server EditorialDossier preparation", () => {
         candidate.excerpt,
       ].join(" "),
     );
+    const selectedMatchMaterial: ManualEditorialMaterial = {
+      id: "selected-match-camara-naters",
+      kind: "note",
+      text: [
+        "Adversaire : FC Naters Oberwallis.",
+        "Vevey sport s'est incliné lors de la défaite 0–2 face à FC Naters Oberwallis.",
+      ].join(" "),
+      provenance: "Footstats Pro · Vérification factuelle : non vérifiée",
+      sourceDate: "2026-11-14",
+      sourceType: "external",
+      verificationStatus: "unverified",
+      statementType: "editorial_lead",
+      category: "result",
+      sourceUrl: candidate.articleUrl,
+      factKey: "selected-match:camara-naters",
+    };
     const draft = createInitialAssistantDraft({ mode: "free", objective: "interview" });
     draft.subject = {
       ...draft.subject,
@@ -238,9 +260,17 @@ describe("server EditorialDossier preparation", () => {
       id: candidate.athleteId,
       displayName: candidate.athleteName,
       sport: "Football",
+      disciplineOrPosition: "Attaquant",
+      clubOrOrganization: "Vevey sport",
     };
     draft.objective.subtypeId = "after_match";
-    draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu contre Naters";
+    draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu à la 65e minute.";
+    draft.parameters.afterMatchRanking = {
+      value: "16e et dernier",
+      asOfDate: "2026-11-16",
+      source: "Saisie du rédacteur",
+    };
+    draft.parameters.afterMatchNextFixture = undefined;
     const writerMaterials = buildAfterMatchWriterMaterials(draft, "2026-11-16");
     const request = validateContextCollectionRequest({
       subject: {
@@ -249,6 +279,8 @@ describe("server EditorialDossier preparation", () => {
         type: "person",
         displayName: candidate.athleteName,
         sport: "Football",
+        disciplineOrPosition: "Attaquant",
+        clubOrOrganization: "Vevey sport",
       },
       selectedConnectorIds: ["manual"],
       dateRange: { preset: "last_30_days", from: "2026-10-17", to: "2026-11-16" },
@@ -265,10 +297,11 @@ describe("server EditorialDossier preparation", () => {
       manualEditorialMaterials: [
         ...(request.manualEditorialMaterials ?? []),
         ...sportsWatchMaterials,
+        selectedMatchMaterial,
       ],
     });
     expect(connectorResult.items.filter((item) =>
-      item.sourceName !== "Saisie du rédacteur")).toHaveLength(sportsWatchMaterials.length);
+      item.sourceName !== "Saisie du rédacteur")).toHaveLength(sportsWatchMaterials.length + 1);
     expect(connectorResult.items.filter((item) =>
       item.sourceName !== "Saisie du rédacteur").every((item) =>
         item.verificationStatus === "unverified"
@@ -296,6 +329,8 @@ describe("server EditorialDossier preparation", () => {
         type: "person",
         displayName: candidate.athleteName,
         sport: "Football",
+        disciplineOrPosition: "Attaquant",
+        clubOrOrganization: "Vevey sport",
       },
       target: { type: "interview", interviewType: "after_match" },
       access,
@@ -308,27 +343,99 @@ describe("server EditorialDossier preparation", () => {
       selectedContextItems: prepared.selectedItems,
     });
 
-    expect(writerMaterials).toEqual([
-      expect.objectContaining({
-        text: "Camara est entré en jeu contre Naters",
+    const payload = ContentCreationAssistantService.preparePayload({
+      context: { mode: "free", objective: "interview" },
+      draft,
+      contextCollectionId: camaraCollection.id,
+      selectedContextItems: prepared.selectedItems,
+      contextResearchedAt: camaraCollection.summary.researchedAt,
+      contextDateRange: camaraCollection.summary.dateRange,
+    });
+    expect(payload).not.toBeNull();
+    const { request: generationRequest } = await buildContentGenerationRequest(
+      {
+        ...payload!,
+        parameters: {
+          ...payload!.parameters,
+          contextIntelligence: {
+            ...payload!.parameters.contextIntelligence,
+            selectedContextItems: prepared.selectedItems,
+          },
+        },
+      },
+      access,
+      prepared.selection.modelContext,
+    );
+    const prompt = buildContentPrompt({
+      request: generationRequest,
+      template: interviewTemplateV1,
+      promptVersion: contentIntelligenceConfig.interviewPromptVersion,
+    });
+
+    expect(generationRequest.requestType).toBe("interview");
+    if (generationRequest.requestType !== "interview") {
+      throw new Error("Expected an interview generation request");
+    }
+    expect(generationRequest.brief.afterMatchSituation).toEqual({
+      sport: {
+        value: "Football",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      position: {
+        value: "Attaquant",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      club: {
+        value: "Vevey sport",
+        provenance: "Projection éditoriale Athlete",
+        verificationStatus: "reported",
+      },
+      opponent: {
+        value: "FC Naters Oberwallis",
+        provenance: expect.stringContaining("Footstats Pro"),
+        verificationStatus: "unverified",
+      },
+      score: {
+        value: "0–2",
+        provenance: expect.stringContaining("Footstats Pro"),
+        verificationStatus: "unverified",
+      },
+      outcome: {
+        value: "défaite",
+        provenance: expect.stringContaining("Footstats Pro"),
+        verificationStatus: "unverified",
+      },
+      writerFacts: [{
+        value: "Camara est entré en jeu à la 65e minute.",
         provenance: "Saisie du rédacteur",
         verificationStatus: "verified",
-        statementType: "fact",
-      }),
-    ]);
+      }],
+      ranking: {
+        value: "16e et dernier",
+        provenance: "Saisie du rédacteur",
+        verificationStatus: "verified",
+      },
+    });
+    expect(prompt).toContain('"afterMatchSituation"');
+    expect(prompt).toContain('"value": "Attaquant"');
+    expect(prompt).toContain('"value": "FC Naters Oberwallis"');
+    expect(prompt).toContain('"value": "0–2"');
+    expect(prompt).toContain('"value": "défaite"');
     expect(prepared.selectedItems.find((item) =>
       item.sourceName === "Saisie du rédacteur")).toMatchObject({
-        factualStatement: "Camara est entré en jeu contre Naters",
+        factualStatement: "Camara est entré en jeu à la 65e minute.",
         verificationStatus: "verified",
         statementType: "fact",
       });
-    expect(prepared.selectedItems.filter((item) =>
-      item.sourceName !== "Saisie du rédacteur").every((item) =>
-        item.statementType === "editorial_lead"
-        && item.verificationStatus === "unverified")).toBe(true);
-    expect(readiness).toMatchObject({
-      ready: false,
+    expect(prepared.selectedItems.find((item) =>
+      item.category === "result"
+      && item.sourceName.includes("Footstats Pro"))).toMatchObject({
+      statementType: "editorial_lead",
+      verificationStatus: "unverified",
     });
+    expect(readiness.ready).toBe(true);
     expect(readiness.verifiedAnchorCount).toBeGreaterThan(0);
   });
 

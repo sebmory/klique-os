@@ -95,9 +95,11 @@ export type EditorialModelContext = {
     sourceNames: string[];
   }>;
   editorialLeads: Array<{
+    category?: string;
     text: string;
     verificationStatus: string;
     confidence: ContextItem["confidence"];
+    sourceNames?: string[];
   }>;
   missingInformation: string[];
   unresolvedContradictions: string[];

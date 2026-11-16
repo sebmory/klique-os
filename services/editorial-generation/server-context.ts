@@ -78,23 +78,33 @@ const buildSanitizedContextItems = (
       isEditable: false,
       metadata: {},
     })),
-    ...selection.modelContext.editorialLeads.map((lead, index): ContextItem => ({
-      id: `editorial-lead-${index + 1}`,
-      connectorId: "manual",
-      category: "user_note",
-      title: "Piste editoriale",
-      summary: lead.text,
-      factualStatement: lead.text,
-      statementType: "editorial_lead",
-      sourceType: lead.verificationStatus === "user_provided" ? "user" : "internal",
-      sourceName: lead.verificationStatus === "user_provided" ? "Information fournie par l utilisateur" : "Dossier editorial",
-      retrievedAt,
-      confidence: lead.confidence,
-      verificationStatus: lead.verificationStatus as ContextItem["verificationStatus"],
-      isSelected: true,
-      isEditable: false,
-      metadata: {},
-    })),
+    ...selection.modelContext.editorialLeads.map((lead, index): ContextItem => {
+      const category = toContextCategory(lead.category ?? "other");
+      const preservesResultSource = category === "result";
+      return {
+        id: `editorial-lead-${index + 1}`,
+        connectorId: "manual",
+        category: preservesResultSource ? "result" : "user_note",
+        title: "Piste editoriale",
+        summary: lead.text,
+        factualStatement: lead.text,
+        statementType: "editorial_lead",
+        ...(preservesResultSource
+          ? sourceData(lead.sourceNames ?? [])
+          : {
+              sourceType: lead.verificationStatus === "user_provided" ? "user" as const : "internal" as const,
+              sourceName: lead.verificationStatus === "user_provided"
+                ? "Information fournie par l utilisateur"
+                : "Dossier editorial",
+            }),
+        retrievedAt,
+        confidence: lead.confidence,
+        verificationStatus: lead.verificationStatus as ContextItem["verificationStatus"],
+        isSelected: true,
+        isEditable: false,
+        metadata: {},
+      };
+    }),
   ];
 };
 

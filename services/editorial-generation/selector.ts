@@ -172,9 +172,11 @@ export const selectEditorialGenerationContext = (
       sourceNames: sourceNames(citation.sourceIds),
     })),
     editorialLeads: leads.map((lead) => ({
+      category: lead.category,
       text: lead.formulation,
       verificationStatus: lead.verificationStatus,
       confidence: lead.confidence.level,
+      sourceNames: sourceNames(lead.sourceIds),
     })),
     missingInformation: eligibility.missingInformation,
     unresolvedContradictions: contradictions,
