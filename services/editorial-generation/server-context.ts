@@ -98,6 +98,77 @@ const buildSanitizedContextItems = (
   ];
 };
 
+const normalizeFactText = (value: string): string => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[’']/g, " ")
+  .replace(/[–—]/g, "-")
+  .toLocaleLowerCase("fr");
+
+const scoreValues = (value: string): Set<string> => new Set(
+  Array.from(normalizeFactText(value).matchAll(/\b(\d{1,3})\s*-\s*(\d{1,3})\b/g))
+    .map((match) => [Number(match[1]), Number(match[2])].sort((a, b) => a - b).join("-")),
+);
+
+const rankingValues = (value: string): Set<string> => new Set(
+  Array.from(normalizeFactText(value).matchAll(/\b(\d{1,3})(?:er|re|e|eme)\b/g))
+    .map((match) => match[1]),
+);
+
+const participationPolarity = (value: string): "positive" | "negative" | null => {
+  const text = normalizeFactText(value);
+  if (/\b(?:n est pas entre en jeu|n a pas participe|joueur absent|participation\s*:\s*(?:non|aucune))\b/.test(text)) {
+    return "negative";
+  }
+  if (/\b(?:est entre en jeu|a participe|participation (?:etablie|confirmee)|a dispute \d+ minutes?)\b/.test(text)) {
+    return "positive";
+  }
+  return null;
+};
+
+const setsConflict = (left: Set<string>, right: Set<string>): boolean =>
+  left.size > 0
+  && right.size > 0
+  && !Array.from(left).some((value) => right.has(value));
+
+const assertNoOfficialWriterContradiction = (
+  items: ContextItem[],
+  target: EditorialGenerationTarget,
+): void => {
+  if (target.type !== "interview" || target.interviewType !== "after_match") return;
+  const writerFacts = items.filter((item) =>
+    item.statementType === "fact"
+    && item.verificationStatus === "verified"
+    && item.sourceName === "Saisie du rédacteur");
+  const officialFacts = items.filter((item) =>
+    item.statementType === "fact"
+    && item.verificationStatus === "verified"
+    && item.sourceType === "official");
+
+  for (const writerFact of writerFacts) {
+    const writerText = writerFact.factualStatement || writerFact.summary;
+    for (const officialFact of officialFacts) {
+      const officialText = officialFact.factualStatement || officialFact.summary;
+      const writerParticipation = participationPolarity(writerText);
+      const officialParticipation = participationPolarity(officialText);
+      const contradiction =
+        setsConflict(scoreValues(writerText), scoreValues(officialText))
+        || setsConflict(rankingValues(writerText), rankingValues(officialText))
+        || (
+          writerParticipation !== null
+          && officialParticipation !== null
+          && writerParticipation !== officialParticipation
+        );
+      if (contradiction) {
+        throw new ContentGenerationError(
+          "INVALID_REQUEST",
+          `Écart entre la Saisie du rédacteur et une source officielle. Saisie : « ${writerText.slice(0, 180)} ». Source officielle : « ${officialText.slice(0, 180)} ». Corrigez ou retirez la saisie avant la génération.`,
+        );
+      }
+    }
+  }
+};
+
 export const prepareEditorialGeneration = async (args: {
   contextSelection: ContextSelectionReference;
   subject: ContextSubject;
@@ -112,6 +183,7 @@ export const prepareEditorialGeneration = async (args: {
     args.store ?? EditorialContextCollectionRepository,
     args.now,
   );
+  assertNoOfficialWriterContradiction(resolved.items, args.target);
   const dossier = buildEditorialDossier({
     collection: {
       id: resolved.collection.id,

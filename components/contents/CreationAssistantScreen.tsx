@@ -59,6 +59,7 @@ import { getMediaSubscriptionPlan } from "@/lib/media-subscriptions/plans";
 import {
   CREATION_MAX_QUESTION_COUNT,
   CREATION_MIN_QUESTION_COUNT,
+  buildAfterMatchWriterMaterials,
   ContentCreationAssistantService,
   createInitialAssistantDraft,
   type AfterMatchPresetDraft,
@@ -405,6 +406,7 @@ const buildContextFingerprint = (draft: CreationAssistantDraft): string =>
     displayName: draft.subject.displayName,
     objective: draft.objective.objective,
     subtypeId: draft.objective.subtypeId,
+    afterMatchMatchFacts: draft.parameters.afterMatchMatchFacts ?? "",
     additionalContext: draft.parameters.additionalContext,
     manualEditorialMaterials: draft.parameters.manualEditorialMaterials ?? [],
     manualInterviewSource: draft.parameters.manualInterviewSource ?? null,
@@ -1949,12 +1951,17 @@ export function CreationAssistantScreen({
     const previousContextItems = contextState.items;
     const renewingExpiredContext = articleContextExpired;
 
+    const writerMaterials = buildAfterMatchWriterMaterials(draft);
+    const manualEditorialMaterials = [
+      ...(draft.parameters.manualEditorialMaterials ?? []),
+      ...writerMaterials,
+    ];
     const selectedConnectorIds: ContextConnectorId[] = [];
     if (draft.parameters.contextEnableCrm) selectedConnectorIds.push("crm");
     if (draft.parameters.contextEnableProductions) selectedConnectorIds.push("productions");
     if (
       draft.parameters.contextEnableManual
-      || (draft.parameters.manualEditorialMaterials ?? []).length > 0
+      || manualEditorialMaterials.length > 0
       || (draft.parameters.manualInterviewSource?.excerpts.length ?? 0) > 0
     ) {
       selectedConnectorIds.push("manual");
@@ -2003,7 +2010,7 @@ export function CreationAssistantScreen({
           searchDepth: draft.parameters.contextSearchDepth,
           language: "fr-CH",
           manualContext: draft.parameters.additionalContext,
-          manualEditorialMaterials: draft.parameters.manualEditorialMaterials,
+          manualEditorialMaterials,
           sportsWatchCandidateIds,
           manualInterviewSources: draft.parameters.manualInterviewSource?.excerpts.length
             ? [draft.parameters.manualInterviewSource]
@@ -5336,6 +5343,35 @@ export function CreationAssistantScreen({
             {selectedCandidate ? (
               <p className="creation-muted">Sélection active : {selectedCandidate.title}</p>
             ) : null}
+          </section>
+        ) : null}
+
+        {draft.objective.subtypeId === "after_match" ? (
+          <section className="creation-panel" aria-labelledby="interview-match-facts-title">
+            <header>
+              <h2 id="interview-match-facts-title">Faits de match</h2>
+              <p>
+                Saisissez les faits que vous avez vérifiés comme rédacteur : entrée en jeu, score ou moment marquant.
+              </p>
+            </header>
+            <label className="creation-inline-field">
+              <span>Vérifiés par le rédacteur</span>
+              <textarea
+                className="creation-textarea"
+                value={draft.parameters.afterMatchMatchFacts ?? ""}
+                onChange={(event) => setDraft((current) => ({
+                  ...current,
+                  parameters: {
+                    ...current.parameters,
+                    afterMatchMatchFacts: event.target.value,
+                  },
+                }))}
+                placeholder="Camara est entré en jeu contre Naters."
+              />
+            </label>
+            <p className="creation-muted">
+              Provenance conservée : Saisie du rédacteur. Aucune pièce jointe n’est demandée et le statut Sports Watch reste inchangé.
+            </p>
           </section>
         ) : null}
 

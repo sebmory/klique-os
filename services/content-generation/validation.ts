@@ -108,7 +108,7 @@ const sanitizeAfterMatchClosingFacts = (
         value: normalize(value.ranking.value),
         asOfDate: normalize(value.ranking.asOfDate),
         source: normalize(value.ranking.source),
-        verificationStatus: "unverified" as const,
+        verificationStatus: "verified" as const,
       }
     : undefined;
   const nextFixture = value?.nextFixture
@@ -117,7 +117,7 @@ const sanitizeAfterMatchClosingFacts = (
         date: normalize(value.nextFixture.date),
         competition: normalize(value.nextFixture.competition),
         source: normalize(value.nextFixture.source),
-        verificationStatus: "unverified" as const,
+        verificationStatus: "verified" as const,
       }
     : undefined;
 

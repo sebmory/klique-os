@@ -230,14 +230,14 @@ describe("interview preparation prompt", () => {
         value: "3e de NL1 Men",
         asOfDate: "2026-11-16",
         source: "Classement officiel fictif",
-        verificationStatus: "unverified",
+        verificationStatus: "verified",
       },
       nextFixture: {
         opponent: "Adversaire fictif",
         date: "2026-11-22",
         competition: "NL1 Men",
         source: "Calendrier officiel fictif",
-        verificationStatus: "unverified",
+        verificationStatus: "verified",
       },
     };
 

@@ -114,7 +114,7 @@ describe("automatic creation style", () => {
     }
   });
 
-  it("keeps complete sourced after-match perspectives and rejects partial ones", () => {
+  it("keeps complete editor-verified after-match perspectives and rejects partial ones", () => {
     const draft = createInitialAssistantDraft({ mode: "free", objective: "interview" });
     draft.subject = {
       ...draft.subject,
@@ -143,11 +143,11 @@ describe("automatic creation style", () => {
     expect(payload?.parameters.afterMatchClosingFacts).toEqual({
       ranking: {
         ...draft.parameters.afterMatchRanking,
-        verificationStatus: "unverified",
+        verificationStatus: "verified",
       },
       nextFixture: {
         ...draft.parameters.afterMatchNextFixture,
-        verificationStatus: "unverified",
+        verificationStatus: "verified",
       },
     });
     expect(validateCreationPayload(payload).parameters.afterMatchClosingFacts)
@@ -168,7 +168,7 @@ describe("automatic creation style", () => {
       },
     });
     expect(forgedVerification.parameters.afterMatchClosingFacts?.ranking?.verificationStatus)
-      .toBe("unverified");
+      .toBe("verified");
 
     expect(() => validateCreationPayload({
       ...payload,
@@ -179,7 +179,7 @@ describe("automatic creation style", () => {
             value: "3e de NL1 Men",
             asOfDate: "",
             source: "",
-            verificationStatus: "unverified",
+            verificationStatus: "verified",
           },
         },
       },

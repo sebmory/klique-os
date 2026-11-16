@@ -103,6 +103,7 @@ export type CreationParametersDraft = {
   customAudience: string;
   interviewAngleId?: string;
   interviewAngle?: string;
+  afterMatchMatchFacts?: string;
   afterMatchRanking?: {
     value: string;
     asOfDate: string;
@@ -188,14 +189,14 @@ export type CreationPreparationPayload = {
         value: string;
         asOfDate: string;
         source: string;
-        verificationStatus: "unverified";
+        verificationStatus: "verified";
       };
       nextFixture?: {
         opponent: string;
         date: string;
         competition: string;
         source: string;
-        verificationStatus: "unverified";
+        verificationStatus: "verified";
       };
     };
     additionalContext: string;
@@ -398,6 +399,71 @@ const parseTopics = (value: string): string[] => {
     .slice(0, 12);
 };
 
+export const buildAfterMatchWriterMaterials = (
+  draft: CreationAssistantDraft,
+  sourceDate = new Date().toISOString().slice(0, 10),
+): ManualEditorialMaterial[] => {
+  if (
+    draft.objective.objective !== "interview"
+    || draft.objective.subtypeId !== "after_match"
+  ) {
+    return [];
+  }
+  const subjectKey = normalize(draft.subject.id ?? draft.subject.displayName)
+    .toLocaleLowerCase("fr")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    || "sujet";
+  const materials: ManualEditorialMaterial[] = [];
+  const push = (
+    id: string,
+    text: string,
+    category: ManualEditorialMaterial["category"],
+    factKey: string,
+  ) => {
+    const value = normalize(text);
+    if (!value) return;
+    materials.push({
+      id,
+      kind: "note",
+      text: value,
+      provenance: "Saisie du rédacteur",
+      sourceDate,
+      sourceType: "internal",
+      verificationStatus: "verified",
+      statementType: "fact",
+      category,
+      factKey,
+    });
+  };
+
+  push(
+    `writer-after-match-facts-${subjectKey}`,
+    draft.parameters.afterMatchMatchFacts ?? "",
+    "result",
+    `writer:${subjectKey}:match-facts`,
+  );
+  const ranking = draft.parameters.afterMatchRanking;
+  if (ranking?.value && ranking.asOfDate && ranking.source) {
+    push(
+      `writer-after-match-ranking-${subjectKey}`,
+      `Classement au ${normalize(ranking.asOfDate)} : ${normalize(ranking.value)}. Source indiquée : ${normalize(ranking.source)}.`,
+      "performance",
+      `writer:${subjectKey}:ranking`,
+    );
+  }
+  const fixture = draft.parameters.afterMatchNextFixture;
+  if (fixture?.opponent && fixture.date && fixture.competition && fixture.source) {
+    push(
+      `writer-after-match-fixture-${subjectKey}`,
+      `Prochain match contre ${normalize(fixture.opponent)}, le ${normalize(fixture.date)}, en ${normalize(fixture.competition)}. Source indiquée : ${normalize(fixture.source)}.`,
+      "schedule",
+      `writer:${subjectKey}:next-fixture`,
+    );
+  }
+  return materials;
+};
+
 // Bloc clairement identifie, ajoute uniquement pour le preset Apres-match; aucun champ vide n y figure.
 const buildAfterMatchContextBlock = (
   afterMatch: AfterMatchPresetDraft,
@@ -493,6 +559,7 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
       customAudience: "",
       interviewAngleId: "",
       interviewAngle: "",
+      afterMatchMatchFacts: "",
       afterMatchRanking: {
         value: "",
         asOfDate: "",
@@ -706,7 +773,7 @@ export const ContentCreationAssistantService = {
                     value: normalize(args.draft.parameters.afterMatchRanking.value),
                     asOfDate: normalize(args.draft.parameters.afterMatchRanking.asOfDate),
                     source: normalize(args.draft.parameters.afterMatchRanking.source),
-                    verificationStatus: "unverified",
+                    verificationStatus: "verified",
                   }
                 : undefined,
               nextFixture: args.draft.parameters.afterMatchNextFixture
@@ -715,7 +782,7 @@ export const ContentCreationAssistantService = {
                     date: normalize(args.draft.parameters.afterMatchNextFixture.date),
                     competition: normalize(args.draft.parameters.afterMatchNextFixture.competition),
                     source: normalize(args.draft.parameters.afterMatchNextFixture.source),
-                    verificationStatus: "unverified",
+                    verificationStatus: "verified",
                   }
                 : undefined,
             }

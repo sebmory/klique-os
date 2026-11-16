@@ -13,6 +13,10 @@ import { resolveConnector } from "@/services/context-intelligence/connectors";
 import { buildSportsWatchArticleMaterials } from "@/lib/sports-watch/service";
 import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
 import type { SportsWatchCandidate } from "@/types/sports-watch";
+import {
+  buildAfterMatchWriterMaterials,
+  createInitialAssistantDraft,
+} from "@/services/content-creation-assistant";
 
 const access: ContentAccessContext = {
   clerkUserId: "admin-1",
@@ -182,6 +186,143 @@ describe("server EditorialDossier preparation", () => {
     expect(transmittedFacts).toContain("Q4 17–28");
     expect(readiness.ready).toBe(true);
     expect(readiness.verifiedAnchorCount).toBeGreaterThanOrEqual(8);
+  });
+
+  it("counts Camara's writer-verified entry while Sports Watch stays unverified", async () => {
+    const candidate: SportsWatchCandidate = {
+      id: "f0fca2e6-8d20-4fb5-ae27-168249e1a9b8",
+      athleteId: "abdou-bobodi-camara",
+      athleteName: "Abdou Böbödi CAMARA",
+      sourceName: "Saisie manuelle Admin",
+      sourceUrl: "https://www.footstats.ch/de/teams/ddcznrjs/matches/",
+      articleUrl: "https://www.footstats.ch/de/teams/ddcznrjs/matches/",
+      title: "Abdou Böbödi CAMARA entre en jeu face à FC Naters Oberwallis",
+      excerpt: [
+        "Compétition : 1. Liga.",
+        "Adversaire : FC Naters Oberwallis.",
+        "Score déclaré : 0–2.",
+        "Abdou Böbödi CAMARA est entré en jeu et a disputé 25 minutes.",
+        "Le score collectif ne constitue pas une preuve de participation individuelle.",
+        "Source déclarée : Footstats Pro — saisie manuelle Admin, source tierce non officielle.",
+        "Statut factuel initial : non vérifié.",
+      ].join(" "),
+      resultKind: "collective_result",
+      publicationDate: null,
+      eventDateFrom: "2026-11-14",
+      eventDateTo: "2026-11-14",
+      collectedAt: "2026-11-16T08:00:00.000Z",
+      attributionStatus: "matched",
+      attributionEvidence: ["Saisie manuelle Admin."],
+      verificationStatus: "unverified",
+      adminStatus: "validated",
+      supersedesCandidateId: null,
+      version: 1,
+    };
+    const sportsWatchMaterials = buildSportsWatchArticleMaterials(
+      candidate,
+      "Footstats Pro · Vérification factuelle : non vérifiée",
+      "2026-11-14",
+      [
+        `Athlète associé : ${candidate.athleteName}.`,
+        "Statut factuel : résultat collectif, sans participation individuelle déduite.",
+        `Actualité : ${candidate.title}.`,
+        candidate.excerpt,
+      ].join(" "),
+    );
+    const draft = createInitialAssistantDraft({ mode: "free", objective: "interview" });
+    draft.subject = {
+      ...draft.subject,
+      type: "person",
+      source: "crm",
+      id: candidate.athleteId,
+      displayName: candidate.athleteName,
+      sport: "Football",
+    };
+    draft.objective.subtypeId = "after_match";
+    draft.parameters.afterMatchMatchFacts = "Camara est entré en jeu contre Naters";
+    const writerMaterials = buildAfterMatchWriterMaterials(draft, "2026-11-16");
+    const materials = [...sportsWatchMaterials, ...writerMaterials];
+    const connectorResult = await resolveConnector("manual")!.collect({
+      workspaceId: access.workspaceId,
+      subject: {
+        id: candidate.athleteId,
+        source: "crm",
+        type: "person",
+        displayName: candidate.athleteName,
+        sport: "Football",
+      },
+      selectedConnectorIds: ["manual"],
+      dateRange: { preset: "last_30_days", from: "2026-10-17", to: "2026-11-16" },
+      sourcePreference: "official_and_reliable",
+      searchDepth: "standard",
+      language: "fr-CH",
+      manualEditorialMaterials: materials,
+      contentType: "interview",
+      interviewType: "after_match",
+    });
+    expect(connectorResult.items.filter((item) =>
+      item.sourceName !== "Saisie du rédacteur")).toHaveLength(sportsWatchMaterials.length);
+    expect(connectorResult.items.filter((item) =>
+      item.sourceName !== "Saisie du rédacteur").every((item) =>
+        item.verificationStatus === "unverified"
+        && item.statementType === "editorial_lead")).toBe(true);
+    const camaraCollection = {
+      ...collection,
+      items: connectorResult.items,
+      createdAt: "2026-11-16T08:00:00.000Z",
+      expiresAt: "2026-11-16T09:00:00.000Z",
+      summary: {
+        ...collection.summary,
+        totalItemsFound: connectorResult.items.length,
+        selectedItemsCount: connectorResult.items.length,
+      },
+    };
+    const prepared = await prepareEditorialGeneration({
+      contextSelection: {
+        collectionId: camaraCollection.id,
+        selectedItemIds: connectorResult.items.map((item) => item.id),
+        manualEdits: [],
+      },
+      subject: {
+        id: candidate.athleteId,
+        source: "crm",
+        type: "person",
+        displayName: candidate.athleteName,
+        sport: "Football",
+      },
+      target: { type: "interview", interviewType: "after_match" },
+      access,
+      store: store(camaraCollection),
+      now: new Date("2026-11-16T08:10:00.000Z"),
+    });
+    const readiness = assessInterviewBriefReadiness({
+      interviewType: "after_match",
+      questionCount: 8,
+      selectedContextItems: prepared.selectedItems,
+    });
+
+    expect(writerMaterials).toEqual([
+      expect.objectContaining({
+        text: "Camara est entré en jeu contre Naters",
+        provenance: "Saisie du rédacteur",
+        verificationStatus: "verified",
+        statementType: "fact",
+      }),
+    ]);
+    expect(prepared.selectedItems.find((item) =>
+      item.sourceName === "Saisie du rédacteur")).toMatchObject({
+        factualStatement: "Camara est entré en jeu contre Naters",
+        verificationStatus: "verified",
+        statementType: "fact",
+      });
+    expect(prepared.selectedItems.filter((item) =>
+      item.sourceName !== "Saisie du rédacteur").every((item) =>
+        item.statementType === "editorial_lead"
+        && item.verificationStatus === "unverified")).toBe(true);
+    expect(readiness).toMatchObject({
+      ready: false,
+      verifiedAnchorCount: 1,
+    });
   });
 
   it("still reports incompatible scores for the same Sports Watch match", async () => {
