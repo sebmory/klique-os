@@ -106,6 +106,9 @@ const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[
         `Le locuteur est obligatoire pour la citation à la position ${index + 1}.`,
       );
     }
+    const writerMatchFactSubject = kind === "note" && provenance === "Saisie du rédacteur"
+      ? id.match(/^writer-after-match-facts-([a-z0-9]+(?:-[a-z0-9]+)*)$/)?.[1]
+      : undefined;
 
     return {
       id,
@@ -114,6 +117,15 @@ const parseManualEditorialMaterials = (value: unknown): ManualEditorialMaterial[
       provenance,
       sourceDate,
       ...(kind === "verbatim_quote" ? { speaker } : {}),
+      ...(writerMatchFactSubject
+        ? {
+            sourceType: "internal" as const,
+            verificationStatus: "verified" as const,
+            statementType: "fact" as const,
+            category: "result" as const,
+            factKey: `writer:${writerMatchFactSubject}:match-facts`,
+          }
+        : {}),
     } satisfies ManualEditorialMaterial;
   });
 };
