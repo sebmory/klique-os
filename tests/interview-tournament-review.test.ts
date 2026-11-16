@@ -45,7 +45,7 @@ const match = (
   eventDate,
   sourceName: "Swiss Badminton / Tournamentsoftware",
   sourceUrl: `${sourceUrl}&draw=${tableau}`,
-  verificationStatus: "verified",
+  verificationStatus: "unverified",
   materials: [],
 });
 
@@ -126,6 +126,7 @@ describe("Interview tournament review", () => {
       item.category === "result"
       && item.statementType === "fact"
       && item.verificationStatus === "verified")).toBe(true);
+    expect(situation.matches.every((item) => item.verificationStatus === "verified")).toBe(true);
     expect(situation).toMatchObject({
       frame: "tournament_review",
       tournamentId,

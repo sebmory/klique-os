@@ -18,6 +18,47 @@ const verificationLabels: Record<SportsWatchVerificationStatus, string> = {
   disputed: "contesté",
 };
 
+const isOfficialSwissBadmintonSource = (
+  tournament: SportsWatchInterviewTournament,
+  match: SportsWatchInterviewTournamentMatch,
+): boolean => {
+  if (
+    tournament.tournamentId === null
+    || match.sourceName !== "Swiss Badminton / Tournamentsoftware"
+  ) {
+    return false;
+  }
+
+  try {
+    const sourceUrl = new URL(match.sourceUrl);
+    return sourceUrl.hostname === "sb.tournamentsoftware.com"
+      && sourceUrl.searchParams.get("id") === tournament.tournamentId;
+  } catch {
+    return false;
+  }
+};
+
+export const resolveTournamentMatchVerificationStatus = (
+  tournament: SportsWatchInterviewTournament,
+  match: SportsWatchInterviewTournamentMatch,
+): SportsWatchVerificationStatus => {
+  if (match.verificationStatus !== "unverified") {
+    return match.verificationStatus;
+  }
+
+  const hasCompleteStructuredResult = Boolean(
+    match.tableau.trim()
+    && match.eventDate
+    && match.opponents.trim()
+    && match.athleteScore.trim()
+    && match.outcome !== "unknown"
+    && (match.discipline === "simple" || match.partner?.trim()),
+  );
+  return isOfficialSwissBadmintonSource(tournament, match) && hasCompleteStructuredResult
+    ? "verified"
+    : "unverified";
+};
+
 const selectMatches = (
   tournament: SportsWatchInterviewTournament,
   selectedCandidateIds: string[],
@@ -56,12 +97,13 @@ export const buildTournamentInterviewMaterials = (
   selectedCandidateIds: string[],
 ): ManualEditorialMaterial[] => selectMatches(tournament, selectedCandidateIds)
   .map((match) => {
-    const verified = match.verificationStatus === "verified";
+    const verificationStatus = resolveTournamentMatchVerificationStatus(tournament, match);
+    const verified = verificationStatus === "verified";
     return {
       id: `sports-watch-tournament-${match.candidateId}`,
       kind: "note",
       text: formatMatch(tournament, match),
-      provenance: `${match.sourceName} · ${disciplineLabels[match.discipline]} · ${verificationLabels[match.verificationStatus]}`,
+      provenance: `${match.sourceName} · ${disciplineLabels[match.discipline]} · ${verificationLabels[verificationStatus]}`,
       sourceDate: match.eventDate ?? tournament.eventDateTo ?? tournament.eventDateFrom ?? "",
       sourceType: "official",
       verificationStatus: verified ? "verified" : "unverified",
@@ -81,6 +123,7 @@ export const buildTournamentSituation = (
   }
 
   const matches = selectMatches(tournament, selectedCandidateIds).flatMap((match) => {
+    const verificationStatus = resolveTournamentMatchVerificationStatus(tournament, match);
     const outcome = match.outcome === "victory" || match.outcome === "defeat"
       ? match.outcome
       : match.outcome === "forfeit" || match.outcome === "retirement"
@@ -100,9 +143,9 @@ export const buildTournamentSituation = (
           outcome,
           sourceName: match.sourceName,
           sourceUrl: match.sourceUrl,
-          verificationStatus: match.verificationStatus === "disputed"
+          verificationStatus: verificationStatus === "disputed"
             ? "unverified" as const
-            : match.verificationStatus,
+            : verificationStatus,
         }]
       : [];
   });

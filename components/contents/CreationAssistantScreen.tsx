@@ -96,6 +96,7 @@ import type {
 import {
   buildTournamentInterviewMaterials,
   buildTournamentSituation,
+  resolveTournamentMatchVerificationStatus,
 } from "@/services/tournament-interview";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
 import {
@@ -5607,6 +5608,10 @@ export function CreationAssistantScreen({
                     </h3>
                     {discipline.matches.map((match) => {
                       const checked = selectedTournamentMatchIds.includes(match.candidateId);
+                      const verificationStatus = resolveTournamentMatchVerificationStatus(
+                        selectedTournament,
+                        match,
+                      );
                       return (
                         <label key={match.candidateId} className="creation-toggle-row">
                           <input
@@ -5627,7 +5632,7 @@ export function CreationAssistantScreen({
                             <small>
                               {match.partner ? `Avec ${match.partner} · ` : ""}
                               {match.outcomeLabel} · {match.athleteScore}
-                              {" · "}{match.verificationStatus === "verified" ? "Vérifié" : match.verificationStatus === "disputed" ? "Contesté" : "À vérifier"}
+                              {" · "}{verificationStatus === "verified" ? "Vérifié" : verificationStatus === "disputed" ? "Contesté" : "À vérifier"}
                             </small>
                           </span>
                         </label>
