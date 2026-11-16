@@ -43,6 +43,20 @@ const frames: Record<InterviewTypeId, InterviewPreparationFrame> = {
     ],
     relances: "apres la reponse, faire preciser un souvenir, un choix, un ressenti, une consigne ou un ajustement sans repeter le chiffre de la question; jamais de relance detachee du match.",
   },
+  tournament_review: {
+    interviewType: "tournament_review",
+    matiere: "les matchs selectionnes d une meme edition de tournoi, regroupes par simple, double et mixte avec leurs adversaires, sources et statuts de verification.",
+    ouverture: "un fait marquant verifie de l edition ou une invitation a dresser le bilan si la couverture est partielle.",
+    questions: [
+      "Produire une seule interview avec exactement le nombre de questions demande.",
+      "Couvrir chacune des disciplines representees dans les matchs transmis, sans imposer une question par match.",
+      "Choisir les faits marquants qui appellent des reponses distinctes et construire un fil transversal a l edition.",
+      "Utiliser les adversaires pour distinguer les rencontres qui partagent le meme titre.",
+      "Respecter la source et le statut de verification de chaque match; ne jamais promouvoir une rencontre non verifiee en fait acquis.",
+      "Si la couverture est partielle, le signaler dans la preparation et ne deduire ni bilan complet, ni nombre total de victoires, ni classement final.",
+    ],
+    relances: "faire comparer une discipline, un adversaire ou un moment deja cite dans la reponse, sans derouler chronologiquement tous les matchs.",
+  },
   before_match: {
     interviewType: "before_match",
     matiere: "l adversaire et son identite de jeu observable, l enjeu concret de la rencontre, l etat du groupe et le contexte du calendrier si ces elements sont sources.",
