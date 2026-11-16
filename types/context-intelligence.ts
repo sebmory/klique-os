@@ -59,6 +59,7 @@ export type ManualEditorialMaterial = {
   statementType?: ContextStatementType;
   category?: ContextItemCategory;
   sourceUrl?: string;
+  factKey?: string;
 };
 
 export const MANUAL_EDITORIAL_MATERIAL_LIMIT = 12;

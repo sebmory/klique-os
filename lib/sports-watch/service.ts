@@ -133,32 +133,137 @@ const splitEditorialText = (value: string): string[] => {
   }
   return chunks;
 };
+
+type SportsWatchEditorialSegmentKind =
+  | "context"
+  | "score"
+  | "quarters"
+  | "presence"
+  | "starter"
+  | "participation"
+  | "statistics"
+  | "reserve";
+
+const splitEditorialStatements = (value: string): string[] =>
+  Array.from(value.trim().matchAll(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g), (match) => match[0].trim())
+    .filter(Boolean);
+
+const sportsWatchSegmentKind = (statement: string): SportsWatchEditorialSegmentKind => {
+  const normalized = statement
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (
+    /aucune valeur n['’]est deduite/.test(normalized)
+    || /(?:donnee|statistique|information)s? (?:absente|indisponible)s?[^.]*ne (?:doit|peut) pas etre deduite/.test(normalized)
+  ) {
+    return "reserve";
+  }
+  if (
+    /^(?:match|resultat|score(?: tel qu['’]affiche)?)\s*:/.test(normalized)
+    && /\b\d{1,3}\s*[–—-]\s*\d{1,3}\b/.test(normalized)
+  ) {
+    return "score";
+  }
+  if (/quart-temps|\bq[1-4]\s*\d{1,3}\s*[–—-]\s*\d{1,3}\b/.test(normalized)) return "quarters";
+  if (/presence nominative|identifiant joueur/.test(normalized)) return "presence";
+  if (/titularisation\s*:/.test(normalized)) return "starter";
+  if (/participation (?:individuelle )?(?:etablie|confirmee|explicite)/.test(normalized)) return "participation";
+  if (/statistiques? individuelles?|\bpts?\s*\d{1,3}\b|\b\d{1,3}\s+points?\b/.test(normalized)) {
+    return "statistics";
+  }
+  return "context";
+};
+
+const sportsWatchFactScope = (candidate: SportsWatchCandidate): string => {
+  const officialMatchId = candidate.articleUrl.match(/[?&](?:gameId|game_id)=([^&#]+)/i)?.[1];
+  return `sports-watch:${officialMatchId ? `match-${officialMatchId}` : `candidate-${candidate.id}`}`;
+};
+
+const sportsWatchFactKey = (
+  candidate: SportsWatchCandidate,
+  scope: string,
+  kind: Exclude<SportsWatchEditorialSegmentKind, "reserve">,
+): string => {
+  if (kind === "score" || kind === "quarters") return `${scope}:${kind}`;
+  if (kind === "context") return `${scope}:candidate-${candidate.id}:${kind}`;
+  return `${scope}:athlete-${candidate.athleteId}:${kind}`;
+};
+
 export const buildSportsWatchArticleMaterials = (
   candidate: SportsWatchCandidate,
   provenance: string,
   sourceDate: string,
   text = candidate.excerpt,
-): ManualEditorialMaterial[] =>
-  splitEditorialText(text).map((chunk, index) => ({
-    id: `sports-watch-${candidate.id}-${index + 1}`,
-    kind: "note",
-    text: chunk,
-    provenance,
-    sourceDate,
-    sourceType: "external",
-    verificationStatus: candidate.verificationStatus === "verified"
-      ? "verified"
-      : candidate.verificationStatus === "disputed"
-        ? "rejected"
-        : "unverified",
-    statementType: candidate.verificationStatus === "verified" ? "fact" : "editorial_lead",
-    category: candidate.resultKind === "news_excerpt"
-      ? "recent_news"
-      : candidate.resultKind === "participation"
-        ? "event"
-        : "result",
-    sourceUrl: candidate.articleUrl,
-  }));
+): ManualEditorialMaterial[] => {
+  const segments: Array<{ kind: SportsWatchEditorialSegmentKind; statements: string[] }> = [];
+  for (const statement of splitEditorialStatements(text)) {
+    const kind = sportsWatchSegmentKind(statement);
+    const previous = segments.at(-1);
+    if (previous?.kind === kind) {
+      previous.statements.push(statement);
+    } else {
+      segments.push({ kind, statements: [statement] });
+    }
+  }
+
+  const factScope = sportsWatchFactScope(candidate);
+  const materials: ManualEditorialMaterial[] = [];
+  const occurrenceByKind = new Map<SportsWatchEditorialSegmentKind, number>();
+  for (const { kind, statements } of segments) {
+    const occurrence = (occurrenceByKind.get(kind) ?? 0) + 1;
+    occurrenceByKind.set(kind, occurrence);
+    const chunks = splitEditorialText(statements.join(" "));
+    for (const [partIndex, chunk] of chunks.entries()) {
+      const isReserve = kind === "reserve";
+      materials.push({
+        id: `sports-watch-${candidate.id}-${materials.length + 1}`,
+        kind: "note",
+        text: chunk,
+        provenance,
+        sourceDate,
+        sourceType: "external",
+        verificationStatus: candidate.verificationStatus === "verified"
+          ? "verified"
+          : candidate.verificationStatus === "disputed"
+            ? "rejected"
+            : "unverified",
+        statementType:
+          candidate.verificationStatus === "verified" && !isReserve
+            ? "fact"
+            : "editorial_lead",
+        category: isReserve
+          ? "user_note"
+          : candidate.resultKind === "news_excerpt"
+            ? "recent_news"
+            : candidate.resultKind === "participation"
+              ? "event"
+              : "result",
+        sourceUrl: candidate.articleUrl,
+        ...(!isReserve
+          ? {
+              factKey: [
+                sportsWatchFactKey(
+                  candidate,
+                  factScope,
+                  kind as Exclude<SportsWatchEditorialSegmentKind, "reserve">,
+                ),
+                occurrence > 1 ? `occurrence-${occurrence}` : "",
+                chunks.length > 1 ? `part-${partIndex + 1}` : "",
+              ].filter(Boolean).join(":"),
+            }
+          : {}),
+      });
+    }
+  }
+  if (materials.length > MANUAL_EDITORIAL_MATERIAL_LIMIT) {
+    throw new SportsWatchError(
+      "validation",
+      `Le contenu transféré dépasse la limite de ${MANUAL_EDITORIAL_MATERIAL_LIMIT} matières Article.`,
+    );
+  }
+  return materials;
+};
 
 const normalizeMatchEvidence = (value: string): string =>
   value

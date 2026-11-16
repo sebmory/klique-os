@@ -368,6 +368,7 @@ class ManualContextConnector implements ContextConnector {
         metadata: {
           materialKind: material.kind,
           eventDate: `${material.sourceDate}T00:00:00.000Z`,
+          ...(material.factKey ? { factKey: material.factKey } : {}),
           ...(material.kind === "verbatim_quote"
             ? { citation: true, author: material.speaker ?? "" }
             : {}),
