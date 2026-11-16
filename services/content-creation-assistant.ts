@@ -359,7 +359,7 @@ const assistantTemplate: CreationAssistantTemplate = {
   },
 };
 
-const normalize = (value: string): string => value.trim();
+const normalize = (value?: string | null): string => value?.trim() ?? "";
 
 const resolveFreeOptionValue = (id: string, customValue: string): string => {
   if (id !== "free") return id;
@@ -738,7 +738,7 @@ export const ContentCreationAssistantService = {
         description: normalize(args.draft.subject.description),
         sport: normalize(args.draft.subject.sport),
         clubOrOrganization: normalize(args.draft.subject.clubOrOrganization),
-        disciplineOrPosition: normalize(args.draft.subject.disciplineOrPosition),
+        disciplineOrPosition: normalize(args.draft.subject.disciplineOrPosition ?? ""),
         photoUrl: args.draft.subject.photoUrl,
         photoAvailable: args.draft.subject.photoAvailable,
       },
