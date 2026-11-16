@@ -1016,7 +1016,6 @@ export const PostgresSportsWatchRepository: SportsWatchRepository = {
         ) DESC,
         candidate.collected_at DESC,
         candidate.id DESC
-      LIMIT 8
     `, [workspaceId, athleteId, preferredCandidateId || null]) as CandidateRow[];
     return rows.map(mapCandidate);
   },

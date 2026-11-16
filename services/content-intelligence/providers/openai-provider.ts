@@ -1,5 +1,8 @@
 import { ContentGenerationError } from "@/services/content-generation/errors";
-import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
+import {
+  contentIntelligenceConfig,
+  resolveInterviewPromptVersion,
+} from "@/services/content-intelligence/config";
 import { buildInterviewGenerationJsonSchema } from "@/services/content-intelligence/interview-schema";
 import {
   buildPublicationAnglesJsonSchema,
@@ -455,7 +458,7 @@ export class OpenAIProvider implements ContentGenerationProvider {
             model: this.model,
             templateKey: args.request.template.key,
             templateVersion: args.request.template.version,
-            promptVersion: contentIntelligenceConfig.interviewPromptVersion,
+            promptVersion: resolveInterviewPromptVersion(args.request.brief.interviewType),
             questionCount: args.request.brief.questionCount,
             interviewType: args.request.brief.interviewType,
             afterMatchClosingFacts: args.request.brief.afterMatchClosingFacts,

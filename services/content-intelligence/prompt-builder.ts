@@ -246,6 +246,18 @@ export const buildContentPrompt = (args: {
         "- Interdire les questions de remplissage et leurs variantes: 'quelle etait votre priorite ?', 'qu aviez-vous observe ?', 'qu est-ce qui vous a sollicite physiquement ?', 'quelle decision aimeriez-vous expliquer ?'. Les utiliser uniquement si un fait precis leur donne un veritable interet journalistique.",
       ].join("\n")
     : "";
+  const tournamentSituationRules = isTournamentReview
+    ? [
+        "- Utiliser tournamentSituation comme cadre principal et raconter le tournoi dans son ensemble.",
+        "- Croiser le simple, le double et le mixte lorsqu ils figurent parmi les matchs selectionnes.",
+        "- Interroger les adaptations entre partenaires, adversaires et formats uniquement a partir des donnees transmises.",
+        "- Utiliser les victoires, les defaites et les scores verifies comme points d appui concrets.",
+        "- Eviter une question mecanique par match: construire des questions transversales qui cherchent des reponses differentes.",
+        "- Ne jamais transposer les perspectives réservées aux sports collectifs.",
+        "- Integrer l objectif avant le tournoi, le bilan personnel et la prochaine echeance seulement lorsque ces champs sont renseignes dans tournamentSituation.",
+        `- Produire exactement ${questionCount} questions principales pour ce bilan de tournoi.`,
+      ].join("\n")
+    : "";
   return [
     "Mission: generer un contenu interview editorial utile, fiable et exploitable.",
     `Prompt version: ${args.promptVersion}`,
@@ -272,6 +284,9 @@ export const buildContentPrompt = (args: {
     INTERVIEW_CRAFT_RULES.join("\n"),
     ...(afterMatchSituationRules
       ? ["Tension editoriale Apres-match:", afterMatchSituationRules]
+      : []),
+    ...(tournamentSituationRules
+      ? ["Cadre editorial Apres-tournoi:", tournamentSituationRules]
       : []),
     buildInterviewPreparationBlock(interviewType ?? "free"),
     "Contexte intelligent:",

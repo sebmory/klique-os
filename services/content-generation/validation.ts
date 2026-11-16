@@ -153,6 +153,78 @@ const sanitizeAfterMatchClosingFacts = (
   };
 };
 
+const sanitizeTournamentSituation = (
+  value: CreationPreparationPayload["parameters"]["tournamentSituation"],
+): CreationPreparationPayload["parameters"]["tournamentSituation"] => {
+  if (!value) return undefined;
+  const tournamentId = normalize(value.tournamentId);
+  const tournamentName = normalize(value.tournamentName);
+  const competitionIdentity = normalize(value.competitionIdentity);
+  const matches = Array.isArray(value.matches)
+    ? value.matches.map((match) => ({
+        candidateId: normalize(match.candidateId),
+        tournamentId: normalize(match.tournamentId),
+        tournamentName: normalize(match.tournamentName),
+        date: normalize(match.date),
+        discipline: match.discipline,
+        tableau: normalize(match.tableau),
+        opponents: normalize(match.opponents),
+        ...(normalize(match.partner) ? { partner: normalize(match.partner) } : {}),
+        score: normalize(match.score),
+        outcome: match.outcome,
+        sourceName: normalize(match.sourceName),
+        sourceUrl: normalize(match.sourceUrl),
+        verificationStatus: match.verificationStatus,
+      }))
+    : [];
+  const validDisciplines = new Set(["simple", "double", "mixte"]);
+  const validOutcomes = new Set(["victory", "defeat"]);
+  const validStatuses = new Set(["verified", "unverified", "disputed"]);
+  const invalidMatch = matches.find((match) =>
+    !match.candidateId
+    || !match.tournamentId
+    || match.tournamentId !== tournamentId
+    || !match.tournamentName
+    || !match.date
+    || !validDisciplines.has(match.discipline)
+    || !match.tableau
+    || !match.opponents
+    || !match.score
+    || !validOutcomes.has(match.outcome)
+    || !match.sourceName
+    || !match.sourceUrl
+    || !validStatuses.has(match.verificationStatus));
+  if (!tournamentId || !tournamentName || !competitionIdentity || matches.length === 0 || invalidMatch) {
+    throw new ContentGenerationError("INVALID_REQUEST", "Situation de tournoi incomplète.");
+  }
+
+  const nextEvent = value.nextEvent
+    ? {
+        tournament: normalize(value.nextEvent.tournament),
+        date: normalize(value.nextEvent.date),
+        source: normalize(value.nextEvent.source),
+      }
+    : undefined;
+  if (nextEvent && Boolean(nextEvent.tournament || nextEvent.date || nextEvent.source)
+    && !(nextEvent.tournament && nextEvent.date && nextEvent.source)) {
+    throw new ContentGenerationError(
+      "INVALID_REQUEST",
+      "La prochaine échéance exige le tournoi, la date et la source.",
+    );
+  }
+
+  return {
+    frame: "tournament_review",
+    competitionIdentity,
+    tournamentId,
+    tournamentName,
+    matches,
+    ...(normalize(value.objectiveBefore) ? { objectiveBefore: normalize(value.objectiveBefore) } : {}),
+    ...(normalize(value.personalHighlight) ? { personalHighlight: normalize(value.personalHighlight) } : {}),
+    ...(nextEvent?.tournament ? { nextEvent } : {}),
+  };
+};
+
 export const validateCreationPayload = (value: unknown): CreationPreparationPayload => {
   if (!value || typeof value !== "object") {
     throw new ContentGenerationError("INVALID_REQUEST", "Requete invalide");
@@ -219,6 +291,9 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
   const manualEdits = sanitizeManualEdits(payload.parameters.contextIntelligence?.manualEdits);
   const afterMatchClosingFacts = isInterview && normalize(payload.objective.subtypeId) === "after_match"
     ? sanitizeAfterMatchClosingFacts(payload.parameters.afterMatchClosingFacts)
+    : undefined;
+  const tournamentSituation = isInterview && normalize(payload.objective.subtypeId) === "tournament_review"
+    ? sanitizeTournamentSituation(payload.parameters.tournamentSituation)
     : undefined;
 
   const publication = payload.parameters.publication
@@ -310,6 +385,7 @@ export const validateCreationPayload = (value: unknown): CreationPreparationPayl
       formatId,
       audienceId,
       afterMatchClosingFacts,
+      tournamentSituation,
       additionalContext,
       requiredTopics,
       avoidedTopics,

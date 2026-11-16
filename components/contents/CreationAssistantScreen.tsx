@@ -60,6 +60,7 @@ import {
   CREATION_MAX_QUESTION_COUNT,
   CREATION_MIN_QUESTION_COUNT,
   buildAfterMatchWriterMaterials,
+  clearInterviewSubjectContext,
   ContentCreationAssistantService,
   createInitialAssistantDraft,
   type AfterMatchPresetDraft,
@@ -90,7 +91,12 @@ import type {
   SportsWatchArticlePrefill,
   SportsWatchInterviewCandidate,
   SportsWatchInterviewContext,
+  SportsWatchInterviewTournament,
 } from "@/types/sports-watch";
+import {
+  buildTournamentInterviewMaterials,
+  buildTournamentSituation,
+} from "@/services/tournament-interview";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
 import {
   getInterviewAngle,
@@ -584,6 +590,8 @@ export function CreationAssistantScreen({
   const [sportsWatchPrefill, setSportsWatchPrefill] = useState<SportsWatchArticlePrefill | null>(null);
   const [sportsWatchPrefillError, setSportsWatchPrefillError] = useState<string | null>(null);
   const [interviewContext, setInterviewContext] = useState<SportsWatchInterviewContext | null>(null);
+  const [tournamentSelectionMode, setTournamentSelectionMode] = useState<"all" | "manual">("all");
+  const [selectedTournamentMatchIds, setSelectedTournamentMatchIds] = useState<string[]>([]);
   const [interviewContextError, setInterviewContextError] = useState<{
     athleteId: string;
     message: string;
@@ -977,8 +985,14 @@ export function CreationAssistantScreen({
 
   const selectInterviewCandidate = useCallback((candidate: SportsWatchInterviewCandidate) => {
     setInterviewContext((current) => current
-      ? { ...current, selectedCandidateId: candidate.id }
+      ? {
+          ...current,
+          selectedCandidateId: candidate.id,
+          selectedCandidateIds: [candidate.id],
+          selectedTournamentId: null,
+        }
       : current);
+    setSelectedTournamentMatchIds([]);
     setDraft((current) => ({
       ...current,
       parameters: {
@@ -995,10 +1009,47 @@ export function CreationAssistantScreen({
     }));
   }, []);
 
+  const selectInterviewTournament = useCallback((
+    tournament: SportsWatchInterviewTournament,
+    candidateIds: string[] = tournament.allCandidateIds,
+  ) => {
+    const materials = buildTournamentInterviewMaterials(tournament, candidateIds);
+    const tournamentSituation = candidateIds.length > 0
+      ? buildTournamentSituation(tournament, candidateIds)
+      : undefined;
+    setInterviewContext((current) => current
+      ? {
+          ...current,
+          selectedCandidateId: candidateIds[0] ?? null,
+          selectedCandidateIds: candidateIds,
+          selectedTournamentId: tournament.id,
+        }
+      : current);
+    setSelectedTournamentMatchIds(candidateIds);
+    setDraft((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        useContextIntelligence: true,
+        contextEnableManual: true,
+        tournamentSituation,
+        manualEditorialMaterials: [
+          ...(current.parameters.manualEditorialMaterials ?? []).filter(
+            (material) => !material.id.startsWith("sports-watch-"),
+          ),
+          ...materials,
+        ],
+      },
+    }));
+  }, []);
+
   useEffect(() => {
     if (
       !isInterviewFlow
-      || draft.objective.subtypeId !== "after_match"
+      || (
+        draft.objective.subtypeId !== "after_match"
+        && draft.objective.subtypeId !== "tournament_review"
+      )
       || draft.subject.source !== "crm"
       || !draft.subject.id
     ) {
@@ -1024,10 +1075,20 @@ export function CreationAssistantScreen({
         }
         setInterviewContextError(null);
         setInterviewContext(payload.context);
-        const selected = payload.context.candidates.find(
-          (candidate) => candidate.id === payload.context?.selectedCandidateId,
-        );
-        if (selected) selectInterviewCandidate(selected);
+        if (draft.objective.subtypeId === "tournament_review") {
+          const selectedTournament = payload.context.tournaments.find(
+            (tournament) => tournament.id === payload.context?.selectedTournamentId,
+          );
+          if (selectedTournament) {
+            setTournamentSelectionMode("all");
+            selectInterviewTournament(selectedTournament);
+          }
+        } else {
+          const selected = payload.context.candidates.find(
+            (candidate) => candidate.id === payload.context?.selectedCandidateId,
+          );
+          if (selected) selectInterviewCandidate(selected);
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -1047,6 +1108,7 @@ export function CreationAssistantScreen({
     initialSportsWatchCandidateId,
     isInterviewFlow,
     selectInterviewCandidate,
+    selectInterviewTournament,
   ]);
 
   useEffect(() => {
@@ -1634,43 +1696,65 @@ export function CreationAssistantScreen({
       void loadPeople();
     }
 
-    setDraft((current) => ({
-      ...current,
-      subject: {
-        ...current.subject,
-        type,
-        source: type === "person" ? "crm" : "temporary",
-        id: type === "person" ? current.subject.id : undefined,
-        displayName:
-          type === current.subject.type
-            ? current.subject.displayName
-            : current.subject.type === null
+    setDraft((current) => {
+      const subjectChanged = type !== current.subject.type;
+      return {
+        ...current,
+        subject: {
+          ...current.subject,
+          type,
+          source: type === "person" ? "crm" : "temporary",
+          id: type === "person" ? current.subject.id : undefined,
+          displayName:
+            type === current.subject.type
               ? current.subject.displayName
-              : "",
-        description: type === current.subject.type ? current.subject.description : "",
-        sport: type === current.subject.type ? current.subject.sport : "",
-        clubOrOrganization: type === current.subject.type ? current.subject.clubOrOrganization : "",
-        photoUrl: type === "person" ? current.subject.photoUrl : undefined,
-        photoAvailable: type === "person" ? current.subject.photoAvailable : false,
-      },
-    }));
+              : current.subject.type === null
+                ? current.subject.displayName
+                : "",
+          description: type === current.subject.type ? current.subject.description : "",
+          sport: type === current.subject.type ? current.subject.sport : "",
+          clubOrOrganization: type === current.subject.type ? current.subject.clubOrOrganization : "",
+          photoUrl: type === "person" ? current.subject.photoUrl : undefined,
+          photoAvailable: type === "person" ? current.subject.photoAvailable : false,
+        },
+        parameters: subjectChanged
+          ? clearInterviewSubjectContext(current.parameters)
+          : current.parameters,
+      };
+    });
   };
 
   const selectPersonFromCrm = (person: PersonSelectorItem) => {
-    setDraft((current) => ({
-      ...current,
-      subject: {
-        ...current.subject,
-        source: "crm",
-        id: person.id,
-        displayName: person.displayName,
-        sport: person.sport,
-        disciplineOrPosition: person.position,
-        clubOrOrganization: person.organization,
-        photoUrl: undefined,
-        photoAvailable: person.hasPhoto,
-      },
-    }));
+    const subjectChanged =
+      draft.subject.source !== "crm"
+      || draft.subject.id !== person.id;
+    if (subjectChanged) {
+      setSelectedTournamentMatchIds([]);
+      setTournamentSelectionMode("all");
+      setInterviewContext(null);
+    }
+    setDraft((current) => {
+      const currentSubjectChanged =
+        current.subject.source !== "crm"
+        || current.subject.id !== person.id;
+      return {
+        ...current,
+        subject: {
+          ...current.subject,
+          source: "crm",
+          id: person.id,
+          displayName: person.displayName,
+          sport: person.sport,
+          disciplineOrPosition: person.position,
+          clubOrOrganization: person.organization,
+          photoUrl: undefined,
+          photoAvailable: person.hasPhoto,
+        },
+        parameters: currentSubjectChanged
+          ? clearInterviewSubjectContext(current.parameters)
+          : current.parameters,
+      };
+    });
   };
 
   const enableTemporaryPerson = () => {
@@ -5257,7 +5341,10 @@ export function CreationAssistantScreen({
 
   const renderInterviewWorkspace = () => {
     const hasInterviewSubject =
-      draft.objective.subtypeId === "after_match"
+      (
+        draft.objective.subtypeId === "after_match"
+        || draft.objective.subtypeId === "tournament_review"
+      )
       && draft.subject.source === "crm"
       && Boolean(draft.subject.id);
     const activeInterviewContext =
@@ -5267,6 +5354,9 @@ export function CreationAssistantScreen({
         : null;
     const selectedCandidate = activeInterviewContext?.candidates.find(
       (candidate) => candidate.id === activeInterviewContext.selectedCandidateId,
+    ) ?? null;
+    const selectedTournament = activeInterviewContext?.tournaments.find(
+      (tournament) => tournament.id === activeInterviewContext.selectedTournamentId,
     ) ?? null;
     const activeInterviewContextError =
       interviewContextError && interviewContextError.athleteId === draft.subject.id
@@ -5417,6 +5507,136 @@ export function CreationAssistantScreen({
             <p className="creation-muted">
               Provenance conservée : Saisie du rédacteur. Aucune pièce jointe n’est demandée et le statut Sports Watch reste inchangé.
             </p>
+          </section>
+        ) : null}
+
+        {draft.objective.subtypeId === "tournament_review" ? (
+          <section className="creation-panel" aria-labelledby="interview-tournament-title">
+            <header>
+              <h2 id="interview-tournament-title">Bilan du tournoi</h2>
+              <p>Regroupez les matchs d’une même édition et choisissez ceux qui alimentent l’unique interview.</p>
+            </header>
+            {interviewContextLoading ? (
+              <p className="creation-muted"><Loader2 size={15} className="is-spinning" /> Recherche dans Sports Watch…</p>
+            ) : null}
+            {activeInterviewContextError
+              ? <p className="creation-error" role="alert">{activeInterviewContextError}</p>
+              : null}
+            {!interviewContextLoading && !activeInterviewContextError && draft.subject.source !== "crm" ? (
+              <p className="creation-muted">Sélectionnez un profil CRM pour regrouper ses tournois.</p>
+            ) : null}
+            {!interviewContextLoading && activeInterviewContext?.tournaments.length === 0 ? (
+              <p className="creation-interview-feedback is-information">
+                Aucun regroupement de tournoi fiable n’est disponible. Utilisez « Après-match » pour conserver le parcours « Match détecté ».
+              </p>
+            ) : null}
+
+            <div className="creation-interview-match-list">
+              {activeInterviewContext?.tournaments.map((tournament) => {
+                const isSelected = tournament.id === activeInterviewContext.selectedTournamentId;
+                return (
+                  <article key={tournament.id} className={isSelected ? "creation-panel is-selected" : "creation-panel"}>
+                    <label className="creation-toggle-row">
+                      <input
+                        type="radio"
+                        name="interview-tournament"
+                        checked={isSelected}
+                        onChange={() => {
+                          setTournamentSelectionMode("all");
+                          selectInterviewTournament(tournament);
+                        }}
+                      />
+                      <span>
+                        <strong>{tournament.title}</strong>
+                        <small>
+                          {tournament.eventDateFrom ?? "Date inconnue"}
+                          {tournament.eventDateTo && tournament.eventDateTo !== tournament.eventDateFrom
+                            ? ` au ${tournament.eventDateTo}`
+                            : ""}
+                          {" · "}{tournament.sourceName}
+                        </small>
+                      </span>
+                    </label>
+                    {tournament.coveragePartial ? (
+                      <p className="creation-interview-feedback is-information">
+                        Couverture partielle. {tournament.coverageNote} Aucun bilan complet ni classement final ne sera déduit.
+                      </p>
+                    ) : null}
+                    <a href={tournament.sourceUrl} target="_blank" rel="noreferrer">Ouvrir la source</a>
+                  </article>
+                );
+              })}
+            </div>
+
+            {selectedTournament ? (
+              <>
+                <div className="creation-choice-grid">
+                  <button
+                    type="button"
+                    className={tournamentSelectionMode === "all"
+                      ? "creation-choice-card is-active"
+                      : "creation-choice-card"}
+                    onClick={() => {
+                      setTournamentSelectionMode("all");
+                      selectInterviewTournament(selectedTournament);
+                    }}
+                  >
+                    <strong>Sélectionner tout le tournoi</strong>
+                    <p>Tous les matchs disponibles de cette édition alimentent le brief.</p>
+                  </button>
+                  <button
+                    type="button"
+                    className={tournamentSelectionMode === "manual"
+                      ? "creation-choice-card is-active"
+                      : "creation-choice-card"}
+                    onClick={() => setTournamentSelectionMode("manual")}
+                  >
+                    <strong>Choisir les matchs</strong>
+                    <p>Seuls les matchs cochés alimentent le brief.</p>
+                  </button>
+                </div>
+
+                {selectedTournament.disciplines.map((discipline) => (
+                  <div key={discipline.discipline} className="creation-panel">
+                    <h3>
+                      {discipline.discipline === "simple"
+                        ? "Simple"
+                        : discipline.discipline === "double"
+                          ? "Double"
+                          : "Mixte"}
+                    </h3>
+                    {discipline.matches.map((match) => {
+                      const checked = selectedTournamentMatchIds.includes(match.candidateId);
+                      return (
+                        <label key={match.candidateId} className="creation-toggle-row">
+                          <input
+                            type="checkbox"
+                            checked={tournamentSelectionMode === "all" || checked}
+                            disabled={tournamentSelectionMode === "all"}
+                            onChange={(event) => {
+                              const nextIds = event.target.checked
+                                ? [...selectedTournamentMatchIds, match.candidateId]
+                                : selectedTournamentMatchIds.filter((id) => id !== match.candidateId);
+                              selectInterviewTournament(selectedTournament, nextIds);
+                            }}
+                          />
+                          <span>
+                            <strong>
+                              {match.round ?? "Match"} · contre {match.opponents}
+                            </strong>
+                            <small>
+                              {match.partner ? `Avec ${match.partner} · ` : ""}
+                              {match.outcomeLabel} · {match.athleteScore}
+                              {" · "}{match.verificationStatus === "verified" ? "Vérifié" : match.verificationStatus === "disputed" ? "Contesté" : "À vérifier"}
+                            </small>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))}
+              </>
+            ) : null}
           </section>
         ) : null}
 
@@ -5633,7 +5853,94 @@ export function CreationAssistantScreen({
                         },
                       },
                     }))}
-                    placeholder="URL ou référence officielle"
+                  />
+                </label>
+              </div>
+              <p className="creation-muted">
+                Ex. : 3e du championnat · Prochain adversaire : FC Exemple.
+              </p>
+            </fieldset>
+          ) : null}
+          {draft.objective.subtypeId === "tournament_review" ? (
+            <fieldset>
+              <legend>Perspective facultative</legend>
+              <div className="creation-fields-grid">
+                <label>
+                  <span>Objectif ou attentes avant le tournoi</span>
+                  <textarea
+                    value={draft.parameters.tournamentObjectiveBefore ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        tournamentObjectiveBefore: event.target.value,
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Bilan personnel ou fait marquant à aborder</span>
+                  <textarea
+                    value={draft.parameters.tournamentPersonalHighlight ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        tournamentPersonalHighlight: event.target.value,
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Prochaine échéance : tournoi</span>
+                  <input
+                    value={draft.parameters.tournamentNextEvent?.tournament ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        tournamentNextEvent: {
+                          tournament: event.target.value,
+                          date: current.parameters.tournamentNextEvent?.date ?? "",
+                          source: current.parameters.tournamentNextEvent?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Prochaine échéance : date</span>
+                  <input
+                    type="date"
+                    value={draft.parameters.tournamentNextEvent?.date ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        tournamentNextEvent: {
+                          tournament: current.parameters.tournamentNextEvent?.tournament ?? "",
+                          date: event.target.value,
+                          source: current.parameters.tournamentNextEvent?.source ?? "",
+                        },
+                      },
+                    }))}
+                  />
+                </label>
+                <label>
+                  <span>Prochaine échéance : source</span>
+                  <input
+                    value={draft.parameters.tournamentNextEvent?.source ?? ""}
+                    onChange={(event) => setDraft((current) => ({
+                      ...current,
+                      parameters: {
+                        ...current.parameters,
+                        tournamentNextEvent: {
+                          tournament: current.parameters.tournamentNextEvent?.tournament ?? "",
+                          date: current.parameters.tournamentNextEvent?.date ?? "",
+                          source: event.target.value,
+                        },
+                      },
+                    }))}
                   />
                 </label>
               </div>

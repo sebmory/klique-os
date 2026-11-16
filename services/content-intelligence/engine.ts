@@ -1,6 +1,7 @@
 import type { CreationPreparationPayload } from "@/services/content-creation-assistant";
 import { ContentGenerationError, toContentGenerationError } from "@/services/content-generation/errors";
 import { contentIntelligenceConfig } from "@/services/content-intelligence/config";
+import { resolveInterviewPromptVersion } from "@/services/content-intelligence/config";
 import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { buildContentPrompt } from "@/services/content-intelligence/prompt-builder";
 import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
@@ -58,7 +59,7 @@ const attemptGenerate = async (
     request,
     template,
     promptVersion: request.requestType === "interview"
-      ? contentIntelligenceConfig.interviewPromptVersion
+      ? resolveInterviewPromptVersion(request.brief.interviewType)
       : contentIntelligenceConfig.promptVersion,
   });
 

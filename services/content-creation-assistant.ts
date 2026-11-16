@@ -20,6 +20,7 @@ import type {
   ReelFormatId,
   ReelPlatformId,
   StoryPlatformId,
+  TournamentSituation,
 } from "@/types/content-generation";
 import { buildDateRange } from "@/services/context-intelligence/utils";
 import { getInterviewAngle, serializeInterviewAngle } from "@/services/interview-angles";
@@ -116,6 +117,14 @@ export type CreationParametersDraft = {
     competition: string;
     source: string;
   };
+  tournamentSituation?: TournamentSituation;
+  tournamentObjectiveBefore?: string;
+  tournamentPersonalHighlight?: string;
+  tournamentNextEvent?: {
+    tournament: string;
+    date: string;
+    source: string;
+  };
   additionalContext: string;
   manualEditorialMaterials: ManualEditorialMaterial[];
   manualInterviewSource: ManualInterviewSource | null;
@@ -170,6 +179,32 @@ export type CreationAssistantDraft = {
   afterMatch?: AfterMatchPresetDraft;
 };
 
+export const clearInterviewSubjectContext = (
+  parameters: CreationParametersDraft,
+): CreationParametersDraft => ({
+  ...parameters,
+  afterMatchRanking: {
+    value: "",
+    asOfDate: "",
+    source: "",
+  },
+  afterMatchNextFixture: {
+    opponent: "",
+    date: "",
+    competition: "",
+    source: "",
+  },
+  afterMatchMatchFacts: "",
+  tournamentSituation: undefined,
+  tournamentObjectiveBefore: "",
+  tournamentPersonalHighlight: "",
+  tournamentNextEvent: {
+    tournament: "",
+    date: "",
+    source: "",
+  },
+});
+
 export type CreationPreparationPayload = {
   templateId: string;
   context: ContentCreationContext;
@@ -200,6 +235,7 @@ export type CreationPreparationPayload = {
         verificationStatus: "verified";
       };
     };
+    tournamentSituation?: TournamentSituation;
     additionalContext: string;
     requiredTopics: string[];
     avoidedTopics: string[];
@@ -309,6 +345,7 @@ const interviewParametersTemplate: CreationObjectiveParametersTemplate = {
     { id: "portrait", label: "Portrait", description: "Mettre en avant la personnalite et le parcours.", enabled: true },
     { id: "before_match", label: "Avant-match", description: "Preparatif et attentes avant la rencontre.", enabled: true },
     { id: "after_match", label: "Apres-match", description: "Debrief a chaud et enseignements.", enabled: true },
+    { id: "tournament_review", label: "Bilan du tournoi", description: "Relire une edition de tournoi a travers ses disciplines et ses temps forts.", enabled: true },
     { id: "fast_questions", label: "Fast Questions", description: "Questions courtes et rythme dynamique.", enabled: true },
     { id: "journey", label: "Parcours", description: "Retour sur les etapes cles de l evolution.", enabled: true },
     { id: "performance", label: "Performance", description: "Analyse de progression et objectifs sportifs.", enabled: true },
@@ -383,7 +420,10 @@ export const deriveGenerationStyle = (args: {
     `du public ${audience}`,
     editorialAngle ? `et de l angle editorial ${editorialAngle}` : "",
   ].filter(Boolean).join(", ");
-  if (args.objectiveId === "interview" && args.subtypeId === "after_match") {
+  if (
+    args.objectiveId === "interview"
+    && (args.subtypeId === "after_match" || args.subtypeId === "tournament_review")
+  ) {
     return [
       `${basis}.`,
       "Voix de journaliste sportif, naturelle a l oral: une idee par question, un fil qui suit ce que le joueur a vecu, avec un rythme varie.",
@@ -571,6 +611,13 @@ export const createInitialAssistantDraft = (context: ContentCreationContext): Cr
         opponent: "",
         date: "",
         competition: "",
+        source: "",
+      },
+      tournamentObjectiveBefore: "",
+      tournamentPersonalHighlight: "",
+      tournamentNextEvent: {
+        tournament: "",
+        date: "",
         source: "",
       },
       additionalContext: "",
@@ -785,6 +832,22 @@ export const ContentCreationAssistantService = {
                     competition: normalize(args.draft.parameters.afterMatchNextFixture.competition),
                     source: normalize(args.draft.parameters.afterMatchNextFixture.source),
                     verificationStatus: "verified",
+                  }
+                : undefined,
+            }
+          : undefined,
+        tournamentSituation: isInterview
+          && args.draft.objective.subtypeId === "tournament_review"
+          && args.draft.parameters.tournamentSituation
+          ? {
+              ...args.draft.parameters.tournamentSituation,
+              objectiveBefore: normalize(args.draft.parameters.tournamentObjectiveBefore),
+              personalHighlight: normalize(args.draft.parameters.tournamentPersonalHighlight),
+              nextEvent: args.draft.parameters.tournamentNextEvent
+                ? {
+                    tournament: normalize(args.draft.parameters.tournamentNextEvent.tournament),
+                    date: normalize(args.draft.parameters.tournamentNextEvent.date),
+                    source: normalize(args.draft.parameters.tournamentNextEvent.source),
                   }
                 : undefined,
             }

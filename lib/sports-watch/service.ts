@@ -102,6 +102,7 @@ import {
   MANUAL_EDITORIAL_TEXT_LIMIT,
   type ManualEditorialMaterial,
 } from "@/types/context-intelligence";
+import { buildSportsWatchTournamentGroups } from "@/lib/sports-watch/presentation";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -417,6 +418,63 @@ const toInterviewCandidateView = (
     ),
   };
 };
+
+const readTournamentId = (articleUrl: string): string | null => {
+  try {
+    return new URL(articleUrl).searchParams.get("id");
+  } catch {
+    return null;
+  }
+};
+
+const toInterviewTournamentViews = (candidates: SportsWatchCandidate[]) =>
+  buildSportsWatchTournamentGroups(candidates)
+    .filter((group) =>
+      group.sourceName === "Swiss Badminton / Tournamentsoftware"
+      && group.disciplines.length > 0)
+    .map((group) => {
+      const disciplines = group.disciplines.map((discipline) => ({
+        discipline: discipline.discipline,
+        matches: discipline.matches
+          .filter((match) => match.countedInSummary)
+          .map((match) => ({
+            candidateId: match.candidate.id,
+            title: match.candidate.title,
+            discipline: match.discipline,
+            tableau: match.eventCode,
+            round: match.round,
+            partner: match.partner,
+            opponents: match.opponents,
+            outcome: match.outcome,
+            outcomeLabel: match.outcomeLabel,
+            athleteScore: match.athleteScore,
+            eventDate: match.candidate.eventDateFrom,
+            sourceName: match.candidate.sourceName,
+            sourceUrl: match.candidate.articleUrl,
+            verificationStatus: match.candidate.verificationStatus,
+            materials: toInterviewCandidateView(match.candidate).materials,
+          })),
+      }));
+      const allCandidateIds = disciplines.flatMap((discipline) =>
+        discipline.matches.map((match) => match.candidateId));
+      const firstMatch = disciplines.flatMap((discipline) => discipline.matches)[0];
+      const coveragePartial = group.unstructuredCount > 0;
+      return {
+        id: group.key,
+        tournamentId: firstMatch ? readTournamentId(firstMatch.sourceUrl) : null,
+        title: group.competitionName,
+        sourceName: group.sourceName,
+        sourceUrl: group.sourceUrl,
+        eventDateFrom: group.eventDateFrom,
+        eventDateTo: group.eventDateTo,
+        coveragePartial,
+        coverageNote: coveragePartial
+          ? `${group.unstructuredCount} résultat${group.unstructuredCount > 1 ? "s" : ""} de cette édition n’a pas pu être structuré par discipline.`
+          : null,
+        allCandidateIds,
+        disciplines,
+      };
+    });
 
 // Seules les statistiques d’une participation individuelle vérifiée fondent l’angle « Performance individuelle ».
 export const extractVerifiedBriefStatistics = (
@@ -1773,10 +1831,18 @@ export const createSportsWatchService = (
       );
     }
 
+    const tournaments = toInterviewTournamentViews(candidates);
+    const selectedTournament = tournaments.find((tournament) =>
+      preferredCandidateId && tournament.allCandidateIds.includes(preferredCandidateId))
+      ?? tournaments[0]
+      ?? null;
     return {
       athleteId,
       selectedCandidateId: candidates[0]?.id ?? null,
-      candidates: candidates.map(toInterviewCandidateView),
+      selectedCandidateIds: candidates[0]?.id ? [candidates[0].id] : [],
+      candidates: candidates.slice(0, 8).map(toInterviewCandidateView),
+      selectedTournamentId: selectedTournament?.id ?? null,
+      tournaments,
     };
   },
 

@@ -247,6 +247,37 @@ export type AfterMatchSituation = {
   nextFixture?: AfterMatchSituationDatum;
 };
 
+export type TournamentSituationMatch = {
+  candidateId: string;
+  tournamentId: string;
+  tournamentName: string;
+  date: string;
+  discipline: "simple" | "double" | "mixte";
+  tableau: string;
+  opponents: string;
+  partner?: string;
+  score: string;
+  outcome: "victory" | "defeat";
+  sourceName: string;
+  sourceUrl: string;
+  verificationStatus: ContextItem["verificationStatus"];
+};
+
+export type TournamentSituation = {
+  frame: "tournament_review";
+  competitionIdentity: string;
+  tournamentId: string;
+  tournamentName: string;
+  matches: TournamentSituationMatch[];
+  objectiveBefore?: string;
+  personalHighlight?: string;
+  nextEvent?: {
+    tournament: string;
+    date: string;
+    source: string;
+  };
+};
+
 export type InterviewBrief = {
   interviewType: InterviewTypeId;
   objective: string;
@@ -258,6 +289,7 @@ export type InterviewBrief = {
   avoidedTopics: string[];
   additionalContext: string;
   afterMatchSituation?: AfterMatchSituation;
+  tournamentSituation?: TournamentSituation;
   afterMatchClosingFacts?: {
     ranking?: {
       value: string;

@@ -206,6 +206,19 @@ export const assessInterviewBriefReadiness = (args: {
   questionCount: number;
   selectedContextItems: ContextItem[];
 }): { ready: boolean; verifiedAnchorCount: number; message: string | null } => {
+  if (args.interviewType === "tournament_review") {
+    const verifiedAnchorCount = args.selectedContextItems.filter((item) =>
+      item.isSelected
+      && item.statementType === "fact"
+      && item.verificationStatus === "verified").length;
+    return {
+      ready: verifiedAnchorCount > 0,
+      verifiedAnchorCount,
+      message: verifiedAnchorCount > 0
+        ? null
+        : "Aucun résultat officiel vérifié n’est sélectionné pour ce tournoi.",
+    };
+  }
   if (args.interviewType !== "after_match") {
     return { ready: true, verifiedAnchorCount: args.questionCount, message: null };
   }

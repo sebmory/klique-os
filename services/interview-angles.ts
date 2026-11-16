@@ -66,6 +66,26 @@ const interviewAnglesBySubtype: Record<string, readonly InterviewAngleDefinition
       generationInstruction: "Utiliser le match comme point de départ sans inventer de calendrier, de rôle ou de performance individuelle.",
     },
   ],
+  tournament_review: [
+    {
+      id: "tournament-review-highlights",
+      title: "Le parcours du tournoi",
+      intention: "Faire ressortir les moments qui racontent le mieux le tournoi sans dérouler chaque match.",
+      generationInstruction: "Couvrir les disciplines représentées et choisir les résultats les plus éclairants, sans transformer la feuille de tournoi en questionnaire match par match.",
+    },
+    {
+      id: "tournament-review-adaptation",
+      title: "Les ajustements entre les tableaux",
+      intention: "Explorer ce qui change entre simple, double et mixte lorsque ces disciplines sont documentées.",
+      generationInstruction: "Comparer uniquement les disciplines présentes dans les faits sélectionnés, sans inventer de partenaire, d’adversaire ou de classement.",
+    },
+    {
+      id: "tournament-review-lessons",
+      title: "La suite",
+      intention: "Relier les résultats documentés aux enseignements que l’athlète tire de cette édition.",
+      generationInstruction: "Ne déduire ni bilan complet ni classement final lorsque la couverture est signalée comme partielle.",
+    },
+  ],
   fast_questions: [
     {
       id: "fast-questions-instinct",

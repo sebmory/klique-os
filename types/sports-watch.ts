@@ -579,7 +579,47 @@ export type SportsWatchInterviewCandidate = Pick<
 export type SportsWatchInterviewContext = {
   athleteId: string;
   selectedCandidateId: string | null;
+  selectedCandidateIds?: string[];
   candidates: SportsWatchInterviewCandidate[];
+  selectedTournamentId: string | null;
+  tournaments: SportsWatchInterviewTournament[];
+};
+
+export type SportsWatchInterviewTournamentMatch = {
+  candidateId: string;
+  title: string;
+  discipline: "simple" | "double" | "mixte";
+  tableau: string;
+  round: string | null;
+  partner: string | null;
+  opponents: string;
+  outcome: "victory" | "defeat" | "forfeit" | "retirement" | "unknown";
+  outcomeLabel: string;
+  athleteScore: string;
+  eventDate: string | null;
+  sourceName: string;
+  sourceUrl: string;
+  verificationStatus: SportsWatchVerificationStatus;
+  materials: ManualEditorialMaterial[];
+};
+
+export type SportsWatchInterviewTournamentDiscipline = {
+  discipline: "simple" | "double" | "mixte";
+  matches: SportsWatchInterviewTournamentMatch[];
+};
+
+export type SportsWatchInterviewTournament = {
+  id: string;
+  tournamentId: string | null;
+  title: string;
+  sourceName: string;
+  sourceUrl: string;
+  eventDateFrom: string | null;
+  eventDateTo: string | null;
+  coveragePartial: boolean;
+  coverageNote: string | null;
+  allCandidateIds: string[];
+  disciplines: SportsWatchInterviewTournamentDiscipline[];
 };
 
 export type SportsWatchVerifiedStatistic = {

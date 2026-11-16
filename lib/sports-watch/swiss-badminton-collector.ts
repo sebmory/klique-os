@@ -681,6 +681,7 @@ const buildCandidate = (
     eventDateFrom: match.matchDate,
     eventDateTo: match.matchDate,
     collectedAt,
+    verificationStatus: "verified",
     attributionStatus: "matched",
     attributionEvidence: [
       `Profil officiel ${profile.profileUuid}.`,

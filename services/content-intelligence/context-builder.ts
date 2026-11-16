@@ -669,6 +669,9 @@ export const buildContentGenerationRequest = async (
       additionalContext: editorialContext ? "" : payload.parameters.additionalContext,
       afterMatchSituation,
       afterMatchClosingFacts,
+      tournamentSituation: payload.objective.subtypeId === "tournament_review"
+        ? payload.parameters.tournamentSituation
+        : undefined,
     },
     selectedContextItems: payload.parameters.contextIntelligence.selectedContextItems.filter((item) => item.isSelected),
     contextSelection: buildContextSelection(payload),

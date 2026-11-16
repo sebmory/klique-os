@@ -36,7 +36,11 @@ const relevance = (fact: EditorialFact, target: EditorialGenerationTarget): numb
   if (target.interviewType === "performance") {
     return fact.category === "sports_result" || fact.category === "historical_record" ? 5 : 2;
   }
-  if (target.interviewType === "before_match" || target.interviewType === "after_match") {
+  if (
+    target.interviewType === "before_match"
+    || target.interviewType === "after_match"
+    || target.interviewType === "tournament_review"
+  ) {
     return fact.category === "sports_result" || fact.category === "schedule" ? 5 : 2;
   }
   return fact.category === "profile" || fact.category === "objective" || fact.category === "historical_record" ? 4 : 2;

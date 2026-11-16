@@ -6,6 +6,7 @@ export const contentIntelligenceConfig = {
   articleStructureModel: process.env.OPENAI_ARTICLE_STRUCTURE_MODEL?.trim() || "gpt-4.1-mini",
   promptVersion: "cie-interview-v1",
   interviewPromptVersion: "cie-interview-v11",
+  tournamentInterviewPromptVersion: "cie-interview-v12",
   temperature: 0.35,
   maxTokens: 2400,
   requestTimeoutMs: 45000,
@@ -20,3 +21,8 @@ export const contentIntelligenceConfig = {
     maxQuestionCount: 30,
   },
 } as const;
+
+export const resolveInterviewPromptVersion = (interviewType: string): string =>
+  interviewType === "tournament_review"
+    ? contentIntelligenceConfig.tournamentInterviewPromptVersion
+    : contentIntelligenceConfig.interviewPromptVersion;
