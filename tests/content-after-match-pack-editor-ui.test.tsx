@@ -335,6 +335,8 @@ describe("After-match Pack editor UI", () => {
     expect(details).toBeDefined();
     expect(details?.open).toBe(false);
     expect(container.textContent).not.toContain("Defense");
+    expect(container.textContent).not.toContain("Ton");
+    expect(container.textContent).not.toContain("dynamic");
     expect(details?.textContent).toContain("Objectif editorial");
     expect(details?.textContent).toContain("Relances");
   });

@@ -2123,7 +2123,6 @@ export function ContentDocumentEditor({
             <h3>Parametres editoriaux</h3>
             <dl className="document-sidebar-rows">
               <div><dt>Type</dt><dd>{interviewDocument.sidebar.interviewType}</dd></div>
-              <div><dt>Ton</dt><dd>{interviewDocument.sidebar.tone}</dd></div>
               <div><dt>Audience</dt><dd>{interviewDocument.sidebar.audience}</dd></div>
               <div><dt>Format</dt><dd>{interviewDocument.sidebar.format}</dd></div>
               <div><dt>Questions</dt><dd>{interviewDocument.sections.questions.length}</dd></div>
