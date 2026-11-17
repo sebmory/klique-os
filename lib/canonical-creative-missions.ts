@@ -45,6 +45,7 @@ export type CanonicalCreativeMission = {
   expenseTerms: string | null;
   responseDeadline: string | null;
   searchMode: "single_creative" | "targeted_creatives" | "direct_assignment" | null;
+  targetedCreativeProfileIds?: string[];
   blockingReason: string | null;
   occurredAt: string | null;
   occurredAtSource: string | null;
@@ -111,6 +112,7 @@ type MissionRow = {
   expense_terms: string | null;
   response_deadline: string | Date | null;
   search_mode: CanonicalCreativeMission["searchMode"];
+  targeted_creative_profile_ids?: string[];
   blocking_reason: string | null;
   occurred_at: string | Date | null;
   occurred_at_source: string | null;
@@ -240,6 +242,7 @@ export const mapCanonicalCreativeMission = (row: MissionRow): CanonicalCreativeM
     expenseTerms: row.expense_terms,
     responseDeadline: toIso(row.response_deadline),
     searchMode: row.search_mode,
+    targetedCreativeProfileIds: row.targeted_creative_profile_ids ?? [],
     blockingReason: row.blocking_reason,
     occurredAt: toIso(row.occurred_at),
     occurredAtSource: row.occurred_at_source,
@@ -280,6 +283,7 @@ export const createCanonicalCreativeMissionRepository = (): CanonicalCreativeMis
           mission.expense_terms,
           mission.response_deadline,
           mission.search_mode,
+          mission.targeted_creative_profile_ids,
           mission.blocking_reason,
           mission.occurred_at,
           mission.occurred_at_source,

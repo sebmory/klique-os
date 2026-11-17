@@ -16,9 +16,15 @@ import type {
   CanonicalCreativeMissionView,
 } from "@/lib/canonical-creative-missions";
 import type {
-  OperationalCreativeCandidate,
-  OperationalMissionSearchMode,
-  OperationalMissionType,
+  CreativeAvailabilityConflict,
+  CreativeAvailabilityOccurrence,
+  CreativeAvailabilityRule,
+} from "@/lib/creative-availability";
+import {
+  resolveMissionCreativeAvailability,
+  type OperationalCreativeCandidate,
+  type OperationalMissionSearchMode,
+  type OperationalMissionType,
 } from "@/lib/operational-creative-missions";
 import type { AthletesResponse } from "@/types/athlete";
 import { projectCanonicalMissionJourney } from "@/lib/mission-journey";
@@ -46,6 +52,14 @@ type FormState = {
   expenseTerms: string;
   responseDeadline: string;
   searchMode: OperationalMissionSearchMode;
+  targetedCreativeProfileIds: string[];
+};
+
+type AvailabilityPayload = {
+  rules?: CreativeAvailabilityRule[];
+  occurrences?: CreativeAvailabilityOccurrence[];
+  conflicts?: CreativeAvailabilityConflict[];
+  error?: string;
 };
 
 const emptyCounts: CanonicalCreativeMissionCounts = {
@@ -71,6 +85,7 @@ const emptyForm = (): FormState => ({
   expenseTerms: "",
   responseDeadline: "",
   searchMode: "targeted_creatives",
+  targetedCreativeProfileIds: [],
 });
 
 const views: Array<{ value: CanonicalCreativeMissionView; label: string }> = [
@@ -183,6 +198,7 @@ const formFromMission = (mission: CanonicalCreativeMission): FormState => ({
   expenseTerms: mission.expenseTerms ?? "",
   responseDeadline: localInputValue(mission.responseDeadline),
   searchMode: mission.searchMode ?? "targeted_creatives",
+  targetedCreativeProfileIds: mission.targetedCreativeProfileIds ?? [],
 });
 
 const creativeTypeMatches = (
@@ -200,7 +216,11 @@ const candidateStatus = (
   mission: CanonicalCreativeMission,
   candidate: OperationalCreativeCandidate,
   relevantSpecialties: string[],
-): { compatible: boolean; availability: string } => {
+): {
+  compatible: boolean;
+  availability: string;
+  availabilityStatus: "available" | "unavailable" | "unreported";
+} => {
   const region = mission.region?.trim().toLocaleLowerCase("fr") ?? "";
   const regionMatch = !region || candidate.coverageAreas.some(
     (area) => area.trim().toLocaleLowerCase("fr") === region,
@@ -215,23 +235,24 @@ const candidateStatus = (
       availability: candidate.generalAvailability
         ? `Disponibilité générale : ${candidate.generalAvailability}`
         : "Disponibilité non renseignée",
+      availabilityStatus: "unreported",
     };
   }
-  const date = mission.scheduledAt.slice(0, 10);
-  const periodEnd = mission.periodEndsAt?.slice(0, 10) ?? date;
-  const occurrence = candidate.availability.find(
-    (item) => item.date >= date && item.date <= periodEnd,
-  );
-  const conflict = candidate.conflicts.some(
-    (item) => item.date >= date && item.date <= periodEnd,
-  );
-  if (conflict) return { compatible, availability: "Conflit confirmé à cette date" };
-  if (occurrence) return { compatible, availability: "Disponible sur la période" };
+  const availabilityStatus = resolveMissionCreativeAvailability({
+    candidate,
+    missionType: mission.missionType === "production" ? "other" : mission.missionType,
+    scheduledAt: mission.scheduledAt,
+    periodEndsAt: mission.periodEndsAt ?? mission.scheduledAt,
+    region: mission.region ?? "",
+  });
   return {
     compatible,
-    availability: candidate.generalAvailability
-      ? `Aucune plage précise · ${candidate.generalAvailability}`
-      : "Disponibilité non renseignée",
+    availability: availabilityStatus === "available"
+      ? "Disponible"
+      : availabilityStatus === "unavailable"
+        ? "Indisponible"
+        : "Disponibilité non renseignée",
+    availabilityStatus,
   };
 };
 
@@ -259,6 +280,9 @@ export function AdminMissionsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingMissionId, setEditingMissionId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [formAvailability, setFormAvailability] = useState<AvailabilityPayload | null>(null);
+  const [formAvailabilityLoading, setFormAvailabilityLoading] = useState(false);
+  const [formAvailabilityError, setFormAvailabilityError] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [selectedRecipients, setSelectedRecipients] = useState<Record<string, string[]>>({});
   const creationKey = useRef(crypto.randomUUID());
@@ -294,6 +318,49 @@ export function AdminMissionsScreen() {
     });
   }, [load]);
 
+  useEffect(() => {
+    if (
+      !formOpen
+      || !form.scheduledAt
+      || !form.periodEndsAt
+      || !form.locationName.trim()
+      || !form.region.trim()
+    ) {
+      setFormAvailability(null);
+      setFormAvailabilityError("");
+      return;
+    }
+    const controller = new AbortController();
+    const from = form.scheduledAt.slice(0, 10);
+    const to = form.periodEndsAt.slice(0, 10);
+    setFormAvailabilityLoading(true);
+    setFormAvailabilityError("");
+    void fetch(
+      `/api/admin/creative-availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      { credentials: "include", cache: "no-store", signal: controller.signal },
+    ).then(async (response) => {
+      const payload = await response.json().catch(() => null) as AvailabilityPayload | null;
+      if (!response.ok) throw new Error(payload?.error || "Disponibilités indisponibles.");
+      setFormAvailability(payload ?? {});
+    }).catch((failure) => {
+      if (failure instanceof DOMException && failure.name === "AbortError") return;
+      setFormAvailability(null);
+      setFormAvailabilityError(
+        failure instanceof Error ? failure.message : "Disponibilités indisponibles.",
+      );
+    }).finally(() => {
+      if (!controller.signal.aborted) setFormAvailabilityLoading(false);
+    });
+    return () => controller.abort();
+  }, [
+    form.locationName,
+    form.missionType,
+    form.periodEndsAt,
+    form.region,
+    form.scheduledAt,
+    formOpen,
+  ]);
+
   const visibleMissions = useMemo(
     () => filterCanonicalMissions({ missions, view: activeView, query }),
     [activeView, missions, query],
@@ -328,6 +395,7 @@ export function AdminMissionsScreen() {
     expenseTerms: form.expenseTerms || null,
     responseDeadline: toIso(form.responseDeadline),
     searchMode: form.searchMode,
+    targetedCreativeProfileIds: form.targetedCreativeProfileIds,
   });
 
   const submitMission = async (event: FormEvent<HTMLFormElement>) => {
@@ -423,6 +491,41 @@ export function AdminMissionsScreen() {
     recipientIds: recipients,
   });
 
+  const formCandidates = useMemo(() => {
+    if (!formAvailability || !form.scheduledAt || !form.periodEndsAt) return [];
+    return candidates.map((candidate) => {
+      const candidateWithAvailability: OperationalCreativeCandidate = {
+        ...candidate,
+        availabilityRules: (formAvailability.rules ?? []).filter(
+          (rule) => rule.creativeProfileId === candidate.id,
+        ),
+        availability: (formAvailability.occurrences ?? []).filter(
+          (occurrence) => occurrence.creativeProfileId === candidate.id,
+        ),
+        conflicts: (formAvailability.conflicts ?? []).filter(
+          (conflict) => conflict.creativeProfileId === candidate.id,
+        ),
+      };
+      return {
+        candidate: candidateWithAvailability,
+        status: resolveMissionCreativeAvailability({
+          candidate: candidateWithAvailability,
+          missionType: form.missionType,
+          scheduledAt: toIso(form.scheduledAt)!,
+          periodEndsAt: toIso(form.periodEndsAt)!,
+          region: form.region,
+        }),
+      };
+    });
+  }, [
+    candidates,
+    form.missionType,
+    form.periodEndsAt,
+    form.region,
+    form.scheduledAt,
+    formAvailability,
+  ]);
+
   return (
     <section className="admin-missions-screen" aria-labelledby="admin-missions-title">
       <header className="admin-missions-header">
@@ -474,12 +577,72 @@ export function AdminMissionsScreen() {
             <label>Région<input value={form.region} onChange={(event) => setForm({ ...form, region: event.target.value })} /></label>
             <label>Budget CHF, facultatif<input type="number" min="0" step="0.05" value={form.budgetChf} onChange={(event) => setForm({ ...form, budgetChf: event.target.value })} /></label>
             <label>Date limite de réponse<input type="datetime-local" value={form.responseDeadline} onChange={(event) => setForm({ ...form, responseDeadline: event.target.value })} /></label>
-            <label>Mode de recherche<select value={form.searchMode} onChange={(event) => setForm({ ...form, searchMode: event.target.value as OperationalMissionSearchMode })}>
+            <label>Mode de recherche<select value={form.searchMode} onChange={(event) => {
+              const searchMode = event.target.value as OperationalMissionSearchMode;
+              setForm({
+                ...form,
+                searchMode,
+                targetedCreativeProfileIds: searchMode === "single_creative"
+                  ? form.targetedCreativeProfileIds.slice(0, 1)
+                  : searchMode === "direct_assignment"
+                    ? []
+                    : form.targetedCreativeProfileIds,
+              });
+            }}>
               <option value="single_creative">Proposer à un créatif précis</option>
               <option value="targeted_creatives">Ouvrir à plusieurs créatifs ciblés</option>
               <option value="direct_assignment">Affecter via le workflow existant</option>
             </select></label>
           </div>
+          {form.searchMode !== "direct_assignment" ? (
+            <section className="admin-mission-form-availability" aria-label="Créatifs disponibles">
+              <header>
+                <h3>Créatifs disponibles</h3>
+                <p>Seuls les créatifs couvrant toute la mission peuvent être ciblés.</p>
+              </header>
+              {formAvailabilityLoading ? <p>Consultation des disponibilités…</p> : null}
+              {formAvailabilityError ? <p role="alert">{formAvailabilityError}</p> : null}
+              {!formAvailability && !formAvailabilityLoading && !formAvailabilityError ? (
+                <p>Renseignez le début, la fin, le lieu et la région.</p>
+              ) : null}
+              {formAvailability ? (
+                <div className="admin-mission-candidates">
+                  {formCandidates.map(({ candidate, status }) => (
+                    <label
+                      key={candidate.id}
+                      className={status === "available" ? "is-compatible" : undefined}
+                    >
+                      <input
+                        type={form.searchMode === "single_creative" ? "radio" : "checkbox"}
+                        name={form.searchMode === "single_creative" ? "targeted-creative" : undefined}
+                        disabled={status !== "available"}
+                        checked={form.targetedCreativeProfileIds.includes(candidate.id)}
+                        onChange={(event) => setForm({
+                          ...form,
+                          targetedCreativeProfileIds: form.searchMode === "single_creative"
+                            ? event.target.checked ? [candidate.id] : []
+                            : event.target.checked
+                              ? [...form.targetedCreativeProfileIds, candidate.id]
+                              : form.targetedCreativeProfileIds.filter((id) => id !== candidate.id),
+                        })}
+                      />
+                      <span>
+                        <strong>{candidate.displayName}</strong>
+                        <small>{candidate.coverageAreas.join(", ") || "Région non renseignée"}</small>
+                        <em>
+                          {status === "available"
+                            ? "Disponible"
+                            : status === "unavailable"
+                              ? "Indisponible"
+                              : "Disponibilité non renseignée"}
+                        </em>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           <label>Prestations ou livrables<textarea value={form.deliverables} onChange={(event) => setForm({ ...form, deliverables: event.target.value })} /></label>
           <label>Contexte ou consignes<textarea value={form.contextNotes} onChange={(event) => setForm({ ...form, contextNotes: event.target.value })} /></label>
           <label>Conditions et droits d’utilisation<textarea value={form.usageRights} onChange={(event) => setForm({ ...form, usageRights: event.target.value })} /></label>
@@ -534,7 +697,9 @@ export function AdminMissionsScreen() {
             const journey = projectCanonicalMissionJourney(mission);
             const requestSource = mission.sources.find((source) => source.type === "athlete_session_request");
             const briefSource = mission.sources.find((source) => source.type === "production_brief");
-            const selected = selectedRecipients[mission.id] ?? [];
+            const selected = selectedRecipients[mission.id]
+              ?? mission.targetedCreativeProfileIds
+              ?? [];
             const missionText = normalizeSearch([
               mission.title,
               mission.contextNotes,
@@ -624,9 +789,18 @@ export function AdminMissionsScreen() {
                       <button type="button" className="secondary-button" onClick={() => openEdit(mission)}>Modifier</button>
                     </header>
                     <div className="admin-mission-candidates">
-                      {compatibleCandidates.map(({ candidate, compatible, availability }) => (
-                        <label key={candidate.id} className={compatible ? "is-compatible" : undefined}>
-                          <input type="checkbox" checked={selected.includes(candidate.id)} onChange={(event) => setSelectedRecipients({
+                      {compatibleCandidates.map(({
+                        candidate,
+                        compatible,
+                        availability,
+                        availabilityStatus,
+                      }) => (
+                        <label key={candidate.id} className={
+                          compatible && availabilityStatus === "available"
+                            ? "is-compatible"
+                            : undefined
+                        }>
+                          <input type="checkbox" disabled={availabilityStatus !== "available"} checked={selected.includes(candidate.id)} onChange={(event) => setSelectedRecipients({
                             ...selectedRecipients,
                             [mission.id]: event.target.checked
                               ? [...selected, candidate.id]

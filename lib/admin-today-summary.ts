@@ -6,6 +6,11 @@ import {
   loadAthleteMonthReminder,
   type AthleteMonthReminderStatus,
 } from "@/lib/athlete-month-reminder";
+export type { MissionOperationalReminder } from "@/lib/mission-operational-reminders";
+export {
+  completeMissionOperationalReminder,
+  listDueMissionOperationalReminders as getTodayMissionReminders,
+} from "@/lib/mission-operational-reminders";
 
 export type TodayActionSummaryItem = {
   id: "creative-applications" | "athlete-requests" | "session-reviews" | "creative-missions" | "introductions" | "sports-watch" | "athlete-month-vote";

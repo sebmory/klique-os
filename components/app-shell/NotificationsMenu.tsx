@@ -28,10 +28,12 @@ type NotificationsMenuProps = {
 
 type PersonalNotification = {
   id: string;
+  type: string;
   title: string;
   body: string | null;
   actionHref: string;
   readAt: string | null;
+  sourceId: string | null;
   createdAt: string;
 };
 
@@ -87,6 +89,7 @@ export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete 
   const [personalNotifications, setPersonalNotifications] = useState<PersonalNotification[]>([]);
   const [personalUnreadCount, setPersonalUnreadCount] = useState(0);
   const [personalNotificationsLoading, setPersonalNotificationsLoading] = useState(false);
+  const [personalNotificationsError, setPersonalNotificationsError] = useState("");
   const [openRequests, setOpenRequests] = useState<ContactRequest[]>([]);
   const [pendingPartnerCount, setPendingPartnerCount] = useState(0);
   const [athleteNames, setAthleteNames] = useState<Record<string, string>>({});
@@ -352,6 +355,28 @@ export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete 
     }
   };
 
+  const handleCompleteMissionReminder = async (notification: PersonalNotification) => {
+    if (!notification.sourceId) return;
+    setPersonalNotificationsError("");
+    try {
+      const response = await fetch("/api/admin/today-summary/reminders", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete", sourceId: notification.sourceId }),
+      });
+      if (!response.ok) throw new Error("complete_failed");
+      setPersonalNotifications((current) =>
+        current.filter((item) => item.sourceId !== notification.sourceId),
+      );
+      if (notification.readAt === null) {
+        setPersonalUnreadCount((current) => Math.max(0, current - 1));
+      }
+    } catch {
+      setPersonalNotificationsError("Impossible de terminer ce rappel.");
+    }
+  };
+
   if (!enabled) {
     return null;
   }
@@ -383,6 +408,9 @@ export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete 
                 : "Aucune notification non lue"}
             </small>
           </header>
+          {personalNotificationsError ? (
+            <p className="menu-empty" role="alert">{personalNotificationsError}</p>
+          ) : null}
 
           {personalNotificationsLoading && personalNotifications.length === 0 ? (
             <p className="menu-empty">Chargement des notifications...</p>
@@ -397,6 +425,16 @@ export function NotificationsMenu({ enabled = false, isAdmin = false, isAthlete 
                     {notification.body ? <span>{notification.body}</span> : null}
                     <small>{formatDate(notification.createdAt)}</small>
                   </Link>
+                  {isAdmin
+                    && notification.type === "creative_mission.reminder"
+                    && notification.sourceId ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCompleteMissionReminder(notification)}
+                      >
+                        Marquer comme fait
+                      </button>
+                    ) : null}
                 </li>
               ))}
             </ul>

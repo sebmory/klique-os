@@ -355,6 +355,9 @@ export const listCurrentUserNotifications = async (
     FROM notifications
     WHERE workspace_id = ${workspaceId}
       AND recipient_clerk_user_id = ${clerkUserId}
+      AND completed_at IS NULL
+      AND cancelled_at IS NULL
+      AND (scheduled_for IS NULL OR scheduled_for <= NOW())
     ORDER BY created_at DESC
     LIMIT 30
   `;
@@ -364,6 +367,9 @@ export const listCurrentUserNotifications = async (
     WHERE workspace_id = ${workspaceId}
       AND recipient_clerk_user_id = ${clerkUserId}
       AND read_at IS NULL
+      AND completed_at IS NULL
+      AND cancelled_at IS NULL
+      AND (scheduled_for IS NULL OR scheduled_for <= NOW())
   `;
 
   return {

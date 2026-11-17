@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  MissionOperationalReminder,
   TodayActionsSummary,
   TodayDeadline,
 } from "@/lib/admin-today-summary";
@@ -42,6 +43,13 @@ const formatDeadline = (value: string): string =>
     minute: "2-digit",
   }).format(new Date(value));
 
+const formatMissionDate = (value: string): string =>
+  new Intl.DateTimeFormat("fr-CH", {
+    timeZone: "Europe/Zurich",
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date(value));
+
 function ZoneError({ retry }: { retry: () => void }) {
   return (
     <div className="today-zone-error" role="alert">
@@ -62,9 +70,85 @@ const quickLinks = [
   { label: "Production", description: "Suivre les productions.", href: "/production" },
 ] as const;
 
+function MissionReminderCard({
+  reminder,
+  onCompleted,
+}: {
+  reminder: MissionOperationalReminder;
+  onCompleted: (sourceId: string) => void;
+}) {
+  const [message, setMessage] = useState(reminder.copyMessage);
+  const [copyStatus, setCopyStatus] = useState("");
+  const [completing, setCompleting] = useState(false);
+
+  const copyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopyStatus("Message copié");
+    } catch {
+      setCopyStatus("Copie impossible.");
+    }
+  };
+
+  const complete = async () => {
+    if (completing) return;
+    setCompleting(true);
+    setCopyStatus("");
+    try {
+      const response = await fetch("/api/admin/today-summary/reminders", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "complete", sourceId: reminder.sourceId }),
+      });
+      if (!response.ok) throw new Error("complete_failed");
+      onCompleted(reminder.sourceId);
+    } catch {
+      setCopyStatus("Impossible de terminer ce rappel.");
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  return (
+    <article className="today-mission-reminder">
+      <header>
+        <div>
+          <small>{reminder.title}</small>
+          <strong>{reminder.missionTitle}</strong>
+        </div>
+        <time dateTime={reminder.dueAt}>{formatMissionDate(reminder.dueAt)}</time>
+      </header>
+      <dl>
+        <div><dt>Athlète</dt><dd>{reminder.athleteName}</dd></div>
+        <div><dt>Créatif</dt><dd>{reminder.creativeName}</dd></div>
+        <div><dt>Mission</dt><dd>{reminder.missionTitle}</dd></div>
+        <div><dt>Date et heure</dt><dd>{formatMissionDate(reminder.scheduledAt)}</dd></div>
+        <div><dt>Lieu</dt><dd>{reminder.location ?? "Non renseigné"}</dd></div>
+      </dl>
+      <label>
+        Message prêt à copier
+        <textarea value={message} onChange={(event) => setMessage(event.target.value)} />
+      </label>
+      <div className="today-mission-reminder-actions">
+        <button type="button" onClick={() => void copyMessage()}>Copier le message</button>
+        <button type="button" disabled={completing} onClick={() => void complete()}>
+          {completing ? "Enregistrement…" : "Marquer comme fait"}
+        </button>
+        {copyStatus ? (
+          <span role={copyStatus === "Message copié" ? "status" : "alert"}>{copyStatus}</span>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 export function AdminTodayCockpit() {
   const [actions, setActions] = useState<LoadState<TodayActionsSummary>>({ status: "loading" });
   const [deadlines, setDeadlines] = useState<LoadState<{ items: TodayDeadline[] }>>({ status: "loading" });
+  const [reminders, setReminders] = useState<
+    LoadState<{ items: MissionOperationalReminder[] }>
+  >({ status: "loading" });
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
 
   const refreshActions = useCallback(async () => {
@@ -85,22 +169,39 @@ export function AdminTodayCockpit() {
     }
   }, []);
 
+  const refreshReminders = useCallback(async () => {
+    setReminders({ status: "loading" });
+    try {
+      setReminders({
+        status: "ready",
+        data: await loadZone<{ items: MissionOperationalReminder[] }>("reminders"),
+      });
+    } catch {
+      setReminders({ status: "error" });
+    }
+  }, []);
+
   const refreshAll = useCallback(() => {
-    void Promise.all([refreshActions(), refreshDeadlines()]).finally(() => setRefreshedAt(new Date()));
-  }, [refreshActions, refreshDeadlines]);
+    void Promise.all([refreshActions(), refreshDeadlines(), refreshReminders()])
+      .finally(() => setRefreshedAt(new Date()));
+  }, [refreshActions, refreshDeadlines, refreshReminders]);
 
   useEffect(() => {
     let active = true;
     void Promise.allSettled([
       loadZone<TodayActionsSummary>("actions"),
       loadZone<{ items: TodayDeadline[] }>("deadlines"),
-    ]).then(([actionsResult, deadlinesResult]) => {
+      loadZone<{ items: MissionOperationalReminder[] }>("reminders"),
+    ]).then(([actionsResult, deadlinesResult, remindersResult]) => {
       if (!active) return;
       setActions(actionsResult.status === "fulfilled"
         ? { status: "ready", data: actionsResult.value }
         : { status: "error" });
       setDeadlines(deadlinesResult.status === "fulfilled"
         ? { status: "ready", data: deadlinesResult.value }
+        : { status: "error" });
+      setReminders(remindersResult.status === "fulfilled"
+        ? { status: "ready", data: remindersResult.value }
         : { status: "error" });
       setRefreshedAt(new Date());
     });
@@ -111,7 +212,8 @@ export function AdminTodayCockpit() {
 
   const actionTotal = useMemo(() => actions.status === "ready"
     ? actions.data.items.reduce((total, item) => total + (item.actionCount ?? item.count), 0)
-    : null, [actions]);
+      + (reminders.status === "ready" ? reminders.data.items.length : 0)
+    : null, [actions, reminders]);
   const visibleActions = actions.status === "ready"
     ? actions.data.items.filter((item) => item.count > 0)
     : [];
@@ -143,6 +245,28 @@ export function AdminTodayCockpit() {
         </div>
         {actions.status === "loading" ? <p className="today-zone-placeholder">Chargement…</p> : null}
         {actions.status === "error" ? <ZoneError retry={refreshActions} /> : null}
+        {reminders.status === "loading" ? (
+          <p className="today-zone-placeholder">Chargement des rappels…</p>
+        ) : null}
+        {reminders.status === "error" ? <ZoneError retry={refreshReminders} /> : null}
+        {reminders.status === "ready" && reminders.data.items.length > 0 ? (
+          <section id="mission-reminders" className="today-mission-reminders" aria-label="Rappels de missions">
+            {reminders.data.items.map((reminder) => (
+              <MissionReminderCard
+                key={reminder.sourceId}
+                reminder={reminder}
+                onCompleted={(sourceId) => setReminders((current) => current.status === "ready"
+                  ? {
+                      status: "ready",
+                      data: {
+                        items: current.data.items.filter((item) => item.sourceId !== sourceId),
+                      },
+                    }
+                  : current)}
+              />
+            ))}
+          </section>
+        ) : null}
         {actions.status === "ready" ? (
           <>
             {visibleActions.length > 0 ? (
@@ -179,7 +303,9 @@ export function AdminTodayCockpit() {
                   );
                 })}
               </div>
-            ) : <p className="today-zone-empty">Aucune action immédiate.</p>}
+            ) : reminders.status === "ready" && reminders.data.items.length === 0
+              ? <p className="today-zone-empty">Aucune action immédiate.</p>
+              : null}
             {actions.data.errors.length > 0 ? (
               <div className="today-source-errors" role="status">
                 {actions.data.errors.map((error) => (

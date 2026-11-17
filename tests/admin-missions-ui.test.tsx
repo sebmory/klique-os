@@ -239,7 +239,7 @@ describe("canonical Admin missions UI", () => {
     })).toEqual([missions[0], missions[1]]);
   });
 
-  it("uses profile compatibility and shows missing availability without blocking", async () => {
+  it("uses precise availability and keeps missing availability unselectable", async () => {
     const organized = mission("organize-1", "organize", "to_organize", {
       originKind: "admin",
       title: "Media Day Basketball",
@@ -268,7 +268,36 @@ describe("canonical Admin missions UI", () => {
               coverageAreas: ["Vaud"],
               specialties: ["Basketball"],
               generalAvailability: null,
-              availability: [],
+              availabilityRules: [{
+                id: "33333333-3333-4333-8333-333333333333",
+                creativeProfileId: "11111111-1111-4111-8111-111111111111",
+                creativeDisplayName: "Photo Vaud",
+                availabilityDate: "2026-12-10",
+                startTime: "09:00",
+                endTime: "18:00",
+                allDay: false,
+                recurrence: "none",
+                recurrenceUntil: null,
+                exceptionDates: [],
+                regions: ["Vaud"],
+                missionTypes: ["media_day"],
+                internalComment: null,
+                planningTimezone: "Europe/Zurich",
+                createdAt: "2026-11-17T10:00:00.000Z",
+                updatedAt: "2026-11-17T10:00:00.000Z",
+              }],
+              availability: [{
+                ruleId: "33333333-3333-4333-8333-333333333333",
+                creativeProfileId: "11111111-1111-4111-8111-111111111111",
+                creativeDisplayName: "Photo Vaud",
+                date: "2026-12-10",
+                startTime: "09:00",
+                endTime: "18:00",
+                allDay: false,
+                regions: ["Vaud"],
+                missionTypes: ["media_day"],
+                internalComment: null,
+              }],
               conflicts: [],
             }, {
               id: "22222222-2222-4222-8222-222222222222",
@@ -277,6 +306,7 @@ describe("canonical Admin missions UI", () => {
               coverageAreas: ["Genève"],
               specialties: ["Football"],
               generalAvailability: "Le week-end",
+              availabilityRules: [],
               availability: [],
               conflicts: [],
             }],

@@ -3,6 +3,7 @@ import {
   listCreativeAvailability,
   type CreativeAvailabilityConflict,
   type CreativeAvailabilityOccurrence,
+  type CreativeAvailabilityRule,
 } from "@/lib/creative-availability";
 
 export type OperationalMissionType =
@@ -34,6 +35,7 @@ export type OperationalMissionDraftInput = {
   expenseTerms: string | null;
   responseDeadline: string | null;
   searchMode: OperationalMissionSearchMode | null;
+  targetedCreativeProfileIds?: string[];
 };
 
 export type OperationalCreativeCandidate = {
@@ -43,9 +45,15 @@ export type OperationalCreativeCandidate = {
   coverageAreas: string[];
   specialties: string[];
   generalAvailability: string | null;
+  availabilityRules: CreativeAvailabilityRule[];
   availability: CreativeAvailabilityOccurrence[];
   conflicts: CreativeAvailabilityConflict[];
 };
+
+export type MissionCreativeAvailabilityStatus =
+  | "available"
+  | "unavailable"
+  | "unreported";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const missionTypes = new Set<OperationalMissionType>([
@@ -84,6 +92,86 @@ const optionalTimestamp = (value: unknown, field: string): string | null => {
   return parsed.toISOString();
 };
 
+const zurichParts = (value: string): {
+  date: string;
+  time: string;
+} => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Zurich",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return {
+    date: `${part("year")}-${part("month")}-${part("day")}`,
+    time: `${part("hour")}:${part("minute")}`,
+  };
+};
+
+const normalizeMatchText = (value: string): string =>
+  value.normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLocaleLowerCase("fr");
+
+const candidateTypeMatches = (
+  missionType: OperationalMissionType,
+  creativeType: OperationalCreativeCandidate["creativeType"],
+): boolean => creativeType === "both"
+  || (["video", "interview"].includes(missionType)
+    ? creativeType === "videographer"
+    : creativeType === "photographer");
+
+export const resolveMissionCreativeAvailability = ({
+  candidate,
+  missionType,
+  scheduledAt,
+  periodEndsAt,
+  region,
+}: {
+  candidate: OperationalCreativeCandidate;
+  missionType: OperationalMissionType;
+  scheduledAt: string;
+  periodEndsAt: string;
+  region: string;
+}): MissionCreativeAvailabilityStatus => {
+  const start = zurichParts(scheduledAt);
+  const end = zurichParts(periodEndsAt);
+  if (
+    !candidateTypeMatches(missionType, candidate.creativeType)
+    || start.date !== end.date
+    || candidate.conflicts.some((conflict) => conflict.date === start.date)
+  ) {
+    return "unavailable";
+  }
+  if ((candidate.availabilityRules ?? []).length === 0) return "unreported";
+
+  const normalizedRegion = normalizeMatchText(region);
+  const availabilityMissionType = missionType === "match_competition"
+    ? "match_competition"
+    : missionType === "media_day"
+      ? "media_day"
+      : null;
+  const coversMission = candidate.availability.some((occurrence) => {
+    if (occurrence.date !== start.date) return false;
+    const regionMatches = occurrence.regions.length === 0
+      || occurrence.regions.some((value) => normalizeMatchText(value) === normalizedRegion);
+    const missionTypeMatches = availabilityMissionType === null
+      || occurrence.missionTypes.includes(availabilityMissionType);
+    const timeMatches = occurrence.allDay
+      || (
+        occurrence.startTime !== null
+        && occurrence.endTime !== null
+        && occurrence.startTime <= start.time
+        && occurrence.endTime >= end.time
+      );
+    return regionMatches && missionTypeMatches && timeMatches;
+  });
+  return coversMission ? "available" : "unavailable";
+};
+
 export const parseOperationalMissionDraftInput = (
   value: unknown,
 ): OperationalMissionDraftInput => {
@@ -108,6 +196,7 @@ export const parseOperationalMissionDraftInput = (
     "expenseTerms",
     "responseDeadline",
     "searchMode",
+    "targetedCreativeProfileIds",
   ]);
   if (!Object.keys(input).every((key) => allowed.has(key))) {
     throw new Error("Requête invalide.");
@@ -155,6 +244,15 @@ export const parseOperationalMissionDraftInput = (
   if (searchMode && !searchModes.has(searchMode)) {
     throw new Error("Mode de recherche invalide.");
   }
+  const targetedCreativeProfileIds = Array.isArray(input.targetedCreativeProfileIds)
+    ? [...new Set(input.targetedCreativeProfileIds.map((value) => String(value).trim()))]
+    : [];
+  if (targetedCreativeProfileIds.some((id) => !uuidPattern.test(id))) {
+    throw new Error("Créatif ciblé invalide.");
+  }
+  if (searchMode === "single_creative" && targetedCreativeProfileIds.length > 1) {
+    throw new Error("Le mode créatif précis accepte un seul créatif.");
+  }
   return {
     idempotencyKey,
     title: requiredText(input.title, "Titre", 200),
@@ -172,6 +270,7 @@ export const parseOperationalMissionDraftInput = (
     expenseTerms: optionalText(input.expenseTerms, "Conditions de frais", 1000),
     responseDeadline: optionalTimestamp(input.responseDeadline, "Date limite de réponse"),
     searchMode,
+    targetedCreativeProfileIds,
   };
 };
 
@@ -190,7 +289,40 @@ const draftValues = (input: OperationalMissionDraftInput) => [
   input.expenseTerms,
   input.responseDeadline,
   input.searchMode,
+  input.targetedCreativeProfileIds ?? [],
 ];
+
+const assertTargetedCreativesAvailable = async (
+  workspaceId: string,
+  input: OperationalMissionDraftInput,
+): Promise<void> => {
+  const targetedCreativeProfileIds = input.targetedCreativeProfileIds ?? [];
+  if (targetedCreativeProfileIds.length === 0) return;
+  if (!input.scheduledAt || !input.periodEndsAt || !input.region) {
+    throw new Error("Début, fin et région sont requis pour cibler un créatif.");
+  }
+  const candidates = await listOperationalCreativeCandidates({
+    workspaceId,
+    from: zurichParts(input.scheduledAt).date,
+    to: zurichParts(input.periodEndsAt).date,
+  });
+  const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  for (const creativeProfileId of targetedCreativeProfileIds) {
+    const candidate = candidateById.get(creativeProfileId);
+    if (
+      !candidate
+      || resolveMissionCreativeAvailability({
+        candidate,
+        missionType: input.missionType,
+        scheduledAt: input.scheduledAt,
+        periodEndsAt: input.periodEndsAt,
+        region: input.region,
+      }) !== "available"
+    ) {
+      throw new Error("Un créatif ciblé n’est pas disponible sur toute la mission.");
+    }
+  }
+};
 
 export const createAdminOperationalMission = async ({
   workspaceId,
@@ -201,6 +333,7 @@ export const createAdminOperationalMission = async ({
   clerkUserId: string;
   input: OperationalMissionDraftInput;
 }): Promise<{ missionId: string; outcome: "changed" | "unchanged" }> => {
+  await assertTargetedCreativesAvailable(workspaceId, input);
   const sql = createContentStorageClient();
   const rows = await sql.query(`
     WITH inserted AS MATERIALIZED (
@@ -209,11 +342,12 @@ export const createAdminOperationalMission = async ({
         origin_kind, admin_creation_key, period_ends_at, location_name, region,
         expected_deliverables, context_notes, usage_rights, budget_amount_minor,
         expenses_covered, expense_terms, response_deadline, search_mode,
+        targeted_creative_profile_ids,
         regularization_status, created_by_actor
       ) VALUES (
         $1, 'organize', $4, $5, $6::timestamptz,
         'admin', $3::uuid, $7::timestamptz, $8, $9,
-        $10, $11, $12, $13, $14, $15, $16::timestamptz, $17,
+        $10, $11, $12, $13, $14, $15, $16::timestamptz, $17, $18::uuid[],
         'none', $2
       )
       ON CONFLICT (workspace_id, admin_creation_key)
@@ -236,7 +370,7 @@ export const createAdminOperationalMission = async ({
       )
       SELECT $1, resolved.id, athlete.id, athlete.name
       FROM resolved
-      CROSS JOIN LATERAL jsonb_to_recordset($18::jsonb) AS athlete (
+      CROSS JOIN LATERAL jsonb_to_recordset($19::jsonb) AS athlete (
         id text,
         name text
       )
@@ -282,6 +416,7 @@ export const updateAdminOperationalMission = async ({
   input: OperationalMissionDraftInput;
 }): Promise<"changed" | "unchanged" | "not_found" | "conflict"> => {
   if (!uuidPattern.test(missionId)) throw new Error("Mission invalide.");
+  await assertTargetedCreativesAvailable(workspaceId, input);
   const sql = createContentStorageClient();
   const rows = await sql.query(`
     WITH target AS MATERIALIZED (
@@ -307,6 +442,7 @@ export const updateAdminOperationalMission = async ({
           expense_terms = $16,
           response_deadline = $17::timestamptz,
           search_mode = $18,
+          targeted_creative_profile_ids = $19::uuid[],
           updated_at = NOW()
       FROM target
       WHERE mission.workspace_id = target.workspace_id
@@ -335,7 +471,7 @@ export const updateAdminOperationalMission = async ({
       )
       SELECT $1, changed.id, athlete.id, athlete.name
       FROM changed
-      CROSS JOIN LATERAL jsonb_to_recordset($19::jsonb) AS athlete (
+      CROSS JOIN LATERAL jsonb_to_recordset($20::jsonb) AS athlete (
         id text,
         name text
       )
@@ -484,6 +620,9 @@ export const listOperationalCreativeCandidates = async ({
     coverageAreas: profile.coverage_areas,
     specialties: profile.specialties,
     generalAvailability: profile.general_availability,
+    availabilityRules: availability.rules.filter(
+      (rule) => rule.creativeProfileId === profile.id,
+    ),
     availability: availability.occurrences.filter(
       (occurrence) => occurrence.creativeProfileId === profile.id,
     ),
