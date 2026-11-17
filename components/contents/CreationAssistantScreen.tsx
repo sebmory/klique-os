@@ -14,7 +14,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
-  Bot,
   Check,
   Circle,
   Clapperboard,
@@ -96,6 +95,7 @@ import type {
 import {
   buildTournamentInterviewMaterials,
   buildTournamentSituation,
+  extractSportsWatchCandidateIds,
   resolveTournamentMatchVerificationStatus,
 } from "@/services/tournament-interview";
 import { buildAthleteNewsEditorialMaterial } from "@/services/athlete-news-reports";
@@ -118,6 +118,61 @@ type CreationAssistantScreenProps = {
 type CreationGenerateState = {
   loading: boolean;
   errorMessage: string | null;
+};
+
+const formatPreparationElapsedTime = (elapsedSeconds: number): string => {
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+const preparationContentLabel = (objective: CreationObjectiveType | null): string => {
+  if (objective === "interview") return "Préparation de l’interview";
+  if (objective === "article") return "Préparation de l’article";
+  if (objective === "publication") return "Préparation de la publication";
+  if (objective === "reel") return "Préparation du Reel";
+  if (objective === "story") return "Préparation de la Story";
+  return "Préparation du contenu";
+};
+
+const PreparationIndicator = ({
+  contentLabel,
+  onCancel,
+}: {
+  contentLabel: string;
+  onCancel?: () => void;
+}) => {
+  const startedAtRef = useRef<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    startedAtRef.current = Date.now();
+    const intervalId = window.setInterval(() => {
+      const startedAt = startedAtRef.current;
+      if (startedAt !== null) {
+        setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+      }
+    }, 250);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return (
+    <div className="creation-preparation-indicator" role="status" aria-live="polite" aria-atomic="true">
+      <span className="creation-preparation-ring" aria-hidden />
+      <span className="creation-preparation-copy">
+        <strong>{contentLabel}</strong>
+        <span>Préparation en cours · {formatPreparationElapsedTime(elapsedSeconds)}</span>
+        {elapsedSeconds >= 20 ? (
+          <small>La préparation prend un peu plus de temps que prévu.</small>
+        ) : null}
+      </span>
+      {onCancel ? (
+        <button type="button" className="contents-ghost-button" onClick={onCancel}>
+          Annuler
+        </button>
+      ) : null}
+    </div>
+  );
 };
 
 type StepValidationResult = {
@@ -1769,6 +1824,9 @@ export function CreationAssistantScreen({
         photoUrl: undefined,
         photoAvailable: false,
       },
+      parameters: current.subject.source === "temporary" && !current.subject.id
+        ? current.parameters
+        : clearInterviewSubjectContext(current.parameters),
     }));
   };
 
@@ -2061,6 +2119,13 @@ export function CreationAssistantScreen({
     generationAbortRef.current?.abort();
   };
 
+  const renderPreparationIndicator = () => generateState.loading ? (
+    <PreparationIndicator
+      contentLabel={preparationContentLabel(draft.objective.objective)}
+      onCancel={isArticleFlow ? undefined : cancelGeneration}
+    />
+  ) : null;
+
   const collectContext = useCallback(async () => {
     if (!draft.subject.type || !normalize(draft.subject.displayName)) return null;
     const previousContextItems = contextState.items;
@@ -2088,14 +2153,9 @@ export function CreationAssistantScreen({
       draft.parameters.contextCustomFrom,
       draft.parameters.contextCustomTo
     );
-    const sportsWatchCandidateIds = [
-      ...new Set((draft.parameters.manualEditorialMaterials ?? []).flatMap((material) => {
-        const match = material.id.match(
-          /^sports-watch-([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-/i,
-        );
-        return match ? [match[1]] : [];
-      })),
-    ];
+    const sportsWatchCandidateIds = extractSportsWatchCandidateIds(
+      draft.parameters.manualEditorialMaterials ?? [],
+    );
 
     setContextState((previous) => ({
       ...previous,
@@ -2883,6 +2943,9 @@ export function CreationAssistantScreen({
                         ...current.subject,
                         source: "crm",
                       },
+                      parameters: current.subject.source === "crm"
+                        ? current.parameters
+                        : clearInterviewSubjectContext(current.parameters),
                     }));
                   }}
                 />
@@ -5114,9 +5177,9 @@ export function CreationAssistantScreen({
               onClick={requestFinalGeneration}
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
-              {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 propositions"}
             </button>
+            {renderPreparationIndicator()}
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
             ) : null}
@@ -5167,9 +5230,9 @@ export function CreationAssistantScreen({
               onClick={requestFinalGeneration}
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
-              {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 concepts Reel"}
             </button>
+            {renderPreparationIndicator()}
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
             ) : null}
@@ -5219,9 +5282,9 @@ export function CreationAssistantScreen({
               onClick={requestFinalGeneration}
               disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
             >
-              {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
               {generateState.loading ? "Generation en cours" : generateState.errorMessage ? "Reessayer" : "Generer 3 sequences Story"}
             </button>
+            {renderPreparationIndicator()}
             {generateState.errorMessage ? (
               <p className="creation-error" role="alert">{generateState.errorMessage}</p>
             ) : null}
@@ -5311,30 +5374,13 @@ export function CreationAssistantScreen({
             onClick={requestFinalGeneration}
             disabled={!preparedPayload || generateState.loading || isGenerationBlocked}
           >
-            {generateState.loading ? <Loader2 size={15} className="is-spinning" aria-hidden /> : null}
             {generateState.loading ? "Creation en cours" : generateState.errorMessage ? "Reessayer" : params?.finalActionLabel ?? "Creer le contenu"}
           </button>
+          {renderPreparationIndicator()}
           {generateState.errorMessage ? (
             <p className="creation-error" role="alert">{generateState.errorMessage}</p>
           ) : null}
 
-          {generateState.loading ? (
-            <section className="creation-generation-state" aria-live="polite" aria-busy="true">
-              <header>
-                <h3>{isArticleFlow ? "Creation de votre article" : "Creation de votre interview"}</h3>
-              </header>
-              <ul>
-                <li><Bot size={14} aria-hidden /> Analyse du sujet</li>
-                <li><Bot size={14} aria-hidden /> Construction du contexte</li>
-                <li><Bot size={14} aria-hidden /> Preparation editoriale</li>
-                <li><Bot size={14} aria-hidden /> Generation</li>
-                <li><Bot size={14} aria-hidden /> Validation</li>
-              </ul>
-              <button type="button" className="contents-ghost-button" onClick={cancelGeneration}>
-                Annuler
-              </button>
-            </section>
-          ) : null}
         </div>
       </section>
     );
@@ -5477,7 +5523,16 @@ export function CreationAssistantScreen({
               })}
             </div>
             {selectedCandidate ? (
-              <p className="creation-muted">Sélection active : {selectedCandidate.title}</p>
+              <>
+                <p className="creation-muted">Sélection active : {selectedCandidate.title}</p>
+                {!selectedCandidate.materials.some((material) =>
+                  material.statementType === "fact"
+                  && material.verificationStatus === "verified") ? (
+                    <p className="creation-interview-feedback is-information">
+                      Cette fiche sélectionnée ne fournit aucun fait vérifié. Sélectionnez une fiche marquée « Vérifié » ou faites confirmer la participation à partir d’une source officielle dans Sports Watch avant de préparer les questions.
+                    </p>
+                  ) : null}
+              </>
             ) : null}
           </section>
         ) : null}
@@ -5748,7 +5803,6 @@ export function CreationAssistantScreen({
                         },
                       },
                     }))}
-                    placeholder="Ex. 3e de NL1 Men"
                   />
                 </label>
                 <label>
@@ -5784,7 +5838,6 @@ export function CreationAssistantScreen({
                         },
                       },
                     }))}
-                    placeholder="URL ou référence officielle"
                   />
                 </label>
                 <label>
@@ -6016,6 +6069,7 @@ export function CreationAssistantScreen({
           >
             {generateState.loading ? "Préparation…" : "Préparer mes questions"}
           </button>
+          {renderPreparationIndicator()}
         </footer>
       </div>
     );

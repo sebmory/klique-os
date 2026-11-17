@@ -1,11 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ContentCreationAssistantService,
+  createInitialAssistantDraft,
+} from "@/services/content-creation-assistant";
+import { validateCreationPayload } from "@/services/content-generation/validation";
+import { buildContentGenerationRequest } from "@/services/content-intelligence/context-builder";
 import { assessInterviewBriefReadiness } from "@/services/content-intelligence/interview-preparation";
+import { activeContextConnectors } from "@/services/context-intelligence/connectors";
+import type { EditorialContextCollectionStore } from "@/services/context-intelligence/collection-service";
+import { validateContextCollectionRequest } from "@/services/context-intelligence/request-validation";
+import { prepareEditorialGeneration } from "@/services/editorial-generation/server-context";
+import {
+  buildTournamentInterviewMaterials,
+  buildTournamentSituation,
+  extractSportsWatchCandidateIds,
+} from "@/services/tournament-interview";
 import type { ContextItem } from "@/types/context-intelligence";
-import type { SportsWatchCandidate } from "@/types/sports-watch";
+import type {
+  SportsWatchCandidate,
+  SportsWatchInterviewTournament,
+} from "@/types/sports-watch";
 
 const mocks = vi.hoisted(() => ({
   requireContentAccess: vi.fn(),
-  validateRequest: vi.fn(),
   collect: vi.fn(),
   createCollection: vi.fn(),
   projectCollection: vi.fn((response) => response),
@@ -17,10 +34,6 @@ vi.mock("@/lib/content-storage/access", () => ({
   contentAccessErrorResponse: vi.fn(() => null),
 }));
 
-vi.mock("@/services/context-intelligence/request-validation", () => ({
-  validateContextCollectionRequest: mocks.validateRequest,
-}));
-
 vi.mock("@/services/context-intelligence/collector", () => ({
   collectContextIntelligence: mocks.collect,
   toContextCollectionErrorResponse: vi.fn((error) => ({
@@ -30,7 +43,20 @@ vi.mock("@/services/context-intelligence/collector", () => ({
   })),
 }));
 
-vi.mock("@/services/context-intelligence/collection-service", () => ({
+vi.mock("@/services/context-intelligence/editorial-athlete-projection", () => ({
+  readEditorialAthleteProjection: vi.fn().mockResolvedValue({
+    id: "athlete-1",
+    displayName: "Antoine Majeux",
+    sport: "Badminton",
+    club: "BC Bulle",
+    biography: "",
+    communicationObjectives: [],
+    publishedFacts: [],
+  }),
+}));
+
+vi.mock("@/services/context-intelligence/collection-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/services/context-intelligence/collection-service")>(),
   createEditorialContextCollection: mocks.createCollection,
   projectEditorialCollectionForAccess: mocks.projectCollection,
 }));
@@ -52,21 +78,6 @@ describe("context collection route workspace security", () => {
       mediaId: "11111111-1111-4111-8111-111111111111",
       role: "media",
       isAdmin: false,
-    });
-    mocks.validateRequest.mockReturnValue({
-      workspaceId: "",
-      subject: {
-        id: "athlete-1",
-        type: "person",
-        source: "crm",
-        displayName: "Mila Martin",
-      },
-      selectedConnectorIds: ["crm"],
-      dateRange: { preset: "last_30_days", from: "2026-09-19", to: "2026-10-19" },
-      sourcePreference: "official_and_reliable",
-      searchDepth: "standard",
-      language: "fr",
-      contentType: "interview",
     });
     mocks.collect.mockResolvedValue({
       ok: true,
@@ -157,9 +168,41 @@ describe("context collection route workspace security", () => {
         footballResolution: null,
       };
     });
-    mocks.getInterviewCandidates.mockResolvedValue(candidates);
-    mocks.validateRequest.mockReturnValue({
-      workspaceId: "",
+    const tournament: SportsWatchInterviewTournament = {
+      id: `athlete-1|Swiss Badminton / Tournamentsoftware|sb.tournamentsoftware.com|${tournamentId}`,
+      tournamentId,
+      title: "30e BULL'MINTON CUP",
+      sourceName: "Swiss Badminton / Tournamentsoftware",
+      sourceUrl: `https://sb.tournamentsoftware.com/sport/tournament.aspx?id=${tournamentId}`,
+      eventDateFrom: "2026-11-15",
+      eventDateTo: "2026-11-15",
+      coveragePartial: false,
+      coverageNote: null,
+      allCandidateIds: candidateIds,
+      disciplines: [{
+        discipline: "simple",
+        matches: candidates.map((candidate, index) => ({
+          candidateId: candidate.id,
+          title: candidate.title,
+          discipline: "simple",
+          tableau: `SM${index + 1}`,
+          round: "Poule",
+          partner: null,
+          opponents: `Adversaire ${index + 1}`,
+          outcome: index % 2 === 0 ? "victory" : "defeat",
+          outcomeLabel: index % 2 === 0 ? "Victoire" : "Défaite",
+          athleteScore: "15-10, 15-12",
+          eventDate: candidate.eventDateFrom,
+          sourceName: candidate.sourceName,
+          sourceUrl: candidate.articleUrl,
+          verificationStatus: candidate.verificationStatus,
+          materials: [],
+        })),
+      }],
+    };
+    const uiMaterials = buildTournamentInterviewMaterials(tournament, candidateIds);
+    const sportsWatchCandidateIds = extractSportsWatchCandidateIds(uiMaterials);
+    const collectionBody = {
       subject: {
         id: "athlete-1",
         type: "person",
@@ -173,48 +216,122 @@ describe("context collection route workspace security", () => {
       language: "fr-CH",
       contentType: "interview",
       interviewType: "tournament_review",
-      manualEditorialMaterials: [],
+      manualEditorialMaterials: uiMaterials,
+      sportsWatchCandidateIds,
+    };
+    const validatedCollectionRequest = validateContextCollectionRequest(collectionBody);
+    mocks.getInterviewCandidates.mockResolvedValue(candidates);
+    mocks.collect.mockImplementation(async (request) => {
+      const manualResult = await activeContextConnectors.manual.collect(request);
+      return {
+        ok: true,
+        items: manualResult.items,
+        reports: [],
+        summary: {
+          totalItemsFound: manualResult.items.length,
+          selectedItemsCount: manualResult.items.filter((item) => item.isSelected).length,
+          externalSourcesCount: 0,
+          researchedAt: "2026-11-16T10:00:00.000Z",
+          dateRange: request.dateRange,
+          warnings: [],
+        },
+      };
     });
 
     const response = await POST(new Request("http://localhost/api/context/collect", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sportsWatchCandidateIds: candidateIds }),
+      body: JSON.stringify(collectionBody),
     }));
-    const collectedRequest = mocks.collect.mock.calls[0][0];
-    const selectedContextItems: ContextItem[] = collectedRequest.manualEditorialMaterials.map(
-      (material: {
-        id: string;
-        text: string;
-        statementType: ContextItem["statementType"];
-        verificationStatus: ContextItem["verificationStatus"];
-        category: ContextItem["category"];
-      }): ContextItem => ({
-        id: material.id,
-        connectorId: "manual",
-        category: material.category,
-        title: material.id,
-        summary: material.text,
-        factualStatement: material.text,
-        statementType: material.statementType,
-        sourceType: "official",
-        sourceName: "Swiss Badminton / Tournamentsoftware",
-        publishedAt: "2026-11-15T00:00:00.000Z",
-        retrievedAt: "2026-11-16T10:00:00.000Z",
-        confidence: "high",
-        verificationStatus: material.verificationStatus,
-        isSelected: true,
-        isEditable: false,
-        metadata: {},
-      }),
-    );
-    const readiness = assessInterviewBriefReadiness({
-      interviewType: "tournament_review",
-      questionCount: 5,
+    const collection = await response.json() as { items: ContextItem[] };
+    const selectedContextItems = collection.items.filter((item) => item.isSelected);
+    const draft = createInitialAssistantDraft({ mode: "free", objective: "interview" });
+    draft.subject = {
+      ...draft.subject,
+      type: "person",
+      source: "crm",
+      id: "athlete-1",
+      displayName: "Antoine Majeux",
+      sport: "Badminton",
+      clubOrOrganization: "BC Bulle",
+    };
+    draft.objective = { objective: "interview", subtypeId: "tournament_review" };
+    draft.parameters.questionCountId = "q8";
+    draft.parameters.tournamentSituation = buildTournamentSituation(tournament, candidateIds);
+    const generationPayload = ContentCreationAssistantService.preparePayload({
+      context: { mode: "free", objective: "interview" },
+      draft,
+      contextCollectionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       selectedContextItems,
+    });
+    const validatedGenerationPayload = validateCreationPayload(generationPayload);
+    const access = {
+      clerkUserId: "user-1",
+      workspaceId: "workspace-server",
+      mediaId: "11111111-1111-4111-8111-111111111111",
+      role: "media" as const,
+      isAdmin: false,
+    };
+    const storedCollection = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      workspaceId: access.workspaceId,
+      clerkUserId: access.clerkUserId,
+      role: access.role,
+      mediaId: access.mediaId,
+      items: selectedContextItems,
+      reports: [],
+      summary: {
+        totalItemsFound: 8,
+        selectedItemsCount: 8,
+        externalSourcesCount: 1,
+        researchedAt: "2026-11-16T10:00:00.000Z",
+        dateRange: { preset: "last_30_days" as const, from: "2026-10-17", to: "2026-11-16" },
+        warnings: [],
+      },
+      createdAt: "2026-11-16T10:00:00.000Z",
+      expiresAt: "2026-11-16T10:30:00.000Z",
+    };
+    const store: EditorialContextCollectionStore = {
+      create: vi.fn(),
+      getById: vi.fn().mockResolvedValue(storedCollection),
+    };
+    const prepared = await prepareEditorialGeneration({
+      contextSelection: {
+        collectionId: validatedGenerationPayload.parameters.contextIntelligence.collectionId,
+        selectedItemIds: validatedGenerationPayload.parameters.contextIntelligence.selectedItemIds,
+        manualEdits: validatedGenerationPayload.parameters.contextIntelligence.manualEdits,
+      },
+      subject: validatedGenerationPayload.subject,
+      target: { type: "interview", interviewType: "tournament_review" },
+      access,
+      store,
+      now: new Date("2026-11-16T10:10:00.000Z"),
+    });
+    validatedGenerationPayload.parameters.contextIntelligence.selectedContextItems = prepared.selectedItems;
+    const { request: generationRequest } = await buildContentGenerationRequest(
+      validatedGenerationPayload,
+      access,
+      prepared.selection.modelContext,
+    );
+    if (generationRequest.requestType !== "interview") {
+      throw new Error("La requête génération attendue doit être une interview.");
+    }
+    const readiness = assessInterviewBriefReadiness({
+      interviewType: generationRequest.brief.interviewType,
+      questionCount: generationRequest.brief.questionCount,
+      selectedContextItems: generationRequest.selectedContextItems,
     });
 
     expect(response.status).toBe(200);
+    expect(uiMaterials.every((item) =>
+      item.statementType === "fact"
+      && item.verificationStatus === "verified"
+      && item.category === "result")).toBe(true);
+    expect(sportsWatchCandidateIds).toEqual(candidateIds);
+    expect(validatedCollectionRequest.manualEditorialMaterials?.every((item) =>
+      item.statementType === undefined
+      && item.verificationStatus === undefined
+      && item.category === undefined)).toBe(true);
     expect(selectedContextItems).toHaveLength(8);
     expect(selectedContextItems.every((item) =>
       item.statementType === "fact"

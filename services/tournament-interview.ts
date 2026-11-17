@@ -18,6 +18,18 @@ const verificationLabels: Record<SportsWatchVerificationStatus, string> = {
   disputed: "contesté",
 };
 
+const SPORTS_WATCH_CANDIDATE_ID_PATTERN =
+  /^sports-watch-(?:tournament-)?([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:-|$)/i;
+
+export const extractSportsWatchCandidateIds = (
+  materials: ManualEditorialMaterial[],
+): string[] => [
+  ...new Set(materials.flatMap((material) => {
+    const match = material.id.match(SPORTS_WATCH_CANDIDATE_ID_PATTERN);
+    return match ? [match[1]] : [];
+  })),
+];
+
 const isOfficialSwissBadmintonSource = (
   tournament: SportsWatchInterviewTournament,
   match: SportsWatchInterviewTournamentMatch,
