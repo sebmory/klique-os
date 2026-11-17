@@ -7,8 +7,9 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { CheckCircle2, ExternalLink, Pencil, Plus, Power, RefreshCw, UserPlus, X } from "lucide-react";
+import { CalendarDays, CheckCircle2, ExternalLink, Pencil, Plus, Power, RefreshCw, UserPlus, X } from "lucide-react";
 import { Button, Card, Input, Select, Textarea } from "@/src/design-system/components";
+import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
 import type {
   CreativeProfile,
   CreativeStatus,
@@ -210,6 +211,7 @@ export function CreativeProfilesAdminPanel() {
   const [inviteForm, setInviteForm] = useState<InviteForm>(emptyInviteForm);
   const [form, setForm] = useState<ProfileForm | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [availabilityProfileId, setAvailabilityProfileId] = useState<string | null>(null);
   const activeActions = useRef(new Set<string>());
 
   const loadProfiles = useCallback(async (signal?: AbortSignal) => {
@@ -1002,6 +1004,19 @@ export function CreativeProfilesAdminPanel() {
                         type="button"
                         className={styles.secondaryButton}
                         disabled={actionsLocked}
+                        aria-expanded={availabilityProfileId === profile.id}
+                        aria-controls={`creative-availability-${profile.id}`}
+                        onClick={() => setAvailabilityProfileId((current) =>
+                          current === profile.id ? null : profile.id
+                        )}
+                      >
+                        <CalendarDays size={16} aria-hidden />
+                        Gérer les disponibilités
+                      </Button>
+                      <Button
+                        type="button"
+                        className={styles.secondaryButton}
+                        disabled={actionsLocked}
                         onClick={() => startEditing(profile)}
                       >
                         <Pencil size={16} aria-hidden />
@@ -1025,6 +1040,17 @@ export function CreativeProfilesAdminPanel() {
                             : "Activer"}
                       </Button>
                     </div>
+                    {availabilityProfileId === profile.id ? (
+                      <div id={`creative-availability-${profile.id}`}>
+                        <CreativeAvailabilityManager
+                          admin
+                          creativeProfile={{
+                            id: profile.id,
+                            displayName: profile.displayName,
+                          }}
+                        />
+                      </div>
+                    ) : null}
                   </>
                 )}
               </Card>

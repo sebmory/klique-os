@@ -46,14 +46,16 @@ const formatDate = (date: string) => new Intl.DateTimeFormat("fr-CH", {
 
 export function CreativeAvailabilityManager({
   admin = false,
+  creativeProfile,
 }: {
   admin?: boolean;
+  creativeProfile?: CreativeOption;
 }) {
   const [rules, setRules] = useState<CreativeAvailabilityRule[]>([]);
   const [occurrences, setOccurrences] = useState<CreativeAvailabilityOccurrence[]>([]);
   const [conflicts, setConflicts] = useState<CreativeAvailabilityConflict[]>([]);
   const [creatives, setCreatives] = useState<CreativeOption[]>([]);
-  const [creativeProfileId, setCreativeProfileId] = useState("");
+  const [creativeProfileId, setCreativeProfileId] = useState(creativeProfile?.id ?? "");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(() => futureDate(90));
   const [regionFilter, setRegionFilter] = useState("");
@@ -71,7 +73,7 @@ export function CreativeAvailabilityManager({
   const endpoint = admin ? "/api/admin/creative-availability" : "/api/creative/availability";
 
   const loadCreatives = useCallback(async () => {
-    if (!admin) return;
+    if (!admin || creativeProfile) return;
     const response = await fetch("/api/admin/creatives", { cache: "no-store" });
     const payload = await response.json() as { profiles?: CreativeOption[]; error?: string };
     if (!response.ok) throw new Error(payload.error || "Impossible de charger les créatifs.");
@@ -80,7 +82,7 @@ export function CreativeAvailabilityManager({
       displayName: profile.displayName,
     }));
     setCreatives(options);
-  }, [admin]);
+  }, [admin, creativeProfile]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,7 +220,7 @@ export function CreativeAvailabilityManager({
         <div>
           <p>{admin ? "Pilotage consolidé" : "Mon calendrier"}</p>
           <h2 id={`availability-title-${admin ? "admin" : "creative"}`}>
-            Disponibilités des créatifs
+            {creativeProfile ? "Disponibilités" : "Disponibilités des créatifs"}
           </h2>
           <span>
             Une disponibilité facilite le rapprochement. Elle ne constitue ni une réservation,
@@ -230,15 +232,17 @@ export function CreativeAvailabilityManager({
 
       {admin ? (
         <div className="creative-availability-filters">
-          <label>
-            Créatif
-            <select value={creativeProfileId} onChange={(event) => setCreativeProfileId(event.target.value)}>
-              <option value="">Tous les créatifs</option>
-              {creatives.map((creative) => (
-                <option key={creative.id} value={creative.id}>{creative.displayName}</option>
-              ))}
-            </select>
-          </label>
+          {creativeProfile ? null : (
+            <label>
+              Créatif
+              <select value={creativeProfileId} onChange={(event) => setCreativeProfileId(event.target.value)}>
+                <option value="">Tous les créatifs</option>
+                {creatives.map((creative) => (
+                  <option key={creative.id} value={creative.id}>{creative.displayName}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>Du<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
           <label>Au<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
           <label>Région<input value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)} /></label>
@@ -257,12 +261,16 @@ export function CreativeAvailabilityManager({
         {admin ? (
           <label>
             Saisie pour
-            <select required value={creativeProfileId} onChange={(event) => setCreativeProfileId(event.target.value)}>
-              <option value="">Choisir un créatif</option>
-              {creatives.map((creative) => (
-                <option key={creative.id} value={creative.id}>{creative.displayName}</option>
-              ))}
-            </select>
+            {creativeProfile ? (
+              <input value={creativeProfile.displayName} readOnly />
+            ) : (
+              <select required value={creativeProfileId} onChange={(event) => setCreativeProfileId(event.target.value)}>
+                <option value="">Choisir un créatif</option>
+                {creatives.map((creative) => (
+                  <option key={creative.id} value={creative.id}>{creative.displayName}</option>
+                ))}
+              </select>
+            )}
           </label>
         ) : null}
         <label>
@@ -331,7 +339,7 @@ export function CreativeAvailabilityManager({
           </label>
         ) : null}
         <label>
-          Exceptions
+          Indisponibilités / exceptions
           <input
             value={exceptionInput}
             onChange={(event) => setExceptionInput(event.target.value)}

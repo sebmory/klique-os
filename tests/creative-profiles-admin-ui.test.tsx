@@ -7,6 +7,7 @@ import {
   CreativeProfilesAdminPanel,
 } from "@/components/creatives/CreativeProfilesAdminPanel";
 import { CreativeApplicationsAdminScreen } from "@/components/creatives/CreativeApplicationsAdminScreen";
+import { CreativeAvailabilityManager } from "@/components/creatives/CreativeAvailabilityManager";
 import type { CreativeProfile } from "@/types/creative";
 
 const creativeId = "11111111-1111-4111-8111-111111111111";
@@ -102,6 +103,92 @@ afterEach(async () => {
 });
 
 describe("Creative profiles Admin UI", () => {
+  it("adds availability from a creative profile and shows it in the consolidated calendar", async () => {
+    let saved = false;
+    const availabilityRule = {
+      id: "33333333-3333-4333-8333-333333333333",
+      creativeProfileId: creativeId,
+      creativeDisplayName: "Camille Martin",
+      availabilityDate: "2026-12-10",
+      startTime: "09:00",
+      endTime: "18:00",
+      allDay: false,
+      recurrence: "none",
+      recurrenceUntil: null,
+      exceptionDates: [],
+      regions: ["Vaud"],
+      missionTypes: ["match_competition", "media_day"],
+      internalComment: null,
+      planningTimezone: "Europe/Zurich",
+      createdAt: "2026-11-17T10:00:00.000Z",
+      updatedAt: "2026-11-17T10:00:00.000Z",
+    };
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/admin/creatives") {
+        return response({ profiles: [profile()] });
+      }
+      if (url.startsWith("/api/admin/creative-availability") && init?.method === "POST") {
+        saved = true;
+        return response({ id: availabilityRule.id }, 201);
+      }
+      if (url.startsWith("/api/admin/creative-availability")) {
+        return response({
+          rules: saved ? [availabilityRule] : [],
+          occurrences: saved ? [{
+            ruleId: availabilityRule.id,
+            creativeProfileId: creativeId,
+            creativeDisplayName: "Camille Martin",
+            date: "2026-12-10",
+            startTime: "09:00",
+            endTime: "18:00",
+            allDay: false,
+            regions: ["Vaud"],
+            missionTypes: ["match_competition", "media_day"],
+            internalComment: null,
+          }] : [],
+          conflicts: [],
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    await mountPanel();
+    await click(buttonByText("Gérer les disponibilités")!);
+    await setControl("Date", "2026-12-10");
+    await setControl("Régions", "Vaud");
+    const availabilityForm = container.querySelector(".creative-availability-form")!;
+    await act(async () => availabilityForm.dispatchEvent(new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+    })));
+    await flush();
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(postCall?.[0]).toBe("/api/admin/creative-availability");
+    expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+      creativeProfileId: creativeId,
+      availability: {
+        availabilityDate: "2026-12-10",
+        regions: ["Vaud"],
+        recurrence: "none",
+      },
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root.render(<CreativeAvailabilityManager admin />));
+    await flush();
+
+    expect(container.textContent).toContain("Pilotage consolidé");
+    expect(container.textContent).toContain("Camille Martin");
+    expect(container.textContent).toContain("10.12.2026");
+    expect(container.textContent).toContain("09:00–18:00");
+  });
+
   it("exposes the Fiches creatives tab from the CRM screen", async () => {
     fetchMock
       .mockResolvedValueOnce(response({ applications: [] }))
